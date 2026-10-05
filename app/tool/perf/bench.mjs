@@ -113,6 +113,35 @@ function medianMetrics(runs) {
   return out;
 }
 
+// The harness's host app has to be built from the design library the ref's
+// own harness used. Copying today's material_ui harness over a pre-7.0 ref
+// mounts the legacy editor under a material_ui MaterialApp - a host that ref
+// never shipped with: the editor finds no legacy Theme, falls back to a
+// derived one, and its toolbar buttons never run their icon-colour
+// AnimatedTheme transitions. That hybrid read ~45% cheaper on toolbar-arm's
+// buildP50 than the real all-legacy stack (see
+// doc/dev-log/2026-10-03-material-ui-6-app.md). So when the ref's harness
+// imported package:flutter/material.dart, put that import back; the
+// material_ui dependency the copied pubspec keeps is then unused and never
+// reaches the bundle.
+const HARNESS_LIB = 'app/tool/perf_harness/lib/harness.dart';
+const LEGACY_MATERIAL = "import 'package:flutter/material.dart';";
+const MATERIAL_UI = "import 'package:material_ui/material_ui.dart';";
+function matchHarnessDesignLibrary(sha, wt) {
+  let original;
+  try {
+    original = git(['show', `${sha}:${HARNESS_LIB}`]);
+  } catch {
+    return; // the ref predates the Dart harness; nothing to match
+  }
+  if (!original.includes(LEGACY_MATERIAL)) return;
+  const file = join(wt, HARNESS_LIB);
+  const copied = readFileSync(file, 'utf8');
+  if (!copied.includes(MATERIAL_UI)) return;
+  writeFileSync(file, copied.replace(MATERIAL_UI, LEGACY_MATERIAL));
+  console.log(`▶ ${sha} predates material_ui: building its harness host on package:flutter/material.dart`);
+}
+
 function main() {
   if (!existsSync(PDF)) { console.error(`✗ PDF not found: ${PDF}`); process.exit(2); }
 
@@ -153,6 +182,7 @@ function main() {
     recursive: true,
     filter: (src) => !/[/\\](build|\.dart_tool)([/\\]|$)/.test(src),
   });
+  matchHarnessDesignLibrary(sha, wt);
   build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
 

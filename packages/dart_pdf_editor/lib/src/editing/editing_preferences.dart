@@ -2,9 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-// Only for the deprecated [PdfEditingPreferences.themeMode], removed in 6.0.
-// tool/check_design_imports.dart allows exactly this show list here.
-import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
@@ -1218,24 +1215,6 @@ class PdfEditingPreferences extends ChangeNotifier
     _write((s) => s.setString('${_prefix}themeMode', value.name));
     notifyListeners();
   }
-
-  /// [themePreference] as Material's `ThemeMode`.
-  @Deprecated('Use themePreference, the design-system-neutral '
-      'PdfThemePreference, and map it to ThemeMode in the host. '
-      'Removed in 7.0.0.')
-  ThemeMode get themeMode => switch (_themePreference) {
-        PdfThemePreference.system => ThemeMode.system,
-        PdfThemePreference.light => ThemeMode.light,
-        PdfThemePreference.dark => ThemeMode.dark,
-      };
-
-  @Deprecated('Use themePreference, the design-system-neutral '
-      'PdfThemePreference. Removed in 7.0.0.')
-  set themeMode(ThemeMode value) => themePreference = switch (value) {
-        ThemeMode.system => PdfThemePreference.system,
-        ThemeMode.light => PdfThemePreference.light,
-        ThemeMode.dark => PdfThemePreference.dark,
-      };
 
   /// The UI language the user picked in Settings, or null (the default) to
   /// follow the platform locale. A host feeds this to its `MaterialApp`

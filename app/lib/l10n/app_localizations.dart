@@ -1332,7 +1332,7 @@ abstract class AppLocalizations {
   /// Explanatory body of the browser-local OCR confirmation dialog.
   ///
   /// In en, this message translates to:
-  /// **'Web OCR downloads a Florence-2 vision-language model and runs it locally with WebGPU/WASM through Transformers.js. The PDF pages stay in this browser; only model files are fetched on first use.'**
+  /// **'Web OCR downloads a small text-recognition model (PP-OCRv5, about 21 MB) and runs it locally with WebAssembly. The PDF pages stay in this browser; only the model files are fetched, on first use.'**
   String get ocrWebPromptBody;
 
   /// Title of the dialog confirming browser-local AI OCR.
@@ -1707,11 +1707,23 @@ abstract class AppLocalizations {
   /// **'Downloading model {percent}%'**
   String ocrChipDownloadingModelPercent(int percent);
 
-  /// OCR progress chip while recognizing text, showing page of total.
+  /// OCR progress chip while recognizing a multi-page document: the page in progress and the total.
   ///
   /// In en, this message translates to:
-  /// **'OCR {page}/{pageCount}'**
+  /// **'OCR page {page} of {pageCount}'**
   String ocrChipRecognising(int page, int pageCount);
+
+  /// OCR progress chip while recognizing a single-page document (no page count to show; the progress bar carries completion).
+  ///
+  /// In en, this message translates to:
+  /// **'Reading text…'**
+  String get ocrChipRecognisingText;
+
+  /// OCR progress chip while the downloaded recognition model loads and warms up.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading OCR model…'**
+  String get ocrChipPreparing;
 
   /// OCR progress chip while assembling the recognized PDF after the last page.
   ///

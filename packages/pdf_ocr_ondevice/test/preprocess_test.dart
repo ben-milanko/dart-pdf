@@ -58,13 +58,23 @@ void main() {
 
   test('recognitionInput resizes to the target height and reports width', () {
     final img = _solid(60, 20, 128, 128, 128); // aspect 3:1
-    final out = recognitionInput(img, targetHeight: 48, maxWidth: 320);
-    // width scaled by 48/20 -> 144
+    final out = recognitionInput(img, targetHeight: 48);
+    // width scaled by 48/20 -> 144, padded to the 320 minimum.
     expect(out.width, 144);
+    expect(out.paddedWidth, 320);
     expect(out.tensor.length, 3 * 48 * 320);
     // Normalized grey 128/255 ~ 0.502 -> (0.502 - 0.5)/0.5 ~ 0.004
     expect(out.tensor[0], closeTo(0.004, 0.01));
     // Padding past the filled width is zero.
     expect(out.tensor[48 * 320 - 1], 0.0);
+  });
+
+  test('recognitionInput keeps a long line\'s aspect instead of squashing it',
+      () {
+    final img = _solid(600, 20, 0, 0, 0); // 30:1, wider than the 320 minimum
+    final out = recognitionInput(img, targetHeight: 48);
+    expect(out.width, 1440);
+    expect(out.paddedWidth, 1440);
+    expect(out.tensor.length, 3 * 48 * 1440);
   });
 }

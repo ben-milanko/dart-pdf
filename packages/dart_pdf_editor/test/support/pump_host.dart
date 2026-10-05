@@ -1,17 +1,29 @@
 // Mounts editor widgets under the kinds of app a host may use, so tests can
 // prove the stock chrome works under each (see test/any_host_test.dart).
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/cupertino.dart';
+// The legacy design libraries, for the hosts still built on them (the
+// editor bridges their theme and messenger; see legacy_host_bridge.dart).
+// migrate_design_widgets is an error repo-wide; these hosts are legacy on
+// purpose.
+// ignore: migrate_design_widgets
+import 'package:flutter/cupertino.dart' as legacy_cupertino;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+// ignore: migrate_design_widgets
+import 'package:flutter/material.dart' as legacy;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The app a test host is built from.
 enum PdfTestHost {
-  /// `MaterialApp` + `Scaffold` (the control: everything the chrome needs is
-  /// there already).
+  /// material_ui's `MaterialApp` + `Scaffold` (the control: everything the
+  /// chrome needs is there already).
   material,
+
+  /// The legacy `package:flutter/material.dart` `MaterialApp` + `Scaffold`:
+  /// a theme, localizations and messenger of the legacy types only.
+  legacyMaterial,
 
   /// `CupertinoApp` + `CupertinoPageScaffold`: Cupertino localizations and
   /// theme only.
@@ -19,6 +31,9 @@ enum PdfTestHost {
 
   /// A bare `WidgetsApp`: no Material or Cupertino anything.
   widgets,
+
+  /// The legacy `package:flutter/cupertino.dart` `CupertinoApp`.
+  legacyCupertino,
 }
 
 /// Pumps [child] as the home of a [host] app and returns once it is built.
@@ -53,8 +68,15 @@ Widget pdfHostApp(Widget child, {required PdfTestHost host}) => switch (host) {
           theme: ThemeData(platform: defaultTargetPlatform),
           home: Scaffold(body: child),
         ),
+      PdfTestHost.legacyMaterial => legacy.MaterialApp(
+          theme: legacy.ThemeData(platform: defaultTargetPlatform),
+          home: legacy.Scaffold(body: child),
+        ),
       PdfTestHost.cupertino => CupertinoApp(
           home: CupertinoPageScaffold(child: child),
+        ),
+      PdfTestHost.legacyCupertino => legacy_cupertino.CupertinoApp(
+          home: legacy_cupertino.CupertinoPageScaffold(child: child),
         ),
       PdfTestHost.widgets => WidgetsApp(
           color: const Color(0xFF1565C0),

@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'
     as fs;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';

@@ -799,7 +799,7 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Веб-OCR завантажує модель «зображення-мова» Florence-2 і запускає її локально за допомогою WebGPU/WASM через Transformers.js. Сторінки PDF залишаються в цьому браузері; лише файли моделі завантажуються під час першого використання.';
+      'Веб-OCR завантажує невелику модель розпізнавання тексту (PP-OCRv5, близько 21 МБ) і запускає її локально за допомогою WebAssembly. Сторінки PDF залишаються в цьому браузері; під час першого використання завантажуються лише файли моделі.';
 
   @override
   String get ocrWebPromptTitle =>
@@ -1059,8 +1059,14 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR: сторінка $page з $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Розпізнавання тексту…';
+
+  @override
+  String get ocrChipPreparing => 'Завантаження моделі OCR…';
 
   @override
   String get ocrChipFinishing => 'Завершення OCR…';

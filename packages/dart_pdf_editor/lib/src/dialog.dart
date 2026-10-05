@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart' show SemanticsProperties;
 import 'package:flutter/services.dart';
 
@@ -30,33 +30,19 @@ import 'l10n/pdf_l10n.dart';
 /// mutually-exclusive-group semantics) - is a form field, so Enter still
 /// submits from there.
 class PdfDialogSubmit extends StatefulWidget {
-  /// Marks [child], a Material button, as the submit action; Enter calls its
-  /// current `onPressed`.
-  @Deprecated('Use PdfDialogSubmit.action(onSubmit: ..., child: ...), which '
-      'takes any widget. The ButtonStyleButton form is removed in 7.0.0.')
-  const PdfDialogSubmit({super.key, required ButtonStyleButton this.child})
-      : onSubmit = null,
-        _submitsChild = true;
-
   /// Marks [child] as the submit action; Enter calls [onSubmit] (nothing,
   /// while it is null).
   const PdfDialogSubmit.action({
     super.key,
     required this.onSubmit,
     required this.child,
-  }) : _submitsChild = false;
+  });
 
   /// The submit control as it is drawn.
   final Widget child;
 
-  /// What Enter runs; null disables Enter submission. (For the deprecated
-  /// default constructor, Enter runs the button's own `onPressed`.)
+  /// What Enter runs; null disables Enter submission.
   final VoidCallback? onSubmit;
-
-  final bool _submitsChild;
-
-  VoidCallback? get _effectiveOnSubmit =>
-      _submitsChild ? (child as ButtonStyleButton).onPressed : onSubmit;
 
   @override
   State<PdfDialogSubmit> createState() => _PdfDialogSubmitState();
@@ -177,7 +163,7 @@ class _PdfDialogKeyboardScopeState extends State<_PdfDialogKeyboardScope> {
       // Let the input method confirm its candidate before submitting the form.
       return KeyEventResult.skipRemainingHandlers;
     }
-    if (event is KeyDownEvent) submit?.widget._effectiveOnSubmit?.call();
+    if (event is KeyDownEvent) submit?.widget.onSubmit?.call();
     // Consume repeats as well, so holding Enter cannot submit a second time.
     return KeyEventResult.handled;
   }

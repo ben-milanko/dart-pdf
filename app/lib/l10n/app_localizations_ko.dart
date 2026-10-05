@@ -773,7 +773,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      '웹 OCR은 Florence-2 비전-언어 모델을 다운로드하여 Transformers.js를 통해 WebGPU/WASM으로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 유지되며, 처음 사용할 때 모델 파일만 가져옵니다.';
+      '웹 OCR은 작은 텍스트 인식 모델(PP-OCRv5, 약 21MB)을 다운로드하여 WebAssembly로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 남으며, 처음 사용할 때 모델 파일만 가져옵니다.';
 
   @override
   String get ocrWebPromptTitle => '이 브라우저에서 AI OCR을 실행하시겠습니까?';
@@ -1019,8 +1019,14 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR $pageCount페이지 중 $page페이지';
   }
+
+  @override
+  String get ocrChipRecognisingText => '텍스트 읽는 중…';
+
+  @override
+  String get ocrChipPreparing => 'OCR 모델 로드 중…';
 
   @override
   String get ocrChipFinishing => 'OCR 마무리 중…';

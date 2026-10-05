@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -619,8 +619,7 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-menu-select-all')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsNothing);
-      expect(
-          find.byKey(const ValueKey('pdf-text-menu-highlight')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-text-menu-markup')), findsNothing);
       expect(
           tester.getSemantics(find.byKey(const ValueKey('pdf-text-menu-copy'))),
           isSemantics(isEnabled: true));
@@ -752,8 +751,8 @@ void main() {
 
       await rightClick(tester, viewPoint(100, 720));
       expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-markup')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('pdf-text-menu-edit')));
       await tester.pumpAndSettle();
 
@@ -765,6 +764,76 @@ void main() {
           .join();
       expect(text, 'Document 1');
       expect(state.viewer.hasSelection, isFalse);
+    });
+
+    testWidgets('the editor text menu follows the touch chip layout',
+        (tester) async {
+      await pumpEditor(tester);
+
+      await rightClick(tester, viewPoint(100, 720));
+      double top(String id) =>
+          tester.getTopLeft(find.byKey(ValueKey('pdf-text-menu-$id'))).dy;
+      final order = ['edit', 'copy', 'markup', 'link', 'select-all'];
+      for (var i = 1; i < order.length; i++) {
+        expect(top(order[i]), greaterThan(top(order[i - 1])),
+            reason: '${order[i]} follows ${order[i - 1]}');
+      }
+      // the markup kinds are grouped one level down, like the chip
+      for (final id in ['highlight', 'underline', 'strikeout', 'squiggly']) {
+        expect(find.byKey(ValueKey('pdf-text-menu-$id')), findsNothing);
+      }
+      expect(menuDivider, findsNothing);
+    });
+
+    testWidgets('the Markup row opens the markup kinds and applies one',
+        (tester) async {
+      final state = await pumpEditor(tester);
+
+      await rightClick(tester, viewPoint(100, 720));
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-markup')));
+      await tester.pumpAndSettle();
+      for (final id in ['highlight', 'underline', 'strikeout', 'squiggly']) {
+        expect(find.byKey(ValueKey('pdf-text-menu-$id')), findsOneWidget);
+      }
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-underline')));
+      await tester.pumpAndSettle();
+
+      final annotations = state.editing.document.page(0).annotations;
+      expect(annotations.single.subtype, 'Underline');
+      expect(state.viewer.hasSelection, isFalse);
+    });
+
+    testWidgets(
+        'a right-click on selected text opens the text menu even with '
+        'something to paste (#1004)', (tester) async {
+      final state = await pumpEditor(tester);
+      state.editing
+        ..addRectangle(0, const PdfRect(300, 300, 400, 400))
+        ..selectAnnotation(0, 0);
+      expect(state.editing.copySelectedAnnotations(), 1);
+      state.editing.clearAnnotationSelection();
+      await tester.pumpAndSettle();
+      expect(state.editing.hasAnnotationClipboard, isTrue);
+
+      state.viewer.selectAllTextOn(0);
+      await tester.pumpAndSettle();
+      final selected = state.viewer.selectedText;
+      expect(selected, isNotEmpty);
+
+      await rightClick(tester, viewPoint(100, 720));
+      expect(state.viewer.selectedText, selected,
+          reason: 'the selection the click landed in is kept');
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-markup')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+
+      // empty page area still offers Paste
+      await rightClick(tester, viewPoint(450, 400));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
     });
 
     testWidgets('host text entries ride below a divider and get the request',
@@ -871,10 +940,10 @@ void main() {
 
       await rightClick(tester, viewPoint(100, 720));
       expect(find.byKey(const ValueKey('pdf-text-menu-edit')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-text-menu-highlight')),
-          findsOneWidget);
-      // markup | copy+select-all | host
-      expect(menuDivider, findsNWidgets(2));
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-markup')), findsOneWidget);
+      // stock (the chip's actions) | host
+      expect(menuDivider, findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-link-record')));
       await tester.pumpAndSettle();

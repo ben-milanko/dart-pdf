@@ -4,7 +4,7 @@
 // without disarming the tool. Flutter's drag recognizers accept the primary
 // button only, so before this the gesture reached nothing at all.
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -19,7 +19,8 @@ void main() {
       home: Scaffold(
         body: PdfViewer(
           initialFit: PdfViewerFit.width,
-          document: editing == null ? PdfDocument.open(buildMultiPagePdf(5)) : null,
+          document:
+              editing == null ? PdfDocument.open(buildMultiPagePdf(5)) : null,
           editing: editing,
           controller: controller,
         ),

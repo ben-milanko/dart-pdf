@@ -95,6 +95,16 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="7.0.0" date="2026-10-05">
+      <description>
+        <ul>
+          <li>More accurate, faster OCR for small print and drawings, with clearer progress.</li>
+          <li>Follow links and long-press to select text in Select mode.</li>
+          <li>Search matches stay visible when zoomed in.</li>
+          <li>Ink previews keep your chosen opacity; vector exports include annotations.</li>
+        </ul>
+      </description>
+    </release>
     <release version="6.0.0" date="2026-10-03">
       <description>
         <ul>

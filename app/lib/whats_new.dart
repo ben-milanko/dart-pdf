@@ -10,7 +10,7 @@
 import 'dart:convert' show LineSplitter;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show AssetBundle, rootBundle;
 
 import 'app_info.dart';

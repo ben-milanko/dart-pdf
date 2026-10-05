@@ -1,1 +1,1 @@
-pdf,editor,anotar,resaltar,firmar,firma,formulario,rellenar,censurar,escanear,ocr,comparar,páginas
+ocr,markup,resaltar,notas,sellos,formularios,unir,lector,contraseña,comparar,escaneo,páginas,tinta

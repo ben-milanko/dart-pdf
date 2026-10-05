@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -21,8 +21,8 @@ void main() {
   }
 
   Future<(PdfEditingController, PdfViewerController)> pumpEditor(
-      WidgetTester tester, {
-      bool withToolbar = false}) async {
+      WidgetTester tester,
+      {bool withToolbar = false}) async {
     SharedPreferences.setMockInitialValues({});
     final editing = PdfEditingController(buildMultiPagePdf(2));
     final viewer = PdfViewerController();
@@ -131,7 +131,8 @@ void main() {
           ),
           // stands in for a tune-popup value field - a real text input the
           // user taps to type an exact number
-          Positioned(width: 1, height: 1, child: TextField(focusNode: valueField)),
+          Positioned(
+              width: 1, height: 1, child: TextField(focusNode: valueField)),
         ]),
       ),
     ));

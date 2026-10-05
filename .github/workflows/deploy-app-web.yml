@@ -58,6 +58,11 @@ jobs:
       - name: Cache-bust web build
         run: bash tool/web_cache_bust.sh app/build/web
 
+      # The browser OCR loads its PP-OCR models from the app's own origin
+      # (GitHub release downloads send no CORS headers); SHA-256-checked.
+      - name: Add the OCR models
+        run: bash tool/fetch_ocr_models.sh app/build/web
+
       # app/firebase.json pins "site": "dartpdf-app"; channelId live -> the
       # production channel behind app.dart-pdf.com.
       - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a

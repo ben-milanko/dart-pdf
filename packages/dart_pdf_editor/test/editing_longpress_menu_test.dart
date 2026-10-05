@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -192,11 +192,9 @@ void main() {
   // `_maybeAnnotationMenu` (`pdf_viewer.dart`) and `_onSecondaryTapUp` so
   // neither annotation nor plain-text menus reach the user.
   group('contextMenuEnabled: false', () {
-    Future<PdfEditingController> pumpViewerNoContextMenu(
-        WidgetTester tester,
+    Future<PdfEditingController> pumpViewerNoContextMenu(WidgetTester tester,
         {Uint8List? bytes}) async {
-      final editing =
-          PdfEditingController(bytes ?? buildMultiPagePdf(1));
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -217,8 +215,7 @@ void main() {
 
     testWidgets(
         'long-press on an annotation in select mode suppresses the menu '
-        'but still selects the annotation',
-        (tester) async {
+        'but still selects the annotation', (tester) async {
       final editing = await pumpViewerNoContextMenu(tester);
       editing
         ..addRectangle(0, const PdfRect(300, 400, 400, 450))
@@ -229,8 +226,7 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0)],
           reason: 'annotation selection still happens; only the popup is '
               'suppressed');
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -243,8 +239,7 @@ void main() {
       expect(editing.tool, isNull);
 
       await longPressAt(tester, viewPoint(350, 425));
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -277,8 +272,7 @@ void main() {
               'suppressed');
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
       expect(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')),
-          findsNothing);
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
   });
@@ -320,8 +314,7 @@ void main() {
               'menu is rerouted');
       expect(hostCalls, hasLength(1),
           reason: 'host takeover fires exactly once per long-press');
-      expect(hostCalls.first.pageIndex, 0,
-          reason: 'pageIndex is forwarded');
+      expect(hostCalls.first.pageIndex, 0, reason: 'pageIndex is forwarded');
       // pagePoint should be in page coordinates near (350, 425).
       final (x, y) = hostCalls.first.pagePoint;
       expect(x, closeTo(350, 0.001));
@@ -331,8 +324,7 @@ void main() {
       expect(hostCalls.first.annotation?.subtype, 'Square');
       expect(hostCalls.first.slot, 0);
       // the stock annotation menu must not pop up either
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -372,8 +364,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     });
 
-    testWidgets(
-        'with contextMenuEnabled: true, host callback is NOT invoked',
+    testWidgets('with contextMenuEnabled: true, host callback is NOT invoked',
         (tester) async {
       // Verify the gate is the suppression itself, not the callback's
       // presence: the default menu is responsible for the gesture.
@@ -406,8 +397,8 @@ void main() {
       expect(hostCalls, 0,
           reason: 'host callback only fires when the stock menu is suppressed');
       // and the stock menu does pop
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-delete')), findsOneWidget);
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
       await tester.pump(const Duration(milliseconds: 400));
@@ -443,8 +434,7 @@ void main() {
       await tester.pump();
       editing.addRectangle(0, const PdfRect(300, 400, 400, 450));
       await tester.pump();
-      expect(editing.tool, isNull,
-          reason: 'reader mode has no active tool');
+      expect(editing.tool, isNull, reason: 'reader mode has no active tool');
 
       await longPressAt(tester, viewPoint(350, 425));
       expect(editing.selectedAnnotationSlots, [(0, 0)],
@@ -453,16 +443,14 @@ void main() {
       expect(hostCalls, hasLength(1),
           reason: 'reader-mode annotation long-press now fires the host '
               'callback exactly once');
-      expect(hostCalls.first.pageIndex, 0,
-          reason: 'pageIndex is forwarded');
+      expect(hostCalls.first.pageIndex, 0, reason: 'pageIndex is forwarded');
       final (x, y) = hostCalls.first.pagePoint;
       expect(x, closeTo(350, 0.001),
           reason: 'pagePoint is in page coordinates');
       expect(y, closeTo(425, 0.001));
       expect(hostCalls.first.target, PdfContextMenuTarget.annotation);
       expect(hostCalls.first.annotation?.subtype, 'Square');
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing,
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing,
           reason: 'the stock annotation menu stays suppressed');
       await tester.pump(const Duration(milliseconds: 400));
     });
@@ -498,8 +486,7 @@ void main() {
       // The annotation is still selected by the long-press (the host
       // refusal only suppresses the popup), and no popup appears.
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       // No crash, no exceptions, no leaked routes.
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(milliseconds: 400));
@@ -510,8 +497,7 @@ void main() {
     // text path wins; _onLongPressStart returns before the annotation
     // branch can run). Constructed by adding an annotation over a
     // known-text region and long-pressing there.
-    testWidgets(
-        'text+annotation overlap: host callback fires exactly once',
+    testWidgets('text+annotation overlap: host callback fires exactly once',
         (tester) async {
       var hostCalls = 0;
       final controller = PdfViewerController();

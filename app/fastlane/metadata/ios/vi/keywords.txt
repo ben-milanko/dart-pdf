@@ -1,1 +1,1 @@
-pdf,chỉnh sửa,chú thích,tô sáng,ký,chữ ký,biểu mẫu,điền,quét,ocr,so sánh,ghép,đánh dấu
+ocr,đánh dấu,tô sáng,ghi chú,dấu,biểu mẫu,ghép,đọc,xem,mật khẩu,so sánh,quét,trang,mực,xuất

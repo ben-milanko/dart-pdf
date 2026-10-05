@@ -1,3 +1,14 @@
+## 0.4.0
+
+- **BREAKING:** built on `material_ui` like `dart_pdf_editor` 7.0.0: the print
+  preview and progress dialogs use material_ui widgets and run under a
+  material_ui, legacy Material, Cupertino or plain widgets host. Requires
+  Flutter 3.47.0. See `doc/MIGRATING-7.0.0.md`. The generated
+  `DartPdfPrintingLocalizations.localizationsDelegates` still lists the
+  legacy `flutter_localizations` delegates; a material_ui app registers
+  `DartPdfPrintingLocalizations.delegate` next to
+  `PdfEditorLocalizations.delegates`.
+
 ## 0.3.0
 
 - Align dependencies with the dart-pdf 6.0.0 suite and its editor API changes.

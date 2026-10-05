@@ -33,7 +33,7 @@ class DetectionResize {
 DetectionResize detectionResize(
   int srcWidth,
   int srcHeight, {
-  int sideLimit = 960,
+  int sideLimit = 4000,
   int multiple = 32,
 }) {
   final longest = srcWidth > srcHeight ? srcWidth : srcHeight;
@@ -81,32 +81,40 @@ Float32List toNchwFloat32(
 }
 
 /// Recognition preprocessing for one cropped text line: resize to the
-/// network's fixed [targetHeight] keeping aspect (width clamped to
-/// [maxWidth]), then normalize to NCHW float32 in `[-1, 1]` (PP-OCR rec
-/// convention: `(pixel/255 - 0.5) / 0.5`).
+/// network's fixed [targetHeight] keeping aspect, then normalize to NCHW
+/// float32 in `[-1, 1]` (PP-OCR rec convention: `(pixel/255 - 0.5) / 0.5`).
 ///
-/// Returns the tensor and the width it actually filled (the rest, up to
-/// [maxWidth], is zero-padded) so a caller can batch lines of different
-/// widths.
-({Float32List tensor, int width}) recognitionInput(
+/// The tensor is `paddedWidth` wide: the line's own width, but never less
+/// than [minWidth] (zero-padded on the right, like PaddleOCR's
+/// `resize_norm_img`, which pads to `max(320/48, w/h) * 48`). The recognizer
+/// is fully convolutional along x, so a long line keeps its aspect instead of
+/// being squeezed into a fixed width - squashing it is what turns legible
+/// characters into a different string. [maxWidth] is only a safety cap on
+/// pathological crops (the width it scales a wider line down to).
+///
+/// Returns the tensor, the width the line actually filled, and the tensor's
+/// width.
+({Float32List tensor, int width, int paddedWidth}) recognitionInput(
   OcrImage crop, {
   int targetHeight = 48,
-  int maxWidth = 320,
+  int minWidth = 320,
+  int maxWidth = 3200,
 }) {
   final scaledW =
       (crop.width * targetHeight / crop.height).round().clamp(1, maxWidth);
+  final paddedW = scaledW > minWidth ? scaledW : minWidth;
   final resized = crop.resize(scaledW, targetHeight);
-  final out = Float32List(3 * targetHeight * maxWidth); // zero-padded
-  final plane = targetHeight * maxWidth;
+  final out = Float32List(3 * targetHeight * paddedW); // zero-padded
+  final plane = targetHeight * paddedW;
   final rgba = resized.rgba;
   for (var y = 0; y < targetHeight; y++) {
     for (var x = 0; x < scaledW; x++) {
       final p = (y * scaledW + x) * 4;
-      final o = y * maxWidth + x;
+      final o = y * paddedW + x;
       out[o] = (rgba[p] / 255.0 - 0.5) / 0.5;
       out[plane + o] = (rgba[p + 1] / 255.0 - 0.5) / 0.5;
       out[2 * plane + o] = (rgba[p + 2] / 255.0 - 0.5) / 0.5;
     }
   }
-  return (tensor: out, width: scaledW);
+  return (tensor: out, width: scaledW, paddedWidth: paddedW);
 }

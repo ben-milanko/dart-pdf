@@ -67,8 +67,9 @@ import 'package:dart_pdf_editor/src/editing/editing_preferences.dart';
 import '../l10n/pdf_l10n.dart';
 import 'model.dart';
 ''');
+    // material_ui counts as Material too
     write('$lib/src/editing/editing_preferences.dart', '''
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:material_ui/material_ui.dart' show ThemeMode;
 ''');
     write('$lib/src/l10n/pdf_l10n.dart', '''
 import '../../l10n/generated.dart';
@@ -97,8 +98,14 @@ void f() {
 }
 ''');
     write('$lib/src/design/menu.dart', '''
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 void g() => showMenu(context: c);
+''');
+    // the bridge may use the legacy libraries
+    write('$lib/src/legacy/bridge.dart', '''
+import 'package:flutter/material.dart' as legacy;
+import 'package:flutter_localizations/flutter_localizations.dart';
 ''');
     // the printing package's lib/ is counted too (no design/ exemption)
     write('packages/dart_pdf_printing/lib/src/preview.dart', '''
@@ -119,22 +126,45 @@ import 'package:flutter_localizations/flutter_localizations.dart';
           '$lib/src/design/menu.dart',
           '$lib/src/editing/editing_preferences.dart',
           '$lib/src/editing/leaky.dart',
+          '$lib/src/legacy/bridge.dart',
         },
-        'material importers');
-    _expect(result.closureProblems.length, 2, 'closure problem count');
+        'design-library importers (legacy and material_ui)');
+    final problems = result.problems;
+    bool has(String text) => problems.any((p) => p.contains(text));
+    _expect(problems.length, 6, 'problem count: $problems');
     _expect(
-        result.closureProblems[0].contains(
-            'editing_controller.dart -> $lib/src/editing/model.dart -> '
+        has('editing_controller.dart -> $lib/src/editing/model.dart -> '
             '$lib/src/editing/leaky.dart imports package:flutter/cupertino.dart'),
         true,
-        'closure reports the chain to the Material importer: '
-        '${result.closureProblems[0]}');
+        'closure reports the chain to the Material importer: $problems');
     _expect(
-        result.closureProblems[1].contains('pdf_page_view.dart imports '
+        has('editing_controller.dart -> '
+            '$lib/src/editing/editing_preferences.dart imports '
+            'package:material_ui/material_ui.dart show ThemeMode'),
+        true,
+        'a material_ui import breaks a headless closure: $problems');
+    _expect(
+        has('pdf_page_view.dart imports '
             'package:flutter_localizations/flutter_localizations.dart (only'),
         true,
-        'flutter_localizations is allowed only from lib/l10n/: '
-        '${result.closureProblems[1]}');
+        'flutter_localizations is allowed only from lib/l10n/: $problems');
+    _expect(
+        has('$lib/src/editing/leaky.dart imports '
+            'package:flutter/cupertino.dart: only'),
+        true,
+        'legacy imports outside lib/src/legacy/ fail: $problems');
+    _expect(
+        has('$lib/src/design/menu.dart imports '
+            'package:flutter_localizations/flutter_localizations.dart: its'),
+        true,
+        'flutter_localizations outside lib/l10n/ fails: $problems');
+    _expect(
+        has('$lib/src/pdf_page_view.dart imports '
+            'package:flutter_localizations/flutter_localizations.dart: its'),
+        true,
+        'flutter_localizations outside lib/l10n/ fails: $problems');
+    _expect(has('legacy/bridge.dart'), false,
+        'the bridge may import the legacy libraries: $problems');
     _expect(
         result.baseline.counters,
         {
@@ -148,18 +178,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
           'TextFieldWithoutMenu': {'$lib/src/editing/leaky.dart': 2},
         },
         'counters skip comments and lib/src/design/, and scan printing');
-
-    // Widening the tolerated deprecated edge is a violation.
-    write('$lib/src/editing/editing_preferences.dart', '''
-import 'package:flutter/material.dart' show ThemeMode, Theme;
-''');
-    final widened = scan(root.path, resolver).closureProblems;
-    _expect(
-        widened.any((p) => p.contains(
-            'editing_preferences.dart imports package:flutter/material.dart '
-            'show ThemeMode, Theme')),
-        true,
-        'a wider show list on the deprecated edge fails: $widened');
   } finally {
     root.deleteSync(recursive: true);
   }

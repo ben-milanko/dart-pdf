@@ -169,6 +169,12 @@ extension PdfOcrApply on PdfEditor {
   /// small type). [minConfidence] drops low-confidence spans; [visible]
   /// burns the text in instead of hiding it; [font] picks the layer font.
   /// See [PdfOcrEditing.injectTextLayer] for how spans are placed.
+  ///
+  /// The engine reads the raster, so it also recognizes text the page
+  /// already carries (born-digital text, or an earlier OCR layer). With
+  /// [skipExistingText] (the default), spans lying over existing extractable
+  /// text are dropped ([ocrSpansNotIn]) so that text is never duplicated;
+  /// only the words the page could not yet select or search are written.
   Future<int> applyOcr(
     int pageIndex,
     PdfOcrEngine engine, {
@@ -177,6 +183,7 @@ extension PdfOcrApply on PdfEditor {
     double minConfidence = 0,
     bool visible = false,
     PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
+    bool skipExistingText = true,
   }) async {
     final page = document.page(pageIndex);
     final pageImage = await rasterizer.rasterize(
@@ -185,7 +192,13 @@ extension PdfOcrApply on PdfEditor {
       pixelRatio: pixelRatio,
     );
     try {
-      final spans = await engine.recognize(pageImage);
+      var spans = await engine.recognize(pageImage);
+      if (skipExistingText && spans.isNotEmpty) {
+        spans = ocrSpansNotIn(
+          PdfTextExtractor.extract(document, pageIndex),
+          spans,
+        );
+      }
       return injectTextLayer(
         pageIndex,
         spans,

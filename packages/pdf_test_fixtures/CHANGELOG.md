@@ -1,5 +1,12 @@
 # Changelog
 
+## 7.0.0
+
+- `buildOcrDrawingSheet`: a seeded A3 signalling-drawing sheet (/Rotate 90,
+  ~7pt labels touching track dots) with its ground-truth labels, and
+  `scoreOcrAccuracy` (per-label exact match and CER) for OCR accuracy
+  benchmarks.
+
 ## 6.0.0
 
 - Align dependency constraints with the dart-pdf 6.0.0 package suite.

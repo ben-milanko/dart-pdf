@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -4733,7 +4733,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
         // callback is an optional export of the raster image on top
-        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect);
+        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
+            annotations: widget.showAnnotations);
         final handler = widget.onSnapshot;
         if (handler == null) return;
         // page raster space (post-/Rotate, y down) = view space / scale -
@@ -4950,6 +4951,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         return;
       }
       if (!_additiveModifier) _host.clearTextSelection?.call();
+      // a plain click on a link follows it, as in the reader - an
+      // annotation that can be selected still wins the click
+      if (!_additiveModifier &&
+          _controller.selectableAnnotationAt(widget.pageIndex, x, y) == null &&
+          (_host.activateLinkAt?.call(details.globalPosition) ?? false)) {
+        _controller.clearAnnotationSelection();
+        return;
+      }
       // shift/⌘-click toggles membership in the selection
       _controller.selectAnnotationAt(widget.pageIndex, x, y,
           toggle: _additiveModifier);
@@ -6123,6 +6132,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     chromeScale: _chromeScale,
                     tool: _tool,
                     color: _controller.color,
+                    inkOpacity: _controller.preferences.opacity
+                        .clamp(0.0, 1.0)
+                        .toDouble(),
                     strokeWidth:
                         _controller.preferences.strokeWidth * _geometry.scale,
                     lineScale: _controller.preferences.lineScale,
@@ -6797,7 +6809,10 @@ class _ActiveStrokePainter extends CustomPainter {
       geometry,
       parts.strokes,
       parts.pressures,
-      _state._controller.color,
+      // at the opacity the stroke commits with, so it doesn't paint
+      // opaque and then fade when the annotation lands
+      _state._controller.color.withValues(
+          alpha: _state._controller.preferences.opacity.clamp(0.0, 1.0)),
       _state._controller.preferences.strokeWidth * geometry.scale,
     );
     // the pen dot rides the sibling _HoverCursorPainter (it must show with
@@ -7617,6 +7632,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.geometry,
     required this.strokes,
     required this.pressures,
+    this.inkOpacity = 1,
     required this.dragRect,
     required this.dragLine,
     this.calloutLeader,
@@ -7669,6 +7685,10 @@ class _EditingPreviewPainter extends CustomPainter {
 
   final PdfEditTool? tool;
   final Color color;
+
+  /// Alpha the buffered ink [strokes] preview at - the opacity they will
+  /// commit with, so a highlighter stroke is translucent from the start.
+  final double inkOpacity;
   final double strokeWidth;
 
   /// Pattern-size multiplier for live borders, independent of pen width.
@@ -8291,7 +8311,8 @@ class _EditingPreviewPainter extends CustomPainter {
       }
     }
 
-    _paintInk(canvas, strokes, pressures, color, strokeWidth);
+    _paintInk(canvas, strokes, pressures, color.withValues(alpha: inkOpacity),
+        strokeWidth);
     for (final ink in extraInk) {
       _paintInk(canvas, ink.strokes, ink.pressures, ink.color, ink.strokeWidth);
     }
@@ -8520,6 +8541,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.chromeScale != chromeScale ||
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
+      oldDelegate.inkOpacity != inkOpacity ||
       oldDelegate.strokeWidth != strokeWidth ||
       oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||

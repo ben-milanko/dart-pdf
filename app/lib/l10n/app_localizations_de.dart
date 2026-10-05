@@ -798,7 +798,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Web-OCR lädt ein Florence-2-Vision-Language-Modell herunter und führt es lokal mit WebGPU/WASM über Transformers.js aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.';
+      'Web-OCR lädt ein kleines Texterkennungsmodell (PP-OCRv5, etwa 21 MB) herunter und führt es lokal mit WebAssembly aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.';
 
   @override
   String get ocrWebPromptTitle => 'KI-OCR in diesem Browser ausführen?';
@@ -1056,8 +1056,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR Seite $page von $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Text wird gelesen…';
+
+  @override
+  String get ocrChipPreparing => 'OCR-Modell wird geladen…';
 
   @override
   String get ocrChipFinishing => 'OCR wird abgeschlossen…';

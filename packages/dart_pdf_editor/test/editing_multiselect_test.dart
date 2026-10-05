@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -166,8 +166,9 @@ void main() {
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester,
-        {int pages = 2}) async {
-      final editing = PdfEditingController(buildMultiPagePdf(pages));
+        {int pages = 2,
+        Uint8List? bytes}) async {
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -356,10 +357,38 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
     });
 
+    Future<void> pressSelectAll(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+    }
+
     testWidgets(
-        'cmd+A selects every annotation on the current page '
-        'while the select tool is armed', (tester) async {
-      final (editing, _) = await pumpEditor(tester);
+        'cmd+A widens an annotation selection to every annotation '
+        'on the current page', (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // focus the viewer by selecting one of the shapes
+      await tester.tapAt(view(140, 675), kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+
+      await pressSelectAll(tester);
+
+      expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      expect(viewer.selectedText, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'cmd+A in Select mode with nothing selected selects the page text',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
       await addShapes(tester, editing);
       editing.tool = PdfEditTool.select;
       await tester.pump();
@@ -368,13 +397,43 @@ void main() {
       await tester.tapAt(view(450, 400));
       await tester.pump(const Duration(milliseconds: 400));
 
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyA);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyA);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, contains('Page 1'));
+      expect(editing.hasAnnotationSelection, isFalse);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'cmd+A in Select mode on a page without text selects '
+        'its annotations', (tester) async {
+      final (editing, viewer) =
+          await pumpEditor(tester, bytes: buildTextLinesPdf(const []));
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
       await tester.pump();
 
+      await tester.tapAt(view(450, 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, isEmpty);
       expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      await settle(tester);
+    });
+
+    testWidgets('cmd+A in Hand mode selects the page text', (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.activateHandMode();
+      await tester.pump();
+
+      await tester.tapAt(view(450, 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, contains('Page 1'));
       await settle(tester);
     });
 

@@ -23,19 +23,15 @@ truth for re-submissions.
 
 ## Apple App Store
 
-**App Name** (≤30): `DartPDF`
+**App Name** (≤30): `DartPDF: Edit PDF Documents` _(27)_
 
-**Subtitle** (≤30): `Edit, annotate & sign PDFs` _(26)_
+**Subtitle** (≤30): `Sign, Annotate, Fill & Redact` _(29)_
 
 **Promotional text** (≤170, editable without review):
 `A PDF editor that runs entirely on your device. Mark up, fill in forms, sign, redact, and rearrange pages. No account, no ads, no uploads.` _(138)_
 
 **Keywords** (≤100, comma-separated, no spaces):
-`pdf,editor,annotate,markup,highlight,sign,signature,form,fill,redact,merge,pages,scan,ocr,compare` _(97)_
-
-_(Dropped `document` and `viewer` — too generic to rank for an editor app —
-in favor of `ocr` and `compare`, which are real features people search by
-name.)_
+`ocr,markup,highlight,notes,stamps,forms,merge,reader,viewer,password,compare,scan,pages,ink,export` _(98)_
 
 **Description** (≤4000):
 
@@ -73,10 +69,10 @@ Current (1.4.1):
 
 ## Google Play
 
-**App name** (≤30): `DartPDF`
+**App name** (≤30): `DartPDF: Markup & Form Filler` _(29)_
 
 **Short description** (≤80):
-`Edit, annotate, sign, and fill in PDFs. Everything stays on your device.` _(71)_
+`Easily annotate documents, fill forms, and redact text privately offline.` _(73)_
 
 **Full description** (≤4000):
 

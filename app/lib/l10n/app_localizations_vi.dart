@@ -787,7 +787,7 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'OCR web tải xuống mô hình ngôn ngữ-thị giác Florence-2 và chạy nó cục bộ bằng WebGPU/WASM thông qua Transformers.js. Các trang PDF vẫn ở trong trình duyệt này; chỉ các tệp mô hình được tải về khi dùng lần đầu.';
+      'OCR trên web tải xuống một mô hình nhận dạng văn bản nhỏ (PP-OCRv5, khoảng 21 MB) và chạy cục bộ bằng WebAssembly. Các trang PDF vẫn ở trong trình duyệt này; chỉ các tệp mô hình được tải về, ở lần dùng đầu tiên.';
 
   @override
   String get ocrWebPromptTitle => 'Chạy AI OCR trong trình duyệt này?';
@@ -1039,8 +1039,14 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR trang $page/$pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Đang đọc văn bản…';
+
+  @override
+  String get ocrChipPreparing => 'Đang tải mô hình OCR…';
 
   @override
   String get ocrChipFinishing => 'Đang hoàn tất OCR…';

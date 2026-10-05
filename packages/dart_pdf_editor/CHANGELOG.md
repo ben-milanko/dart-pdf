@@ -1,5 +1,60 @@
 # Changelog
 
+## 7.0.0
+
+- Open documents in Select mode; links and host page widgets remain usable,
+  and long-press selects text there. Cmd/Ctrl+A selects page text in Select
+  and Hand modes.
+- Pan horizontally to a search match when zoomed in.
+- Keep freehand ink previews at the committed opacity and align desktop text
+  context-menu actions with the touch selection chip.
+- Skip OCR spans already present in page text and show clearer OCR progress.
+- **BREAKING: built on `material_ui`.** The library's widgets now come from
+  `package:material_ui` (and `package:cupertino_ui`) instead of
+  `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,
+  `ThemeData`, `MaterialLocalizations`, `ScaffoldMessenger`, `InputDecoration`
+  and friends are different types from the legacy ones. Hosts on either
+  library keep working; see `doc/MIGRATING-7.0.0.md`.
+  - A host on the legacy `MaterialApp` keeps its look: a small bridge
+    carries the host theme's colour scheme, text and icon themes, platform
+    and density into the editor, and shows notices as SnackBars on the host's
+    `ScaffoldMessenger`. Legacy component themes and `ThemeExtension`s no
+    longer reach the editor; use `PdfEditorThemeData` or a material_ui `Theme`
+    around the editor instead. Build with
+    `--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false` to compile the bridge out
+    when no host uses the legacy library (`kPdfLegacyMaterialBridge`).
+  - `PdfMaterialHost` (installed by `PdfViewer`, `PdfReader`, `PdfEditorView`
+    and `PdfComparisonView`) now supplies material_ui's localizations,
+    `Theme` and surface whenever the host lacks them - a legacy
+    `MaterialApp`, a `CupertinoApp` or a `WidgetsApp`. It installs the
+    material_ui and cupertino_ui localizations for the ambient locale
+    whenever they are missing, which also fixes a crash under a material_ui
+    app that registered the generated delegate list with a locale material_ui
+    does not cover by default (Ukrainian, for one).
+  - Add `PdfEditorLocalizations.delegates` (the editor's delegate plus
+    material_ui's `GlobalMaterialLocalizations.delegates`) and
+    `PdfEditorLocalizations.supportedLocales`, the recommended list for an
+    app's `localizationsDelegates`. The generated
+    `DartPdfEditorLocalizations.localizationsDelegates` still lists the legacy
+    `flutter_localizations` delegates, which suit a legacy host only.
+  - Add `PdfEditorThemeData.primary` and `PdfEditorThemeData.brightness`:
+    set either and the stock chrome draws with a colour scheme seeded from
+    them, whatever theme the host has.
+  - Remove the APIs deprecated in 5.x and kept through 6.0.0:
+    `PdfEditingPreferences.themeMode` (use `themePreference`), the
+    `ButtonStyleButton` form of `PdfDialogSubmit` (use
+    `PdfDialogSubmit.action`), and `pdfSearchInputBorder` (use
+    `pdfSearchFieldBorderRadius`).
+  - Public parameters typed with Material classes now take the material_ui
+    ones (`PdfDropdown.decoration` is a material_ui `InputDecoration`).
+  - Tests that import the legacy library find nothing with type-based finders
+    on editor widgets (`find.byType(TextField)` matches the legacy class);
+    use the `pdf-*` keys or import material_ui.
+  - Requires Flutter 3.47.0 (`flutter: '>=3.47.0'`, material_ui 1.4's floor);
+    the Dart language version stays 3.5.
+- Toolbar strips (the open tool group's card) draw their own ink surface, so
+  pressed and hovered splashes show over the card's fill under every host.
+
 ## 6.0.0
 
 - Breaking: `PdfDialogSubmit.child` is now `Widget`, so an arbitrary host

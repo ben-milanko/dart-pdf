@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/gestures.dart' show kSecondaryButton;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -75,6 +75,36 @@ Uint8List buildPlainAnnotationPdf() {
   final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
     ..addNote(0, 100, 700, 'Host action');
   return editor.save();
+}
+
+/// A one-page PDF with 'Left' near the left margin and 'Right' near the
+/// right one, for cross-axis search reveals while zoomed in.
+Uint8List buildTwoSidedTextPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (Left) Tj ET '
+      'BT /F1 24 Tf 480 400 Td (Right) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xref\n%%EOF\n');
+  return ascii(buffer.toString());
 }
 
 Uint8List buildSplitRunTextPdf() {
@@ -1119,6 +1149,35 @@ void main() {
         tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(scrollable.position.pixels, moreOrLessEquals(expected, epsilon: 1));
     expect(controller.visiblePageRegion(3), isNotNull);
+  });
+
+  testWidgets('zoomed search steps pan sideways to the match', (tester) async {
+    final controller = await pumpViewer(tester, bytes: buildTwoSidedTextPdf());
+
+    // zoom in 2.5x on the left edge: the window shows ~the left 40%
+    await tester.tapAt(const Offset(100, 300));
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(const Offset(100, 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.zoom, greaterThan(fitWidth * 2));
+
+    final doc = PdfDocument.open(buildTwoSidedTextPdf());
+    final text = PdfTextExtractor.extract(doc, 0);
+    void expectShown(String word) {
+      final rect = text.findAll(word).single.rects.first;
+      final region = controller.visiblePageRegion(0)!;
+      expect(region.left, lessThanOrEqualTo(rect.left / 612));
+      expect(region.right, greaterThanOrEqualTo(rect.right / 612));
+    }
+
+    await tester.runAsync(() => controller.search('Right'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(controller.matchCount, 1);
+    expectShown('Right');
+
+    await tester.runAsync(() => controller.search('Left'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expectShown('Left');
   });
 
   testWidgets('zoomed trackpad scrolling reaches the document ends',

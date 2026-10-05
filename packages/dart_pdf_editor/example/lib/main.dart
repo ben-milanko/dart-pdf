@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
@@ -204,9 +204,14 @@ class _ViewerAppState extends State<ViewerApp> {
       listenable: _prefs,
       builder: (context, _) => MaterialApp(
         title: 'dart-pdf viewer',
+        // Not AppLocalizations.localizationsDelegates: gen-l10n still emits
+        // the legacy flutter_localizations delegates there, which give a
+        // material_ui app nothing. PdfEditorLocalizations.delegates is the
+        // editor's bundle plus material_ui's GlobalMaterialLocalizations
+        // .delegates (Material, Cupertino and widgets strings).
         localizationsDelegates: const [
-          ...AppLocalizations.localizationsDelegates,
-          DartPdfEditorLocalizations.delegate,
+          AppLocalizations.delegate,
+          ...PdfEditorLocalizations.delegates,
         ],
         supportedLocales: AppLocalizations.supportedLocales,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
@@ -2029,7 +2034,9 @@ class _DocumentTab {
     required PdfEditingPreferences preferences,
     this.isDemo = false,
     this.isExtracted = false,
-  })  : session = PdfEditingController(bytes, preferences: preferences),
+  })  : session = PdfEditingController(bytes, preferences: preferences)
+          // a document opens in Select mode, like the app's tabs
+          ..tool = PdfEditTool.select,
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,

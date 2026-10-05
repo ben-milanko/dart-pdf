@@ -787,7 +787,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Web OCR, bir Florence-2 görsel-dil modeli indirir ve Transformers.js aracılığıyla WebGPU/WASM ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; yalnızca model dosyaları ilk kullanımda getirilir.';
+      'Web OCR, küçük bir metin tanıma modeli (PP-OCRv5, yaklaşık 21 MB) indirir ve WebAssembly ile yerel olarak çalıştırır. PDF sayfaları bu tarayıcıda kalır; ilk kullanımda yalnızca model dosyaları indirilir.';
 
   @override
   String get ocrWebPromptTitle => 'Bu tarayıcıda AI OCR çalıştırılsın mı?';
@@ -1038,8 +1038,14 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR sayfa $page / $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Metin okunuyor…';
+
+  @override
+  String get ocrChipPreparing => 'OCR modeli yükleniyor…';
 
   @override
   String get ocrChipFinishing => 'OCR tamamlanıyor…';

@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../design/editor_presenter.dart';
 import '../l10n/pdf_l10n.dart';

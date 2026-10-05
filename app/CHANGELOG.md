@@ -1,5 +1,21 @@
 # Changelog
 
+## 7.0.0
+
+- Read small print and technical drawings more accurately with OCR, with
+  faster processing and clearer progress. Repeat OCR skips text already
+  present, and text on rotated pages follows the page's reading direction.
+- Open documents in Select mode. Follow links and select text with a long
+  press there; Cmd/Ctrl+A selects page text in Select and Hand modes.
+- Bring search matches into view horizontally when zoomed in.
+- Keep freehand ink previews at the chosen opacity, and include annotations
+  in exported vector snapshots.
+
+- The app is built on `material_ui`, the package Flutter's Material widgets
+  are moving to, instead of the retiring `package:flutter/material.dart`.
+  Nothing should look or behave differently: the editor now takes the app's
+  theme directly instead of through a compatibility layer.
+
 ## 6.0.0
 
 - Select page text with the Select tool; double-click a word in Hand mode.

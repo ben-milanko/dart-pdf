@@ -1,5 +1,10 @@
 # Changelog
 
+## 7.0.0
+
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
+
 ## 6.0.0
 
 - Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),

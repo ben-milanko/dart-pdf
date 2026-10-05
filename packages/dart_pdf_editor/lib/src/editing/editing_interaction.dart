@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../page_geometry.dart';
@@ -171,6 +171,7 @@ class PdfEditingInteractionHost {
     this.updateTextSelection,
     this.endTextSelection,
     this.clearTextSelection,
+    this.activateLinkAt,
   });
 
   final void Function(Offset delta)? panViewport;
@@ -204,6 +205,11 @@ class PdfEditingInteractionHost {
   /// A select-tool click clears the page-text selection, as a click in the
   /// reader does.
   final VoidCallback? clearTextSelection;
+
+  /// Follows the link (or other action annotation) under the global
+  /// position, as a click in the reader does. Returns false when there is
+  /// none, so the select tool can treat the click as a selection click.
+  final bool Function(Offset globalPosition)? activateLinkAt;
 }
 
 /// The gesture intent currently owned by an editing page.
