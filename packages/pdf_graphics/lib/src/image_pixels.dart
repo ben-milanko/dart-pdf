@@ -281,8 +281,21 @@ PdfImageBase? decodePdfImageBase(
   }
 
   if (filters.contains('JPXDecode')) {
+    // A smaller requested base skips JPX resolution levels, as the unmasked
+    // scaled path does: a masked scan layer (MRC copier output puts every
+    // page's colour under a stencil) otherwise ran the full entropy decode and
+    // wavelet only to be shrunk one layer up. Never for /Indexed - its samples
+    // are palette indices, which must not be resolution-averaged.
+    final reduce = targetWidth == null ||
+            targetHeight == null ||
+            luminosityMask ||
+            pdfImageColorFamily(cos, dict) == 'Indexed'
+        ? 0
+        : _jpxReduceLevels(_intOf(cos.resolve(dict['Width'])),
+            _intOf(cos.resolve(dict['Height'])), targetWidth, targetHeight);
     final jpx = JpxDecoder.decode(
-        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
+        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'),
+        reduceLevels: reduce);
     if (jpx == null) return null;
     // An /Indexed JPX carries palette indices in its single component, not
     // colour: the samples must run through the lookup table, exactly as a raw
@@ -870,12 +883,7 @@ PdfDecodedPixels? _decodeJpxScaled(
   if (dict.containsKey('SMask') || dict.containsKey('Mask')) return null;
   if (pdfImageColorFamily(cos, dict) == 'Indexed') return null;
 
-  // Resolution levels to skip = floor(log2(min(w/tw, h/th))), and only when the
-  // image is at least halved on its limiting axis (below that the reduce buys
-  // nothing and the full path's downsample is already cheap).
-  final ratio = math.min(width / targetWidth, height / targetHeight);
-  if (ratio < 2) return null;
-  final reduce = (math.log(ratio) / math.ln2).floor();
+  final reduce = _jpxReduceLevels(width, height, targetWidth, targetHeight);
   if (reduce < 1) return null;
 
   final jpx = JpxDecoder.decode(
@@ -887,6 +895,29 @@ PdfDecodedPixels? _decodeJpxScaled(
   // JPX carries no colour key; the mapper writes opaque alpha throughout.
   final decoded = _finish(rgba, jpx.width, jpx.height, hasAlpha: false);
   return downsamplePdfDecodedPixels(decoded, targetWidth, targetHeight);
+}
+
+/// JPX resolution levels to skip for a [width]x[height] image wanted at
+/// [targetWidth]x[targetHeight]: the most that still leave the reduced image
+/// (ceil(w / 2^r) x ceil(h / 2^r), how JPX sizes a resolution level) at least
+/// as large as the target on both axes, so the box filter after it only ever
+/// shrinks. Comparing against the reduced size rather than requiring
+/// w / tw >= 2 matters at exactly half size: an odd-width image shown at
+/// ceil(w / 2) has a ratio just under 2 and used to miss the reduce entirely,
+/// paying for a full decode it then threw away. The decoder clamps the result
+/// to the codestream's decomposition depth.
+int _jpxReduceLevels(int width, int height, int targetWidth, int targetHeight) {
+  if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return 0;
+  }
+  int ceilShift(int value, int shift) => (value + (1 << shift) - 1) >> shift;
+  var reduce = 0;
+  while (reduce < 30 &&
+      ceilShift(width, reduce + 1) >= targetWidth &&
+      ceilShift(height, reduce + 1) >= targetHeight) {
+    reduce++;
+  }
+  return reduce;
 }
 
 /// Decodes a rectangular source-region of a simple Flate/raw or CCITT image

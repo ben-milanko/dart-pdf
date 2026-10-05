@@ -64,8 +64,8 @@ class JpxDecoder {
         length = bytes.length - p;
       }
       if (type == 'jp2c') {
-        return Uint8List.sublistView(
-            bytes, p + headerSize, p + length.clamp(headerSize, bytes.length - p));
+        return Uint8List.sublistView(bytes, p + headerSize,
+            p + length.clamp(headerSize, bytes.length - p));
       }
       p += length;
     }
@@ -97,8 +97,7 @@ class _CodingStyle {
   List<int> precinctWidths = const [];
   List<int> precinctHeights = const [];
 
-  int precinctWidth(int r) =>
-      precinctWidths.isEmpty ? 15 : precinctWidths[r];
+  int precinctWidth(int r) => precinctWidths.isEmpty ? 15 : precinctWidths[r];
   int precinctHeight(int r) =>
       precinctHeights.isEmpty ? 15 : precinctHeights[r];
 }
@@ -180,8 +179,7 @@ class _JpxParser {
           }
           q += 2;
           final end = math.min(p + tileLength, data.length);
-          (tileData[tileIndex] ??= []).add(
-              Uint8List.sublistView(data, q, end));
+          (tileData[tileIndex] ??= []).add(Uint8List.sublistView(data, q, end));
           p = end;
           continue;
         default:
@@ -220,10 +218,11 @@ class _JpxParser {
       final scale = depth >= 8 ? depth - 8 : 0;
       final upscale = depth < 8 ? 8 - depth : 0;
       final plane = planes[c];
-      for (var i = 0; i < plane.length; i++) {
+      final stride = components.length;
+      for (var i = 0, o = c; i < plane.length; i++, o += stride) {
         var v = (plane[i] + shift).round();
         v = v >> scale << upscale;
-        out[i * components.length + c] = v.clamp(0, 255);
+        out[o] = v < 0 ? 0 : (v > 255 ? 255 : v);
       }
     }
     return JpxImage(outWidth, outHeight, components.length, out);
@@ -366,7 +365,8 @@ class _JpxParser {
     // below follows suit. reduce == 0 keeps the finest resolution, so w/h and
     // the offsets collapse to the original full-size arithmetic.
     final keptRes = tileComponents[0].resolutions[
-        (tileComponents[0].style.levels - reduce).clamp(0, tileComponents[0].style.levels)];
+        (tileComponents[0].style.levels - reduce)
+            .clamp(0, tileComponents[0].style.levels)];
     final w = keptRes.x1 - keptRes.x0;
     final h = keptRes.y1 - keptRes.y0;
     if (cod.mct == 1 && results.length >= 3) {
@@ -397,11 +397,10 @@ class _JpxParser {
       final res = tileComponents[c].resolutions[
           (tileComponents[c].style.levels - reduce)
               .clamp(0, tileComponents[c].style.levels)];
-      final rowOffset =
-          (res.y0 - canvasY0) * stride + (res.x0 - canvasX0);
+      final rowOffset = (res.y0 - canvasY0) * stride + (res.x0 - canvasX0);
       for (var yy = 0; yy < h; yy++) {
-        plane.setRange(rowOffset + yy * stride,
-            rowOffset + yy * stride + w, results[c], yy * w);
+        plane.setRange(rowOffset + yy * stride, rowOffset + yy * stride + w,
+            results[c], yy * w);
       }
     }
   }
@@ -409,8 +408,7 @@ class _JpxParser {
   void _decodePackets(Uint8List bitstream, List<_TileComponent> tcs) {
     final reader = _PacketReader(bitstream, sop: cod.sop, eph: cod.eph);
     final layers = cod.layers;
-    final maxLevels =
-        tcs.fold(0, (m, tc) => math.max(m, tc.style.levels));
+    final maxLevels = tcs.fold(0, (m, tc) => math.max(m, tc.style.levels));
 
     void packet(int c, int r, int p, int layer) {
       final tc = tcs[c];
@@ -451,11 +449,8 @@ class _JpxParser {
         for (var r = 0; r <= maxLevels; r++) {
           final count = tcs.fold(
               0,
-              (m, tc) => math.max(
-                  m,
-                  r <= tc.style.levels
-                      ? tc.resolutions[r].precinctCount
-                      : 0));
+              (m, tc) => math.max(m,
+                  r <= tc.style.levels ? tc.resolutions[r].precinctCount : 0));
           for (var p = 0; p < count; p++) {
             for (var c = 0; c < tcs.length; c++) {
               for (var l = 0; l < layers; l++) {
@@ -515,13 +510,18 @@ class _TileComponent {
       final resolution = resolutions[r];
       current = _inverseDwt(
         ll: current,
-        llX0: x0, llY0: y0, llX1: x1, llY1: y1,
+        llX0: x0,
+        llY0: y0,
+        llX1: x1,
+        llY1: y1,
         hl: resolution.bands[0].dequantize(this, reversible),
         lh: resolution.bands[1].dequantize(this, reversible),
         hh: resolution.bands[2].dequantize(this, reversible),
         bands: resolution.bands,
-        x0: resolution.x0, y0: resolution.y0,
-        x1: resolution.x1, y1: resolution.y1,
+        x0: resolution.x0,
+        y0: resolution.y0,
+        x1: resolution.x1,
+        y1: resolution.y1,
         reversible: reversible,
       );
       x0 = resolution.x0;
@@ -543,12 +543,8 @@ class _Resolution {
 
     final ppx = tc.style.precinctWidth(r);
     final ppy = tc.style.precinctHeight(r);
-    precinctsX = x1 > x0
-        ? _ceilDiv(x1, 1 << ppx) - (x0 >> ppx)
-        : 0;
-    precinctsY = y1 > y0
-        ? _ceilDiv(y1, 1 << ppy) - (y0 >> ppy)
-        : 0;
+    precinctsX = x1 > x0 ? _ceilDiv(x1, 1 << ppx) - (x0 >> ppx) : 0;
+    precinctsY = y1 > y0 ? _ceilDiv(y1, 1 << ppy) - (y0 >> ppy) : 0;
 
     if (r == 0) {
       bands.add(_Band(this, tc, 0, 0, 0, shift));
@@ -573,7 +569,9 @@ class _Band {
     // quantization parameters for this band (T.800 E.1)
     final r = resolution.r;
     family = r == 0 ? 0 : (xob == 1 && yob == 0 ? 1 : (xob == 1 ? 2 : 0));
-    final subbandIndex = r == 0 ? 0 : (r - 1) * 3 + (family == 1 ? 0 : (family == 0 ? 1 : 2)) + 1;
+    final subbandIndex = r == 0
+        ? 0
+        : (r - 1) * 3 + (family == 1 ? 0 : (family == 0 ? 1 : 2)) + 1;
     final quant = tc.quant;
     final int eps;
     final int mu;
@@ -632,8 +630,7 @@ class _Band {
     }
     // assign blocks to precincts by position (raster order per precinct)
     final precinctWidth = 1 << (tc.style.precinctWidth(r) - (r == 0 ? 0 : 1));
-    final precinctHeight =
-        1 << (tc.style.precinctHeight(r) - (r == 0 ? 0 : 1));
+    final precinctHeight = 1 << (tc.style.precinctHeight(r) - (r == 0 ? 0 : 1));
     for (final block in blocks) {
       final px = (block.x0 ~/ precinctWidth) - (x0 ~/ precinctWidth);
       final py = (block.y0 ~/ precinctHeight) - (y0 ~/ precinctHeight);
@@ -668,8 +665,10 @@ class _Band {
     return (_TagTree(w, h), _TagTree(w, h));
   }
 
-  List<_CodeBlock> blocksOf(int precinct) =>
-      [for (final b in blocks) if (b.precinct == precinct) b];
+  List<_CodeBlock> blocksOf(int precinct) => [
+        for (final b in blocks)
+          if (b.precinct == precinct) b
+      ];
 }
 
 int _ceilDiv(int a, int b) => (a / b).ceil();
@@ -764,20 +763,27 @@ class _PacketReader {
   }
 
   void readPacket(_Resolution resolution, int precinct, int layer) {
-    if (sop && _p + 6 <= data.length && data[_p] == 0xFF && data[_p + 1] == 0x91) {
+    if (sop &&
+        _p + 6 <= data.length &&
+        data[_p] == 0xFF &&
+        data[_p + 1] == 0x91) {
       _p += 6;
     }
     final contributions = <(_CodeBlock, int)>[];
     final nonEmpty = _readBit();
     if (nonEmpty == 1) {
-      for (var bandIndex = 0; bandIndex < resolution.bands.length; bandIndex++) {
+      for (var bandIndex = 0;
+          bandIndex < resolution.bands.length;
+          bandIndex++) {
         final band = resolution.bands[bandIndex];
         if (band.x1 <= band.x0 || band.y1 <= band.y0) continue;
         final blocks = band.blocksOf(precinct);
         if (blocks.isEmpty) continue;
         final (inclusionTree, zeroTree) = band.inclusionTrees[precinct];
-        final originX = blocks.map((b) => b.x0 >> band.cbWidthExp).reduce(math.min);
-        final originY = blocks.map((b) => b.y0 >> band.cbHeightExp).reduce(math.min);
+        final originX =
+            blocks.map((b) => b.x0 >> band.cbWidthExp).reduce(math.min);
+        final originY =
+            blocks.map((b) => b.y0 >> band.cbHeightExp).reduce(math.min);
         for (final block in blocks) {
           final i = (block.x0 >> band.cbWidthExp) - originX;
           final j = (block.y0 >> band.cbHeightExp) - originY;
@@ -806,7 +812,10 @@ class _PacketReader {
       }
     }
     _alignToByte();
-    if (eph && _p + 2 <= data.length && data[_p] == 0xFF && data[_p + 1] == 0x92) {
+    if (eph &&
+        _p + 2 <= data.length &&
+        data[_p] == 0xFF &&
+        data[_p + 1] == 0x92) {
       _p += 2;
     }
     for (final (block, length) in contributions) {
@@ -856,8 +865,7 @@ class _TagTree {
       final y = j >> level;
       final index = y * _widths[level] + x;
       if (_values[level][index] < low) _values[level][index] = low;
-      while (_known[level][index] == 0 &&
-          _values[level][index] < threshold) {
+      while (_known[level][index] == 0 && _values[level][index] < threshold) {
         if (reader._readBit() == 1) {
           _known[level][index] = 1;
         } else {
@@ -1228,13 +1236,22 @@ Float32List _inverseDwt({
   void scatter(Float32List source, int sx0, int sy0, int sx1, int sy1,
       int parityX, int parityY) {
     final sw = sx1 - sx0;
+    // the source columns whose target column 2*sx + parityX - x0 is in [0, w)
+    var first = sx0;
+    while (first < sx1 && 2 * first + parityX - x0 < 0) {
+      first++;
+    }
+    var end = sx1;
+    while (end > first && 2 * (end - 1) + parityX - x0 >= w) {
+      end--;
+    }
     for (var sy = sy0; sy < sy1; sy++) {
       final ty = 2 * sy + parityY - y0;
       if (ty < 0 || ty >= h) continue;
-      for (var sx = sx0; sx < sx1; sx++) {
-        final tx = 2 * sx + parityX - x0;
-        if (tx < 0 || tx >= w) continue;
-        out[ty * w + tx] = source[(sy - sy0) * sw + (sx - sx0)];
+      var t = ty * w + 2 * first + parityX - x0;
+      var s = (sy - sy0) * sw + (first - sx0);
+      for (var sx = first; sx < end; sx++, t += 2, s++) {
+        out[t] = source[s];
       }
     }
   }
@@ -1245,94 +1262,146 @@ Float32List _inverseDwt({
   scatter(hh, hhBand.x0, hhBand.y0, hhBand.x1, hhBand.y1, 1, 1);
 
   // horizontal then vertical 1D synthesis
-  final row = Float32List(w);
-  for (var yy = 0; yy < h; yy++) {
-    row.setRange(0, w, out, yy * w);
-    _synthesize1d(row, x0, reversible);
-    out.setRange(yy * w, (yy + 1) * w, row);
-  }
-  final column = Float32List(h);
-  for (var xx = 0; xx < w; xx++) {
-    for (var yy = 0; yy < h; yy++) {
-      column[yy] = out[yy * w + xx];
-    }
-    _synthesize1d(column, y0, reversible);
-    for (var yy = 0; yy < h; yy++) {
-      out[yy * w + xx] = column[yy];
-    }
-  }
+  _synthesizeRows(out, w, h, x0, reversible);
+  _synthesizeColumns(out, w, h, y0, reversible);
   return out;
 }
 
-/// In-place 1D inverse wavelet over [signal], whose first sample sits at
-/// global index [i0] (parity decides low/high classification).
-void _synthesize1d(Float32List signal, int i0, bool reversible) {
-  final n = signal.length;
-  if (n == 1) {
-    // a single sample at odd parity is a pure high-pass sample
-    if (reversible && i0.isOdd) signal[0] /= 2;
-    if (!reversible && i0.isOdd) signal[0] *= 0.5;
-    return;
-  }
-
-  // Symmetric boundary handling via index mirroring. Reflection about n-1
-  // (index -> 2*(n-1)-index) preserves index parity, so each pass below only
-  // ever reads samples of the *opposite* parity to the one it writes - never a
-  // sample it has already updated this pass. The lifts are therefore
-  // parity-disjoint and run in place, without the per-lift scratch buffers the
-  // straight double-buffered form allocated (5+ Float32Lists per row/column).
-  //
-  // Each pass walks its own parity with stride 2 and reads the interior
-  // neighbours directly; only the two end samples mirror through [at]. The
-  // float operations and their order match the per-sample mirroring form, so
-  // the output is bit-identical.
-  double at(int i) {
-    var index = i;
-    if (index < 0) index = -index;
-    if (index >= n) index = 2 * (n - 1) - index;
-    return signal[index.clamp(0, n - 1)];
-  }
-
-  final evenStart = i0.isEven ? 0 : 1;
-  final oddStart = 1 - evenStart;
-  final last = n - 1;
-  if (reversible) {
-    // 5/3 (T.800 F.3.8.2): even samples first (reading odd neighbours), then
-    // odd samples (reading the now-updated even neighbours).
-    for (var i = evenStart; i < n; i += 2) {
-      final left = i == 0 ? at(-1) : signal[i - 1];
-      final right = i == last ? at(n) : signal[i + 1];
-      signal[i] -= ((left + right + 2) / 4).floorToDouble();
-    }
-    for (var i = oddStart; i < n; i += 2) {
-      final left = i == 0 ? at(-1) : signal[i - 1];
-      final right = i == last ? at(n) : signal[i + 1];
-      signal[i] += ((left + right) / 2).floorToDouble();
-    }
-  } else {
-    // 9/7 (T.800 F.4.8.2)
-    const k = 1.230174104914;
-    const alpha = -1.586134342059924;
-    const beta = -0.052980118572961;
-    const gamma = 0.882911075530934;
-    const delta = 0.443506852043971;
-    for (var i = evenStart; i < n; i += 2) {
-      signal[i] *= k;
-    }
-    for (var i = oddStart; i < n; i += 2) {
-      signal[i] /= k;
-    }
-    void lift(double coefficient, int start) {
-      for (var i = start; i < n; i += 2) {
-        final left = i == 0 ? at(-1) : signal[i - 1];
-        final right = i == last ? at(n) : signal[i + 1];
-        signal[i] -= coefficient * (left + right);
+/// The horizontal pass of [_inverseDwt]: in-place 1D inverse wavelet along
+/// every row of the row-major [w]x[h] plane [out], whose first column sits
+/// at global index [x0] (parity decides low/high classification).
+///
+/// Symmetric boundary handling mirrors index -1 to 1 and w to w - 2, which
+/// preserves parity, so each lifting step only reads samples of the
+/// *opposite* parity to the ones it writes and runs in place. The plane is
+/// indexed directly: a per-row view plus closure calls made this pass several
+/// times slower than the arithmetic.
+void _synthesizeRows(Float32List out, int w, int h, int x0, bool reversible) {
+  if (w == 1) {
+    // a single column at odd parity is pure high-pass
+    if (x0.isOdd) {
+      for (var y = 0; y < h; y++) {
+        out[y] = reversible ? out[y] / 2 : out[y] * 0.5;
       }
     }
-
-    lift(delta, evenStart);
-    lift(gamma, oddStart);
-    lift(beta, evenStart);
-    lift(alpha, oddStart);
+    return;
+  }
+  final evenStart = x0.isEven ? 0 : 1;
+  final oddStart = 1 - evenStart;
+  final last = w - 1;
+  for (var y = 0; y < h; y++) {
+    final t = y * w;
+    // Symmetric extension: sample -1 mirrors 1, sample w mirrors w - 2.
+    final mirrorLeft = t + 1;
+    final mirrorRight = t + w - 2;
+    if (reversible) {
+      for (var i = evenStart; i < w; i += 2) {
+        final left = out[i == 0 ? mirrorLeft : t + i - 1];
+        final right = out[i == last ? mirrorRight : t + i + 1];
+        out[t + i] -= ((left + right + 2) / 4).floorToDouble();
+      }
+      for (var i = oddStart; i < w; i += 2) {
+        final left = out[i == 0 ? mirrorLeft : t + i - 1];
+        final right = out[i == last ? mirrorRight : t + i + 1];
+        out[t + i] += ((left + right) / 2).floorToDouble();
+      }
+      continue;
+    }
+    for (var i = evenStart; i < w; i += 2) {
+      out[t + i] *= _k97;
+    }
+    for (var i = oddStart; i < w; i += 2) {
+      out[t + i] /= _k97;
+    }
+    _liftRow(out, t, w, _delta97, evenStart);
+    _liftRow(out, t, w, _gamma97, oddStart);
+    _liftRow(out, t, w, _beta97, evenStart);
+    _liftRow(out, t, w, _alpha97, oddStart);
   }
 }
+
+/// One 9/7 lifting step along the [w]-sample row at [t] of [out].
+void _liftRow(Float32List out, int t, int w, double coefficient, int start) {
+  final last = w - 1;
+  final mirrorLeft = t + 1;
+  final mirrorRight = t + w - 2;
+  for (var i = start; i < w; i += 2) {
+    final left = out[i == 0 ? mirrorLeft : t + i - 1];
+    final right = out[i == last ? mirrorRight : t + i + 1];
+    out[t + i] -= coefficient * (left + right);
+  }
+}
+
+/// The vertical pass of [_inverseDwt]: the same 1D synthesis as
+/// [_synthesizeRows] down every column of the row-major [w]x[h] plane [out]
+/// at once. Each lifting step walks whole
+/// rows - row `i` updated from rows `i - 1` and `i + 1` - so memory is read
+/// in order instead of one strided column at a time (gathering each column
+/// into a scratch buffer and back was most of a large image's decode). Every
+/// sample sees the same float operations in the same order as the column
+/// form did, so the result is bit-identical.
+void _synthesizeColumns(
+    Float32List out, int w, int h, int y0, bool reversible) {
+  if (h == 1) {
+    // a single row at odd parity is pure high-pass
+    if (y0.isOdd) {
+      for (var x = 0; x < w; x++) {
+        out[x] = reversible ? out[x] / 2 : out[x] * 0.5;
+      }
+    }
+    return;
+  }
+  final evenStart = y0.isEven ? 0 : 1;
+  final oddStart = 1 - evenStart;
+  final last = h - 1;
+  // Symmetric extension: row -1 mirrors row 1, row h mirrors row h - 2.
+  int above(int i) => i == 0 ? w : (i - 1) * w;
+  int below(int i) => i == last ? (h - 2) * w : (i + 1) * w;
+  if (reversible) {
+    for (var i = evenStart; i < h; i += 2) {
+      final a = above(i), b = below(i), t = i * w;
+      for (var x = 0; x < w; x++) {
+        out[t + x] -= ((out[a + x] + out[b + x] + 2) / 4).floorToDouble();
+      }
+    }
+    for (var i = oddStart; i < h; i += 2) {
+      final a = above(i), b = below(i), t = i * w;
+      for (var x = 0; x < w; x++) {
+        out[t + x] += ((out[a + x] + out[b + x]) / 2).floorToDouble();
+      }
+    }
+    return;
+  }
+  for (var i = evenStart; i < h; i += 2) {
+    final t = i * w;
+    for (var x = 0; x < w; x++) {
+      out[t + x] *= _k97;
+    }
+  }
+  for (var i = oddStart; i < h; i += 2) {
+    final t = i * w;
+    for (var x = 0; x < w; x++) {
+      out[t + x] /= _k97;
+    }
+  }
+  for (final (coefficient, start) in [
+    (_delta97, evenStart),
+    (_gamma97, oddStart),
+    (_beta97, evenStart),
+    (_alpha97, oddStart),
+  ]) {
+    for (var i = start; i < h; i += 2) {
+      final a = above(i), b = below(i), t = i * w;
+      for (var x = 0; x < w; x++) {
+        out[t + x] -= coefficient * (out[a + x] + out[b + x]);
+      }
+    }
+  }
+}
+
+// 9/7 lifting constants (T.800 F.4.8.2).
+const _k97 = 1.230174104914;
+const _alpha97 = -1.586134342059924;
+const _beta97 = -0.052980118572961;
+const _gamma97 = 0.882911075530934;
+const _delta97 = 0.443506852043971;

@@ -2308,6 +2308,58 @@ void main() {
       // full-decodes. (16x16 asked for 16x16.)
       expect(decodePdfImagePixelsScaled(cos, jpxImage(16, 16), 16, 16), isNull);
     });
+
+    test('an odd-width image shown at exactly half size is reduced', () {
+      // ceil(15 / 2) = 8: the reduced level still covers an 8-wide target, but
+      // 15 / 8 is under 2, which the old ratio test read as "not worth it" and
+      // full-decoded. (/Width 15 over the 16-wide codestream stands in for an
+      // odd-width scan; only the dictionary feeds the reduce choice.)
+      final stream = image({
+        'Width': const CosInteger(15),
+        'Height': const CosInteger(15),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'Filter': const CosName('JPXDecode'),
+      }, _rgbJ2kFixture);
+      final scaled = decodePdfImagePixelsScaled(cos, stream, 8, 8);
+      expect(scaled, isNotNull);
+      expect(scaled!.width, 8);
+      expect(scaled.height, 8);
+    });
+
+    test('a masked JPX base requested at target size is reduced', () {
+      // MRC scans put each page's colour layer under a stencil, so the masked
+      // path's base decode must skip resolution levels too, not decode at
+      // native size and shrink afterwards.
+      final mask = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(16),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, List.filled(256, 255));
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(16),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'Filter': const CosName('JPXDecode'),
+        'SMask': mask,
+      }, _rgbJ2kFixture);
+      final base =
+          decodePdfImageBase(cos, stream, targetWidth: 4, targetHeight: 4)!;
+      expect((base.width, base.height), (4, 4));
+      expect((decodePdfImageBase(cos, stream)!.width), 16); // no target: native
+
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 4, 4);
+      final targeted =
+          decodePdfImage(cos, stream, targetWidth: 4, targetHeight: 4)!;
+      expect((targeted.width, targeted.height), (4, 4));
+      for (var i = 0; i < expected.rgba.length; i++) {
+        expect(
+            (targeted.rgba[i] - expected.rgba[i]).abs(), lessThanOrEqualTo(24));
+      }
+    });
   });
 }
 
