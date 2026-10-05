@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 7.0.0
 
+- Open documents in Select mode; links and host page widgets remain usable,
+  and long-press selects text there. Cmd/Ctrl+A selects page text in Select
+  and Hand modes.
+- Pan horizontally to a search match when zoomed in.
+- Keep freehand ink previews at the committed opacity and align desktop text
+  context-menu actions with the touch selection chip.
+- Skip OCR spans already present in page text and show clearer OCR progress.
 - **BREAKING: built on `material_ui`.** The library's widgets now come from
   `package:material_ui` (and `package:cupertino_ui`) instead of
   `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,
