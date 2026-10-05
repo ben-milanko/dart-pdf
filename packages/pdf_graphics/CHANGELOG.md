@@ -1,5 +1,10 @@
 # Changelog
 
+## 7.0.0
+
+- Add `ocrSpansNotIn` to skip OCR spans already covered by page text.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
 ## 6.0.0
 
 - Add `PdfStreamingCommandWriter` for native workers to record directly to

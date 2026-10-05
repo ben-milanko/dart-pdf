@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 7.0.0
 
 - `buildOcrDrawingSheet`: a seeded A3 signalling-drawing sheet (/Rotate 90,
   ~7pt labels touching track dots) with its ground-truth labels, and

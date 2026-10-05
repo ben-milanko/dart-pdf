@@ -1,5 +1,9 @@
 # Changelog
 
+## 7.0.0
+
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
 ## 6.0.0
 
 - Add `CosDocument.trimDecodedStreamCache()` to release decoded payloads

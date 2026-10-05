@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 7.0.0
 
 - Much better accuracy on small print and technical drawings, and ~4x
   faster. On a synthetic A3 signalling sheet (`buildOcrDrawingSheet` in

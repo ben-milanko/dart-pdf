@@ -1,5 +1,11 @@
 # Changelog
 
+## 7.0.0
+
+- Include un-flattened annotations in vector snapshots.
+- Align injected OCR text with the reading direction on rotated pages.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
 ## 6.0.0
 
 - Align dependency constraints with the dart-pdf 6.0.0 package suite.
