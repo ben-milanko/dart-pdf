@@ -627,7 +627,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       skipIfWorkerDeclines: true,
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
-      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      disk: controller.pageMatchesOpenedFile(index) ? cache.disk : null,
       previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
@@ -1882,7 +1882,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       skipIfWorkerDeclines: true,
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
-      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      disk: controller.pageMatchesOpenedFile(index) ? cache.disk : null,
       previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
@@ -3248,7 +3248,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           },
           // only persist/read disk for pages untouched this session - the
           // disk key is content-derived and render stamps reset per session
-          disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
+          disk: controller.pageMatchesOpenedFile(pageIndex) ? cache.disk : null,
           previews: previews,
         );
         if (image == null) {
@@ -3388,14 +3388,17 @@ class _PageThumbnailState extends State<_PageThumbnail> {
   }
 }
 
-/// The shared-cache key a page's thumbnail is stored under: page index, its
+/// The shared-cache key a page's thumbnail is stored under: the page's
+/// identity (its indirect reference, so a reordered page keeps its raster and
+/// the slot it left doesn't - a reorder bumps no stamps, see #1025), its
 /// render stamp (so an edit re-renders only the pages it touched), the paper
 /// color, the raster width bucket, and whether annotations are drawn. The
 /// tile, the grid cell, and the background warm all derive the same key, so
 /// they reuse one another's rasters.
 String thumbnailKey(PdfEditingController controller, int pageIndex,
         Color pageColor, bool annotations, int pixelWidth) =>
-    '$pageIndex|${controller.pageRenderStamp(pageIndex)}'
+    '${controller.pageRenderIdentity(pageIndex)}'
+    '|${controller.pageRenderStamp(pageIndex)}'
     '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}';
 
 /// Whole-document thumbnail warming policy.

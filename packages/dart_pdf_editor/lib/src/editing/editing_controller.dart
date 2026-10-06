@@ -875,6 +875,12 @@ class PdfEditingController extends ChangeNotifier {
   /// unknown-page edits) so they don't iterate a large document.
   final Map<Object, int> _renderStamps = {};
   int _renderStampEpoch = 0;
+
+  /// Counts revisions (commits, undos, redos) that moved pages between
+  /// indices. A pure reorder reports no visual pages - every page still
+  /// renders the same - so it leaves the render stamps alone, but anything
+  /// keyed by page *index* (the disk thumbnail tier) is wrong past one.
+  int _pageStructureEpoch = 0;
   final Map<Object, int> _contentRenderStamps = {};
   int _contentRenderStampEpoch = 0;
 
@@ -884,6 +890,14 @@ class PdfEditingController extends ChangeNotifier {
     return ref == null
         ? ('page-slot', pageIndex)
         : (ref.objectNumber, ref.generation);
+  }
+
+  /// Advances the render stamps for a revision with [impact] landing or
+  /// being reverted.
+  void _bumpStampsFor(PdfEditImpact impact) {
+    _bumpRenderStamps(impact.visualPages);
+    _bumpContentRenderStamps(impact.contentPages);
+    if (impact.pageStructureChanged) _pageStructureEpoch++;
   }
 
   void _bumpRenderStamps(Set<int>? pages) {
@@ -914,6 +928,18 @@ class PdfEditingController extends ChangeNotifier {
   /// of re-rendering every page on every revision.
   int pageRenderStamp(int pageIndex) =>
       _renderStampEpoch + (_renderStamps[_pageStampKey(pageIndex)] ?? 0);
+
+  /// The identity of the page at [pageIndex]: its indirect reference, which
+  /// follows the page through a reorder. [pageRenderStamp] counts changes to
+  /// *this* page, so a cache keyed on a stamp must key on this too - two
+  /// pages swapping places can carry equal stamps.
+  Object pageRenderIdentity(int pageIndex) => _pageStampKey(pageIndex);
+
+  /// Whether the page at [pageIndex] is exactly what the opened file has at
+  /// that index: never re-rendered this session and no page moved. Caches
+  /// keyed by document + page index (the disk tier) are only valid then.
+  bool pageMatchesOpenedFile(int pageIndex) =>
+      _pageStructureEpoch == 0 && pageRenderStamp(pageIndex) == 0;
 
   /// A value that changes only when [pageIndex]'s base page content image
   /// changed. Annotation-only edits leave it stable: the viewer paints those
@@ -1007,8 +1033,7 @@ class PdfEditingController extends ChangeNotifier {
     if (!canUndo) return;
     final impact = _revisionImpacts[_cursor];
     // reverting revision N un-renders exactly the pages N touched
-    _bumpRenderStamps(impact.visualPages);
-    _bumpContentRenderStamps(impact.contentPages);
+    _bumpStampsFor(impact);
     _cursor--;
     _syncFormSecrets(_revisionSecrets[_cursor + 1], _revisionSecrets[_cursor]);
     _lastRevisionImpact = impact;
@@ -1032,8 +1057,7 @@ class PdfEditingController extends ChangeNotifier {
     _syncFormSecrets(_revisionSecrets[_cursor - 1], _revisionSecrets[_cursor]);
     final impact = _revisionImpacts[_cursor];
     _lastRevisionImpact = impact;
-    _bumpRenderStamps(impact.visualPages);
-    _bumpContentRenderStamps(impact.contentPages);
+    _bumpStampsFor(impact);
     // Re-extend to the redone revision - its bytes already sit in the buffer as
     // a prefix, so the worker re-appends bytes it may already hold.
     _lastRevisionDelta = impact.pageStructureChanged
@@ -1253,8 +1277,7 @@ class PdfEditingController extends ChangeNotifier {
       ..add(secrets);
     _revisions.add(newLength);
     _revisionImpacts.add(impact);
-    _bumpRenderStamps(impact.visualPages);
-    _bumpContentRenderStamps(impact.contentPages);
+    _bumpStampsFor(impact);
     if (impact.destructive) _destructiveStampEpoch++;
     _cursor++;
     _lastRevisionImpact = impact;
@@ -3260,8 +3283,7 @@ class PdfEditingController extends ChangeNotifier {
     _lastRevisionDelta = null;
     _lastRevisionImpact = impact;
     _selected.clear();
-    _bumpRenderStamps(impact.visualPages);
-    _bumpContentRenderStamps(impact.contentPages);
+    _bumpStampsFor(impact);
     // a burn removes content irreversibly - mark it destructive so the
     // viewer blanks each page's raster instead of holding the (now
     // un-redacted) one up while the fresh render lands
