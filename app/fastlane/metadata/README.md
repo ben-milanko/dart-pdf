@@ -37,6 +37,7 @@ locales differently; the folder names below are what each console accepts.
 | App locale | Language | App Store (`ios/`) | Play (`android/`) |
 |---|---|---|---|
 | en       | English (source)      | en-US   | en-US |
+| en (UK)  | British English       | —       | en-GB |
 | ar       | Arabic                | ar-SA   | ar    |
 | de       | German                | de-DE   | de-DE |
 | es       | Spanish               | es-ES   | es-ES |
@@ -56,6 +57,10 @@ locales differently; the folder names below are what each console accepts.
 | vi       | Vietnamese            | vi      | vi    |
 | zh       | Chinese (Simplified)  | zh-Hans | zh-CN |
 | zh_Hant  | Chinese (Traditional) | zh-Hant | zh-TW |
+
+Google Play has a separate British English listing, so its 21 locale folders
+cover the app's 20 languages. `en-GB` must include the listing text as well as
+changelogs: existing Play translations do not inherit later `en-US` changes.
 
 ## Rules that shaped the copy
 
@@ -79,7 +84,7 @@ locales differently; the folder names below are what each console accepts.
 ## Keeping it current
 
 1. Edit the English source in [`../../store-listing.md`](../../store-listing.md)
-   and the matching `en-US` files here.
+   and the matching `en-US` files here, plus the Play `en-GB` listing text.
 2. For a new release, add `android/<locale>/changelogs/<versionCode>.txt` and
    refresh each `ios/<locale>/release_notes.txt` from
    [`../../release-notes/`](../../release-notes/). Version code = the `+build`
