@@ -96,9 +96,12 @@ void main() {
 
       final a = editing.document.page(0).annotations.single;
       expect(a.isCallout, isTrue);
-      expect([for (final l in a.calloutLeaders!) l.first],
-          [(120.0, 500.0), (560.0, 450.0)],
-          reason: 'arrows stay where they point');
+      expect([
+        for (final l in a.calloutLeaders!) l.first
+      ], [
+        (120.0, 500.0),
+        (560.0, 450.0)
+      ], reason: 'arrows stay where they point');
       expect(a.calloutBox!.left, closeTo(box0.left + 41, 0.01));
       expect(a.calloutBox!.top, closeTo(box0.top - 30, 0.01));
       expect(editing.selectedAnnotation?.isCallout, isTrue,
@@ -152,9 +155,12 @@ void main() {
       void expectStillACallout(String why) {
         final a = editing.document.page(0).annotations.single;
         expect(a.isCallout, isTrue, reason: why);
-        expect([for (final l in a.calloutLeaders!) l.first],
-            [(120.0, 500.0), (560.0, 450.0)],
-            reason: why);
+        expect([
+          for (final l in a.calloutLeaders!) l.first
+        ], [
+          (120.0, 500.0),
+          (560.0, 450.0)
+        ], reason: why);
         expect(a.calloutBox!.left, closeTo(box0.left, 0.01), reason: why);
         expect(a.calloutBox!.top, closeTo(box0.top, 0.01), reason: why);
         expect(a.calloutBox!.width, closeTo(box0.width, 0.01), reason: why);
@@ -168,10 +174,12 @@ void main() {
       expectStillACallout('font restyle');
       expect(editing.selectedTextStyle?.size, 20);
 
-      expect(editing.setSelectedRichText(const [
-        PdfFreeTextRun('rich ', color: 0x0000FF),
-        PdfFreeTextRun('text', color: 0xFF0000),
-      ]), isTrue);
+      expect(
+          editing.setSelectedRichText(const [
+            PdfFreeTextRun('rich ', color: 0x0000FF),
+            PdfFreeTextRun('text', color: 0xFF0000),
+          ]),
+          isTrue);
       expectStillACallout('rich commit');
       final a = editing.document.page(0).annotations.single;
       expect(a.contents, 'rich text');
@@ -249,6 +257,39 @@ void main() {
       // the leader points back at the terminus we pressed on
       expect(line.first.$1, closeTo(150, 2));
       expect(line.first.$2, closeTo(500, 2));
+      await settle(tester);
+    });
+
+    testWidgets('the placement drag previews the leader, not a box',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.callout;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(150, 500));
+      await gesture.moveTo(view(250, 580));
+      await gesture.moveTo(view(360, 660));
+      await tester.pump();
+
+      final painters = [
+        for (final paint
+            in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+          if (paint.painter?.runtimeType.toString() == '_EditingPreviewPainter')
+            paint.painter! as dynamic,
+      ];
+      expect(painters, isNotEmpty);
+      for (final painter in painters) {
+        expect(painter.dragRect, isNull,
+            reason: 'no rubber-band rectangle under the leader');
+        expect(painter.dragLine, isNull);
+      }
+      expect(
+          painters.any((p) => (p.calloutLeaders as List?)?.length == 1), isTrue,
+          reason: 'the leader (with its arrow) is what previews');
+
+      await gesture.up();
+      await tester.pump();
+      await tap(tester, view(450, 400));
       await settle(tester);
     });
 
@@ -332,9 +373,12 @@ void main() {
 
       final a = editing.document.page(0).annotations.single;
       expect(a.isCallout, isTrue);
-      expect([for (final l in a.calloutLeaders!) l.first],
-          [(150.0, 480.0), (520.0, 470.0)],
-          reason: 'every arrow tip stays where it pointed');
+      expect([
+        for (final l in a.calloutLeaders!) l.first
+      ], [
+        (150.0, 480.0),
+        (520.0, 470.0)
+      ], reason: 'every arrow tip stays where it pointed');
       expect(a.calloutBox!.left, closeTo(box0.left - 40, 2));
       expect(a.calloutBox!.top, closeTo(box0.top + 50, 2));
       await settle(tester);

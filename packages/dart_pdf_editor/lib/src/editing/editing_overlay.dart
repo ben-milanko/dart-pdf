@@ -6285,7 +6285,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // repaint, not a rebuild of this whole painter
                     strokes: _controller.strokesOn(widget.pageIndex),
                     pressures: _controller.strokePressuresOn(widget.pageIndex),
-                    dragRect: _dragStart != null && _dragCurrent != null
+                    // a callout placement drag previews only its leader
+                    // (calloutLeaders), never a rubber-band box
+                    dragRect: _dragStart != null &&
+                            _dragCurrent != null &&
+                            _tool != PdfEditTool.callout
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
                     dragLine: _dragStart != null &&
