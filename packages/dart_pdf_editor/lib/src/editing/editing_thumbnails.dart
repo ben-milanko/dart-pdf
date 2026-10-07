@@ -27,6 +27,7 @@ import 'editing_preferences.dart';
 import 'editing_thumbnail_drop.dart';
 import 'thumbnail_cache.dart';
 import '../design/editor_presenter.dart';
+import '../insert_pages_dialog.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
 /// down to reorder pages (with a mouse just drag; on touch, long-press
@@ -83,6 +84,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.bottomSheet = false,
     this.onClose,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.fileDropController,
@@ -160,6 +162,12 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// footer menu and merges all of the picked file's pages in after the
   /// current page. Needs the host for file I/O.
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Picks one or more PDFs to insert (empty = cancelled). When given,
+  /// "Insert PDF…" opens the multi-document [showPdfInsertPagesDialog]
+  /// (page ranges, placement, interleave, bookmarks) instead of merging a
+  /// single file straight in; it takes precedence over [onPickPdfToInsert].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
 
   /// Receives the bytes of an exported page range, for the host to save.
   /// When given, an "Export pages…" entry appears in the page-actions
@@ -812,6 +820,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     final pageCount = controller.document.pageCount;
                     final rtl = Directionality.of(context) == TextDirection.rtl;
                     final showPageActions = widget.onPickPdfToInsert != null ||
+                        widget.onPickPdfFilesToInsert != null ||
                         widget.onExportPages != null ||
                         widget.onSplitPages != null ||
                         (widget.allowPageEditing &&
@@ -858,6 +867,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                 widget.allowPageEditing,
                                             onPickPdfToInsert:
                                                 widget.onPickPdfToInsert,
+                                            onPickPdfFilesToInsert:
+                                                widget.onPickPdfFilesToInsert,
                                             onExportPages: widget.onExportPages,
                                             onSplitPages: widget.onSplitPages,
                                           ),
@@ -914,6 +925,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                   widget.allowPageEditing,
                                               onPickPdfToInsert:
                                                   widget.onPickPdfToInsert,
+                                              onPickPdfFilesToInsert:
+                                                  widget.onPickPdfFilesToInsert,
                                               onExportPages:
                                                   widget.onExportPages,
                                               onSplitPages: widget.onSplitPages,
@@ -1351,6 +1364,7 @@ class _PageActionsButton extends StatelessWidget {
     required this.viewerController,
     required this.allowPageEditing,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
   });
@@ -1362,6 +1376,7 @@ class _PageActionsButton extends StatelessWidget {
   /// read-only strip drops them and keeps only Export.
   final bool allowPageEditing;
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
   final void Function(Uint8List bytes)? onExportPages;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
@@ -1378,6 +1393,19 @@ class _PageActionsButton extends StatelessWidget {
   }
 
   Future<void> _insert(BuildContext context) async {
+    final pickFiles = onPickPdfFilesToInsert;
+    if (pickFiles != null) {
+      final inserted = await pdfInsertPagesInteractively(
+        context,
+        controller: controller,
+        pickFiles: pickFiles,
+        currentPage: viewerController.currentPage,
+      );
+      if (inserted != null) {
+        unawaited(_jumpToInsertedPage(viewerController, inserted.pages.first));
+      }
+      return;
+    }
     final pick = onPickPdfToInsert;
     if (pick == null) return;
     // read everything off the context BEFORE the async gap
@@ -1446,7 +1474,8 @@ class _PageActionsButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canPaste = allowPageEditing && controller.hasPageClipboard;
-    final canInsert = onPickPdfToInsert != null;
+    final canInsert =
+        onPickPdfToInsert != null || onPickPdfFilesToInsert != null;
     final canExport = onExportPages != null;
     return PopupMenuButton<_PageAction>(
       key: const ValueKey('pdf-thumbnail-page-actions'),
@@ -1539,6 +1568,7 @@ class PdfThumbnailView extends StatefulWidget {
     this.showAnnotations = true,
     this.allowPageEditing = true,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.fileDropController,
@@ -1576,6 +1606,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Picks a PDF to insert after the current page; null hides the
   /// "Insert PDF…" page-action. See [PdfThumbnailSidebar.onPickPdfToInsert].
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Picks PDFs for the multi-document insert dialog. See
+  /// [PdfThumbnailSidebar.onPickPdfFilesToInsert].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
 
   /// Receives the bytes of an exported page range; null hides the
   /// "Export pages…" page-action and the selection bar's export.
@@ -1981,6 +2015,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                 _preferences.thumbnailViewTileWidth = value,
                           ),
                           if (widget.onPickPdfToInsert != null ||
+                              widget.onPickPdfFilesToInsert != null ||
                               widget.onExportPages != null ||
                               widget.onSplitPages != null ||
                               (widget.allowPageEditing &&
@@ -1990,6 +2025,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                               viewerController: widget.viewerController,
                               allowPageEditing: widget.allowPageEditing,
                               onPickPdfToInsert: widget.onPickPdfToInsert,
+                              onPickPdfFilesToInsert:
+                                  widget.onPickPdfFilesToInsert,
                               onExportPages: widget.onExportPages,
                               onSplitPages: widget.onSplitPages,
                             ),

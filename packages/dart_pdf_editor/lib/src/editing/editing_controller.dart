@@ -4699,6 +4699,28 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Inserts pages from several open documents in one edit (one undo):
+  /// as a block at [at] (default: appended at the end), or woven into the
+  /// existing pages with [interleave]. See [PdfPageInsertion.insertPages]
+  /// for [bookmarks] and per-source page choices. Returns the final indices
+  /// of the inserted pages (empty, with nothing committed, when no source
+  /// contributes a page). Structural page edits shift indices, so the
+  /// annotation and page selections are cleared first.
+  List<int> insertPages(
+    List<PdfPageInsertSource> sources, {
+    int? at,
+    PdfPageInterleave? interleave,
+    bool bookmarks = true,
+  }) {
+    _selected.clear();
+    _selectedPages.clear();
+    _pageSelectionAnchor = null;
+    var positions = const <int>[];
+    apply((e) => positions = e.insertPages(sources,
+        at: at, interleave: interleave, bookmarks: bookmarks));
+    return positions;
+  }
+
   /// Duplicates [indices] (deep-copying each page and everything it
   /// references), inserting the copies as one contiguous block right
   /// after the last of them and preserving their order. Returns false (a

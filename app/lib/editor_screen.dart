@@ -2255,7 +2255,16 @@ class _EditorScreenState extends State<EditorScreen>
       final action = await _promptDropAction(pdfs.length, tab!.title);
       if (action == null || !mounted) return; // cancelled / disposed
       if (action == _DropAction.insert) {
-        await _insertDropped(pdfs, session, tab.title);
+        // the drop picked the files; the insert dialog picks where and how
+        final files = await _readInsertFiles([
+          for (final item in pdfs) (name: item.name, read: item.readAsBytes),
+        ]);
+        if (!mounted) return;
+        if (files.isEmpty) {
+          _toast(appL10n(context).editorCouldNotInsertDropped(pdfs.length));
+          return;
+        }
+        await _insertDocument(tab, files: files);
         return;
       }
     }
@@ -2355,32 +2364,55 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  /// The menu counterpart to dropping a PDF on a thumbnail: insert after the
-  /// current page, retain this tab's identity, and reveal the imported pages.
-  Future<void> _insertDocument(DocumentTab tab) async {
+  /// The menu counterpart to dropping a PDF on a thumbnail: pick one or more
+  /// PDFs (unless [files] were already dropped), choose page ranges,
+  /// placement, interleave and bookmarks in the insert-pages dialog, retain
+  /// this tab's identity, and reveal the imported pages.
+  Future<void> _insertDocument(DocumentTab tab,
+      {List<PdfInsertFile> files = const []}) async {
     final session = tab.session;
     if (session == null || _readOnly) return;
     final l10n = appL10n(context);
     final failure = pdfL10n(context).thumbInsertFileFailed;
     try {
-      final bytes = await pickPdfBytes(l10n.fileTypePdf);
-      if (bytes == null ||
-          !mounted ||
-          !containsTab(tab) ||
-          _readOnly ||
-          !identical(tab.session, session)) {
-        return;
-      }
-      final at =
-          (tab.viewer!.currentPage + 1).clamp(0, session.document.pageCount);
-      session.insertPagesFromBytes(bytes, at: at);
-      if (identical(_active, tab)) _revealInsertedPage(at);
-      _toast(l10n.editorInsertedIntoTitle(1, tab.title));
+      final result = await pdfInsertPagesInteractively(
+        context,
+        controller: session,
+        pickFiles: _pickInsertFiles,
+        initialFiles: files,
+        currentPage: tab.viewer?.currentPage ?? 0,
+      );
+      if (result == null || !mounted || !containsTab(tab)) return;
+      if (identical(_active, tab)) _revealInsertedPage(result.pages.first);
+      _toast(l10n.editorInsertedIntoTitle(result.files, tab.title));
     } catch (e) {
       AppDevTools.instance
           .addLog('insert document failed: $e', level: DevLogLevel.error);
       if (mounted) _toast('$failure ${openErrorSummary(e)}');
     }
+  }
+
+  /// Picks PDFs for the insert-pages dialog. A file that can't be read is
+  /// logged and left out rather than failing the whole pick.
+  Future<List<PdfInsertFile>> _pickInsertFiles() async {
+    final picked = await pickPdfFiles(appL10n(context).fileTypePdf);
+    return _readInsertFiles([
+      for (final file in picked) (name: file.name, read: file.readAsBytes),
+    ]);
+  }
+
+  Future<List<PdfInsertFile>> _readInsertFiles(
+      List<({String name, Future<Uint8List> Function() read})> files) async {
+    final out = <PdfInsertFile>[];
+    for (final file in files) {
+      try {
+        out.add(PdfInsertFile(file.name, await file.read()));
+      } catch (e) {
+        AppDevTools.instance.addLog('insert read failed: ${file.name} - $e',
+            level: DevLogLevel.error);
+      }
+    }
+    return out;
   }
 
   /// Scrolls the active viewer to [index] - the first page a positioned
@@ -4364,6 +4396,8 @@ class _EditorScreenState extends State<EditorScreen>
       // regardless - see _buildAppBar - but ⌘S does not.)
       alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
+      // the strip's "Insert PDF…" opens the multi-document insert dialog
+      onPickPdfFilesToInsert: _pickInsertFiles,
       // a PDF dragged in from the desktop can be dropped between two page
       // thumbnails; the drop lands its pages exactly there
       thumbnailDropController: _thumbnailDrop,

@@ -25,6 +25,7 @@ import 'editing/editor_commands.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
+import 'insert_pages_dialog.dart';
 import 'l10n/pdf_l10n.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
@@ -242,6 +243,7 @@ class PdfEditorView extends StatefulWidget {
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.thumbnailDropController,
@@ -350,6 +352,7 @@ class PdfEditorView extends StatefulWidget {
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.thumbnailDropController,
@@ -539,6 +542,13 @@ class PdfEditorView extends StatefulWidget {
   /// When null the thumbnail strip's "Insert PDF…" action is hidden. Needs
   /// [PdfEditorFeatures.pageEditing].
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Picks one or more PDFs to insert (empty = cancelled). When given, the
+  /// strip's "Insert PDF…" opens the multi-document insert dialog
+  /// ([showPdfInsertPagesDialog]: per-file page ranges, odd/even, reverse,
+  /// before/after placement, interleave, bookmarks) and takes precedence
+  /// over [onPickPdfToInsert]. Needs [PdfEditorFeatures.pageEditing].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
 
   /// Receives a standalone PDF of a user-chosen page range to save (the
   /// thumbnail strip's "Export pages…" action asks for the range, then
@@ -1001,6 +1011,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         alwaysAllowSave: complete && widget.alwaysAllowSave,
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
+        onPickPdfFilesToInsert: complete ? widget.onPickPdfFilesToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
         onSplitPages: complete ? widget.onSplitPages : null,
         thumbnailDropController:
@@ -1383,6 +1394,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 // needs page editing on, export stands on its own
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
+                onPickPdfFilesToInsert:
+                    features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 onSplitPages: widget.onSplitPages,
                 // dropping a PDF between two tiles inserts it there; a
@@ -1475,6 +1488,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 allowPageEditing: features.pageEditing,
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
+                onPickPdfFilesToInsert:
+                    features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 onSplitPages: widget.onSplitPages,
                 fileDropController: features.pageEditing
