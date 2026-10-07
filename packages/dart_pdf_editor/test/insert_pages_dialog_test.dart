@@ -36,8 +36,9 @@ void main() {
     });
     tearDown(() => controller.dispose());
 
-    Future<void> show(WidgetTester tester, List<PdfInsertFile> files) async {
-      tester.view.physicalSize = const Size(1200, 1000);
+    Future<void> show(WidgetTester tester, List<PdfInsertFile> files,
+        {Size size = const Size(1200, 1000)}) async {
+      tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
@@ -235,6 +236,46 @@ void main() {
       final outline = PdfOutline.of(controller.document).items;
       expect(outline.map((i) => i.title), ['zeta', 'alpha']);
       expect(outline.map((i) => i.destination!.pageIndex), [0, 1]);
+    });
+
+    testWidgets('a phone-width dialog stacks its rows without overflowing',
+        (tester) async {
+      await show(
+          tester,
+          [
+            PdfInsertFile('b.pdf', buildMultiPagePdf(2)),
+            PdfInsertFile('a.pdf', buildMultiPagePdf(1)),
+          ],
+          size: const Size(360, 1400));
+      // a layout overflow is reported as a test exception
+      expect(tester.takeException(), isNull);
+      // the stacked file row puts the range field above the odd/even picker
+      final range = tester
+          .getRect(find.byKey(const ValueKey('pdf-insert-pages-range-0')));
+      final subset = tester
+          .getRect(find.byKey(const ValueKey('pdf-insert-pages-subset-0')));
+      expect(subset.top, greaterThan(range.bottom));
+      // ...and the page number below the before/after picker
+      final side =
+          tester.getRect(find.byKey(const ValueKey('pdf-insert-pages-side')));
+      final page =
+          tester.getRect(find.byKey(const ValueKey('pdf-insert-pages-page')));
+      expect(page.top, greaterThan(side.bottom));
+
+      // Sort by name is an icon button here, and still sorts
+      expect(tester.widget(find.byKey(const ValueKey('pdf-insert-pages-sort'))),
+          isA<IconButton>());
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-sort')));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-insert-pages-reverse-1')));
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      // a.pdf (1 page) sorted first, then b.pdf reversed, after page 1
+      expect(labelsOf(controller.document),
+          ['Page 1', 'Page 1', 'Page 2', 'Page 1', 'Page 2']);
+      expect(result!.pages, [1, 2, 3]);
     });
   });
 }

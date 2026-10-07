@@ -345,11 +345,16 @@ class _InsertPagesDialogState extends State<_InsertPagesDialog> {
                       label: Text(l10n.insertPagesSortByName),
                     ),
                   const SizedBox(width: 4),
-                  FilledButton.tonalIcon(
-                    key: const ValueKey('pdf-insert-pages-add'),
-                    onPressed: _picking ? null : () => unawaited(_pickMore()),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: Text(l10n.insertPagesAddFiles),
+                  // a long translation ellipsizes rather than overflowing a
+                  // phone-width header
+                  Flexible(
+                    child: FilledButton.tonalIcon(
+                      key: const ValueKey('pdf-insert-pages-add'),
+                      onPressed: _picking ? null : () => unawaited(_pickMore()),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(l10n.insertPagesAddFiles,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
                   ),
                 ]);
               }),
