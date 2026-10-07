@@ -54,6 +54,13 @@ A batch of one still just opens. Every runner sets it the same way:
 
 ## Not covered
 
+- **NSIS keeps the classic verb on purpose.** Registering the DLL from the
+  installer (a CLSID plus `ExplorerCommandHandler` on the verb) would *not*
+  reach Windows 11's top-level menu: that menu takes only apps with package
+  identity, so an unpackaged install needs a signed sparse package, and the
+  Windows release builds are unsigned. It would also load the DLL into
+  `explorer.exe`, where it stays locked while the in-app updater reruns the
+  installer over the install folder.
 - **Snap** only exports desktop files for declared apps, and **Flatpak** can't
   export KDE service menus; the Flatpak does install the Open With entry.
 
