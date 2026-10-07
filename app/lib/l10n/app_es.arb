@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Ajustes personalizados",
   "whatsNew": "Novedades",
   "whatsNewInstalled": "Instalada",
-  "whatsNewUnavailable": "Las notas de la versión no están disponibles en esta compilación."
+  "whatsNewUnavailable": "Las notas de la versión no están disponibles en esta compilación.",
+  "incomingFilesTitle": "{count, plural, other{Abrir {count} PDF}}",
+  "incomingFilesMessage": "¿Abrir cada archivo en su propia pestaña o combinarlos en un documento nuevo? Arrastra los archivos para elegir el orden.",
+  "incomingFilesCombine": "Combinar"
 }

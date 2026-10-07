@@ -106,11 +106,8 @@ class MainFlutterWindow: NSWindow {
     if let appDelegate = NSApp.delegate as? AppDelegate {
       appDelegate.incomingChannel = channel
       channel.setMethodCallHandler { (call, result) in
-        if call.method == "getInitialFile" {
-          result(appDelegate.takeInitialFile())
-          DispatchQueue.main.async {
-            appDelegate.flushPendingFiles()
-          }
+        if call.method == "getInitialFiles" {
+          result(appDelegate.takeInitialFiles())
         } else {
           result(FlutterMethodNotImplemented)
         }

@@ -327,5 +327,8 @@
   "reduceSizeCustom": "การตั้งค่าแบบกำหนดเอง",
   "whatsNew": "มีอะไรใหม่",
   "whatsNewInstalled": "ติดตั้งแล้ว",
-  "whatsNewUnavailable": "ไม่มีบันทึกประจำรุ่นในบิลด์นี้"
+  "whatsNewUnavailable": "ไม่มีบันทึกประจำรุ่นในบิลด์นี้",
+  "incomingFilesTitle": "{count, plural, other{เปิด PDF {count} ไฟล์}}",
+  "incomingFilesMessage": "เปิดแต่ละไฟล์ในแท็บของตัวเอง หรือรวมเป็นเอกสารใหม่เอกสารเดียว? ลากไฟล์เพื่อกำหนดลำดับการรวม",
+  "incomingFilesCombine": "รวม"
 }

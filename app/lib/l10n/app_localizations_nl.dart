@@ -1276,4 +1276,21 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Release-opmerkingen zijn niet beschikbaar in deze build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pdf\'s openen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Elk bestand in een eigen tabblad openen, of ze samenvoegen tot één nieuw document? Sleep de bestanden om de volgorde te bepalen.';
+
+  @override
+  String get incomingFilesCombine => 'Samenvoegen';
 }

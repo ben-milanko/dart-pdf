@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "platform_channels.h"
 #include "win32_window.h"
@@ -19,10 +20,10 @@ constexpr ULONG_PTR kIncomingFileCopyDataMagic = 0x44504446;  // 'DPDF'
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  // |initial_file| is the document the app was launched with (cold start), or
-  // empty; the Dart side drains it once via `getInitialFile`.
+  // |initial_files| are the documents the app was launched with (cold start);
+  // the Dart side drains them once via `getInitialFiles`.
   explicit FlutterWindow(const flutter::DartProject& project,
-                         std::wstring initial_file = L"");
+                         std::vector<std::wstring> initial_files = {});
   virtual ~FlutterWindow();
 
  protected:

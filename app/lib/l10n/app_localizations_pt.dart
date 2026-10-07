@@ -1276,4 +1276,21 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'As notas de versão não estão disponíveis nesta compilação.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Abrir $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Abrir cada arquivo em sua própria aba ou combiná-los em um novo documento? Arraste os arquivos para definir a ordem.';
+
+  @override
+  String get incomingFilesCombine => 'Combinar';
 }

@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Benutzerdefinierte Einstellungen",
   "whatsNew": "Neuerungen",
   "whatsNewInstalled": "Installiert",
-  "whatsNewUnavailable": "In diesem Build sind keine Versionshinweise verfügbar."
+  "whatsNewUnavailable": "In diesem Build sind keine Versionshinweise verfügbar.",
+  "incomingFilesTitle": "{count, plural, other{{count} PDFs öffnen}}",
+  "incomingFilesMessage": "Jede Datei in einem eigenen Tab öffnen oder alle zu einem neuen Dokument zusammenführen? Ziehen Sie die Dateien, um die Reihenfolge festzulegen.",
+  "incomingFilesCombine": "Zusammenführen"
 }

@@ -1301,4 +1301,21 @@ class AppLocalizationsPl extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Informacje o wydaniu są niedostępne w tej kompilacji.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Otwórz pliki PDF ($count)',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Otworzyć każdy plik w osobnej karcie czy połączyć je w jeden nowy dokument? Przeciągnij pliki, aby ustalić kolejność.';
+
+  @override
+  String get incomingFilesCombine => 'Połącz';
 }

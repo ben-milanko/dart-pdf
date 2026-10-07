@@ -1285,4 +1285,21 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'ملاحظات الإصدار غير متوفرة في هذه النسخة.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'فتح $count من ملفات PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'هل تريد فتح كل ملف في علامة تبويب خاصة به، أم دمجها في مستند جديد واحد؟ اسحب الملفات لتحديد ترتيب دمجها.';
+
+  @override
+  String get incomingFilesCombine => 'دمج';
 }

@@ -1264,4 +1264,21 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Ghi chú phát hành không có sẵn trong bản dựng này.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Mở $count tệp PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Mở từng tệp trong thẻ riêng hay kết hợp chúng thành một tài liệu mới? Kéo các tệp để sắp xếp thứ tự.';
+
+  @override
+  String get incomingFilesCombine => 'Kết hợp';
 }

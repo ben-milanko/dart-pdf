@@ -1263,4 +1263,21 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF खोलें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'हर फ़ाइल को अलग टैब में खोलें, या सभी को एक नए दस्तावेज़ में जोड़ें? क्रम तय करने के लिए फ़ाइलों को खींचें।';
+
+  @override
+  String get incomingFilesCombine => 'जोड़ें';
 }

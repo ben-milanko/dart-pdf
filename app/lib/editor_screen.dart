@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
 import 'autosave.dart';
+import 'combine_incoming.dart';
 import 'command_palette.dart';
 import 'devtools.dart';
 import 'devtools_panel.dart';
@@ -322,7 +323,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
-  StreamSubscription<IncomingFile>? _incomingSub;
+  StreamSubscription<List<IncomingFile>>? _incomingSub;
   final Object _windowCloseOwner = Object();
   DartPdfWindowCloseCoordinator? _windowCloseCoordinator;
   bool _nativeWindowCloseApproved = false;
@@ -453,13 +454,13 @@ class _EditorScreenState extends State<EditorScreen>
       // have one Dart handler, so letting every window register would make the
       // newest secondary window steal delivery from the primary.
       _incoming.start();
-      _incomingSub = _incoming.files.listen(_openIncoming);
-      _incoming.initialFile().then((file) {
-        if (file != null && mounted) _openIncoming(file);
+      _incomingSub = _incoming.files.listen(_openIncomingBatch);
+      _incoming.initialFiles().then((files) {
+        if (mounted) _openIncomingBatch(files);
       });
       _openLaunchArgs();
       // PWA file-handler opens (installed web app); no-op off the web.
-      startWebLaunchQueue(_openIncoming);
+      startWebLaunchQueue(_openIncomingBatch);
     }
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
@@ -673,21 +674,18 @@ class _EditorScreenState extends State<EditorScreen>
     ));
   }
 
-  /// Opens a `.pdf` passed on the command line - how Windows and Linux deliver
-  /// a file association / "open with" at cold start (macOS and mobile use the
-  /// channel instead).
+  /// Opens the `.pdf`s passed on the command line - how Linux delivers a file
+  /// association / "open with" at cold start (the other runners answer
+  /// `getInitialFiles` instead; Windows does so from its own command line, so
+  /// that the files other launches forward during startup join the batch).
+  /// Several form one batch, which offers to combine them.
   void _openLaunchArgs() {
-    if (kIsWeb) return;
-    if (defaultTargetPlatform != TargetPlatform.windows &&
-        defaultTargetPlatform != TargetPlatform.linux) {
-      return;
-    }
-    for (final arg in widget.launchArgs) {
-      if (!arg.toLowerCase().endsWith('.pdf')) continue;
-      final name = arg.split(RegExp(r'[/\\]')).last;
-      _openIncoming(IncomingFile(name: name, path: arg));
-      break; // open only the first file
-    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.linux) return;
+    _openIncomingBatch([
+      for (final arg in widget.launchArgs)
+        if (arg.toLowerCase().endsWith('.pdf'))
+          IncomingFile(name: arg.split(RegExp(r'[/\\]')).last, path: arg),
+    ]);
   }
 
   @override
@@ -2181,10 +2179,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// way (see [_addTab]), so this holds however the two race.
   ///
   /// If a tab already holds this exact path, focus it instead of opening a
-  /// duplicate. The same launch file can arrive twice - once via the
-  /// command-line launch args and once via the native `getInitialFile`
-  /// channel (Windows delivers both) - and re-opening an already-open
-  /// document from the OS should surface the existing tab, not stack copies.
+  /// duplicate: re-opening an already-open document from the OS should
+  /// surface the existing tab, not stack copies.
   /// When that existing tab is one startup restore put back, it moves to the
   /// end: the user opened this file, so it belongs exactly where it would
   /// have landed had the OS beaten restore to it.
@@ -2225,6 +2221,67 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: file.path,
       originBookmark: file.bookmark,
     );
+  }
+
+  /// Opens a batch of files the OS handed over together. A single file opens
+  /// as before; several - a multi-file "Open with" from a file manager - ask
+  /// whether to open each in its own tab or combine them into one new
+  /// document.
+  Future<void> _openIncomingBatch(List<IncomingFile> files) async {
+    final seen = <String>{};
+    files = [
+      for (final file in files)
+        if (file.path == null || seen.add(file.path!)) file,
+    ];
+    if (!mounted || files.isEmpty) return;
+    if (files.length == 1) {
+      await _openIncoming(files.single);
+      return;
+    }
+    final choice = await showIncomingFilesDialog(context, files);
+    if (choice == null || !mounted) return;
+    if (choice.action == IncomingFilesAction.combine) {
+      await _combineIncoming(choice.files);
+      return;
+    }
+    for (final file in choice.files) {
+      if (!mounted) return;
+      await _openIncoming(file);
+    }
+  }
+
+  /// Combines [files], in order, into one new unsaved document. Its first
+  /// Save asks where to write it, so none of the sources is overwritten.
+  Future<void> _combineIncoming(List<IncomingFile> files) async {
+    final titles = {for (final tab in _tabs) tab.title};
+    var title = 'Combined.pdf';
+    for (var n = 2; titles.contains(title); n++) {
+      title = 'Combined $n.pdf';
+    }
+    final loading = _openLoading(title);
+    try {
+      final merged = await combinePdfs(await Future.wait([
+        for (final file in files)
+          file.bytes != null
+              ? Future<Uint8List>.value(file.bytes!)
+              : readPdfAtPath(file.path!, bookmark: file.bookmark),
+      ]));
+      if (!mounted) return;
+      final tab = DocumentTab.document(
+        title: title,
+        bytes: merged,
+        preferences: _prefs,
+        initiallyDirty: true,
+      );
+      // Like New: the result is a document to edit and save.
+      if (_replaceLoadingTab(loading, tab)) setState(() => _readOnly = false);
+    } catch (e) {
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        DocumentTab.error(title: title, error: _openFailureDetail(title, e)),
+      );
+    }
   }
 
   /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are

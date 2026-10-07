@@ -1254,4 +1254,21 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'ไม่มีบันทึกประจำรุ่นในบิลด์นี้';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'เปิด PDF $count ไฟล์',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'เปิดแต่ละไฟล์ในแท็บของตัวเอง หรือรวมเป็นเอกสารใหม่เอกสารเดียว? ลากไฟล์เพื่อกำหนดลำดับการรวม';
+
+  @override
+  String get incomingFilesCombine => 'รวม';
 }

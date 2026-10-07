@@ -1283,4 +1283,21 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Les notes de version ne sont pas disponibles dans cette version.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ouvrir $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Ouvrir chaque fichier dans son propre onglet, ou les combiner en un nouveau document ? Faites glisser les fichiers pour choisir l\'ordre.';
+
+  @override
+  String get incomingFilesCombine => 'Combiner';
 }

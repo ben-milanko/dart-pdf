@@ -7,6 +7,7 @@
 
 #include <string>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "flutter_window.h"
@@ -33,22 +34,22 @@ bool ExperimentalWindowingEnabled() {
   return dart_pdf::FlutterWindowingEnabled();
 }
 
-// Returns the first `.pdf` path on the command line, or an empty string. This
-// is how Windows delivers a file association / "open with" - the path is the
-// first argument after the executable.
-std::wstring FirstPdfArgument() {
+// Returns every `.pdf` path on the command line, in order. This is how Windows
+// delivers a file association / "open with" - the paths follow the executable
+// (one per process for an Explorer multi-select, several for "Send to" or a
+// command line).
+std::vector<std::wstring> PdfArguments() {
+  std::vector<std::wstring> result;
   int argc = 0;
   wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
   if (argv == nullptr) {
-    return std::wstring();
+    return result;
   }
-  std::wstring result;
   for (int i = 1; i < argc; i++) {
     std::wstring arg = argv[i];
     if (arg.size() >= 4 &&
         _wcsicmp(arg.c_str() + (arg.size() - 4), L".pdf") == 0) {
-      result = arg;
-      break;
+      result.push_back(std::move(arg));
     }
   }
   ::LocalFree(argv);
@@ -192,10 +193,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   const bool experimental_windowing = ExperimentalWindowingEnabled();
-  const std::wstring initial_file = FirstPdfArgument();
+  const std::vector<std::wstring> pdf_arguments = PdfArguments();
 
-  // Single instance: if one is already running, hand it our file (so the
-  // document opens in a new tab of the existing window) and exit. If we can't
+  // Single instance: if one is already running, hand it our files (so the
+  // documents open in the existing window, which offers to combine several)
+  // and exit. If we can't
   // find its window - it may be shutting down - fall through and start fresh.
   HANDLE single_instance =
       ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
@@ -208,8 +210,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       // foreground lock (it calls SetForegroundWindow when it handles the
       // forwarded file).
       ::AllowSetForegroundWindow(ASFW_ANY);
-      if (!initial_file.empty()) {
-        ForwardFileToRunningInstance(running, initial_file);
+      for (const auto& file : pdf_arguments) {
+        ForwardFileToRunningInstance(running, file);
       }
       if (experimental_windowing) {
         ::SendMessageW(running, kSurfaceWindowingApp, 0, 0);
@@ -235,7 +237,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     auto engine = std::make_shared<flutter::FlutterEngine>(project);
     RegisterPlugins(engine.get());
     DartPdfPlatformChannels platform_channels(
-        initial_file, []() { return ActiveProcessWindow(); });
+        pdf_arguments, []() { return ActiveProcessWindow(); });
     platform_channels.Register(engine->messenger());
     WindowingMessageHost message_host(&platform_channels);
     if (!message_host.Create(instance) || !engine->Run()) {
@@ -255,7 +257,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return EXIT_SUCCESS;
   }
 
-  FlutterWindow window(project, initial_file);
+  FlutterWindow window(project, pdf_arguments);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"DartPDF", origin, size)) {
