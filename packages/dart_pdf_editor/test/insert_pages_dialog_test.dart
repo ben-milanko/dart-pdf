@@ -1,6 +1,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfOutline;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 List<String> labelsOf(PdfDocument doc) => [
@@ -158,6 +159,82 @@ void main() {
       expect(result!.pages, [0, 2, 4]);
       expect(labelsOf(controller.document),
           ['Page 1', 'Page 1', 'Page 2', 'Page 2', 'Page 3']);
+    });
+
+    testWidgets('picks first when nothing was given; cancel leaves no edit',
+        (tester) async {
+      // an empty pick never opens the dialog
+      await show(tester, const []);
+      expect(
+          find.byKey(const ValueKey('pdf-insert-pages-dialog')), findsNothing);
+      expect(result, isNull);
+
+      nextPick = [PdfInsertFile('picked.pdf', buildMultiPagePdf(1))];
+      await tester.tap(find.byKey(const ValueKey('open')));
+      await tester.pumpAndSettle();
+      expect(find.text('picked.pdf'), findsOneWidget);
+      // removing the last file empties the list and blocks Insert
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-remove-0')));
+      await tester.pumpAndSettle();
+      expect(find.text('Add one or more PDFs to insert.'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.byKey(const ValueKey('pdf-insert-pages-confirm')))
+              .onPressed,
+          isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-cancel')));
+      await tester.pumpAndSettle();
+      expect(result, isNull);
+      expect(controller.canUndo, isFalse);
+    });
+
+    testWidgets('sort, move down, run lengths and per-file bookmarks',
+        (tester) async {
+      await show(tester, [
+        PdfInsertFile('zeta.pdf', buildMultiPagePdf(1)),
+        PdfInsertFile('alpha.PDF', buildMultiPagePdf(2)),
+      ]);
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-sort')));
+      await tester.pumpAndSettle();
+      // alpha sorted first; moving it down restores zeta, alpha
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-down-0')));
+      await tester.pumpAndSettle();
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-insert-pages-interleave')));
+      await tester.pumpAndSettle();
+      FilledButton confirm() => tester.widget<FilledButton>(
+          find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-insert-pages-run-existing')), '0');
+      await tester.pump();
+      expect(find.text('≥ 1'), findsOneWidget);
+      expect(confirm().onPressed, isNull);
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-insert-pages-run-existing')), '2');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-insert-pages-run-inserted')), '2');
+      await tester.pump();
+      expect(confirm().onPressed, isNotNull);
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-insert-pages-bookmarks')));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-insert-pages-bookmark-files')));
+      await pickMenu(
+          tester, 'pdf-insert-pages-side', 'pdf-insert-pages-side-before');
+      await pickMenu(
+          tester, 'pdf-insert-pages-anchor', 'pdf-insert-pages-anchor-first');
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.pumpAndSettle();
+
+      // zeta 1, alpha 1 | base 1-2 | alpha 2
+      expect(result!.pages, [0, 1, 4]);
+      expect(result!.files, 2);
+      final outline = PdfOutline.of(controller.document).items;
+      expect(outline.map((i) => i.title), ['zeta', 'alpha']);
+      expect(outline.map((i) => i.destination!.pageIndex), [0, 1]);
     });
   });
 }
