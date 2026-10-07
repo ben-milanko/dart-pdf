@@ -1827,6 +1827,42 @@ void main() {
           reason: 'the view follows the first inserted page');
     });
 
+    testWidgets(
+        'with a multi-file picker, Insert PDF… opens the insert-pages dialog',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          viewerController: viewer,
+          onPickPdfFilesToInsert: () async => [
+            PdfInsertFile('a.pdf', buildMultiPagePdf(1)),
+            PdfInsertFile('b.pdf', buildMultiPagePdf(2)),
+          ],
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-insert-pdf')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-insert-pages-dialog')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.pumpAndSettle();
+      // both files land, in order, after the current page as one undo step
+      expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
+      editing.undo();
+      expect(editing.document.pageCount, 2);
+    });
+
     testWidgets('Export pages… hands the host the chosen range',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(4));

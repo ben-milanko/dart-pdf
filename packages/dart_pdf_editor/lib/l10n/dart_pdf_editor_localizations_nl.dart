@@ -2304,4 +2304,138 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Sluiten';
+
+  @override
+  String get insertPagesTitle => 'Pagina\'s invoegen';
+
+  @override
+  String get insertPagesFiles => 'Bestanden';
+
+  @override
+  String get insertPagesAddFiles => 'Bestanden toevoegen…';
+
+  @override
+  String get insertPagesSortByName => 'Sorteren op naam';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Voeg een of meer pdf\'s toe om in te voegen.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Kan $names niet openen. Het bestand is mogelijk beschadigd of met een wachtwoord beveiligd.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pagina\'s',
+      one: '1 pagina',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Omhoog';
+
+  @override
+  String get insertPagesMoveDown => 'Omlaag';
+
+  @override
+  String get insertPagesRemoveFile => 'Uit lijst verwijderen';
+
+  @override
+  String get insertPagesRange => 'Pagina\'s';
+
+  @override
+  String get insertPagesRangeHint => 'Alle (bijv. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Gebruik pagina\'s 1–$count, bijv. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Alle pagina\'s';
+
+  @override
+  String get insertPagesSubsetOdd => 'Oneven pagina\'s';
+
+  @override
+  String get insertPagesSubsetEven => 'Even pagina\'s';
+
+  @override
+  String get insertPagesReverse => 'Omgekeerde volgorde';
+
+  @override
+  String get insertPagesPlacement => 'Positie';
+
+  @override
+  String get insertPagesBefore => 'Vóór';
+
+  @override
+  String get insertPagesAfter => 'Na';
+
+  @override
+  String get insertPagesFirstPage => 'Eerste pagina';
+
+  @override
+  String get insertPagesLastPage => 'Laatste pagina';
+
+  @override
+  String get insertPagesPage => 'Pagina';
+
+  @override
+  String get insertPagesPageNumber => 'Paginanummer';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'van $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Voer 1–$count in';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Pagina\'s afwisselen';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Wissel ingevoegde en bestaande pagina\'s af vanaf de positie, bijvoorbeeld om apart gescande oneven en even pagina\'s weer samen te voegen.';
+
+  @override
+  String get insertPagesRunInserted => 'Ingevoegde pagina\'s per keer';
+
+  @override
+  String get insertPagesRunExisting => 'Documentpagina\'s ertussen';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Bladwijzers meenemen';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Een bladwijzer per bestand toevoegen';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Voegt $inserted pagina\'s in',
+      one: 'Voegt 1 pagina in',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total pagina\'s',
+      one: '1 pagina',
+    );
+    return '$_temp0 – het document krijgt $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Invoegen';
 }
