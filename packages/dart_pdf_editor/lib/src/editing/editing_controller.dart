@@ -6444,7 +6444,12 @@ class PdfEditingController extends ChangeNotifier {
     final count = clipboard.length;
     final pasted = apply(
       (e) {
+        final templateValues = _resolvedStampTemplateValues();
         for (final snapshot in clipboard) {
+          if (_pasteRestampedTemplate(
+              e, pageIndex, snapshot, dx, dy, templateValues)) {
+            continue;
+          }
           e.pasteAnnotation(pageIndex, snapshot, dx: dx, dy: dy);
         }
       },
@@ -6462,6 +6467,79 @@ class PdfEditingController extends ChangeNotifier {
     }
     return true;
   }
+
+  /// Pastes [snapshot] as a freshly placed stamp when it is a template stamp
+  /// with `{{field}}` placeholders, so a pasted `{{date}}` stamp reads today's
+  /// date (and the current user) instead of the day the original was placed -
+  /// pasting a stamp is placing it again. The copy keeps the original's
+  /// position, size, colour, opacity, type and tags.
+  ///
+  /// Returns false, leaving the verbatim [PdfAnnotationClipboard.pasteAnnotation]
+  /// to the caller, for anything else: non-stamps, stamps without a recorded
+  /// template or without placeholders (a re-render would change nothing), and
+  /// stamps the user rotated, whose turned appearance a re-render would lose.
+  bool _pasteRestampedTemplate(
+    PdfEditor e,
+    int pageIndex,
+    PdfAnnotationSnapshot snapshot,
+    double dx,
+    double dy,
+    Map<String, String> templateValues,
+  ) {
+    if (snapshot.subtype != 'Stamp') return false;
+    // the copy as it would land here: re-oriented for the destination page's
+    // /Rotate, which also turns its /Rect to match
+    final source = snapshot.annotationForPreview(_document, pageIndex);
+    final template = source.stampTemplate;
+    if (template == null || !template.isValid) return false;
+    final hasFields = template.components.any((c) =>
+        c.type == PdfStampTemplateComponentType.text && c.text.contains('{{'));
+    if (!hasFields) return false;
+    final pageRotation = _page(pageIndex).rotation;
+    if (!_appearanceTurnedBy(source, pageRotation - snapshot.sourceRotation)) {
+      return false;
+    }
+    final r = source.rect;
+    e.addTemplateStamp(
+      pageIndex,
+      PdfRect(r.left + dx, r.bottom + dy, r.right + dx, r.top + dy),
+      template,
+      contents: _stampTemplateCaption(template) ?? source.contents,
+      color: source.color ?? 0xC03030,
+      opacity: _number(source.document.cos.resolve(source.dict['CA'])) ?? 1,
+      pageRotation: pageRotation,
+      author: preferences.author,
+      stampType: source.stampType,
+      stampTags: source.stampTags,
+      templateValues: templateValues,
+    );
+    return true;
+  }
+
+  /// Whether [annotation]'s appearance is turned by exactly [degrees]
+  /// (counterclockwise, modulo 360) - the rotation a paste folds in for a
+  /// differently rotated page. Anything more is a rotation the user gave it.
+  static bool _appearanceTurnedBy(PdfAnnotation annotation, int degrees) {
+    final form = annotation.normalAppearance;
+    if (form == null) return false;
+    final cos = annotation.document.cos;
+    final matrix = cos.resolve(form.dictionary['Matrix']);
+    var turned = 0.0;
+    if (matrix is CosArray && matrix.items.length == 6) {
+      final a = _number(cos.resolve(matrix.items[0]));
+      final b = _number(cos.resolve(matrix.items[1]));
+      if (a == null || b == null) return false;
+      turned = math.atan2(b, a) * 180 / math.pi;
+    }
+    final off = ((turned - degrees) % 360 + 360) % 360;
+    return off < 0.5 || off > 359.5;
+  }
+
+  static double? _number(CosObject? value) => switch (value) {
+        CosInteger(:final value) => value.toDouble(),
+        CosReal(:final value) => value,
+        _ => null,
+      };
 
   /// Copies the current annotation selection to every page in [pageIndices],
   /// preserving each annotation's page coordinates.
