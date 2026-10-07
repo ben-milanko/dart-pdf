@@ -48,7 +48,7 @@ class PdfMerger {
 
 extension on PdfEditor {
   void _mergeImportedDocumentData(_PageImporter importer,
-      {required bool intoEmpty}) {
+      {required bool intoEmpty, bool outlines = true}) {
     _mergeFormFields(importer);
     _mergeNamedDestinations(importer);
     _mergeOptionalContent(importer);
@@ -58,11 +58,12 @@ extension on PdfEditor {
       document.catalog['OutputIntents'] = importer.copyValue(intents);
       _updater.markChanged(document.catalog);
     }
-    final outlines = source.cos.resolve(source.catalog['Outlines']);
-    if (outlines is CosDictionary && outlines.containsKey('First')) {
+    if (!outlines) return;
+    final incoming = source.cos.resolve(source.catalog['Outlines']);
+    if (incoming is CosDictionary && incoming.containsKey('First')) {
       final root = _ensureOutlineRoot();
       final imported =
-          _importOutlineChildren(importer, outlines, <CosDictionary>{});
+          _importOutlineChildren(importer, incoming, <CosDictionary>{});
       _relinkOutlineChildren(root, [..._outlineChildren(root), ...imported]);
       _recountOutline(root);
     }

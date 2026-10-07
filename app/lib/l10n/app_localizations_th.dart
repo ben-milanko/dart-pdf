@@ -1271,4 +1271,17 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'รวม';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'รวม PDF $count ไฟล์',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'ลากไฟล์เพื่อกำหนดลำดับการรวม';
 }

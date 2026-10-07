@@ -1280,4 +1280,18 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'जोड़ें';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF जोड़ें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।';
 }

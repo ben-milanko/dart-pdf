@@ -57,21 +57,27 @@ std::wstring ExpandLongPath(const std::wstring& path) {
 // delivers a file association / "open with" - the paths follow the executable
 // (one per process for an Explorer multi-select, several for "Send to" or a
 // command line).
-std::vector<std::wstring> PdfArguments() {
-  std::vector<std::wstring> result;
+// `--combine` (Explorer's "Combine with DartPDF" verb) marks every file to
+// combine with the rest of its batch.
+std::vector<DartPdfIncomingFile> PdfArguments() {
+  std::vector<DartPdfIncomingFile> result;
   int argc = 0;
   wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
   if (argv == nullptr) {
     return result;
   }
+  bool combine = false;
   for (int i = 1; i < argc; i++) {
     std::wstring arg = argv[i];
-    if (arg.size() >= 4 &&
-        _wcsicmp(arg.c_str() + (arg.size() - 4), L".pdf") == 0) {
-      result.push_back(ExpandLongPath(arg));
+    if (arg == L"--combine") {
+      combine = true;
+    } else if (arg.size() >= 4 &&
+               _wcsicmp(arg.c_str() + (arg.size() - 4), L".pdf") == 0) {
+      result.push_back({ExpandLongPath(arg), false});
     }
   }
   ::LocalFree(argv);
+  for (auto& file : result) file.combine = combine;
   return result;
 }
 
@@ -167,12 +173,15 @@ class WindowingMessageHost {
 
     if (message == WM_COPYDATA) {
       auto* data = reinterpret_cast<COPYDATASTRUCT*>(lparam);
-      if (data != nullptr && data->dwData == kIncomingFileCopyDataMagic &&
+      const bool combine =
+          data != nullptr && data->dwData == kIncomingCombineCopyDataMagic;
+      if (data != nullptr &&
+          (data->dwData == kIncomingFileCopyDataMagic || combine) &&
           data->lpData != nullptr && data->cbData >= sizeof(wchar_t)) {
         const wchar_t* chars = static_cast<const wchar_t*>(data->lpData);
         const size_t max_chars = data->cbData / sizeof(wchar_t);
         self->channels_->DeliverFileToFlutter(
-            std::wstring(chars, ::wcsnlen(chars, max_chars)));
+            std::wstring(chars, ::wcsnlen(chars, max_chars)), combine);
       }
       SurfaceWindowingApp();
       return TRUE;
@@ -188,12 +197,15 @@ class WindowingMessageHost {
   HWND window_ = nullptr;
 };
 
-// Hands |path| to the running instance via WM_COPYDATA so it opens in a new tab.
-void ForwardFileToRunningInstance(HWND target, const std::wstring& path) {
+// Hands |file| to the running instance via WM_COPYDATA so it opens in a new
+// tab (or joins the batch being combined).
+void ForwardFileToRunningInstance(HWND target,
+                                  const DartPdfIncomingFile& file) {
   COPYDATASTRUCT cds{};
-  cds.dwData = kIncomingFileCopyDataMagic;
-  cds.cbData = static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t));
-  cds.lpData = const_cast<wchar_t*>(path.c_str());
+  cds.dwData = file.combine ? kIncomingCombineCopyDataMagic
+                            : kIncomingFileCopyDataMagic;
+  cds.cbData = static_cast<DWORD>((file.path.size() + 1) * sizeof(wchar_t));
+  cds.lpData = const_cast<wchar_t*>(file.path.c_str());
   ::SendMessageW(target, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&cds));
 }
 
@@ -212,7 +224,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   const bool experimental_windowing = ExperimentalWindowingEnabled();
-  const std::vector<std::wstring> pdf_arguments = PdfArguments();
+  const std::vector<DartPdfIncomingFile> pdf_arguments = PdfArguments();
 
   // Single instance: if one is already running, hand it our files (so the
   // documents open in the existing window, which offers to combine several)

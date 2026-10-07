@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Bu sürümde sürüm notları kullanılamıyor.",
   "incomingFilesTitle": "{count, plural, other{{count} PDF aç}}",
   "incomingFilesMessage": "Her dosya kendi sekmesinde mi açılsın, yoksa tek bir yeni belgede mi birleştirilsin? Sırayı belirlemek için dosyaları sürükleyin.",
-  "incomingFilesCombine": "Birleştir"
+  "incomingFilesCombine": "Birleştir",
+  "incomingFilesCombineTitle": "{count, plural, other{{count} PDF'yi birleştir}}",
+  "incomingFilesCombineMessage": "Birleştirme sırasını belirlemek için dosyaları sürükleyin."
 }

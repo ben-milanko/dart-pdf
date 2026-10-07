@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "As notas de versão não estão disponíveis nesta compilação.",
   "incomingFilesTitle": "{count, plural, other{Abrir {count} PDFs}}",
   "incomingFilesMessage": "Abrir cada arquivo em sua própria aba ou combiná-los em um novo documento? Arraste os arquivos para definir a ordem.",
-  "incomingFilesCombine": "Combinar"
+  "incomingFilesCombine": "Combinar",
+  "incomingFilesCombineTitle": "{count, plural, other{Combinar {count} PDFs}}",
+  "incomingFilesCombineMessage": "Arraste os arquivos para definir a ordem da combinação."
 }

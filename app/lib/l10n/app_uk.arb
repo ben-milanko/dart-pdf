@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Примітки до випуску недоступні в цій збірці.",
   "incomingFilesTitle": "{count, plural, other{Відкрити PDF-файли: {count}}}",
   "incomingFilesMessage": "Відкрити кожен файл в окремій вкладці чи об'єднати їх в один новий документ? Перетягніть файли, щоб задати порядок.",
-  "incomingFilesCombine": "Об'єднати"
+  "incomingFilesCombine": "Об'єднати",
+  "incomingFilesCombineTitle": "{count, plural, other{Об'єднати PDF-файли: {count}}}",
+  "incomingFilesCombineMessage": "Перетягніть файли, щоб задати порядок об'єднання."
 }

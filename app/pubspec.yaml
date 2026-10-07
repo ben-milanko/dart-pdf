@@ -123,6 +123,18 @@ msix_config:
   # time (see RELEASING.md "File associations"); the NSIS installer does the
   # equivalent through the registry.
   file_extension: .pdf
+  # Explorer's "Combine with DartPDF" (Windows 11's top-level menu included).
+  # A packaged app can't add the registry verb the NSIS installer writes, so
+  # the package hosts an IExplorerCommand handler instead: windows/combine_menu,
+  # which `flutter build windows` builds at dll_path. The clsid is the one in
+  # combine_menu.cpp.
+  context_menu:
+    dll_path: build/windows/x64/combine_menu/dartpdf_combine_menu.dll
+    items:
+      - type: .pdf
+        commands:
+          - id: CombineWithDartPDF
+            clsid: f515c804-0900-4602-8912-22643870a1a1
   # Update checks, and the TSA/OCSP/Fulcio calls made when signing.
   capabilities: internetClient
   architecture: x64

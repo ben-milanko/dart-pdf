@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "ไม่มีบันทึกประจำรุ่นในบิลด์นี้",
   "incomingFilesTitle": "{count, plural, other{เปิด PDF {count} ไฟล์}}",
   "incomingFilesMessage": "เปิดแต่ละไฟล์ในแท็บของตัวเอง หรือรวมเป็นเอกสารใหม่เอกสารเดียว? ลากไฟล์เพื่อกำหนดลำดับการรวม",
-  "incomingFilesCombine": "รวม"
+  "incomingFilesCombine": "รวม",
+  "incomingFilesCombineTitle": "{count, plural, other{รวม PDF {count} ไฟล์}}",
+  "incomingFilesCombineMessage": "ลากไฟล์เพื่อกำหนดลำดับการรวม"
 }

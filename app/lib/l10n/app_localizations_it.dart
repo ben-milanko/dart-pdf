@@ -1295,4 +1295,18 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Unisci';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Unisci $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Trascina i file per scegliere l\'ordine in cui unirli.';
 }

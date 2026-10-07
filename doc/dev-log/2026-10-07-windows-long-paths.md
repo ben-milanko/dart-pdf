@@ -52,3 +52,17 @@ files and Document (one launch per file) beyond that, so the verb never
 disappears. The `msix` tool can't express `MultiSelectModel` anyway. Past 100
 files would need a COM `DropTarget`/`ExecuteCommand` handler. See RELEASING.md
 "File associations".
+
+## Follow-up: "Combine with DartPDF" (#1036)
+
+#1036 added a right-click "Combine with DartPDF" verb: a classic
+`SystemFileAssociations\.pdf\shell\DartPDF.Combine` verb in the NSIS
+installer (`--combine "%1"`, already `MultiSelectModel=Player`), and an
+`IExplorerCommand` DLL (`windows/combine_menu`) for the MSIX. Merging it into
+this branch conflicted in `PdfArguments`. The resolution keeps #1036's
+`--combine` parsing and `DartPdfIncomingFile` and still runs every `.pdf`
+argument through `ExpandLongPath`, so a combine launched with 8.3 aliases
+forwards real paths too. The MSIX handler needs nothing: it reads
+`SIGDN_FILESYSPATH`, sizes `GetModuleFileNameW` dynamically, and splits
+selections past CreateProcess's 32K command-line limit across launches.
+It's a COM verb, so Explorer's 100-item Player cap doesn't apply to it.

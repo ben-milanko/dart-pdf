@@ -1276,6 +1276,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2550,6 +2564,20 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -3824,4 +3852,18 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }

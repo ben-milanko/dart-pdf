@@ -1252,4 +1252,17 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => '합치기';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 합치기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '파일을 끌어 합칠 순서를 정하세요.';
 }

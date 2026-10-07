@@ -276,15 +276,25 @@ time: the NSIS installer writes the ProgID registry keys, the Store MSIX
 declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
 the `.desktop` file's `MimeType`.
 
-Opening many PDFs at once from Explorer: the NSIS ProgID's `open` verb sets
-`MultiSelectModel=Player`, which raises Explorer's limit for a legacy
-command-line verb from 15 selected files (the default `Document` model, past
-which the verb is hidden) to 100. Explorer still launches one process per
-file, and the single-instance runner forwards each to the running window,
-which offers to combine them. Going past 100 would take a COM `DropTarget` /
-`ExecuteCommand` verb handler. The MSIX needs no change: Windows launches a
-packaged app once with every file for 15 or fewer and once per file beyond
-that, rather than hiding the verb.
+Selecting many PDFs in Explorer: the NSIS installer's two verbs, the
+ProgID's `open` and the `SystemFileAssociations\.pdf` "Combine with DartPDF"
+(`--combine`), both set `MultiSelectModel=Player`. That raises Explorer's
+limit for a legacy command-line verb from 15 selected files (the default
+`Document` model, past which the verb is hidden) to 100. Explorer still
+launches one process per file, and the single-instance runner forwards each
+to the running window, which batches them (open-or-combine for Open,
+straight to ordering for Combine). Going past 100 would take a COM verb. The
+Store MSIX already has one for Combine (`windows/combine_menu`, an
+`IExplorerCommand` that receives the whole selection and has no item limit);
+its Open needs no change because Windows launches a packaged app once per
+file past 15 files rather than hiding the verb.
+
+Long paths: Explorer can hand any of these verbs a file past MAX_PATH as its
+8.3 short alias, so `PdfArguments` in `windows/runner/main.cpp` expands every
+path (Open or `--combine`) with `GetLongPathNameW` before it is opened or
+forwarded. The MSIX combine handler reads `SIGDN_FILESYSPATH`, which is
+already the long form, and splits a selection too long for one command line
+across several launches.
 
 ### Document (file) icon
 

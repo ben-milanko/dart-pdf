@@ -82,6 +82,25 @@ void main() {
     expect([for (final f in files) f.path], ['/tmp/a.pdf', '/tmp/b.pdf']);
   });
 
+  test('openFiles carries the "Combine with DartPDF" mark', () async {
+    final service = IncomingFileService();
+    addTearDown(service.dispose);
+    service.start();
+
+    final received = service.files.first;
+    const codec = StandardMethodCodec();
+    final message = codec.encodeMethodCall(const MethodCall('openFiles', [
+      {'name': 'a.pdf', 'path': '/tmp/a.pdf', 'combine': true},
+      {'name': 'b.pdf', 'path': '/tmp/b.pdf'},
+    ]));
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+            IncomingFileService.channelName, message, (_) {});
+
+    final files = await received;
+    expect([for (final f in files) f.combine], [true, false]);
+  });
+
   test('a native openFile call lands on the stream', () async {
     final service = IncomingFileService();
     addTearDown(service.dispose);
