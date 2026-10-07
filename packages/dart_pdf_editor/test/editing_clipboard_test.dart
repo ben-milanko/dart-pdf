@@ -159,6 +159,129 @@ void main() {
       expect(pasted.rect.left, closeTo(112, 1e-6));
     });
 
+    group('pasting a template stamp', () {
+      final template = PdfStampTemplate(
+        width: 240,
+        height: 96,
+        components: [
+          PdfStampTemplateComponent.rectangle(
+              x: 6, y: 16, width: 228, height: 64, color: 0x2E7D32),
+          PdfStampTemplateComponent.text(
+              x: 20,
+              y: 30,
+              width: 200,
+              height: 36,
+              text: 'APPROVED {{date}}',
+              color: 0x2E7D32),
+        ],
+      );
+
+      PdfEditingController placeAndCopy(PdfStampTemplate template) {
+        final editing = PdfEditingController(buildMultiPagePdf(2))
+          ..stampTemplateClock = (() => DateTime(2026, 8, 6))
+          ..activeStamp = PdfCustomStamp(
+            text: 'APPROVED {{date}}',
+            color: 0x2E7D32,
+            template: template,
+            type: 'Approval',
+            tags: const ['audit'],
+          );
+        addTearDown(editing.dispose);
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+        editing
+          ..tool = PdfEditTool.select
+          ..selectAnnotation(0, 0)
+          ..copySelectedAnnotations();
+        return editing;
+      }
+
+      test('fills its fields in again with today\'s date', () {
+        final editing = placeAndCopy(template);
+        final original = editing.document.page(0).annotations.single;
+        expect(original.contents, 'APPROVED 2026-08-06');
+
+        editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+        expect(editing.pasteAnnotations(0), isTrue);
+        final annotations = editing.document.page(0).annotations;
+        expect(annotations, hasLength(2));
+        final pasted = annotations[1];
+        expect(pasted.contents, 'APPROVED 2026-09-01');
+        final appearance = latin1.decode(
+            editing.document.cos.decodeStreamData(pasted.normalAppearance!));
+        expect(appearance, contains('2026-09-01'));
+        expect(appearance, isNot(contains('2026-08-06')));
+        // same design, place, size and metadata - only the fields moved on
+        expect(pasted.stampTemplate, template);
+        expect(pasted.color, 0x2E7D32);
+        expect(pasted.stampType, 'Approval');
+        expect(pasted.stampTags, ['audit']);
+        expect(pasted.rect.left, closeTo(original.rect.left + 12, 1e-6));
+        expect(pasted.rect.top, closeTo(original.rect.top - 12, 1e-6));
+        expect(pasted.rect.width, closeTo(original.rect.width, 1e-6));
+        expect(pasted.rect.height, closeTo(original.rect.height, 1e-6));
+        expect(editing.selectedAnnotationSlots, [(0, 1)]);
+        // the source stamp keeps the day it was placed
+        expect(annotations[0].contents, 'APPROVED 2026-08-06');
+
+        // still one revision
+        editing.undo();
+        expect(editing.document.page(0).annotations, hasLength(1));
+      });
+
+      test('pasted onto another page or at a point, the date refreshes too',
+          () {
+        final editing = placeAndCopy(template)
+          ..stampTemplateClock = (() => DateTime(2026, 9, 1));
+        expect(editing.pasteAnnotations(1), isTrue);
+        expect(editing.pasteAnnotations(0, at: (200, 200)), isTrue);
+        expect(editing.document.page(1).annotations.single.contents,
+            'APPROVED 2026-09-01');
+        final atPoint = editing.document.page(0).annotations[1];
+        expect(atPoint.contents, 'APPROVED 2026-09-01');
+        expect(
+            (atPoint.rect.left + atPoint.rect.right) / 2, closeTo(200, 1e-6));
+        expect(
+            (atPoint.rect.bottom + atPoint.rect.top) / 2, closeTo(200, 1e-6));
+      });
+
+      test('a design with no fields pastes verbatim', () {
+        final fixed = PdfStampTemplate(
+          width: 240,
+          height: 96,
+          components: [
+            PdfStampTemplateComponent.text(
+                x: 20,
+                y: 30,
+                width: 200,
+                height: 36,
+                text: 'APPROVED',
+                color: 0x2E7D32),
+          ],
+        );
+        final editing = placeAndCopy(fixed);
+        final original = editing.document.page(0).annotations.single;
+        expect(editing.pasteAnnotations(0), isTrue);
+        final pasted = editing.document.page(0).annotations[1];
+        expect(editing.document.cos.decodeStreamData(pasted.normalAppearance!),
+            editing.document.cos.decodeStreamData(original.normalAppearance!));
+      });
+
+      test('a rotated stamp keeps its turned appearance and old date', () {
+        final editing = placeAndCopy(template);
+        editing.rotateSelected(30);
+        editing.copySelectedAnnotations();
+        final original = editing.document.page(0).annotations.single;
+
+        editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+        expect(editing.pasteAnnotations(0), isTrue);
+        final pasted = editing.document.page(0).annotations[1];
+        // re-rendering would lose the rotation, so this copies as-is
+        expect(pasted.contents, 'APPROVED 2026-08-06');
+        expect(pasted.rect.width, closeTo(original.rect.width, 1e-6));
+        expect(pasted.rect.height, closeTo(original.rect.height, 1e-6));
+      });
+    });
+
     test('applySelectedAnnotationsToPages copies selection to other pages', () {
       final editing = PdfEditingController(buildMultiPagePdf(3))
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
