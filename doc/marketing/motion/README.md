@@ -50,3 +50,17 @@ about 6.5 MB, around -14 LUFS. `build/` is git-ignored.
 
 To retime a beat, edit the scene's `seg(t, a, b)` windows and move the matching
 `CUES` entry so the sound stays on the frame.
+
+## Website encodes
+
+The site (`site/assets/promo-*`) uses 30fps web encodes of the two masters:
+
+```sh
+ffmpeg -i build/dartpdf-sting-app.mp4 -vf fps=30 -c:v libx264 -preset slow -crf 25 \
+  -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k ../../../site/assets/promo-app.mp4
+ffmpeg -i build/dartpdf-sting-app.mp4 -vf fps=30 -c:v libsvtav1 -crf 38 -preset 6 \
+  -c:a libopus -b:a 96k ../../../site/assets/promo-app.webm
+ffmpeg -ss 19.0 -i build/dartpdf-sting-app.mp4 -frames:v 1 -vf scale=1600:-1 ../../../site/assets/promo-app-poster.webp
+```
+
+Do the same for `dartpdf-sting.mp4` → `promo-sdk.*`, with the poster taken at 21.2s.

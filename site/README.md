@@ -24,6 +24,11 @@ up against the real product facts.
   served at *any* path depth, every link on it is root-absolute (`/support`,
   not `support.html`), and it is `noindex` and kept out of `sitemap.xml`.
 - `assets/editor-screenshot.png` is the hero screenshot of the editor.
+- `assets/promo-{app,sdk}.{webm,mp4}` + `-poster.webp` are the promo videos below the
+  hero (app cut on the homepage, library cut on the SDK page), built from
+  `doc/marketing/motion/`. `promo-video.js` plays them only while on screen and
+  not at all under `prefers-reduced-motion`; each page carries a `VideoObject`
+  JSON-LD block for them.
 - `firebase.json` / `.firebaserc` are the Firebase Hosting config.
 
 ## Localization (i18n)

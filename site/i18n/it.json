@@ -16,6 +16,7 @@
   "hero_note": "Gratuito e open source. Nessun account. Nessun caricamento.",
   "hero_shotAlt": "L'editor DartPDF che mostra un PDF con strumenti di annotazione, miniature delle pagine e una tavolozza di colori.",
   "hero_deviceTag": "Locale",
+  "promo_videoAria": "Breve video di DartPDF: evidenziare, firmare, compilare un modulo, apporre un timbro, riordinare le pagine e firmare digitalmente un PDF.",
   "platforms_label": "Un'unica app per i tuoi PDF",
 
   "feat_eyebrow": "Strumenti",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "Pacchetto pub.dev",
   "sdk_hero_cta2": "Vedi su GitHub",
   "sdk_hero_cta3": "Demo dal vivo",
+  "sdk_promo_videoAria": "Breve video del motore DartPDF che esegue il rendering di una pagina PDF, poi la modifica, la riordina e la firma digitalmente.",
   "sdk_feat_eyebrow": "Funzionalità",
   "sdk_feat_h2": "Il set di funzionalità di un SDK commerciale, open source.",
   "sdk_feat_intro": "Visualizzazione, annotazione, moduli, firma, oscuramento, gestione delle pagine, modifica del testo e OCR. In altre parole, ciò per cui le app effettivamente acquistano la licenza di un SDK PDF.",

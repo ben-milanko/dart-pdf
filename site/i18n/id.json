@@ -16,6 +16,7 @@
   "hero_note": "Gratis dan open source. Tanpa akun. Tanpa unggahan.",
   "hero_shotAlt": "Editor DartPDF menampilkan sebuah PDF dengan alat anotasi, thumbnail halaman, dan palet warna.",
   "hero_deviceTag": "Lokal",
+  "promo_videoAria": "Video singkat DartPDF: menyorot, menandatangani, mengisi formulir, memberi stempel, menyusun ulang halaman, dan menandatangani PDF secara digital.",
   "platforms_label": "Satu aplikasi untuk PDF Anda",
 
   "feat_eyebrow": "Alat",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "Paket pub.dev",
   "sdk_hero_cta2": "Lihat di GitHub",
   "sdk_hero_cta3": "Demo langsung",
+  "sdk_promo_videoAria": "Video singkat mesin DartPDF yang merender halaman PDF, lalu mengedit, menyusun ulang, dan menandatanganinya secara digital.",
   "sdk_feat_eyebrow": "Fitur",
   "sdk_feat_h2": "Set fitur SDK komersial, open source.",
   "sdk_feat_intro": "Penampilan, anotasi, formulir, tanda tangan, redaksi, pengelolaan halaman, pengeditan teks, dan OCR. Dengan kata lain, hal-hal yang benar-benar membuat aplikasi melisensikan sebuah PDF SDK.",
