@@ -46,6 +46,7 @@ class _SyncWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
@@ -1745,6 +1746,7 @@ class _SeedWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
+          Set<String> hiddenAnnotationSubtypes = const {},
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
@@ -1787,6 +1789,7 @@ class _CountingWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
@@ -1855,6 +1858,7 @@ class _ProbePageSurfaceSession extends PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -1893,6 +1897,7 @@ class _ManualWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
@@ -1945,6 +1950,7 @@ class _HangingWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,

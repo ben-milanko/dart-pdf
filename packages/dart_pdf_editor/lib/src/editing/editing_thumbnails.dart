@@ -10,6 +10,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../annotation_display_filter.dart';
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_page_view.dart';
@@ -73,6 +74,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.width = 160,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.dock = PdfPanelDock.left,
     this.scrollDirection,
     this.resizable = true,
@@ -117,6 +119,10 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// Whether thumbnails render their annotations - pass the viewer's
   /// [PdfViewer.showAnnotations] so they match the pages.
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge. A docked strip scrolls vertically at the
@@ -613,14 +619,16 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(controller, index, widget.pageColor,
-        widget.showAnnotations, pixelWidth);
+    final key = thumbnailKey(
+        controller, index, widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
       pageIndex: index,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
       priority: 3,
@@ -726,7 +734,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
         _cache.setWarm(
           this,
           controller.document.pageCount,
-          '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+          '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}'
+          '|${hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes)}',
           (index) => _warmRender(index, pixelWidth),
         );
       } else {
@@ -988,6 +997,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             pageIndex: index,
                             pageColor: widget.pageColor,
                             showAnnotations: widget.showAnnotations,
+                            hiddenAnnotationSubtypes:
+                                widget.hiddenAnnotationSubtypes,
                             allowPageEditing: widget.allowPageEditing,
                             onExportPages: widget.onExportPages,
                             cache: _cache,
@@ -1537,6 +1548,7 @@ class PdfThumbnailView extends StatefulWidget {
     required this.viewerController,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.allowPageEditing = true,
     this.onPickPdfToInsert,
     this.onExportPages,
@@ -1568,6 +1580,10 @@ class PdfThumbnailView extends StatefulWidget {
 
   /// Whether thumbnails render their annotations (match the viewer's).
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Whether pages can be reordered (drag), rotated, deleted, and added.
   /// False makes the grid a read-only page picker.
@@ -1886,14 +1902,16 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(controller, index, widget.pageColor,
-        widget.showAnnotations, pixelWidth);
+    final key = thumbnailKey(
+        controller, index, widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
       pageIndex: index,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
       priority: 3,
@@ -1932,7 +1950,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       _cache.setWarm(
         this,
         controller.document.pageCount,
-        '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+        '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}'
+        '|${hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes)}',
         (index) => _warmRender(index, pixelWidth),
       );
     } else {
@@ -2050,6 +2069,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             pageColor: widget.pageColor,
                                             showAnnotations:
                                                 widget.showAnnotations,
+                                            hiddenAnnotationSubtypes:
+                                                widget.hiddenAnnotationSubtypes,
                                             allowPageEditing:
                                                 widget.allowPageEditing,
                                             onExportPages: widget.onExportPages,
@@ -2203,6 +2224,7 @@ class _GridPageCell extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
     required this.cache,
@@ -2226,6 +2248,10 @@ class _GridPageCell extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
   final PdfThumbnailCache cache;
@@ -2270,6 +2296,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         pageIndex: widget.pageIndex,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         allowPageEditing: widget.allowPageEditing,
         onExportPages: widget.onExportPages,
         cache: widget.cache,
@@ -2510,6 +2537,7 @@ class _PageTile extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
     required this.cache,
@@ -2532,6 +2560,10 @@ class _PageTile extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
   final PdfThumbnailCache cache;
@@ -2600,6 +2632,7 @@ class _PageTileState extends State<_PageTile> {
   int get pageIndex => widget.pageIndex;
   Color get pageColor => widget.pageColor;
   bool get showAnnotations => widget.showAnnotations;
+  Set<String> get hiddenAnnotationSubtypes => widget.hiddenAnnotationSubtypes;
   bool get allowPageEditing => widget.allowPageEditing;
   void Function(Uint8List bytes)? get onExportPages => widget.onExportPages;
   PdfThumbnailCache get cache => widget.cache;
@@ -2738,6 +2771,7 @@ class _PageTileState extends State<_PageTile> {
                   pageIndex: pageIndex,
                   pageColor: pageColor,
                   showAnnotations: showAnnotations,
+                  hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
                   cache: cache,
                   tileWidth: tileWidth,
                   renderWorker: renderWorker,
@@ -3182,6 +3216,7 @@ class _PageThumbnail extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -3192,6 +3227,10 @@ class _PageThumbnail extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -3251,6 +3290,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final pageIndex = widget.pageIndex;
     final pageColor = widget.pageColor;
     final annotations = widget.showAnnotations;
+    final hiddenSubtypes = widget.hiddenAnnotationSubtypes;
     final cache = widget.cache;
     final worker = widget.renderWorker;
     final previews = widget.viewerController.pagePreviewCache;
@@ -3277,6 +3317,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           pageIndex: pageIndex,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenSubtypes,
           pixelWidth: pixelWidth,
           worker: worker,
           // The task may have been granted before a fast scroll and return
@@ -3401,7 +3442,8 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final pixelWidth = _thumbnailBucket(
         widget.tileWidth * MediaQuery.devicePixelRatioOf(context));
     final key = thumbnailKey(widget.controller, widget.pageIndex,
-        widget.pageColor, widget.showAnnotations, pixelWidth);
+        widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (_imageKey != key) {
       final cached = widget.cache.claim(key);
       if (cached != null) {
@@ -3434,14 +3476,16 @@ class _PageThumbnailState extends State<_PageThumbnail> {
 /// identity (its indirect reference, so a reordered page keeps its raster and
 /// the slot it left doesn't - a reorder bumps no stamps, see #1025), its
 /// render stamp (so an edit re-renders only the pages it touched), the paper
-/// color, the raster width bucket, and whether annotations are drawn. The
+/// color, the raster width bucket, and which annotations are drawn. The
 /// tile, the grid cell, and the background warm all derive the same key, so
 /// they reuse one another's rasters.
 String thumbnailKey(PdfEditingController controller, int pageIndex,
-        Color pageColor, bool annotations, int pixelWidth) =>
+        Color pageColor, bool annotations, int pixelWidth,
+        {Set<String> hiddenAnnotationSubtypes = const {}}) =>
     '${controller.pageRenderIdentity(pageIndex)}'
     '|${controller.pageRenderStamp(pageIndex)}'
-    '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}';
+    '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}'
+    '${!annotations || hiddenAnnotationSubtypes.isEmpty ? '' : '|hide:${hiddenAnnotationSubtypesKey(hiddenAnnotationSubtypes)}'}';
 
 /// Whole-document thumbnail warming policy.
 ///
@@ -3492,6 +3536,7 @@ Future<ui.Image?> rasterizeThumbnail({
   required int pageIndex,
   required Color pageColor,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
   required int pixelWidth,
   required PdfRenderWorker? worker,
   int priority = 2,
@@ -3512,7 +3557,9 @@ Future<ui.Image?> rasterizeThumbnail({
   // it back is always for the right pixels.
   if (disk != null) {
     final stored = await disk.loadThumbnail(pageIndex, pixelWidth,
-        pageColor: pageColor.toARGB32(), annotations: annotations);
+        pageColor: pageColor.toARGB32(),
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     if (stored != null) {
       PdfPerfLog.log(
           'thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
@@ -3564,7 +3611,9 @@ Future<ui.Image?> rasterizeThumbnail({
     // colour, or with annotations the tile does not show simply misses and
     // every path below is unchanged.
     final retained = _retainedSceneForTile(previews, pageIndex, page,
-        pageColor: pageColor, annotations: annotations);
+        pageColor: pageColor,
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     if (retained != null) {
       try {
         final sceneImageRatio = retained.imagePixelRatio;
@@ -3584,7 +3633,9 @@ Future<ui.Image?> rasterizeThumbnail({
               'retained replay+raster=${_traceMs(retainedMs)} '
               'commands=${retained.scene.commands.length}');
           disk?.storeThumbnail(pageIndex, pixelWidth, image,
-              pageColor: pageColor.toARGB32(), annotations: annotations);
+              pageColor: pageColor.toARGB32(),
+              annotations: annotations,
+              hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
           return image;
         }
       } finally {
@@ -3598,6 +3649,7 @@ Future<ui.Image?> rasterizeThumbnail({
     final commands = usingWorker
         ? await worker.record(pageIndex,
             annotations: annotations,
+            hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
             priority: priority,
             imagePixelRatio: ratio)
         : null;
@@ -3652,7 +3704,9 @@ Future<ui.Image?> rasterizeThumbnail({
             'raster=${_traceMs(rasterMs)}');
         // write through so this page opens straight from disk next session
         disk?.storeThumbnail(pageIndex, pixelWidth, image,
-            pageColor: pageColor.toARGB32(), annotations: annotations);
+            pageColor: pageColor.toARGB32(),
+            annotations: annotations,
+            hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
         return image;
       } finally {
         picture.dispose();
@@ -3681,14 +3735,19 @@ Future<ui.Image?> rasterizeThumbnail({
     }
     sw.reset();
     final image = await PdfPageRenderer.renderImage(page,
-        pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
+        pixelRatio: ratio,
+        pageColor: pageColor,
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     final localMs = sw.elapsedMicroseconds / 1000.0;
     trace.instant('local interpret+raster', arguments: {'ms': localMs});
     PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
         'local interpret+raster=${_traceMs(localMs)} '
         '${usingWorker ? '(worker declined)' : '(no worker)'}');
     disk?.storeThumbnail(pageIndex, pixelWidth, image,
-        pageColor: pageColor.toARGB32(), annotations: annotations);
+        pageColor: pageColor.toARGB32(),
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     return image;
   } finally {
     trace.finish();
@@ -3721,6 +3780,7 @@ PdfRetainedSceneHandle? _retainedSceneForTile(
   PdfPage page, {
   required Color pageColor,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
 }) =>
     // A tile always asks for the page's own rotation, so
     // [PdfPagePreviewCache.retainedSceneForDisplay] - which the preview ladder
@@ -3730,6 +3790,7 @@ PdfRetainedSceneHandle? _retainedSceneForTile(
       page,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: null,
     );
 

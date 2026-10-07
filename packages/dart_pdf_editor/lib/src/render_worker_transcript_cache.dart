@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'annotation_display_filter.dart';
 import 'budgeted_cache.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
@@ -223,7 +224,7 @@ class _SuspendedTranscriptWalk {
   _SuspendedTranscriptWalk(this.pageIndex, this.annotations, this.page,
       this.recorder, this.interpreter, this.walk);
   final int pageIndex;
-  final bool annotations;
+  final PdfAnnotationLayerSpec annotations;
   final PdfPage page;
   final RecordingPdfDevice recorder;
   final PdfInterpreter interpreter;
@@ -267,8 +268,9 @@ class PdfWorkerTranscriptCache {
   // retained command weight ([maxRetainedCommands]); the weight bound keeps one
   // oversize hot entry (the most-recently-used is never evicted) so a dense
   // page still benefits from reuse.
-  late final PdfBudgetedCache<(int, bool), PdfWorkerTranscript> _entries =
-      PdfBudgetedCache<(int, bool), PdfWorkerTranscript>(
+  late final PdfBudgetedCache<(int, PdfAnnotationLayerSpec),
+          PdfWorkerTranscript> _entries =
+      PdfBudgetedCache<(int, PdfAnnotationLayerSpec), PdfWorkerTranscript>(
     weigher: (t) => t.retainedCommandWeight,
     maxWeight: maxRetainedCommands,
     maxEntries: capacity,
@@ -294,7 +296,7 @@ class PdfWorkerTranscriptCache {
   Future<PdfWorkerTranscript?> transcriptFor(
     PdfDocument document,
     int pageIndex,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     PdfCancellationToken token, {
     int? yieldInterval,
     PdfWorkerPhaseTimings? timings,
@@ -385,7 +387,7 @@ class PdfWorkerTranscriptCache {
     if (token.cancelled) throw const PdfCancelledException();
     final interpretClock = timings == null ? null : (Stopwatch()..start());
     textCache.record(pageIndex, entry.recorder.commands);
-    if (annotations) entry.interpreter.drawAnnotations(entry.page);
+    annotations.drawOn(entry.interpreter, entry.page);
     if (interpretClock != null) {
       interpretClock.stop();
       timings!.interpretUs += interpretClock.elapsedMicroseconds;
@@ -462,7 +464,8 @@ class PdfWorkerTranscriptCache {
   /// Removes and returns the suspended record for ([pageIndex], [annotations]),
   /// or null when the slot holds a different page (left in place, so a fresh
   /// record of an urgent neighbour does not evict the page waiting to resume).
-  _SuspendedTranscriptWalk? _takeSuspended(int pageIndex, bool annotations) {
+  _SuspendedTranscriptWalk? _takeSuspended(
+      int pageIndex, PdfAnnotationLayerSpec annotations) {
     final entry = _suspended;
     if (entry != null &&
         entry.pageIndex == pageIndex &&

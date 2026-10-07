@@ -1371,6 +1371,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 viewerController: _viewer,
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
+                hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: features.pageEditing,
                 dock: prefs.thumbnailSidebarDock,
                 scrollDirection: scrollDirection,
@@ -1472,6 +1473,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 viewerController: _viewer,
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
+                hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: features.pageEditing,
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
@@ -1986,6 +1988,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         backgroundColor: widget.backgroundColor,
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
+                        hiddenAnnotationSubtypes:
+                            prefs.hiddenAnnotationSubtypes,
                         showScrollbarChapters: prefs.showScrollbarChapters,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _shell.worker,

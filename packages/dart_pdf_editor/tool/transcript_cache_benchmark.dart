@@ -14,6 +14,7 @@ import 'dart:math' as math;
 import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:dart_pdf_editor/src/annotation_display_filter.dart';
 
 class _Args {
   String path = '';
@@ -91,7 +92,7 @@ void main(List<String> argv) async {
   final transcript = await cache.transcriptFor(
     document,
     pageIndex,
-    false,
+    PdfAnnotationLayerSpec.none,
     PdfCancellationToken(),
     yieldInterval: 1 << 30,
   );

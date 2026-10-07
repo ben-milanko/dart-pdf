@@ -7,6 +7,7 @@ Widget pdfWebPageSurface({
   required PdfRenderWorker worker,
   required int pageIndex,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
   required int width,
   required int height,
   required int pageColor,

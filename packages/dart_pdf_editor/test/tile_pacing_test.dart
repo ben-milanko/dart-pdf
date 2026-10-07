@@ -143,6 +143,7 @@ class _TranscriptWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
+          Set<String> hiddenAnnotationSubtypes = const {},
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
@@ -154,6 +155,7 @@ class _TranscriptWorker extends PdfRenderWorker {
   @override
   Future<PdfRegionReplayIndex?> buildRegionIndex(int pageIndex,
       {required bool annotations,
+      Set<String> hiddenAnnotationSubtypes = const {},
       required int maxCommands,
       required bool buildGrid,
       int priority = 0}) async {
