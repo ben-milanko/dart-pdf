@@ -24,7 +24,7 @@ A batch of one still just opens. Every runner sets it the same way:
   for everything else. `my_application_open` turns the hint into the payload
   mark (warm) or a leading `--combine` entrypoint argument (cold; read by
   `_openLaunchArgs`).
-- **Windows** - the NSIS installer registers
+- **Windows, NSIS installer** - the installer registers
   `HKCU\Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine`
   (`MultiSelectModel=Player`, `--combine "%1"`), so it shows for PDFs whatever
   the default app is. Explorer still starts one process per file; each passes
@@ -36,12 +36,24 @@ A batch of one still just opens. Every runner sets it the same way:
   Actions / Services) calls `AppDelegate.combinePDFs(_:userData:error:)`
   (`NSApp.servicesProvider = self`), which reads the file URLs off the
   pasteboard and delivers them like an open, marked.
+- **Windows, Store MSIX** - a packaged app can't write registry verbs, so
+  the package registers a shell extension instead: `windows/combine_menu`, an
+  `IExplorerCommand` (plain WRL, no WIL/ATL) wired up by `msix_config`'s
+  `context_menu` (`desktop4:FileExplorerContextMenus` + a `com:SurrogateServer`).
+  It is the better entry: Windows 11's top-level menu, hidden for a single
+  file, and Explorer hands it the whole selection, so it launches
+  `dart_pdf_editor_app.exe --combine a.pdf b.pdf ...` once (several launches
+  only if the paths overflow one command line; the runner's settle window
+  joins them). The DLL is built at a fixed path beside the bundle
+  (`build/windows/x64/combine_menu/`, `$<0:>` keeps the config folder out)
+  and **not** installed into it: `msix:create` copies it into the package and
+  then deletes it from the Release folder, which would also eat an installed
+  copy. The clsid in `pubspec.yaml` must match `combine_menu.cpp`. The PR
+  preview workflow checks the DLL is built; nothing here has loaded it in
+  Explorer yet.
 
 ## Not covered
 
-- The Store **MSIX** declares only `file_extension: .pdf` through the `msix`
-  package, which has no way to add a static verb; the NSIS install has the
-  menu entry, the Store build does not.
 - **Snap** only exports desktop files for declared apps, and **Flatpak** can't
   export KDE service menus; the Flatpak does install the Open With entry.
 
