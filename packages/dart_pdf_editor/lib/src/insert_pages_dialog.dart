@@ -313,6 +313,7 @@ class _InsertPagesDialogState extends State<_InsertPagesDialog> {
     final l10n = pdfL10n(context);
     final theme = Theme.of(context);
     final inserted = _insertedCount;
+    final sectionStyle = theme.textTheme.titleSmall;
     return AlertDialog(
       key: const ValueKey('pdf-insert-pages-dialog'),
       title: Text(l10n.insertPagesTitle),
@@ -323,30 +324,38 @@ class _InsertPagesDialogState extends State<_InsertPagesDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(children: [
-                Expanded(
-                  child: Text(l10n.insertPagesFiles,
-                      style: theme.textTheme.titleSmall),
-                ),
-                TextButton.icon(
-                  key: const ValueKey('pdf-insert-pages-sort'),
-                  onPressed: _entries.length > 1 ? _sortByName : null,
-                  icon: const Icon(Icons.sort_by_alpha, size: 18),
-                  label: Text(l10n.insertPagesSortByName),
-                ),
-                TextButton.icon(
-                  key: const ValueKey('pdf-insert-pages-add'),
-                  onPressed: _picking ? null : () => unawaited(_pickMore()),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text(l10n.insertPagesAddFiles),
-                ),
-              ]),
+              LayoutBuilder(builder: (context, constraints) {
+                final narrow = constraints.maxWidth < _narrowWidth;
+                final canSort = _entries.length > 1;
+                return Row(children: [
+                  Expanded(
+                      child: Text(l10n.insertPagesFiles, style: sectionStyle)),
+                  if (narrow)
+                    IconButton(
+                      key: const ValueKey('pdf-insert-pages-sort'),
+                      tooltip: l10n.insertPagesSortByName,
+                      onPressed: canSort ? _sortByName : null,
+                      icon: const Icon(Icons.sort_by_alpha, size: 20),
+                    )
+                  else
+                    TextButton.icon(
+                      key: const ValueKey('pdf-insert-pages-sort'),
+                      onPressed: canSort ? _sortByName : null,
+                      icon: const Icon(Icons.sort_by_alpha, size: 18),
+                      label: Text(l10n.insertPagesSortByName),
+                    ),
+                  const SizedBox(width: 4),
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('pdf-insert-pages-add'),
+                    onPressed: _picking ? null : () => unawaited(_pickMore()),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text(l10n.insertPagesAddFiles),
+                  ),
+                ]);
+              }),
+              const SizedBox(height: 8),
               if (_entries.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(l10n.insertPagesNoFiles,
-                      style: theme.textTheme.bodySmall),
-                ),
+                _EmptyFiles(message: l10n.insertPagesNoFiles),
               for (var i = 0; i < _entries.length; i++)
                 _EntryTile(
                   key: ObjectKey(_entries[i]),
@@ -360,145 +369,188 @@ class _InsertPagesDialogState extends State<_InsertPagesDialog> {
                 ),
               if (_failed.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    l10n.insertPagesOpenFailed(_failed.join(', ')),
-                    key: const ValueKey('pdf-insert-pages-failed'),
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.error),
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.error_outline,
+                          size: 18, color: theme.colorScheme.error),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l10n.insertPagesOpenFailed(_failed.join(', ')),
+                          key: const ValueKey('pdf-insert-pages-failed'),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.error),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              const SizedBox(height: 16),
-              Text(l10n.insertPagesPlacement,
-                  style: theme.textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 120,
-                    child: PdfDropdown<PdfInsertSide>(
-                      key: const ValueKey('pdf-insert-pages-side'),
-                      value: _side,
-                      isDense: true,
-                      isExpanded: true,
-                      items: [
-                        PdfDropdownItem(
-                            key: const ValueKey('pdf-insert-pages-side-before'),
-                            value: PdfInsertSide.before,
-                            label: l10n.insertPagesBefore),
-                        PdfDropdownItem(
-                            key: const ValueKey('pdf-insert-pages-side-after'),
-                            value: PdfInsertSide.after,
-                            label: l10n.insertPagesAfter),
-                      ],
-                      onChanged: (v) => setState(() => _side = v),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 150,
-                    child: PdfDropdown<PdfInsertAnchor>(
-                      key: const ValueKey('pdf-insert-pages-anchor'),
-                      value: _anchor,
-                      isDense: true,
-                      isExpanded: true,
-                      items: [
-                        PdfDropdownItem(
-                            key:
-                                const ValueKey('pdf-insert-pages-anchor-first'),
-                            value: PdfInsertAnchor.firstPage,
-                            label: l10n.insertPagesFirstPage),
-                        PdfDropdownItem(
-                            key: const ValueKey('pdf-insert-pages-anchor-last'),
-                            value: PdfInsertAnchor.lastPage,
-                            label: l10n.insertPagesLastPage),
-                        PdfDropdownItem(
-                            key: const ValueKey('pdf-insert-pages-anchor-page'),
-                            value: PdfInsertAnchor.page,
-                            label: l10n.insertPagesPage),
-                      ],
-                      onChanged: (v) => setState(() => _anchor = v),
-                    ),
-                  ),
-                  if (_anchor == PdfInsertAnchor.page)
-                    SizedBox(
-                      width: 150,
-                      child: TextField(
-                        key: const ValueKey('pdf-insert-pages-page'),
-                        controller: _page,
-                        keyboardType: TextInputType.number,
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _submit(),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          labelText: l10n.insertPagesPageNumber,
-                          suffixText: l10n.insertPagesOfCount(widget.pageCount),
-                          errorText: _pageNumber == null
-                              ? l10n.insertPagesPageInvalid(widget.pageCount)
-                              : null,
-                          errorMaxLines: 2,
-                        ),
-                        contextMenuBuilder: pdfTextContextMenu,
-                      ),
-                    ),
-                ],
-              ),
+              const SizedBox(height: 20),
+              Text(l10n.insertPagesPlacement, style: sectionStyle),
               const SizedBox(height: 12),
-              CheckboxListTile(
+              LayoutBuilder(builder: (context, constraints) {
+                final side = PdfDropdown<PdfInsertSide>(
+                  key: const ValueKey('pdf-insert-pages-side'),
+                  value: _side,
+                  isExpanded: true,
+                  decoration: _fieldDecoration(),
+                  items: [
+                    PdfDropdownItem(
+                        key: const ValueKey('pdf-insert-pages-side-before'),
+                        value: PdfInsertSide.before,
+                        label: l10n.insertPagesBefore,
+                        child: _FieldText(l10n.insertPagesBefore)),
+                    PdfDropdownItem(
+                        key: const ValueKey('pdf-insert-pages-side-after'),
+                        value: PdfInsertSide.after,
+                        label: l10n.insertPagesAfter,
+                        child: _FieldText(l10n.insertPagesAfter)),
+                  ],
+                  onChanged: (v) => setState(() => _side = v),
+                );
+                final anchor = PdfDropdown<PdfInsertAnchor>(
+                  key: const ValueKey('pdf-insert-pages-anchor'),
+                  value: _anchor,
+                  isExpanded: true,
+                  decoration: _fieldDecoration(),
+                  items: [
+                    PdfDropdownItem(
+                        key: const ValueKey('pdf-insert-pages-anchor-first'),
+                        value: PdfInsertAnchor.firstPage,
+                        label: l10n.insertPagesFirstPage),
+                    PdfDropdownItem(
+                        key: const ValueKey('pdf-insert-pages-anchor-last'),
+                        value: PdfInsertAnchor.lastPage,
+                        label: l10n.insertPagesLastPage,
+                        child: _FieldText(l10n.insertPagesLastPage)),
+                    PdfDropdownItem(
+                        key: const ValueKey('pdf-insert-pages-anchor-page'),
+                        value: PdfInsertAnchor.page,
+                        label: l10n.insertPagesPage,
+                        child: _FieldText(l10n.insertPagesPage)),
+                  ],
+                  onChanged: (v) => setState(() => _anchor = v),
+                );
+                // Kept in the layout (not removed) when another anchor is
+                // picked, so the row doesn't reflow under the pointer.
+                final page = TextField(
+                  key: const ValueKey('pdf-insert-pages-page'),
+                  controller: _page,
+                  enabled: _anchor == PdfInsertAnchor.page,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => _submit(),
+                  decoration: _fieldDecoration(
+                    label: l10n.insertPagesPageNumber,
+                    suffix: l10n.insertPagesOfCount(widget.pageCount),
+                    error:
+                        _anchor == PdfInsertAnchor.page && _pageNumber == null
+                            ? l10n.insertPagesPageInvalid(widget.pageCount)
+                            : null,
+                  ),
+                  contextMenuBuilder: pdfTextContextMenu,
+                );
+                if (constraints.maxWidth < _narrowWidth) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(children: [
+                        Expanded(child: side),
+                        const SizedBox(width: 12),
+                        Expanded(child: anchor),
+                      ]),
+                      const SizedBox(height: 16),
+                      page,
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: side),
+                    const SizedBox(width: 12),
+                    Expanded(child: anchor),
+                    const SizedBox(width: 12),
+                    Expanded(child: page),
+                  ],
+                );
+              }),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              _OptionTile(
                 key: const ValueKey('pdf-insert-pages-interleave'),
                 value: _interleave,
-                onChanged: (v) => setState(() => _interleave = v ?? false),
-                title: Text(l10n.insertPagesInterleave),
-                subtitle: Text(l10n.insertPagesInterleaveHelp),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (v) => setState(() => _interleave = v),
+                title: l10n.insertPagesInterleave,
+                subtitle: l10n.insertPagesInterleaveHelp,
               ),
               if (_interleave)
                 Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 40),
-                  child: Wrap(spacing: 12, runSpacing: 8, children: [
-                    _RunField(
-                      key: const ValueKey('pdf-insert-pages-run-inserted'),
-                      controller: _insertedRun,
-                      label: l10n.insertPagesRunInserted,
-                      onChanged: () => setState(() {}),
-                    ),
-                    _RunField(
-                      key: const ValueKey('pdf-insert-pages-run-existing'),
-                      controller: _existingRun,
-                      label: l10n.insertPagesRunExisting,
-                      onChanged: () => setState(() {}),
-                    ),
-                  ]),
+                  padding: const EdgeInsetsDirectional.fromSTEB(56, 12, 0, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _RunField(
+                          key: const ValueKey('pdf-insert-pages-run-inserted'),
+                          controller: _insertedRun,
+                          label: l10n.insertPagesRunInserted,
+                          onChanged: () => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _RunField(
+                          key: const ValueKey('pdf-insert-pages-run-existing'),
+                          controller: _existingRun,
+                          label: l10n.insertPagesRunExisting,
+                          onChanged: () => setState(() {}),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              CheckboxListTile(
+              _OptionTile(
                 key: const ValueKey('pdf-insert-pages-bookmarks'),
                 value: _bookmarks,
-                onChanged: (v) => setState(() => _bookmarks = v ?? true),
-                title: Text(l10n.insertPagesIncludeBookmarks),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (v) => setState(() => _bookmarks = v),
+                title: l10n.insertPagesIncludeBookmarks,
               ),
-              CheckboxListTile(
+              _OptionTile(
                 key: const ValueKey('pdf-insert-pages-bookmark-files'),
                 value: _bookmarkFiles,
-                onChanged: (v) => setState(() => _bookmarkFiles = v ?? false),
-                title: Text(l10n.insertPagesBookmarkFiles),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (v) => setState(() => _bookmarkFiles = v),
+                title: l10n.insertPagesBookmarkFiles,
               ),
               if (inserted != null && inserted > 0) ...[
-                const SizedBox(height: 8),
-                Text(
-                  l10n.insertPagesSummary(
-                      inserted, widget.pageCount + inserted),
-                  key: const ValueKey('pdf-insert-pages-summary'),
-                  style: theme.textTheme.bodySmall,
+                const SizedBox(height: 12),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    child: Row(children: [
+                      Icon(Icons.info_outline,
+                          size: 18,
+                          color: theme.colorScheme.onSecondaryContainer),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          l10n.insertPagesSummary(
+                              inserted, widget.pageCount + inserted),
+                          key: const ValueKey('pdf-insert-pages-summary'),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSecondaryContainer),
+                        ),
+                      ),
+                    ]),
+                  ),
                 ),
               ],
             ],
@@ -519,6 +571,113 @@ class _InsertPagesDialogState extends State<_InsertPagesDialog> {
               child: Text(l10n.insertPagesConfirm),
             )),
       ],
+    );
+  }
+}
+
+/// Below this content width the dialog's field rows stack instead of
+/// squeezing three controls side by side.
+const double _narrowWidth = 440;
+
+/// The one look every field in the dialog shares - outlined, dense, label
+/// always floated - so text fields and drop-downs line up on one baseline.
+InputDecoration _fieldDecoration({
+  String? label,
+  String? hint,
+  String? suffix,
+  String? error,
+}) =>
+    InputDecoration(
+      isDense: true,
+      border: const OutlineInputBorder(),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      labelText: label,
+      hintText: hint,
+      suffixText: suffix,
+      errorText: error,
+      errorMaxLines: 2,
+    );
+
+class _EmptyFiles extends StatelessWidget {
+  const _EmptyFiles({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        child: Column(children: [
+          Icon(Icons.picture_as_pdf_outlined,
+              size: 28, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(height: 8),
+          Text(message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ]),
+      ),
+    );
+  }
+}
+
+/// A checkbox row whose whole width toggles it, with the title on the
+/// checkbox's line and an optional explanation below.
+class _OptionTile extends StatelessWidget {
+  const _OptionTile({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    required this.title,
+    this.subtitle,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Checkbox(value: value, onChanged: (v) => onChanged(v ?? false)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Padding(
+                // centre the title on the checkbox's 40px tap target
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.bodyLarge),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -549,117 +708,221 @@ class _EntryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = pdfL10n(context);
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final invalid = entry.picks == null;
-    return Card(
+    return Container(
       key: ValueKey('pdf-insert-pages-file-$index'),
       margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 4, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              const Icon(Icons.picture_as_pdf_outlined, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(entry.file.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium),
-                    Text(l10n.insertPagesFilePageCount(entry.pageCount),
-                        style: theme.textTheme.bodySmall),
-                  ],
-                ),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 4, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
               ),
-              IconButton(
-                key: ValueKey('pdf-insert-pages-up-$index'),
-                tooltip: l10n.insertPagesMoveUp,
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.arrow_upward, size: 18),
-                onPressed: canMoveUp ? () => onMove(-1) : null,
-              ),
-              IconButton(
-                key: ValueKey('pdf-insert-pages-down-$index'),
-                tooltip: l10n.insertPagesMoveDown,
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.arrow_downward, size: 18),
-                onPressed: canMoveDown ? () => onMove(1) : null,
-              ),
-              IconButton(
-                key: ValueKey('pdf-insert-pages-remove-$index'),
-                tooltip: l10n.insertPagesRemoveFile,
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: onRemove,
-              ),
-            ]),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                SizedBox(
-                  width: 180,
-                  child: TextField(
-                    key: ValueKey('pdf-insert-pages-range-$index'),
-                    controller: entry.ranges,
-                    onChanged: (_) => onChanged(),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      labelText: l10n.insertPagesRange,
-                      hintText: l10n.insertPagesRangeHint,
-                      errorText: invalid
-                          ? l10n.insertPagesRangeInvalid(entry.pageCount)
-                          : null,
-                      errorMaxLines: 2,
-                    ),
-                    contextMenuBuilder: pdfTextContextMenu,
-                  ),
-                ),
-                SizedBox(
-                  width: 130,
-                  child: PdfDropdown<PdfPageSubset>(
-                    key: ValueKey('pdf-insert-pages-subset-$index'),
-                    value: entry.subset,
-                    isDense: true,
-                    isExpanded: true,
-                    items: [
-                      PdfDropdownItem(
-                          key: ValueKey('pdf-insert-pages-subset-$index-all'),
-                          value: PdfPageSubset.all,
-                          label: l10n.insertPagesSubsetAll),
-                      PdfDropdownItem(
-                          key: ValueKey('pdf-insert-pages-subset-$index-odd'),
-                          value: PdfPageSubset.odd,
-                          label: l10n.insertPagesSubsetOdd),
-                      PdfDropdownItem(
-                          key: ValueKey('pdf-insert-pages-subset-$index-even'),
-                          value: PdfPageSubset.even,
-                          label: l10n.insertPagesSubsetEven),
-                    ],
-                    onChanged: (v) {
-                      entry.subset = v;
-                      onChanged();
-                    },
-                  ),
-                ),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Checkbox(
-                    key: ValueKey('pdf-insert-pages-reverse-$index'),
-                    value: entry.reverse,
-                    onChanged: (v) {
-                      entry.reverse = v ?? false;
-                      onChanged();
-                    },
-                  ),
-                  Text(l10n.insertPagesReverse),
-                ]),
-              ],
+              child: Icon(Icons.picture_as_pdf_outlined,
+                  size: 20, color: scheme.onPrimaryContainer),
             ),
-          ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(entry.file.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall),
+                  Text(l10n.insertPagesFilePageCount(entry.pageCount),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            IconButton(
+              key: ValueKey('pdf-insert-pages-up-$index'),
+              tooltip: l10n.insertPagesMoveUp,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.arrow_upward, size: 18),
+              onPressed: canMoveUp ? () => onMove(-1) : null,
+            ),
+            IconButton(
+              key: ValueKey('pdf-insert-pages-down-$index'),
+              tooltip: l10n.insertPagesMoveDown,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.arrow_downward, size: 18),
+              onPressed: canMoveDown ? () => onMove(1) : null,
+            ),
+            IconButton(
+              key: ValueKey('pdf-insert-pages-remove-$index'),
+              tooltip: l10n.insertPagesRemoveFile,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: onRemove,
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 8),
+            child: LayoutBuilder(builder: (context, constraints) {
+              final range = TextField(
+                key: ValueKey('pdf-insert-pages-range-$index'),
+                controller: entry.ranges,
+                onChanged: (_) => onChanged(),
+                decoration: _fieldDecoration(
+                  label: l10n.insertPagesRange,
+                  hint: l10n.insertPagesRangeHint,
+                  error: invalid
+                      ? l10n.insertPagesRangeInvalid(entry.pageCount)
+                      : null,
+                ),
+                contextMenuBuilder: pdfTextContextMenu,
+              );
+              final subset = PdfDropdown<PdfPageSubset>(
+                key: ValueKey('pdf-insert-pages-subset-$index'),
+                value: entry.subset,
+                isExpanded: true,
+                decoration: _fieldDecoration(),
+                items: [
+                  PdfDropdownItem(
+                      key: ValueKey('pdf-insert-pages-subset-$index-all'),
+                      value: PdfPageSubset.all,
+                      label: l10n.insertPagesSubsetAll,
+                      child: _FieldText(l10n.insertPagesSubsetAll)),
+                  PdfDropdownItem(
+                      key: ValueKey('pdf-insert-pages-subset-$index-odd'),
+                      value: PdfPageSubset.odd,
+                      label: l10n.insertPagesSubsetOdd,
+                      child: _FieldText(l10n.insertPagesSubsetOdd)),
+                  PdfDropdownItem(
+                      key: ValueKey('pdf-insert-pages-subset-$index-even'),
+                      value: PdfPageSubset.even,
+                      label: l10n.insertPagesSubsetEven,
+                      child: _FieldText(l10n.insertPagesSubsetEven)),
+                ],
+                onChanged: (v) {
+                  entry.subset = v;
+                  onChanged();
+                },
+              );
+              final reverse = _ToggleField(
+                key: ValueKey('pdf-insert-pages-reverse-$index'),
+                icon: Icons.swap_vert,
+                label: l10n.insertPagesReverse,
+                selected: entry.reverse,
+                onChanged: (v) {
+                  entry.reverse = v;
+                  onChanged();
+                },
+              );
+              if (constraints.maxWidth < _narrowWidth) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    range,
+                    const SizedBox(height: 12),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: subset),
+                          const SizedBox(width: 12),
+                          Expanded(child: reverse),
+                        ]),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: range),
+                  const SizedBox(width: 12),
+                  Expanded(flex: 3, child: subset),
+                  const SizedBox(width: 12),
+                  reverse,
+                ],
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A drop-down value in the same type as the text fields beside it.
+class _FieldText extends StatelessWidget {
+  const _FieldText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodyLarge);
+}
+
+/// An on/off control drawn as an outlined field, so it sits on the same row
+/// height and border as the text fields and drop-downs it lines up with.
+class _ToggleField extends StatelessWidget {
+  const _ToggleField({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final foreground =
+        selected ? scheme.onSecondaryContainer : scheme.onSurface;
+    return Semantics(
+      toggled: selected,
+      child: Material(
+        color: selected ? scheme.secondaryContainer : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(4),
+          side: BorderSide(
+              color: selected ? scheme.secondaryContainer : scheme.outline),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => onChanged(!selected),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(selected ? Icons.check : icon,
+                    size: 18, color: foreground),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge
+                          ?.copyWith(color: foreground)),
+                ),
+              ]),
+            ),
+          ),
         ),
       ),
     );
@@ -681,19 +944,15 @@ class _RunField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final n = int.tryParse(controller.text.trim());
-    return SizedBox(
-      width: 200,
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        onChanged: (_) => onChanged(),
-        decoration: InputDecoration(
-          isDense: true,
-          labelText: label,
-          errorText: n == null || n < 1 ? '≥ 1' : null,
-        ),
-        contextMenuBuilder: pdfTextContextMenu,
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      onChanged: (_) => onChanged(),
+      decoration: _fieldDecoration(
+        label: label,
+        error: n == null || n < 1 ? '≥ 1' : null,
       ),
+      contextMenuBuilder: pdfTextContextMenu,
     );
   }
 }
