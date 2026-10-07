@@ -2346,13 +2346,16 @@ extension PdfAnnotationEditing on PdfEditor {
     }
   }
 
-  /// The /RD (rectangle differences, §12.5.6.19) insets - left, top, right,
-  /// bottom - from the annotation [rect] to the text [box] within it.
+  /// The /RD (rectangle differences, §12.5.6.19) insets from the annotation
+  /// [rect] to the text [box] within it, in the left, bottom, right, top
+  /// order Acrobat-family viewers (Bluebeam, PDFBox) read - the spec's prose
+  /// says left, top, right, bottom, but a box written that way opens in the
+  /// wrong place there. [PdfAnnotation.calloutBox] reads either order.
   CosArray _rdArray(PdfRect rect, PdfRect box) => CosArray([
         CosReal(box.left - rect.left),
-        CosReal(rect.top - box.top),
-        CosReal(rect.right - box.right),
         CosReal(box.bottom - rect.bottom),
+        CosReal(rect.right - box.right),
+        CosReal(rect.top - box.top),
       ]);
 
   /// Builds a callout's appearance: each leader line with its arrowhead
@@ -2428,25 +2431,9 @@ extension PdfAnnotationEditing on PdfEditor {
     return (leaders: leaders, ending: ending);
   }
 
-  /// The text-box sub-rect of a callout: [rect] inset by /RD (§12.5.6.19),
-  /// falling back to the whole rect when /RD is absent or malformed.
-  PdfRect _boxFromRd(PdfAnnotation a, PdfRect rect) {
-    final rd = document.cos.resolve(a.dict['RD']);
-    double d(int i) {
-      if (rd is! CosArray || rd.items.length <= i) return 0;
-      final v = document.cos.resolve(rd.items[i]);
-      if (v is CosInteger) return v.value.toDouble();
-      if (v is CosReal) return v.value;
-      return 0;
-    }
-
-    return PdfRect(
-      rect.left + d(0),
-      rect.bottom + d(3),
-      rect.right - d(2),
-      rect.top - d(1),
-    );
-  }
+  /// The text-box sub-rect of callout [a] ([PdfAnnotation.calloutBox], which
+  /// settles the /RD order), or its whole /Rect without one.
+  PdfRect _boxFromRd(PdfAnnotation a) => a.calloutBox ?? a.rect;
 
   /// Rebuilds a callout from a new text [box] and/or arrow [target] (page
   /// space), keeping the other where it is - so the box and terminus move
@@ -2468,7 +2455,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final info = _calloutInfo(annotation);
     if (info == null) return false;
     if (leader < 0 || leader >= info.leaders.length) return false;
-    final oldBox = _boxFromRd(annotation, annotation.rect);
+    final oldBox = _boxFromRd(annotation);
     final newBox = box ?? oldBox;
     final leaders = <PdfCalloutLeader>[
       for (var i = 0; i < info.leaders.length; i++)
@@ -2498,7 +2485,7 @@ extension PdfAnnotationEditing on PdfEditor {
     return _rebuildCallout(
       pageIndex,
       annotation,
-      _boxFromRd(annotation, annotation.rect),
+      _boxFromRd(annotation),
       [
         for (final line in info.leaders)
           (target: line.first, attach: line.last),
@@ -2524,7 +2511,7 @@ extension PdfAnnotationEditing on PdfEditor {
     return _rebuildCallout(
       pageIndex,
       annotation,
-      _boxFromRd(annotation, annotation.rect),
+      _boxFromRd(annotation),
       [
         for (var i = 0; i < info.leaders.length; i++)
           if (i != leader)
@@ -2569,8 +2556,12 @@ extension PdfAnnotationEditing on PdfEditor {
     final stdFont = PdfStandardFont.tryFromName(style.fontName);
     final embedded =
         stdFont == null ? PdfEmbeddedFont.fromFreeText(annotation) : null;
-    if (stdFont == null && embedded == null) return false;
-    final PdfTextFont baseFont = embedded ?? stdFont!;
+    // A third-party callout often names a font only through its own
+    // resources (/DA "/F2 12 Tf", Arial in /DS). Refusing would leave the
+    // caller to move/stretch the whole thing - arrows included - so redraw it
+    // in Helvetica, the base-14 stand-in for Arial, instead.
+    final PdfTextFont baseFont =
+        embedded ?? stdFont ?? PdfStandardFont.helvetica;
     final text = annotation.contents ?? '';
 
     PdfUnicodeFont? unicodeFont;
@@ -4891,7 +4882,7 @@ extension PdfAnnotationEditing on PdfEditor {
             final leaders = [
               for (final line in callout.leaders) [for (final p in line) map(p)]
             ];
-            final oldBox = _boxFromRd(annotation, from);
+            final oldBox = _boxFromRd(annotation);
             final box = PdfRect(
               to.left + (oldBox.left - from.left) * sx,
               to.bottom + (oldBox.bottom - from.bottom) * sy,

@@ -390,4 +390,70 @@ void main() {
       expect(a.calloutLeaders![1].first, (570.0, 430.0));
     });
   });
+
+  group('third-party /RD order and fonts', () {
+    // Shaped like a Bluebeam callout: /RD as left, BOTTOM, right, TOP (the
+    // order Acrobat-family tools use, not the spec's prose), and a /DA font
+    // that only names the writer's own resource.
+    PdfDocument bluebeamStyle({required bool specOrder}) {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..addCallout(0, const PdfRect(421, 549, 541, 594), 'Bluebeam note',
+            (533, 417.5));
+      final doc0 = PdfDocument.open(editor.save());
+      final a = doc0.page(0).annotations.single;
+      final rect = a.rect;
+      const box = PdfRect(421, 549, 541, 594);
+      final left = box.left - rect.left, right = rect.right - box.right;
+      final bottom = box.bottom - rect.bottom, top = rect.top - box.top;
+      a.dict['RD'] = CosArray([
+        CosReal(left),
+        CosReal(specOrder ? top : bottom),
+        CosReal(right),
+        CosReal(specOrder ? bottom : top),
+      ]);
+      a.dict['DA'] = CosString.fromText('1 0 0 rg /F2 12 Tf');
+      final e2 = PdfEditor(doc0)..moveAnnotation(0, a, 0, 0);
+      return PdfDocument.open(e2.save());
+    }
+
+    for (final specOrder in [false, true]) {
+      test(
+          'the box is the one the leader attaches to '
+          '(${specOrder ? 'spec' : 'Acrobat'} /RD order)', () {
+        final a =
+            bluebeamStyle(specOrder: specOrder).page(0).annotations.single;
+        final box = a.calloutBox!;
+        expect(box.bottom, closeTo(549, 0.01));
+        expect(box.top, closeTo(594, 0.01));
+        expect(box.left, closeTo(421, 0.01));
+      });
+    }
+
+    test('an unrecoverable font still reshapes: the arrow stays put', () {
+      final doc = bluebeamStyle(specOrder: false);
+      final a = doc.page(0).annotations.single;
+      final tip = a.calloutLine!.first;
+      final box = a.calloutBox!;
+      final editor = PdfEditor(doc);
+      expect(
+          editor.reshapeCallout(0, a,
+              box: PdfRect(box.left + 30, box.bottom + 20, box.right + 30,
+                  box.top + 20)),
+          isTrue,
+          reason: 'falls back to Helvetica instead of refusing');
+      final moved = PdfDocument.open(editor.save()).page(0).annotations.single;
+      expect(moved.calloutLine!.first, tip);
+      expect(moved.calloutBox!.left, closeTo(box.left + 30, 0.01));
+      expect(moved.calloutBox!.bottom, closeTo(box.bottom + 20, 0.01));
+    });
+
+    test('this package writes /RD as left, bottom, right, top', () {
+      final doc = roundTrip((e) =>
+          e.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500)));
+      final a = doc.page(0).annotations.single;
+      final rd = numbers(doc, a.dict['RD']);
+      expect(rd[1], closeTo(600 - a.rect.bottom, 0.01), reason: 'bottom');
+      expect(rd[3], closeTo(a.rect.top - 660, 0.01), reason: 'top');
+    });
+  });
 }

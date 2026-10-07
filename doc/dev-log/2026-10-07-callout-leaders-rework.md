@@ -101,3 +101,24 @@ Two causes:
   in the viewer, per-leader terminus handle, context-menu add/remove.
 - `editing_text_edit_test.dart` - Alt+Z keeps a wrapped column's width,
   caret recolour (new + existing box), toolbar swatch keeps the editor open.
+
+## Follow-up: third-party (Bluebeam) callouts
+
+A real Bluebeam mark-up file exposed two more problems:
+
+- **`/RD` order.** §12.5.6.19's prose says left, top, right, bottom, but
+  Bluebeam (and PDFBox, and evidently Acrobat) store left, **bottom**, right,
+  **top** - in every callout of that file the `/CL` attach point sits on the
+  edge of the box only under that reading. We read the spec order, so the
+  selection chrome and resize handles hugged the wrong slice of `/Rect`.
+  `PdfAnnotation.calloutBox` now builds both candidates and keeps the one
+  the leader's last point lies on (ties / symmetric insets → left-bottom-
+  right-top), so old files we wrote in the spec order still open right, and
+  `_rdArray` now *writes* left, bottom, right, top so our callouts open
+  right in those tools. `_boxFromRd` is just `calloutBox ?? rect` now.
+- **Unrecoverable fonts.** Their `/DA` names `/F2` (Arial per `/DS`), which is
+  neither base-14 nor recoverable, so `_rebuildCallout` refused and
+  `_moveAnnotationIn` fell back to a whole-annotation move - the arrow
+  travelled with the box. It now redraws in Helvetica instead of refusing.
+- The callout placement drag also showed the generic rubber-band rectangle
+  once callouts left `dragLine`; `dragRect` now excludes the callout tool.

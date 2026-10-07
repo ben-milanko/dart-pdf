@@ -458,20 +458,56 @@ class PdfAnnotation {
   /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
   /// distinct from /Rect which also encloses the leader line and arrowhead.
   /// Null when this is not a callout.
+  ///
+  /// The spec lists the /RD insets as left, top, right, bottom, but Acrobat-
+  /// family writers (Bluebeam, PDFBox) store and read them as left, *bottom*,
+  /// right, *top*. Both orders are tried and the box the leader actually
+  /// attaches to wins - /CL's last point sits on the text box's edge - so
+  /// either kind of file selects and edits the right box. An unhelpful /CL
+  /// (or symmetric insets) falls back to the left-bottom-right-top order,
+  /// which is what this package writes.
   PdfRect? get calloutBox {
     if (!isCallout) return null;
     final rd = document.cos.resolve(dict['RD']);
     double d(int i) {
       if (rd is! CosArray || rd.items.length <= i) return 0;
-      return _number(document.cos.resolve(rd.items[i])) ?? 0;
+      return math.max(0, _number(document.cos.resolve(rd.items[i])) ?? 0);
     }
 
     final r = rect;
-    final left = (r.left + math.max(0, d(0))).clamp(r.left, r.right);
-    final right = (r.right - math.max(0, d(2))).clamp(left, r.right);
-    final bottom = (r.bottom + math.max(0, d(3))).clamp(r.bottom, r.top);
-    final top = (r.top - math.max(0, d(1))).clamp(bottom, r.top);
-    return PdfRect(left, bottom, right, top);
+    PdfRect inset(double bottom, double top) {
+      final left = (r.left + d(0)).clamp(r.left, r.right);
+      final right = (r.right - d(2)).clamp(left, r.right);
+      final b = (r.bottom + bottom).clamp(r.bottom, r.top);
+      final t = (r.top - top).clamp(b, r.top);
+      return PdfRect(left, b, right, t);
+    }
+
+    final common = inset(d(1), d(3)); // left, bottom, right, top
+    if (d(1) == d(3)) return common;
+    final spec = inset(d(3), d(1)); // left, top, right, bottom (§12.5.6.19)
+    final attach = calloutLine?.last;
+    if (attach == null) return common;
+    return _perimeterDistance(spec, attach) + 0.01 <
+            _perimeterDistance(common, attach)
+        ? spec
+        : common;
+  }
+
+  /// How far [p] is from [box]'s outline (0 on it).
+  static double _perimeterDistance(PdfRect box, (double, double) p) {
+    final (x, y) = p;
+    final inside =
+        x >= box.left && x <= box.right && y >= box.bottom && y <= box.top;
+    if (inside) {
+      return math.min(math.min(x - box.left, box.right - x),
+          math.min(y - box.bottom, box.top - y));
+    }
+    final dx =
+        x < box.left ? box.left - x : (x > box.right ? x - box.right : 0);
+    final dy =
+        y < box.bottom ? box.bottom - y : (y > box.top ? y - box.top : 0);
+    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// The /Measure dictionary (§12.9): the scale and unit formats a
