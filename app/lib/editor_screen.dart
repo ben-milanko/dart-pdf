@@ -56,7 +56,7 @@ import 'web_launch.dart';
 import 'welcome_screen.dart';
 import 'whats_new.dart';
 import 'window_support.dart';
-import 'windows_drop_target.dart';
+import 'native_window_drop_target.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -3981,9 +3981,10 @@ class _EditorScreenState extends State<EditorScreen>
 
     final handle = _nativeWindowHandle;
     if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.windows &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS) &&
         handle != null) {
-      return WindowsDropTarget(
+      return NativeWindowDropTarget(
         windowHandle: handle,
         onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
         onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
