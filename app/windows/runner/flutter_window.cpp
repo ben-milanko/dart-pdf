@@ -9,9 +9,9 @@
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
-                             std::wstring initial_file)
+                             std::vector<std::wstring> initial_files)
     : project_(project),
-      platform_channels_(std::move(initial_file),
+      platform_channels_(std::move(initial_files),
                          [this]() { return GetHandle(); }) {}
 
 FlutterWindow::~FlutterWindow() {}

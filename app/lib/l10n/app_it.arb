@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Impostazioni personalizzate",
   "whatsNew": "Novità",
   "whatsNewInstalled": "Installata",
-  "whatsNewUnavailable": "Le note di rilascio non sono disponibili in questa build."
+  "whatsNewUnavailable": "Le note di rilascio non sono disponibili in questa build.",
+  "incomingFilesTitle": "{count, plural, other{Apri {count} PDF}}",
+  "incomingFilesMessage": "Aprire ogni file in una scheda separata o unirli in un unico nuovo documento? Trascina i file per scegliere l'ordine.",
+  "incomingFilesCombine": "Unisci"
 }

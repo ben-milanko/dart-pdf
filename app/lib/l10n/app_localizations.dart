@@ -2102,6 +2102,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Release notes aren\'t available in this build.'**
   String get whatsNewUnavailable;
+
+  /// Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file "Open with").
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Open {count} PDFs}}'**
+  String incomingFilesTitle(int count);
+
+  /// Body of the dialog asking whether PDFs opened from the operating system should open in separate tabs or be combined into one new document. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.'**
+  String get incomingFilesMessage;
+
+  /// Button that combines several PDFs opened from the operating system into one new document.
+  ///
+  /// In en, this message translates to:
+  /// **'Combine'**
+  String get incomingFilesCombine;
 }
 
 class _AppLocalizationsDelegate

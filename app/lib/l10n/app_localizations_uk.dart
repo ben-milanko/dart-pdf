@@ -1284,4 +1284,21 @@ class AppLocalizationsUk extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Примітки до випуску недоступні в цій збірці.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Відкрити PDF-файли: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Відкрити кожен файл в окремій вкладці чи об\'єднати їх в один новий документ? Перетягніть файли, щоб задати порядок.';
+
+  @override
+  String get incomingFilesCombine => 'Об\'єднати';
 }

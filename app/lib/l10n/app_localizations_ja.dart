@@ -1235,4 +1235,21 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'このビルドにはリリースノートがありません。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個の PDF を開く',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '各ファイルを別々のタブで開くか、1 つの新しいドキュメントに結合しますか?ドラッグして結合する順序を指定できます。';
+
+  @override
+  String get incomingFilesCombine => '結合';
 }

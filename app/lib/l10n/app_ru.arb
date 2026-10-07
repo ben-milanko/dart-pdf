@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Пользовательские настройки",
   "whatsNew": "Что нового",
   "whatsNewInstalled": "Установлена",
-  "whatsNewUnavailable": "Примечания к выпуску недоступны в этой сборке."
+  "whatsNewUnavailable": "Примечания к выпуску недоступны в этой сборке.",
+  "incomingFilesTitle": "{count, plural, other{Открыть PDF-файлы: {count}}}",
+  "incomingFilesMessage": "Открыть каждый файл в отдельной вкладке или объединить их в один новый документ? Перетащите файлы, чтобы задать порядок.",
+  "incomingFilesCombine": "Объединить"
 }

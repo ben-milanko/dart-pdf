@@ -327,5 +327,8 @@
   "reduceSizeCustom": "कस्टम सेटिंग",
   "whatsNew": "नया क्या है",
   "whatsNewInstalled": "इंस्टॉल किया गया",
-  "whatsNewUnavailable": "इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।"
+  "whatsNewUnavailable": "इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।",
+  "incomingFilesTitle": "{count, plural, other{{count} PDF खोलें}}",
+  "incomingFilesMessage": "हर फ़ाइल को अलग टैब में खोलें, या सभी को एक नए दस्तावेज़ में जोड़ें? क्रम तय करने के लिए फ़ाइलों को खींचें।",
+  "incomingFilesCombine": "जोड़ें"
 }

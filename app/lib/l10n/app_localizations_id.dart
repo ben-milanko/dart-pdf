@@ -1270,4 +1270,21 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Catatan rilis tidak tersedia di build ini.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Buka $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.';
+
+  @override
+  String get incomingFilesCombine => 'Gabungkan';
 }

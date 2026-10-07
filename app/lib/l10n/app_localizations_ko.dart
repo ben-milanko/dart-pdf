@@ -1235,4 +1235,21 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '이 빌드에서는 릴리스 정보를 사용할 수 없습니다.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 열기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '각 파일을 별도의 탭에서 열까요, 아니면 하나의 새 문서로 합칠까요? 파일을 끌어 합칠 순서를 정하세요.';
+
+  @override
+  String get incomingFilesCombine => '합치기';
 }

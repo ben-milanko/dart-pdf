@@ -31,7 +31,7 @@ struct _MyApplication {
   // the UI has already been built (non-null once activated).
   GtkWindow* window;
   // Warm-start OS file opens, bridged to the Dart IncomingFileService (the
-  // reverse-DNS channel every runner shares) as `openFile`. Cold-start opens
+  // reverse-DNS channel every runner shares) as `openFiles`. Cold-start opens
   // arrive as Dart entrypoint arguments instead (see my_application_open), the
   // way the Dart side expects on Windows and Linux.
   FlMethodChannel* incoming_channel;
@@ -59,16 +59,19 @@ static FlValue* file_payload(const char* path) {
 }
 
 // Handles the dev.milanko.dartpdf/incoming channel. On Linux the cold-start
-// file arrives as a Dart entrypoint argument (handled by the app itself), so
-// `getInitialFile` has nothing to hand back; warm-start opens are pushed from
-// the GApplication `open` handler as `openFile`.
+// files arrive as Dart entrypoint arguments (handled by the app itself), so
+// `getInitialFiles` has nothing to hand back; warm-start opens are pushed from
+// the GApplication `open` handler as one `openFiles` batch.
 static void incoming_method_call_cb(FlMethodChannel* channel,
                                     FlMethodCall* method_call,
                                     gpointer user_data) {
   const gchar* method = fl_method_call_get_name(method_call);
   g_autoptr(FlMethodResponse) response = nullptr;
 
-  if (strcmp(method, "getInitialFile") == 0) {
+  if (strcmp(method, "getInitialFiles") == 0) {
+    g_autoptr(FlValue) nothing = fl_value_new_list();
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nothing));
+  } else if (strcmp(method, "getInitialFile") == 0) {
     g_autoptr(FlValue) nothing = fl_value_new_null();
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nothing));
   } else {
@@ -519,32 +522,39 @@ static void my_application_open(GApplication* application, GFile** files,
                                 gint n_files, const gchar* hint) {
   MyApplication* self = MY_APPLICATION(application);
 
-  // Take the first argument that resolves to a local path; skip non-file URIs
-  // (g_file_get_path returns null for those). We open a single document.
-  char* path = nullptr;
-  for (gint i = 0; i < n_files && path == nullptr; i++) {
-    path = g_file_get_path(files[i]);
+  // Every argument that resolves to a local path; non-file URIs are skipped
+  // (g_file_get_path returns null for those). Several files - a multi-file
+  // "Open With" - reach Dart together, which offers to combine them.
+  g_autoptr(GPtrArray) paths = g_ptr_array_new_with_free_func(g_free);
+  for (gint i = 0; i < n_files; i++) {
+    char* path = g_file_get_path(files[i]);
+    if (path != nullptr) g_ptr_array_add(paths, path);
   }
 
   if (!self->engine_started) {
-    // Cold start: deliver the file the way the Dart side reads it on Linux -
-    // as an entrypoint argument (see editor_screen.dart's _openLaunchArgs) -
+    // Cold start: deliver the files the way the Dart side reads them on Linux
+    // - as entrypoint arguments (see editor_screen.dart's _openLaunchArgs) -
     // then build the UI. dart_entrypoint_arguments is consumed in activate.
     g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
-    if (path != nullptr) {
-      char* argv[] = {path, nullptr};
-      self->dart_entrypoint_arguments = g_strdupv(argv);
+    if (paths->len > 0) {
+      g_ptr_array_add(paths, nullptr);
+      self->dart_entrypoint_arguments =
+          g_strdupv(reinterpret_cast<gchar**>(paths->pdata));
     }
-    g_free(path);
     g_application_activate(application);
   } else {
-    // Warm start into the running instance: hand the file to Dart and raise.
-    if (path != nullptr && self->incoming_channel != nullptr) {
-      g_autoptr(FlValue) payload = file_payload(path);
-      fl_method_channel_invoke_method(self->incoming_channel, "openFile",
-                                      payload, nullptr, nullptr, nullptr);
+    // Warm start into the running instance: hand the files to Dart as one
+    // batch and raise.
+    if (paths->len > 0 && self->incoming_channel != nullptr) {
+      g_autoptr(FlValue) batch = fl_value_new_list();
+      for (guint i = 0; i < paths->len; i++) {
+        fl_value_append_take(
+            batch, file_payload(
+                       static_cast<const char*>(g_ptr_array_index(paths, i))));
+      }
+      fl_method_channel_invoke_method(self->incoming_channel, "openFiles",
+                                      batch, nullptr, nullptr, nullptr);
     }
-    g_free(path);
     present_existing_window(self);
   }
 }

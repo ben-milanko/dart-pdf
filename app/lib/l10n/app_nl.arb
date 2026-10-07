@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Aangepaste instellingen",
   "whatsNew": "Wat is er nieuw",
   "whatsNewInstalled": "Geïnstalleerd",
-  "whatsNewUnavailable": "Release-opmerkingen zijn niet beschikbaar in deze build."
+  "whatsNewUnavailable": "Release-opmerkingen zijn niet beschikbaar in deze build.",
+  "incomingFilesTitle": "{count, plural, other{{count} pdf's openen}}",
+  "incomingFilesMessage": "Elk bestand in een eigen tabblad openen, of ze samenvoegen tot één nieuw document? Sleep de bestanden om de volgorde te bepalen.",
+  "incomingFilesCombine": "Samenvoegen"
 }

@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Ustawienia niestandardowe",
   "whatsNew": "Co nowego",
   "whatsNewInstalled": "Zainstalowana",
-  "whatsNewUnavailable": "Informacje o wydaniu są niedostępne w tej kompilacji."
+  "whatsNewUnavailable": "Informacje o wydaniu są niedostępne w tej kompilacji.",
+  "incomingFilesTitle": "{count, plural, other{Otwórz pliki PDF ({count})}}",
+  "incomingFilesMessage": "Otworzyć każdy plik w osobnej karcie czy połączyć je w jeden nowy dokument? Przeciągnij pliki, aby ustalić kolejność.",
+  "incomingFilesCombine": "Połącz"
 }

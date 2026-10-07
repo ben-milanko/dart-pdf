@@ -327,5 +327,8 @@
   "reduceSizeCustom": "Cài đặt tùy chỉnh",
   "whatsNew": "Có gì mới",
   "whatsNewInstalled": "Đã cài đặt",
-  "whatsNewUnavailable": "Ghi chú phát hành không có sẵn trong bản dựng này."
+  "whatsNewUnavailable": "Ghi chú phát hành không có sẵn trong bản dựng này.",
+  "incomingFilesTitle": "{count, plural, other{Mở {count} tệp PDF}}",
+  "incomingFilesMessage": "Mở từng tệp trong thẻ riêng hay kết hợp chúng thành một tài liệu mới? Kéo các tệp để sắp xếp thứ tự.",
+  "incomingFilesCombine": "Kết hợp"
 }

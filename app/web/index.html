@@ -280,27 +280,31 @@
 
   <!-- File Handling API bridge: when the installed PWA is launched to open a
        .pdf, buffer the file(s) until the Dart side registers a consumer, then
-       forward each as { name, bytes }. -->
+       forward each launch as an array of { name, bytes }. -->
   <script>
     (function () {
       var queued = [];
       var consumer = null;
       window.__dartPdfDrainLaunchFiles = function (cb) {
         consumer = cb;
-        queued.forEach(function (e) { cb(e); });
+        queued.forEach(function (entries) { cb(entries); });
         queued = [];
       };
       if ('launchQueue' in window && 'LaunchParams' in window &&
           'files' in LaunchParams.prototype) {
         window.launchQueue.setConsumer(async function (params) {
+          // One launch is one batch: every file opened together arrives
+          // together, so the app can offer to combine them.
+          const entries = [];
           for (const handle of params.files) {
             try {
               const file = await handle.getFile();
               const buf = await file.arrayBuffer();
-              const entry = { name: file.name, bytes: new Uint8Array(buf) };
-              if (consumer) { consumer(entry); } else { queued.push(entry); }
+              entries.push({ name: file.name, bytes: new Uint8Array(buf) });
             } catch (err) { console.error('launch file error', err); }
           }
+          if (entries.length === 0) return;
+          if (consumer) { consumer(entries); } else { queued.push(entries); }
         });
       }
     })();

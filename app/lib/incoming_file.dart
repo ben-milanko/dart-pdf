@@ -29,9 +29,14 @@ class IncomingFile {
 /// The single conduit for files the OS opens in the app, across every
 /// platform. The native side of each runner talks to one [MethodChannel]:
 ///
-///  - Dart → native `getInitialFile`: the file the app cold-started with.
-///  - native → Dart `openFile`: a file delivered while the app is running
-///    (a second "open with", a share, a drag onto the dock icon).
+///  - Dart → native `getInitialFiles`: the files the app cold-started with
+///    (runners that predate it answer `getInitialFile` with one file).
+///  - native → Dart `openFile` / `openFiles`: one file, or several handed
+///    over in one request (a multi-file "Open with"), delivered while the app
+///    is running (a second "open with", a share, a drag onto the dock icon).
+///
+/// Files arrive as batches - one per OS request - so several files opened
+/// together can be offered as one choice (open side by side, or combine).
 ///
 /// Web is fed separately (the launch-queue bridge calls [push] directly), and
 /// desktop drag-drop is handled in the widget layer. When no native handler is
@@ -44,39 +49,56 @@ class IncomingFileService {
   static const channelName = 'dev.milanko.dartpdf/incoming';
 
   final MethodChannel _channel;
-  final _files = StreamController<IncomingFile>.broadcast();
+  final _files = StreamController<List<IncomingFile>>.broadcast();
 
-  /// Files the OS opens after launch.
-  Stream<IncomingFile> get files => _files.stream;
+  /// Batches of files the OS opens after launch, one per OS request.
+  Stream<List<IncomingFile>> get files => _files.stream;
 
   /// Begins listening for warm-start opens from the native side.
   void start() {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'openFile') {
-        final file = _decode(call.arguments);
-        if (file != null) _files.add(file);
-      }
+      final batch = switch (call.method) {
+        'openFile' => _decodeAll([call.arguments]),
+        'openFiles' => _decodeAll(call.arguments),
+        _ => const <IncomingFile>[],
+      };
+      if (batch.isNotEmpty) _files.add(batch);
       return null;
     });
   }
 
-  /// Returns the file the app was launched with, or null. Safe everywhere:
-  /// a missing native handler (tests, web) yields null instead of throwing.
-  Future<IncomingFile?> initialFile() async {
+  /// Returns the files the app was launched with (empty for none). Safe
+  /// everywhere: a missing native handler (tests, web) yields no files instead
+  /// of throwing.
+  Future<List<IncomingFile>> initialFiles() async {
     try {
-      final result = await _channel.invokeMethod<dynamic>('getInitialFile');
-      return _decode(result);
+      return _decodeAll(
+          await _channel.invokeMethod<dynamic>('getInitialFiles'));
     } on MissingPluginException {
-      return null;
+      // A runner without the batch call (or no runner at all).
     } catch (_) {
-      return null;
+      return const [];
+    }
+    try {
+      return _decodeAll(
+          [await _channel.invokeMethod<dynamic>('getInitialFile')]);
+    } catch (_) {
+      return const [];
     }
   }
 
-  /// Injects a file from a non-channel source (the web launch-queue bridge).
-  void push(IncomingFile file) => _files.add(file);
+  /// Injects files from a non-channel source (the web launch-queue bridge).
+  void push(List<IncomingFile> files) {
+    if (files.isNotEmpty) _files.add(files);
+  }
 
   void dispose() => _files.close();
+
+  List<IncomingFile> _decodeAll(dynamic args) => [
+        if (args is List)
+          for (final item in args)
+            if (_decode(item) case final file?) file,
+      ];
 
   IncomingFile? _decode(dynamic args) {
     if (args is! Map) return null;
