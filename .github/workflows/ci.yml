@@ -797,6 +797,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             app/windows/test/dib_pixels_test.cc -o "$RUNNER_TEMP/dib_pixels_test"
           "$RUNNER_TEMP/dib_pixels_test"
+      - name: Test Windows long-path spelling (host-portable C++)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            app/windows/test/long_paths_test.cc -o "$RUNNER_TEMP/long_paths_test"
+          "$RUNNER_TEMP/long_paths_test"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.47.5

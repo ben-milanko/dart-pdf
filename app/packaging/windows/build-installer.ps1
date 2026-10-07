@@ -75,6 +75,11 @@ Section "DartPDF" SecInstall
 
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf" "" "PDF document"
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+  ; Player lifts Explorer's 15-item cap on a selection's Open (the default
+  ; Document model hides the verb past 15) to 100. Explorer still runs the
+  ; "%1" command once per file; the single-instance runner forwards each to
+  ; the first window, which offers to combine the batch.
+  WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open" "MultiSelectModel" "Player"
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
   WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
   ; Explorer right-click > "Combine with DartPDF" on any PDF selection, whatever

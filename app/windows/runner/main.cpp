@@ -12,6 +12,7 @@
 
 #include "flutter_window.h"
 #include "flutter/generated_plugin_registrant.h"
+#include "long_paths.h"
 #include "platform_channels.h"
 #include "utils.h"
 #include "../../native/windowing_bootstrap.h"
@@ -34,6 +35,24 @@ bool ExperimentalWindowingEnabled() {
   return dart_pdf::FlutterWindowingEnabled();
 }
 
+// The real spelling of |path|. Explorer can hand an app a file past MAX_PATH
+// as its 8.3 short alias (`C:\PROJEC~1\...\REPORT~1.PDF`); that alias still
+// opens, but the tab title, recents and "Save" would all carry it. Asking in
+// the `\\?\` form lets the expansion run past MAX_PATH. Falls back to |path|
+// when it can't be expanded (relative, missing, or no short alias in it).
+std::wstring ExpandLongPath(const std::wstring& path) {
+  const std::wstring extended = dart_pdf::ExtendedLengthPath(path);
+  if (extended.empty()) return path;
+  const DWORD needed = ::GetLongPathNameW(extended.c_str(), nullptr, 0);
+  if (needed == 0) return path;
+  std::wstring expanded(needed, L'\0');
+  const DWORD written =
+      ::GetLongPathNameW(extended.c_str(), expanded.data(), needed);
+  if (written == 0 || written >= needed) return path;
+  expanded.resize(written);
+  return dart_pdf::StripExtendedLengthPrefix(expanded);
+}
+
 // Returns every `.pdf` path on the command line, in order. This is how Windows
 // delivers a file association / "open with" - the paths follow the executable
 // (one per process for an Explorer multi-select, several for "Send to" or a
@@ -54,7 +73,7 @@ std::vector<DartPdfIncomingFile> PdfArguments() {
       combine = true;
     } else if (arg.size() >= 4 &&
                _wcsicmp(arg.c_str() + (arg.size() - 4), L".pdf") == 0) {
-      result.push_back({std::move(arg), false});
+      result.push_back({ExpandLongPath(arg), false});
     }
   }
   ::LocalFree(argv);
