@@ -4169,6 +4169,210 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get dialogDismiss;
+
+  /// Title of the multi-document insert-pages dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert pages'**
+  String get insertPagesTitle;
+
+  /// Heading over the list of PDFs to insert.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get insertPagesFiles;
+
+  /// Button that picks more PDFs to insert.
+  ///
+  /// In en, this message translates to:
+  /// **'Add files…'**
+  String get insertPagesAddFiles;
+
+  /// Button that sorts the files to insert by file name.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by name'**
+  String get insertPagesSortByName;
+
+  /// Shown when the insert list is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Add one or more PDFs to insert.'**
+  String get insertPagesNoFiles;
+
+  /// Shown when picked files cannot be opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open {names}. The file may be damaged or password-protected.'**
+  String insertPagesOpenFailed(String names);
+
+  /// Page count of a file in the insert list.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 page} other{{count} pages}}'**
+  String insertPagesFilePageCount(int count);
+
+  /// Tooltip: move a file earlier in the insert order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get insertPagesMoveUp;
+
+  /// Tooltip: move a file later in the insert order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get insertPagesMoveDown;
+
+  /// Tooltip: drop a file from the insert list.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from list'**
+  String get insertPagesRemoveFile;
+
+  /// Label of a file's page range field.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get insertPagesRange;
+
+  /// Hint of a file's page range field; blank means all pages.
+  ///
+  /// In en, this message translates to:
+  /// **'All (e.g. 1-3, 7)'**
+  String get insertPagesRangeHint;
+
+  /// Validation error for a file's page range.
+  ///
+  /// In en, this message translates to:
+  /// **'Use pages 1–{count}, e.g. 1-3, 7'**
+  String insertPagesRangeInvalid(int count);
+
+  /// Page filter option: every page.
+  ///
+  /// In en, this message translates to:
+  /// **'All pages'**
+  String get insertPagesSubsetAll;
+
+  /// Page filter option: pages 1, 3, 5...
+  ///
+  /// In en, this message translates to:
+  /// **'Odd pages'**
+  String get insertPagesSubsetOdd;
+
+  /// Page filter option: pages 2, 4, 6...
+  ///
+  /// In en, this message translates to:
+  /// **'Even pages'**
+  String get insertPagesSubsetEven;
+
+  /// Checkbox: insert a file's pages last to first.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse order'**
+  String get insertPagesReverse;
+
+  /// Heading over the where-to-insert controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Placement'**
+  String get insertPagesPlacement;
+
+  /// Placement option: insert before the chosen page.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get insertPagesBefore;
+
+  /// Placement option: insert after the chosen page.
+  ///
+  /// In en, this message translates to:
+  /// **'After'**
+  String get insertPagesAfter;
+
+  /// Placement anchor: the document's first page.
+  ///
+  /// In en, this message translates to:
+  /// **'First page'**
+  String get insertPagesFirstPage;
+
+  /// Placement anchor: the document's last page.
+  ///
+  /// In en, this message translates to:
+  /// **'Last page'**
+  String get insertPagesLastPage;
+
+  /// Placement anchor: a page number entered by the user.
+  ///
+  /// In en, this message translates to:
+  /// **'Page'**
+  String get insertPagesPage;
+
+  /// Label of the placement page number field.
+  ///
+  /// In en, this message translates to:
+  /// **'Page number'**
+  String get insertPagesPageNumber;
+
+  /// Suffix after the placement page number, e.g. 'of 12'.
+  ///
+  /// In en, this message translates to:
+  /// **'of {count}'**
+  String insertPagesOfCount(int count);
+
+  /// Validation error for the placement page number.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 1–{count}'**
+  String insertPagesPageInvalid(int count);
+
+  /// Checkbox: weave the inserted pages between the existing ones.
+  ///
+  /// In en, this message translates to:
+  /// **'Interleave pages'**
+  String get insertPagesInterleave;
+
+  /// Explains the interleave option.
+  ///
+  /// In en, this message translates to:
+  /// **'Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.'**
+  String get insertPagesInterleaveHelp;
+
+  /// Interleave: how many inserted pages go in each run.
+  ///
+  /// In en, this message translates to:
+  /// **'Inserted pages each time'**
+  String get insertPagesRunInserted;
+
+  /// Interleave: how many existing pages sit between runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Document pages between'**
+  String get insertPagesRunExisting;
+
+  /// Checkbox: bring each file's bookmarks along.
+  ///
+  /// In en, this message translates to:
+  /// **'Include bookmarks'**
+  String get insertPagesIncludeBookmarks;
+
+  /// Checkbox: add a bookmark named after each file, nesting its own bookmarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a bookmark for each file'**
+  String get insertPagesBookmarkFiles;
+
+  /// Summary of what the insert will do.
+  ///
+  /// In en, this message translates to:
+  /// **'{inserted, plural, =1{Inserts 1 page} other{Inserts {inserted} pages}} - the document will have {total, plural, =1{1 page} other{{total} pages}}.'**
+  String insertPagesSummary(int inserted, int total);
+
+  /// Confirm button of the insert-pages dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert'**
+  String get insertPagesConfirm;
 }
 
 class _DartPdfEditorLocalizationsDelegate

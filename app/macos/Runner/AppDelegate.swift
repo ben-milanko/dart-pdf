@@ -23,6 +23,9 @@ class AppDelegate: FlutterAppDelegate {
   var dartIncomingReady = false
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
+    // Finder's "Combine with DartPDF" service (NSServices in Info.plist) calls
+    // combinePDFs(_:userData:error:) on this object.
+    NSApp.servicesProvider = self
     guard DartPdfWindowingBootstrap.isEnabled else {
       super.applicationDidFinishLaunching(notification)
       return
@@ -140,6 +143,25 @@ class AppDelegate: FlutterAppDelegate {
     sender.reply(toOpenOrPrint: .success)
   }
 
+  /// Finder's "Combine with DartPDF" service (right-click > Quick Actions /
+  /// Services, declared under NSServices in Info.plist): the selected PDFs
+  /// arrive on the pasteboard and go to Dart as one batch marked to combine.
+  @objc(combinePDFs:userData:error:)
+  func combinePDFs(
+    _ pboard: NSPasteboard, userData: String?,
+    error: AutoreleasingUnsafeMutablePointer<NSString?>
+  ) {
+    let urls = pboard.readObjects(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    let paths = urls.map { $0.path }
+    guard !paths.isEmpty else {
+      error.pointee = "No PDF files were selected." as NSString
+      return
+    }
+    deliver(paths: paths, combine: true)
+  }
+
   /// Brings DartPDF forward for a file the OS just handed us. LaunchServices
   /// usually activates the app for a Finder open, but not for every sender,
   /// and activation alone never unhides the app (Cmd-H) or restores a window
@@ -174,8 +196,9 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   /// Sends freshly opened files to Dart as one batch, or buffers them until
-  /// the engine is up.
-  private func deliver(paths: [String]) {
+  /// the engine is up. [combine] marks files from the "Combine with DartPDF"
+  /// service.
+  private func deliver(paths: [String], combine: Bool = false) {
     surfaceForIncomingFile()
     // Finder can deliver an iCloud/OneDrive placeholder during cold launch.
     // Reading it or resolving its security scope here blocks AppKit's main
@@ -183,7 +206,11 @@ class AppDelegate: FlutterAppDelegate {
     // payloads on the same background executor used by the file-access
     // channel, then return to the main thread to touch the channel/queue state.
     fileAccess.perform {
-      let payloads = paths.map { self.payload(for: $0) }
+      let payloads = paths.map { path -> [String: Any] in
+        var payload = self.payload(for: path)
+        if combine { payload["combine"] = true }
+        return payload
+      }
       DispatchQueue.main.async {
         self.deliver(payloads: payloads)
       }

@@ -15,8 +15,12 @@ enum IncomingFilesAction { separate, combine }
 /// starts in file-name order (the order the OS delivers them in is not the
 /// order the user selected them in on every platform) and can be reordered
 /// by dragging. Returns null when cancelled.
+///
+/// [combineOnly] is for files the user already chose to combine (the OS's
+/// "Combine with DartPDF" entry): the dialog then only sets the order.
 Future<({IncomingFilesAction action, List<IncomingFile> files})?>
-    showIncomingFilesDialog(BuildContext context, List<IncomingFile> files) {
+    showIncomingFilesDialog(BuildContext context, List<IncomingFile> files,
+        {bool combineOnly = false}) {
   final order = [...files]
     ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   return showPdfDialog(
@@ -28,14 +32,18 @@ Future<({IncomingFilesAction action, List<IncomingFile> files})?>
             Navigator.of(context).pop((action: action, files: order));
         return AlertDialog(
           key: const ValueKey('incoming-files-dialog'),
-          title: Text(l10n.incomingFilesTitle(order.length)),
+          title: Text(combineOnly
+              ? l10n.incomingFilesCombineTitle(order.length)
+              : l10n.incomingFilesTitle(order.length)),
           content: SizedBox(
             width: 400,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(l10n.incomingFilesMessage),
+                Text(combineOnly
+                    ? l10n.incomingFilesCombineMessage
+                    : l10n.incomingFilesMessage),
                 const SizedBox(height: 12),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 280),
@@ -70,11 +78,12 @@ Future<({IncomingFilesAction action, List<IncomingFile> files})?>
               onPressed: () => Navigator.of(context).pop(),
               child: Text(l10n.cancel),
             ),
-            TextButton(
-              key: const ValueKey('incoming-files-separate'),
-              onPressed: () => close(IncomingFilesAction.separate),
-              child: Text(l10n.editorOpenInNewTab(order.length)),
-            ),
+            if (!combineOnly)
+              TextButton(
+                key: const ValueKey('incoming-files-separate'),
+                onPressed: () => close(IncomingFilesAction.separate),
+                child: Text(l10n.editorOpenInNewTab(order.length)),
+              ),
             PdfDialogSubmit.action(
               onSubmit: () => close(IncomingFilesAction.combine),
               child: FilledButton(

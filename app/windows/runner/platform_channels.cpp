@@ -130,16 +130,21 @@ flutter::EncodableValue DialogPayload(const dart_pdf::FileDialogResult& result) 
   });
 }
 
-flutter::EncodableValue FilePayload(const std::wstring& path) {
+flutter::EncodableValue FilePayload(const std::wstring& path,
+                                    bool combine = false) {
   std::wstring name = path;
   size_t slash = path.find_last_of(L"/\\");
   if (slash != std::wstring::npos) name = path.substr(slash + 1);
-  return flutter::EncodableValue(flutter::EncodableMap{
+  flutter::EncodableMap payload{
       {flutter::EncodableValue("name"),
        flutter::EncodableValue(Utf8FromUtf16(name.c_str()))},
       {flutter::EncodableValue("path"),
        flutter::EncodableValue(Utf8FromUtf16(path.c_str()))},
-  });
+  };
+  if (combine) {
+    payload[flutter::EncodableValue("combine")] = flutter::EncodableValue(true);
+  }
+  return flutter::EncodableValue(std::move(payload));
 }
 
 }  // namespace
@@ -147,7 +152,7 @@ flutter::EncodableValue FilePayload(const std::wstring& path) {
 DartPdfPlatformChannels* DartPdfPlatformChannels::incoming_owner_ = nullptr;
 
 DartPdfPlatformChannels::DartPdfPlatformChannels(
-    std::vector<std::wstring> initial_files, OwnerWindow owner_window)
+    std::vector<DartPdfIncomingFile> initial_files, OwnerWindow owner_window)
     : owner_window_(std::move(owner_window)),
       pending_files_(std::move(initial_files)) {}
 
@@ -479,10 +484,10 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           }));
 }
 
-void DartPdfPlatformChannels::DeliverFileToFlutter(
-    const std::wstring& path) {
+void DartPdfPlatformChannels::DeliverFileToFlutter(const std::wstring& path,
+                                                   bool combine) {
   if (path.empty()) return;
-  pending_files_.push_back(path);
+  pending_files_.push_back({path, combine});
   // Before Dart asks for its initial files the queue just waits for that call.
   if (dart_incoming_ready_ || initial_files_result_) ArmIncomingFlush();
 }
@@ -509,7 +514,9 @@ void DartPdfPlatformChannels::FlushIncomingFiles() {
     incoming_flush_timer_ = 0;
   }
   flutter::EncodableList batch;
-  for (const auto& file : pending_files_) batch.push_back(FilePayload(file));
+  for (const auto& file : pending_files_) {
+    batch.push_back(FilePayload(file.path, file.combine));
+  }
   pending_files_.clear();
   if (initial_files_result_) {
     initial_files_result_->Success(flutter::EncodableValue(std::move(batch)));

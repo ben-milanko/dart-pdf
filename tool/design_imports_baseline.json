@@ -35,6 +35,7 @@
     "packages/dart_pdf_editor/lib/src/editing/editing_value_field.dart",
     "packages/dart_pdf_editor/lib/src/editing/text_prompt.dart",
     "packages/dart_pdf_editor/lib/src/editing/text_style_prompt.dart",
+    "packages/dart_pdf_editor/lib/src/insert_pages_dialog.dart",
     "packages/dart_pdf_editor/lib/src/l10n/editor_localizations.dart",
     "packages/dart_pdf_editor/lib/src/legacy/legacy_host_bridge.dart",
     "packages/dart_pdf_editor/lib/src/page_number_field.dart",

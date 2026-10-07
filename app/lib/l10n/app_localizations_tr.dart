@@ -1279,4 +1279,18 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Birleştir';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF\'yi birleştir',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Birleştirme sırasını belirlemek için dosyaları sürükleyin.';
 }

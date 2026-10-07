@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Le note di rilascio non sono disponibili in questa build.",
   "incomingFilesTitle": "{count, plural, other{Apri {count} PDF}}",
   "incomingFilesMessage": "Aprire ogni file in una scheda separata o unirli in un unico nuovo documento? Trascina i file per scegliere l'ordine.",
-  "incomingFilesCombine": "Unisci"
+  "incomingFilesCombine": "Unisci",
+  "incomingFilesCombineTitle": "{count, plural, other{Unisci {count} PDF}}",
+  "incomingFilesCombineMessage": "Trascina i file per scegliere l'ordine in cui unirli."
 }

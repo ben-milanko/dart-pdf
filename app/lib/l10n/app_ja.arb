@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "このビルドにはリリースノートがありません。",
   "incomingFilesTitle": "{count, plural, other{{count} 個の PDF を開く}}",
   "incomingFilesMessage": "各ファイルを別々のタブで開くか、1 つの新しいドキュメントに結合しますか?ドラッグして結合する順序を指定できます。",
-  "incomingFilesCombine": "結合"
+  "incomingFilesCombine": "結合",
+  "incomingFilesCombineTitle": "{count, plural, other{{count} 個の PDF を結合}}",
+  "incomingFilesCombineMessage": "ドラッグして結合する順序を指定できます。"
 }

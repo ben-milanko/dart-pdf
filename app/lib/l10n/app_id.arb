@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Catatan rilis tidak tersedia di build ini.",
   "incomingFilesTitle": "{count, plural, other{Buka {count} PDF}}",
   "incomingFilesMessage": "Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.",
-  "incomingFilesCombine": "Gabungkan"
+  "incomingFilesCombine": "Gabungkan",
+  "incomingFilesCombineTitle": "{count, plural, other{Gabungkan {count} PDF}}",
+  "incomingFilesCombineMessage": "Seret file untuk mengatur urutan penggabungannya."
 }

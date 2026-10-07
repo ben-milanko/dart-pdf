@@ -1302,4 +1302,17 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'دمج';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'دمج $count من ملفات PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'اسحب الملفات لتحديد ترتيب دمجها.';
 }

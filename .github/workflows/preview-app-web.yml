@@ -188,6 +188,15 @@ jobs:
           flutter build windows --profile
           --dart-define=PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}
 
+      # The Store MSIX's Explorer "Combine with DartPDF" handler; msix_config's
+      # context_menu.dll_path in app/pubspec.yaml expects it here.
+      - name: Confirm the Explorer combine handler built
+        working-directory: app
+        shell: pwsh
+        run: |
+          $dll = "build/windows/x64/combine_menu/dartpdf_combine_menu.dll"
+          if (-not (Test-Path $dll)) { throw "$dll was not built" }
+
       - name: Package portable Windows preview
         working-directory: app
         shell: pwsh

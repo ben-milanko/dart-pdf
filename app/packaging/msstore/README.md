@@ -151,6 +151,13 @@ $env:MSSTORE_PRODUCT_ID = '…'
   is what registers DartPDF as a PDF handler at install time. The NSIS installer
   does the same thing through the registry. Neither can make DartPDF the
   *default* handler — see RELEASING.md's "File associations".
+- **"Combine with DartPDF" is a shell extension here.** A packaged app can't
+  write the registry verb the NSIS installer adds, so `msix_config`'s
+  `context_menu` registers `windows/combine_menu` (an `IExplorerCommand` DLL
+  hosted in a COM surrogate) for `.pdf`. `flutter build windows` builds it at
+  `build/windows/x64/combine_menu/dartpdf_combine_menu.dll`, and `msix:create`
+  fails if it is missing. Its clsid in `pubspec.yaml` must match
+  `combine_menu.cpp`.
 - **The msstore CLI is framework-dependent** (`net9.0`), so a .NET 9 runtime must
   be present; the workflow installs it with `actions/setup-dotnet`. The CLI
   archive is pinned by version *and* SHA-256 in `publish-msix.ps1`, the way

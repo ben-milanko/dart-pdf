@@ -1287,4 +1287,18 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Gabungkan';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Gabungkan $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Seret file untuk mengatur urutan penggabungannya.';
 }

@@ -2340,4 +2340,146 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'رفض';
+
+  @override
+  String get insertPagesTitle => 'إدراج صفحات';
+
+  @override
+  String get insertPagesFiles => 'الملفات';
+
+  @override
+  String get insertPagesAddFiles => 'إضافة ملفات…';
+
+  @override
+  String get insertPagesSortByName => 'فرز حسب الاسم';
+
+  @override
+  String get insertPagesNoFiles => 'أضف ملف PDF واحدًا أو أكثر لإدراجه.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'تعذّر فتح $names. قد يكون الملف تالفًا أو محميًا بكلمة مرور.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count صفحة',
+      many: '$count صفحة',
+      few: '$count صفحات',
+      two: 'صفحتان',
+      one: 'صفحة واحدة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'نقل لأعلى';
+
+  @override
+  String get insertPagesMoveDown => 'نقل لأسفل';
+
+  @override
+  String get insertPagesRemoveFile => 'إزالة من القائمة';
+
+  @override
+  String get insertPagesRange => 'الصفحات';
+
+  @override
+  String get insertPagesRangeHint => 'الكل (مثل 1-3، 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'استخدم الصفحات 1–$count، مثل 1-3، 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'كل الصفحات';
+
+  @override
+  String get insertPagesSubsetOdd => 'الصفحات الفردية';
+
+  @override
+  String get insertPagesSubsetEven => 'الصفحات الزوجية';
+
+  @override
+  String get insertPagesReverse => 'ترتيب معكوس';
+
+  @override
+  String get insertPagesPlacement => 'الموضع';
+
+  @override
+  String get insertPagesBefore => 'قبل';
+
+  @override
+  String get insertPagesAfter => 'بعد';
+
+  @override
+  String get insertPagesFirstPage => 'الصفحة الأولى';
+
+  @override
+  String get insertPagesLastPage => 'الصفحة الأخيرة';
+
+  @override
+  String get insertPagesPage => 'صفحة';
+
+  @override
+  String get insertPagesPageNumber => 'رقم الصفحة';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'من $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'أدخل 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'تداخل الصفحات';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'يبادل بين الصفحات المُدرجة والصفحات الموجودة بدءًا من الموضع - مثلًا لإعادة دمج الصفحات الفردية والزوجية الممسوحة كلٌّ على حدة.';
+
+  @override
+  String get insertPagesRunInserted => 'الصفحات المُدرجة في كل مرة';
+
+  @override
+  String get insertPagesRunExisting => 'صفحات المستند بينها';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'تضمين الإشارات المرجعية';
+
+  @override
+  String get insertPagesBookmarkFiles => 'إضافة إشارة مرجعية لكل ملف';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'سيتم إدراج $inserted صفحة',
+      many: 'سيتم إدراج $inserted صفحة',
+      few: 'سيتم إدراج $inserted صفحات',
+      two: 'سيتم إدراج صفحتين',
+      one: 'سيتم إدراج صفحة واحدة',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total صفحة',
+      many: '$total صفحة',
+      few: '$total صفحات',
+      two: 'صفحتين',
+      one: 'صفحة واحدة',
+    );
+    return '$_temp0 - سيحتوي المستند على $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'إدراج';
 }

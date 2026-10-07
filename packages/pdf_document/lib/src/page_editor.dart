@@ -131,8 +131,14 @@ extension PdfPageOperations on PdfEditor {
   /// encryption is removed from imported objects and the destination's
   /// encryption (if any) is applied on save. Open either input with its
   /// password before calling this method. See [PdfMerger.merge] for bytes in,
-  /// bytes out merging.
-  void appendPagesFrom(PdfDocument source, {List<int>? indices, int? at}) {
+  /// bytes out merging. Pass `outlines: false` to leave the source's
+  /// bookmarks behind.
+  void appendPagesFrom(
+    PdfDocument source, {
+    List<int>? indices,
+    int? at,
+    bool outlines = true,
+  }) {
     if (identical(source.cos, document.cos)) {
       throw ArgumentError(
         'source is this document; '
@@ -151,7 +157,8 @@ extension PdfPageOperations on PdfEditor {
         _PageImporter(source, _updater.addObject, documentData: true);
     final imported = importer.importPages(picks);
     _rebuildPageTree([...leaves]..insertAll(insertAt, imported));
-    _mergeImportedDocumentData(importer, intoEmpty: leaves.isEmpty);
+    _mergeImportedDocumentData(importer,
+        intoEmpty: leaves.isEmpty, outlines: outlines);
   }
 
   /// Collects the current leaves in order, copying any attributes a page

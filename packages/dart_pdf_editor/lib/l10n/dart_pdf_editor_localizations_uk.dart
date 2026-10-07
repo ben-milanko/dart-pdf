@@ -2341,4 +2341,144 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Закрити';
+
+  @override
+  String get insertPagesTitle => 'Вставити сторінки';
+
+  @override
+  String get insertPagesFiles => 'Файли';
+
+  @override
+  String get insertPagesAddFiles => 'Додати файли…';
+
+  @override
+  String get insertPagesSortByName => 'Сортувати за назвою';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Додайте один або кілька PDF для вставлення.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Не вдалося відкрити $names. Можливо, файл пошкоджено або захищено паролем.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count сторінки',
+      many: '$count сторінок',
+      few: '$count сторінки',
+      one: '$count сторінка',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Вгору';
+
+  @override
+  String get insertPagesMoveDown => 'Вниз';
+
+  @override
+  String get insertPagesRemoveFile => 'Прибрати зі списку';
+
+  @override
+  String get insertPagesRange => 'Сторінки';
+
+  @override
+  String get insertPagesRangeHint => 'Усі (напр. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Використовуйте сторінки 1–$count, напр. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Усі сторінки';
+
+  @override
+  String get insertPagesSubsetOdd => 'Непарні сторінки';
+
+  @override
+  String get insertPagesSubsetEven => 'Парні сторінки';
+
+  @override
+  String get insertPagesReverse => 'Зворотний порядок';
+
+  @override
+  String get insertPagesPlacement => 'Розташування';
+
+  @override
+  String get insertPagesBefore => 'Перед';
+
+  @override
+  String get insertPagesAfter => 'Після';
+
+  @override
+  String get insertPagesFirstPage => 'Перша сторінка';
+
+  @override
+  String get insertPagesLastPage => 'Остання сторінка';
+
+  @override
+  String get insertPagesPage => 'Сторінка';
+
+  @override
+  String get insertPagesPageNumber => 'Номер сторінки';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'з $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Введіть 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Чергувати сторінки';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Чергує вставлені й наявні сторінки починаючи з вибраного місця — наприклад, щоб об’єднати окремо відскановані непарні й парні сторінки.';
+
+  @override
+  String get insertPagesRunInserted => 'Вставлених сторінок за раз';
+
+  @override
+  String get insertPagesRunExisting => 'Сторінок документа між ними';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Додати закладки';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Додати закладку для кожного файлу';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Буде вставлено $inserted сторінки',
+      many: 'Буде вставлено $inserted сторінок',
+      few: 'Буде вставлено $inserted сторінки',
+      one: 'Буде вставлено $inserted сторінку',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total сторінки',
+      many: '$total сторінок',
+      few: '$total сторінки',
+      one: '$total сторінка',
+    );
+    return '$_temp0 — у документі стане $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Вставити';
 }
