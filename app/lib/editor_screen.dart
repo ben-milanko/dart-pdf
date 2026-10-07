@@ -679,12 +679,20 @@ class _EditorScreenState extends State<EditorScreen>
   /// `getInitialFiles` instead; Windows does so from its own command line, so
   /// that the files other launches forward during startup join the batch).
   /// Several form one batch, which offers to combine them.
+  ///
+  /// `--combine` (the file manager's "Combine with DartPDF" entry) marks them
+  /// to combine.
   void _openLaunchArgs() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.linux) return;
+    final combine = widget.launchArgs.contains('--combine');
     _openIncomingBatch([
       for (final arg in widget.launchArgs)
         if (arg.toLowerCase().endsWith('.pdf'))
-          IncomingFile(name: arg.split(RegExp(r'[/\\]')).last, path: arg),
+          IncomingFile(
+            name: arg.split(RegExp(r'[/\\]')).last,
+            path: arg,
+            combine: combine,
+          ),
     ]);
   }
 
@@ -2226,7 +2234,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Opens a batch of files the OS handed over together. A single file opens
   /// as before; several - a multi-file "Open with" from a file manager - ask
   /// whether to open each in its own tab or combine them into one new
-  /// document.
+  /// document. Files from the OS's "Combine with DartPDF" entry skip that
+  /// question: the dialog only asks for their order.
   Future<void> _openIncomingBatch(List<IncomingFile> files) async {
     final seen = <String>{};
     files = [
@@ -2238,7 +2247,11 @@ class _EditorScreenState extends State<EditorScreen>
       await _openIncoming(files.single);
       return;
     }
-    final choice = await showIncomingFilesDialog(context, files);
+    // Linux launch files arrive from initState, before a dialog can be shown.
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final choice = await showIncomingFilesDialog(context, files,
+        combineOnly: files.any((file) => file.combine));
     if (choice == null || !mounted) return;
     if (choice.action == IncomingFilesAction.combine) {
       await _combineIncoming(choice.files);

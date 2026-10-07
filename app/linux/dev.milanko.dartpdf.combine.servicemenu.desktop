@@ -1,0 +1,31 @@
+# KDE Dolphin service menu: right-click on PDFs > "Combine with DartPDF".
+# Installed to share/kio/servicemenus/ as dev.milanko.dartpdf.combine.desktop.
+[Desktop Entry]
+Type=Service
+MimeType=application/pdf;
+Actions=combine;
+X-KDE-Priority=TopLevel
+
+[Desktop Action combine]
+Name=Combine with DartPDF
+Name[ar]=دمج باستخدام DartPDF
+Name[de]=Mit DartPDF zusammenführen
+Name[es]=Combinar con DartPDF
+Name[fr]=Combiner avec DartPDF
+Name[hi]=DartPDF से जोड़ें
+Name[id]=Gabungkan dengan DartPDF
+Name[it]=Unisci con DartPDF
+Name[ja]=DartPDF で結合
+Name[ko]=DartPDF로 합치기
+Name[nl]=Samenvoegen met DartPDF
+Name[pl]=Połącz w DartPDF
+Name[pt_BR]=Combinar com o DartPDF
+Name[ru]=Объединить в DartPDF
+Name[th]=รวมด้วย DartPDF
+Name[tr]=DartPDF ile birleştir
+Name[uk]=Об'єднати в DartPDF
+Name[vi]=Kết hợp bằng DartPDF
+Name[zh_CN]=使用 DartPDF 合并
+Name[zh_TW]=使用 DartPDF 合併
+Icon=dev.milanko.dartpdf
+Exec=dartpdf --combine %U

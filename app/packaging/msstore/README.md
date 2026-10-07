@@ -151,6 +151,9 @@ $env:MSSTORE_PRODUCT_ID = '…'
   is what registers DartPDF as a PDF handler at install time. The NSIS installer
   does the same thing through the registry. Neither can make DartPDF the
   *default* handler — see RELEASING.md's "File associations".
+- **No "Combine with DartPDF" context-menu entry.** The NSIS installer adds it
+  through the registry, but the `msix` package can only declare the file
+  extension, not a static verb, so the Store build goes without it.
 - **The msstore CLI is framework-dependent** (`net9.0`), so a .NET 9 runtime must
   be present; the workflow installs it with `actions/setup-dotnet`. The CLI
   archive is pinned by version *and* SHA-256 in `publish-msix.ps1`, the way

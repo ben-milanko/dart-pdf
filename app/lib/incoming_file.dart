@@ -7,7 +7,12 @@ import 'package:flutter/services.dart';
 /// a file association, or a launch argument.
 @immutable
 class IncomingFile {
-  const IncomingFile({required this.name, this.path, this.bytes, this.bookmark})
+  const IncomingFile(
+      {required this.name,
+      this.path,
+      this.bytes,
+      this.bookmark,
+      this.combine = false})
       : assert(path != null || bytes != null,
             'an incoming file needs a path or bytes');
 
@@ -24,6 +29,11 @@ class IncomingFile {
   /// macOS security-scoped bookmark for [path], when the native runner can
   /// provide one. Persisted with recents/session entries for later reopens.
   final String? bookmark;
+
+  /// True when the file came from the OS's "Combine with DartPDF" entry (a
+  /// file manager's right-click menu or `--combine`): the batch it arrives in
+  /// is to be combined into one document rather than opened side by side.
+  final bool combine;
 }
 
 /// The single conduit for files the OS opens in the app, across every
@@ -111,6 +121,7 @@ class IncomingFileService {
       path: (path != null && path.isEmpty) ? null : path,
       bytes: bytes,
       bookmark: args['bookmark'] as String?,
+      combine: args['combine'] == true,
     );
   }
 }

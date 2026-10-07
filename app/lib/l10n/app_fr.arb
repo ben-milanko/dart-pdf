@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Les notes de version ne sont pas disponibles dans cette version.",
   "incomingFilesTitle": "{count, plural, other{Ouvrir {count} PDF}}",
   "incomingFilesMessage": "Ouvrir chaque fichier dans son propre onglet, ou les combiner en un nouveau document ? Faites glisser les fichiers pour choisir l'ordre.",
-  "incomingFilesCombine": "Combiner"
+  "incomingFilesCombine": "Combiner",
+  "incomingFilesCombineTitle": "{count, plural, other{Combiner {count} PDF}}",
+  "incomingFilesCombineMessage": "Faites glisser les fichiers pour choisir l'ordre de combinaison."
 }

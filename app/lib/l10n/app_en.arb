@@ -1687,5 +1687,18 @@
   "incomingFilesCombine": "Combine",
   "@incomingFilesCombine": {
     "description": "Button that combines several PDFs opened from the operating system into one new document."
+  },
+  "incomingFilesCombineTitle": "{count, plural, other{Combine {count} PDFs}}",
+  "@incomingFilesCombineTitle": {
+    "description": "Title of the dialog shown when PDFs arrive through the operating system's \"Combine with DartPDF\" menu entry; it only asks for their order.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "incomingFilesCombineMessage": "Drag the files to set the order they're combined in.",
+  "@incomingFilesCombineMessage": {
+    "description": "Body of the dialog that orders PDFs chosen through the operating system's \"Combine with DartPDF\" menu entry. The file list below it can be reordered by dragging."
   }
 }

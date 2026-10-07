@@ -1244,6 +1244,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => '合并';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合并 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖动文件可设置合并顺序。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2487,4 +2500,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get incomingFilesCombine => '合併';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合併 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖曳檔案即可設定合併順序。';
 }

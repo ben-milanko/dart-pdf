@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "此版本未提供版本資訊。",
   "incomingFilesTitle": "{count, plural, other{開啟 {count} 個 PDF}}",
   "incomingFilesMessage": "要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。",
-  "incomingFilesCombine": "合併"
+  "incomingFilesCombine": "合併",
+  "incomingFilesCombineTitle": "{count, plural, other{合併 {count} 個 PDF}}",
+  "incomingFilesCombineMessage": "拖曳檔案即可設定合併順序。"
 }

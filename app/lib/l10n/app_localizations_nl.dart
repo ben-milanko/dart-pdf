@@ -1293,4 +1293,18 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Samenvoegen';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pdf\'s samenvoegen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Sleep de bestanden om de volgorde te bepalen.';
 }

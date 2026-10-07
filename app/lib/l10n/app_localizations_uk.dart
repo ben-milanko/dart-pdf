@@ -1301,4 +1301,18 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Об\'єднати';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Об\'єднати PDF-файли: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Перетягніть файли, щоб задати порядок об\'єднання.';
 }

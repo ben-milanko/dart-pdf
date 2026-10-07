@@ -2120,6 +2120,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Combine'**
   String get incomingFilesCombine;
+
+  /// Title of the dialog shown when PDFs arrive through the operating system's "Combine with DartPDF" menu entry; it only asks for their order.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Combine {count} PDFs}}'**
+  String incomingFilesCombineTitle(int count);
+
+  /// Body of the dialog that orders PDFs chosen through the operating system's "Combine with DartPDF" menu entry. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the files to set the order they\'re combined in.'**
+  String get incomingFilesCombineMessage;
 }
 
 class _AppLocalizationsDelegate

@@ -1252,4 +1252,17 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => '結合';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個の PDF を結合',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'ドラッグして結合する順序を指定できます。';
 }

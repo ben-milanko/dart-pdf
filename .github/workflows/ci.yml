@@ -807,7 +807,14 @@ jobs:
         working-directory: app
         run: flutter build linux --release
       - name: Validate .desktop entry
-        run: desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
+        run: |
+          desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
+          desktop-file-validate app/linux/dev.milanko.dartpdf.combine.desktop
+          cmp app/linux/dev.milanko.dartpdf.combine.desktop \
+            app/packaging/flatpak/desktop-assets/dev.milanko.dartpdf.combine.desktop || {
+            echo "::error::Flatpak desktop assets are stale; run app/packaging/flatpak/sync-desktop-assets.sh"
+            exit 1
+          }
       - name: Validate AppStream metainfo
         run: |
           set -euo pipefail
@@ -829,6 +836,8 @@ jobs:
           set -euo pipefail
           bundle=build/linux/x64/release/bundle
           test -f "$bundle/share/applications/dev.milanko.dartpdf.desktop"
+          test -f "$bundle/share/applications/dev.milanko.dartpdf.combine.desktop"
+          test -x "$bundle/share/kio/servicemenus/dev.milanko.dartpdf.combine.desktop"
           test -f "$bundle/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
           for sz in 64 128 256 512; do
             test -f "$bundle/share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png"
