@@ -225,5 +225,16 @@ void main() {
           isEmpty);
       expect(editor.hasChanges, isFalse);
     });
+
+    test('a source page listed twice is rejected before anything is staged',
+        () {
+      final editor = PdfEditor(open(labeledPdf('T', 2)));
+      expect(
+          () => editor.insertPages([
+                PdfPageInsertSource(open(labeledPdf('A', 2)), indices: [1, 1])
+              ]),
+          throwsArgumentError);
+      expect(editor.hasChanges, isFalse);
+    });
   });
 }
