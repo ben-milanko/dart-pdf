@@ -5486,9 +5486,16 @@ class PdfEditingController extends ChangeNotifier {
     return (y1 - y0).abs() <= 1e-3 * math.max(1.0, (x1 - x0).abs());
   }
 
+  /// Whether [annotation]'s subtype is hidden by the display-only filter
+  /// ([PdfEditingPreferences.hiddenAnnotationSubtypes]). Such an annotation
+  /// isn't drawn, so the on-page hit tests below don't reach it either.
+  bool _hiddenFromDisplay(PdfAnnotation annotation) =>
+      preferences.hiddenAnnotationSubtypes.contains(annotation.subtype);
+
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
-  /// draw on top, so they win).
+  /// draw on top, so they win). Subtypes hidden by
+  /// [PdfEditingPreferences.hiddenAnnotationSubtypes] are skipped.
   (int index, PdfAnnotation)? selectableAnnotationAt(
     int pageIndex,
     double x,
@@ -5498,6 +5505,7 @@ class PdfEditingController extends ChangeNotifier {
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
       if (annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
@@ -5534,6 +5542,7 @@ class PdfEditingController extends ChangeNotifier {
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
       if (annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
           !annotation.isLocked ||
           !isAnnotationLockManageable(annotation)) {
         continue;
@@ -5561,6 +5570,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.subtype != 'Widget' ||
           annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
           (!isAnnotationEditable(annotation) &&
               !_isSignedSignatureWidget(annotation))) {
         continue;
@@ -5622,6 +5632,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.subtype != 'Ink' ||
           annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
           !isAnnotationEditable(annotation)) {
         continue;
       }
@@ -5714,6 +5725,7 @@ class PdfEditingController extends ChangeNotifier {
     for (var i = 0; i < annotations.length; i++) {
       final annotation = annotations[i];
       if (annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;

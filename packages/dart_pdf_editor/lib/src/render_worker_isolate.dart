@@ -17,6 +17,7 @@ import 'package:pdf_cos/pdf_cos.dart'
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'annotation_display_filter.dart';
 import 'perf_log.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart'
@@ -287,6 +288,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
@@ -298,7 +300,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         priority,
         _seq++,
         pageIndex,
-        annotations,
+        PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
         imagePixelRatio,
         decodeImages,
         commandLimit,
@@ -332,6 +334,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -344,7 +347,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         priority,
         _seq++,
         pageIndex,
-        annotations,
+        PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
         List.of(pageToDevice),
         deviceWidth,
         deviceHeight,
@@ -365,6 +368,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -377,7 +381,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       List.of(pageToDevice),
       deviceWidth,
       deviceHeight,
@@ -402,13 +406,19 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
   }) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest.regionIndex(
-        priority, _seq++, pageIndex, annotations, maxCommands, buildGrid);
+        priority,
+        _seq++,
+        pageIndex,
+        PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
+        maxCommands,
+        buildGrid);
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
@@ -506,7 +516,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         'record',
         request.id,
         request.pageIndex,
-        request.annotations,
+        request.annotations.toWire(),
         request.imagePixelRatio,
         request.decodeImages,
         request.commandLimit,
@@ -521,7 +531,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         'bin',
         request.id,
         request.pageIndex,
-        request.annotations,
+        request.annotations.toWire(),
         request.pageToDevice,
         request.deviceWidth,
         request.deviceHeight,
@@ -533,7 +543,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         'regionIndex',
         request.id,
         request.pageIndex,
-        request.annotations,
+        request.annotations.toWire(),
         request.regionMaxCommands,
         request.regionBuildGrid,
       ]);
@@ -546,7 +556,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         'detail',
         request.id,
         request.pageIndex,
-        request.annotations,
+        request.annotations.toWire(),
         request.pageToDevice,
         request.deviceWidth,
         request.deviceHeight,
@@ -737,7 +747,7 @@ class _PendingRequest {
 
   _PendingRequest.extractText(this.priority, this.seq, this.pageIndex)
       : kind = _RequestKind.extractText,
-        annotations = false,
+        annotations = PdfAnnotationLayerSpec.none,
         imagePixelRatio = null,
         decodeImages = false,
         commandLimit = null,
@@ -759,7 +769,7 @@ class _PendingRequest {
       this.appendedBytes, this.newLength, this.changedPages)
       : kind = _RequestKind.update,
         pageIndex = -1,
-        annotations = false,
+        annotations = PdfAnnotationLayerSpec.none,
         imagePixelRatio = null,
         decodeImages = false,
         commandLimit = null,
@@ -777,7 +787,7 @@ class _PendingRequest {
   int priority;
   final int seq;
   final int pageIndex;
-  final bool annotations;
+  final PdfAnnotationLayerSpec annotations;
 
   // record-only
   final double? imagePixelRatio;
@@ -1068,7 +1078,7 @@ void _workerMain(_WorkerInit init) {
     }
 
     final pageIndex = request[2] as int;
-    final annotations = request[3] as bool;
+    final annotations = PdfAnnotationLayerSpec.fromWire(request[3]);
 
     final token = PdfCancellationToken();
     activeToken = token;
@@ -1217,7 +1227,7 @@ Future<Uint8List?> _recordPageAsync(
     _SuspendedRecordCache suspended,
     PdfWorkerTextCache textCache,
     int pageIndex,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     double? imagePixelRatio,
     bool decodeImages,
     int? commandLimit,
@@ -1262,7 +1272,7 @@ Future<Uint8List?> _recordPageAsync(
     await interpreter.drawPageContentAsync(page, page.contentBytes());
     if (token.cancelled) throw const PdfCancelledException();
     textCache.record(pageIndex, writer.takeTextCommands());
-    if (annotations) interpreter.drawAnnotations(page);
+    annotations.drawOn(interpreter, page);
     return writer.snapshot();
   }
   // A bounded prefix: its command limit counts recorded commands before scope
@@ -1277,7 +1287,7 @@ Future<Uint8List?> _recordPageAsync(
   await interpreter.drawPageContentAsync(page, page.contentBytes(),
       operationLimit: commandLimit);
   if (token.cancelled) throw const PdfCancelledException();
-  if (annotations) interpreter.drawAnnotations(page);
+  annotations.drawOn(interpreter, page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
       decodeImages: false,
@@ -1324,7 +1334,7 @@ Future<Uint8List?> _recordResumablePage(
     _SuspendedRecordCache suspended,
     PdfWorkerTextCache textCache,
     int pageIndex,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     double? imagePixelRatio,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
@@ -1353,7 +1363,7 @@ Future<Uint8List?> _recordResumablePage(
     // [pdfWorkerRecordStreams]).
     final writer = pdfWorkerRecordStreams(page, content,
             decodeImages: decodeImages,
-            annotations: annotations,
+            annotations: annotations.draw,
             commandLimit: commandLimit)
         ? PdfStreamingCommandWriter(cos: document.cos)
         : null;
@@ -1427,7 +1437,7 @@ Future<Uint8List?> _recordResumablePage(
   }
   final recorder = entry.recorder!;
   textCache.record(pageIndex, recorder.commands);
-  if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  annotations.drawOn(entry.interpreter, entry.page);
   // A fused progressive full record uses the same content walk for first ink
   // and final pixels. Ship the complete image-free transcript before the
   // potentially expensive image decode so the UI can paint the exact vector
@@ -1641,13 +1651,13 @@ Uint8List? _finishStreamedRecord(
     PdfWorkerTextCache textCache,
     _SuspendedRecord entry,
     PdfStreamingCommandWriter writer,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     double? imagePixelRatio,
     PdfRect? imageDecodeRegion,
     {required bool decodeImages,
     void Function(Uint8List)? onPartial}) {
   textCache.record(entry.pageIndex, writer.takeTextCommands());
-  if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  annotations.drawOn(entry.interpreter, entry.page);
   final streamed = writer.snapshot();
   if (!decodeImages || writer.imageRequests.isEmpty) return streamed;
   onPartial?.call(streamed);
@@ -1721,7 +1731,7 @@ class _SuspendedRecord {
       this.writer, this.interpreter, this.walk)
       : assert((recorder == null) != (writer == null));
   final int pageIndex;
-  final bool annotations;
+  final PdfAnnotationLayerSpec annotations;
   final PdfPage page;
 
   /// Exactly one of these holds what was drawn so far: the streaming writer
@@ -1754,7 +1764,7 @@ class _SuspendedRecordCache {
   /// or null when the slot holds a different page (which is left in place, so a
   /// fresh record of an urgent neighbour does not evict the page waiting to
   /// resume).
-  _SuspendedRecord? take(int pageIndex, bool annotations) {
+  _SuspendedRecord? take(int pageIndex, PdfAnnotationLayerSpec annotations) {
     final entry = _entry;
     if (entry != null &&
         entry.pageIndex == pageIndex &&
@@ -1795,7 +1805,7 @@ Future<Uint8List?> _binStripsAsync(
     PdfDocument document,
     _BinCommandCache cache,
     int pageIndex,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     List<double> matrix,
     int deviceWidth,
     int deviceHeight,
@@ -1826,7 +1836,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfImageDecodeCache imageCache,
   _BinCommandCache cache,
   int pageIndex,
-  bool annotations,
+  PdfAnnotationLayerSpec annotations,
   List<double> matrix,
   int deviceWidth,
   int deviceHeight,
@@ -1880,7 +1890,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
     PdfDocument document,
     _BinCommandCache cache,
     int pageIndex,
-    bool annotations,
+    PdfAnnotationLayerSpec annotations,
     int maxCommands,
     bool buildGrid,
     PdfCancellationToken token) async {
@@ -1949,7 +1959,7 @@ class _BinCommandCache {
   _BinCommandCache(this.textCache);
 
   final PdfWorkerTextCache textCache;
-  final _entries = <(int, bool), _BinCommandEntry>{};
+  final _entries = <(int, PdfAnnotationLayerSpec), _BinCommandEntry>{};
   static const int _capacity = 2;
   static const int _maxRetainedCommands = 250000;
 
@@ -1968,14 +1978,17 @@ class _BinCommandCache {
     }
   }
 
-  Future<List<PdfRenderCommand>?> commandsFor(PdfDocument document,
-          int pageIndex, bool annotations, PdfCancellationToken token) async =>
+  Future<List<PdfRenderCommand>?> commandsFor(
+          PdfDocument document,
+          int pageIndex,
+          PdfAnnotationLayerSpec annotations,
+          PdfCancellationToken token) async =>
       (await _entryFor(document, pageIndex, annotations, token))?.wireCommands;
 
   Future<List<PdfRenderCommand>?> detailCommandsFor(
       PdfDocument document,
       int pageIndex,
-      bool annotations,
+      PdfAnnotationLayerSpec annotations,
       PdfRect region,
       PdfCancellationToken token) async {
     final entry = await _entryFor(document, pageIndex, annotations, token);
@@ -1985,7 +1998,7 @@ class _BinCommandCache {
   Future<PdfRegionReplayIndex?> regionIndexFor(
       PdfDocument document,
       int pageIndex,
-      bool annotations,
+      PdfAnnotationLayerSpec annotations,
       int maxCommands,
       bool buildGrid,
       PdfCancellationToken token) async {
@@ -1997,7 +2010,7 @@ class _BinCommandCache {
   }
 
   Future<_BinCommandEntry?> _entryFor(PdfDocument document, int pageIndex,
-      bool annotations, PdfCancellationToken token) async {
+      PdfAnnotationLayerSpec annotations, PdfCancellationToken token) async {
     final key = (pageIndex, annotations);
     final hit = _entries.remove(key);
     if (hit != null) {
@@ -2016,7 +2029,7 @@ class _BinCommandCache {
     await interpreter.drawPageContentAsync(page, page.contentBytes());
     if (token.cancelled) throw const PdfCancelledException();
     textCache.record(pageIndex, recorder.commands);
-    if (annotations) interpreter.drawAnnotations(page);
+    annotations.drawOn(interpreter, page);
     final buffer = serializeCommands(recorder.commands,
         cos: document.cos,
         decodeImages: false,

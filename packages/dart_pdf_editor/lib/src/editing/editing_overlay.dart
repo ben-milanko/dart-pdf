@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../annotation_display_filter.dart';
 import '../debug_overlays.dart';
 import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
@@ -496,6 +497,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.linkPrompt = pdfPresentLinkPrompt,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.interactionHost,
     this.interactionSession,
     this.onPanViewport,
@@ -555,6 +557,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// Whether the page is displayed with its annotations - same
   /// requirement as [pageColor]: the eyedropper samples what's visible.
   final bool showAnnotations;
+
+  /// Annotation subtypes the viewer hides from display (see
+  /// [PdfViewer.hiddenAnnotationSubtypes]); previews and the eyedropper
+  /// leave them out the way the page does.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Viewer-owned services used by this page's interaction session.
   final PdfEditingInteractionHost? interactionHost;
@@ -756,7 +763,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfPageColorSampler? _sampler;
   int? _samplerRevisionId;
   Color? _samplerPageColor;
-  bool? _samplerAnnotations;
+  (bool, String)? _samplerAnnotations;
   Future<PdfPageColorSampler>? _samplerFuture;
   Offset? _pickPosition;
   Color? _pickPreview;
@@ -2620,6 +2627,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       element: element.id,
       color: widget.pageColor,
       annotations: widget.showAnnotations,
+      hidden: hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes),
     );
     if (_elementLiftKey == key &&
         _elementClean != null &&
@@ -2639,6 +2647,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         PdfPageRenderPlan(
           pageColor: widget.pageColor,
           annotations: widget.showAnnotations,
+          hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         ),
         operations: elements.operationsRetaining((e) => e.id != id),
       );
@@ -2836,6 +2845,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.pageAt(widget.pageIndex),
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         skipAnnotation: (a) =>
             identical(a.dict, key) || (name != null && a.name == name),
       );
@@ -4790,7 +4800,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final document = _controller.document;
     final revisionId = _controller.revisionId;
     final pageColor = widget.pageColor;
-    final annotations = widget.showAnnotations;
+    final annotations = (
+      widget.showAnnotations,
+      hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes),
+    );
     if (revisionId != _samplerRevisionId ||
         pageColor != _samplerPageColor ||
         annotations != _samplerAnnotations) {
@@ -4799,9 +4812,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor,
-              annotations: annotations,
-              rotation: widget.geometry.rotation,
+              plan: PdfPageRenderPlan(
+                pageColor: pageColor,
+                annotations: widget.showAnnotations,
+                hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
+                rotation: widget.geometry.rotation,
+              ),
               worker: widget.renderWorker,
               pageIndex: widget.pageIndex)
           .then((s) {

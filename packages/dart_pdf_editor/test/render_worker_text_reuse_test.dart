@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:dart_pdf_editor/src/annotation_display_filter.dart';
 
 // Browser integration uses the same real bundle as render_worker_sparse_web_test:
 // dart run dart_pdf_editor:build_web_worker --out lib/src/sparse_test_worker.js
@@ -16,8 +17,8 @@ void main() {
       () async {
     final doc = PdfDocument.open(_pdf());
     final cache = PdfWorkerTranscriptCache();
-    final transcript =
-        await cache.transcriptFor(doc, 0, true, PdfCancellationToken());
+    final transcript = await cache.transcriptFor(
+        doc, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken());
     expect(transcript, isNotNull);
     expect(
         transcript!.wireCommands
@@ -37,7 +38,8 @@ void main() {
     expect(cache.textCache.extract(0), isNotNull);
     cache.evictPages({0});
     expect(cache.textCache.extract(0), isNull);
-    await cache.transcriptFor(doc, 0, false, PdfCancellationToken());
+    await cache.transcriptFor(
+        doc, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(cache.textCache.extract(0), isNotNull);
     cache.clear();
     expect(cache.textCache.length, 0);
@@ -50,7 +52,8 @@ void main() {
     final token = PdfCancellationToken();
     var partials = 0;
     await expectLater(
-      cache.transcriptFor(doc, 0, true, token, onPartial: (_) {
+      cache.transcriptFor(doc, 0, PdfAnnotationLayerSpec.all, token,
+          onPartial: (_) {
         partials++;
         token.cancelled = true;
       }),
@@ -58,7 +61,8 @@ void main() {
     );
     expect(partials, greaterThan(0));
     expect(cache.textCache.extract(0), isNull);
-    await cache.transcriptFor(doc, 0, true, PdfCancellationToken());
+    await cache.transcriptFor(
+        doc, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken());
     _expectSame(cache.textCache.extract(0)!, PdfTextExtractor.extract(doc, 0));
   });
 

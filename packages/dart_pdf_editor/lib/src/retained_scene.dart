@@ -441,7 +441,10 @@ class PdfRetainedScene {
       device: recorder,
       overprintMaxDimension: overprintMaxDimension,
     )..drawPageContent(page, page.contentBytes());
-    if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    if (plan.annotations) {
+      recording.drawAnnotations(page,
+          skip: skipAnnotation, skipSubtypes: plan.hiddenAnnotationSubtypes);
+    }
     final keepDecodedPixels = retainDecodedPixels ||
         (retainDecodedPixelsForCommands?.call(recorder.commands) ?? false);
     final clock = timing == null ? null : (Stopwatch()..start());
@@ -515,6 +518,7 @@ class PdfRetainedScene {
     final source = TransferableTypedData.fromList([page.document.cos.bytes]);
     final populatedRanges = page.document.cos.populatedRanges;
     final annotations = plan.annotations;
+    final hiddenSubtypes = plan.hiddenAnnotationSubtypes;
     final decodeRatio = options.maxImagePixelRatio == null
         ? null
         : options.maxImagePixelRatio! * options.imageDecodeHeadroom;
@@ -529,7 +533,9 @@ class PdfRetainedScene {
         device: recorder,
         overprintMaxDimension: maxDimension,
       )..drawPageContent(retryPage, retryPage.contentBytes());
-      if (annotations) interpreter.drawAnnotations(retryPage);
+      if (annotations) {
+        interpreter.drawAnnotations(retryPage, skipSubtypes: hiddenSubtypes);
+      }
       return serializeCommands(
         recorder.commands,
         cos: document.cos,
@@ -876,6 +882,7 @@ class PdfRetainedScene {
         fromWorker = await worker.buildRegionIndex(
           pageIndex,
           annotations: plan.annotations,
+          hiddenAnnotationSubtypes: plan.hiddenAnnotationSubtypes,
           maxCommands: params.maxCommands,
           buildGrid: params.buildGrid,
           priority: priority,

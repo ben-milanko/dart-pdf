@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:dart_pdf_editor/src/annotation_display_filter.dart';
 
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
 
@@ -66,7 +67,7 @@ void main() {
     final first = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
       timings: firstTimings,
     );
@@ -79,7 +80,7 @@ void main() {
     final hit = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
       timings: hitTimings,
     );
@@ -98,7 +99,8 @@ void main() {
     expect(first.retainedCommandWeight,
         retainedCommandGraphWeight(first.wireCommands));
 
-    await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(cache.length, 1);
     expect(cache.evictions, 1);
     expect(cache.misses, 2);
@@ -106,7 +108,7 @@ void main() {
     final reloaded = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     expect(identical(reloaded, first), isFalse);
@@ -134,7 +136,7 @@ void main() {
     final transcript = await cache.transcriptFor(
       document,
       0,
-      false,
+      PdfAnnotationLayerSpec.none,
       PdfCancellationToken(),
       onPartial: partials.add,
     );
@@ -153,7 +155,7 @@ void main() {
     final hit = await cache.transcriptFor(
       document,
       0,
-      false,
+      PdfAnnotationLayerSpec.none,
       PdfCancellationToken(),
       onPartial: hitPartials.add,
     );
@@ -167,7 +169,7 @@ void main() {
     final cache = PdfWorkerTranscriptCache();
     final token = PdfCancellationToken()..cancelled = true;
     await expectLater(
-      cache.transcriptFor(document, 0, true, token),
+      cache.transcriptFor(document, 0, PdfAnnotationLayerSpec.all, token),
       throwsA(isA<PdfCancelledException>()),
     );
     expect(cache.length, 0);
@@ -183,13 +185,14 @@ void main() {
     final first = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     expect(cache.length, 1);
     expect(cache.retainedCommandWeight, greaterThan(1));
 
-    await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(cache.length, 1,
         reason: 'the newly used oversize entry remains reusable');
     expect(cache.evictions, 1);
@@ -197,7 +200,7 @@ void main() {
     final reloaded = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     expect(identical(reloaded, first), isFalse);
@@ -211,7 +214,7 @@ void main() {
     final transcript = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     expect(transcript, isNotNull);
@@ -265,7 +268,7 @@ void main() {
     final transcript = await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     final baseline = await PdfWorkerTranscriptCache(
@@ -273,7 +276,7 @@ void main() {
     ).transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
 
@@ -394,8 +397,8 @@ void main() {
     // identity has to survive the image patch or every stamp ships its own
     // copy of the glyph again.
     final document = PdfDocument.open(_type3BitmapPdf());
-    final transcript = await PdfWorkerTranscriptCache()
-        .transcriptFor(document, 0, false, PdfCancellationToken());
+    final transcript = await PdfWorkerTranscriptCache().transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(transcript, isNotNull);
     final stamps = _stamps(transcript!.sourceCommands);
     expect(stamps, hasLength(5));
@@ -436,13 +439,13 @@ void main() {
     ).transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
     final optimized = await PdfWorkerTranscriptCache().transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
     );
 
@@ -454,8 +457,10 @@ void main() {
   test('evictPages drops the named pages and keeps the rest warm', () async {
     final document = PdfDocument.open(buildMultiPagePdf(2));
     final cache = PdfWorkerTranscriptCache(capacity: 4);
-    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
-    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 1, PdfAnnotationLayerSpec.all, PdfCancellationToken());
     expect(cache.length, 2);
 
     // Edit page 0: its transcript is stale, page 1's stays warm.
@@ -466,7 +471,7 @@ void main() {
     await cache.transcriptFor(
       document,
       1,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
       timings: keptTimings,
     );
@@ -477,7 +482,7 @@ void main() {
     await cache.transcriptFor(
       document,
       0,
-      true,
+      PdfAnnotationLayerSpec.all,
       PdfCancellationToken(),
       timings: droppedTimings,
     );
@@ -489,8 +494,10 @@ void main() {
       () async {
     final document = PdfDocument.open(buildMultiPagePdf(2));
     final cache = PdfWorkerTranscriptCache(capacity: 4);
-    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
-    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 1, PdfAnnotationLayerSpec.all, PdfCancellationToken());
     expect(cache.length, 2);
     final text = cache.textCache.length;
     expect(text, greaterThan(0));
@@ -504,7 +511,7 @@ void main() {
 
     final timings = PdfWorkerPhaseTimings();
     final again = await cache.transcriptFor(
-        document, 0, true, PdfCancellationToken(),
+        document, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken(),
         timings: timings);
     expect(timings.transcriptHit, isFalse);
     expect(again, isNotNull, reason: 'a trimmed page records again');
@@ -513,8 +520,10 @@ void main() {
   test('evictPages(null) clears every transcript', () async {
     final document = PdfDocument.open(buildMultiPagePdf(2));
     final cache = PdfWorkerTranscriptCache(capacity: 4);
-    await cache.transcriptFor(document, 0, true, PdfCancellationToken());
-    await cache.transcriptFor(document, 1, true, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.all, PdfCancellationToken());
+    await cache.transcriptFor(
+        document, 1, PdfAnnotationLayerSpec.all, PdfCancellationToken());
     expect(cache.length, 2);
     cache.evictPages(null);
     expect(cache.length, 0);
@@ -529,7 +538,8 @@ void main() {
 
     // One-shot reference: a normal, un-preempted record.
     final reference = await PdfWorkerTranscriptCache(deduplicateCommands: false)
-        .transcriptFor(document, 0, false, PdfCancellationToken());
+        .transcriptFor(
+            document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(reference, isNotNull);
 
     // A tiny chunk so buildVectorPdf's several ops span multiple chunks; the walk
@@ -538,14 +548,15 @@ void main() {
     final cache = PdfWorkerTranscriptCache(
         deduplicateCommands: false, resumeChunkOperations: 2);
     final token = PdfCancellationToken();
-    final preempted =
-        cache.transcriptFor(document, 0, false, token, yieldInterval: 2);
+    final preempted = cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, token,
+        yieldInterval: 2);
     token.cancelled = true; // trips the first between-chunk check -> suspend
     await expectLater(preempted, throwsA(isA<PdfCancelledException>()));
 
     // Resume: a fresh token, same page - continues from the cursor to completion.
-    final resumed =
-        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    final resumed = await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(resumed, isNotNull);
 
     Uint8List? wire(List<PdfRenderCommand> commands) => serializeCommands(
@@ -560,8 +571,8 @@ void main() {
         reason: 'resuming must reproduce the one-shot transcript exactly');
 
     // A resumed record is cached like any completed one: the next request hits.
-    final hit =
-        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    final hit = await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(identical(hit, resumed), isTrue,
         reason: 'the resumed transcript must be cached, not re-recorded');
   });
@@ -571,16 +582,17 @@ void main() {
     final cache = PdfWorkerTranscriptCache(
         deduplicateCommands: false, resumeChunkOperations: 2);
     final token = PdfCancellationToken();
-    final preempted =
-        cache.transcriptFor(document, 0, false, token, yieldInterval: 2);
+    final preempted = cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, token,
+        yieldInterval: 2);
     token.cancelled = true;
     await expectLater(preempted, throwsA(isA<PdfCancelledException>()));
 
     // The edit drops the suspended page's partial; the next record starts fresh
     // and still completes to a valid transcript.
     cache.evictPages({0});
-    final fresh =
-        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    final fresh = await cache.transcriptFor(
+        document, 0, PdfAnnotationLayerSpec.none, PdfCancellationToken());
     expect(fresh, isNotNull);
   });
 }

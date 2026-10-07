@@ -20,6 +20,7 @@ import 'canvas_device.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
 import 'perf_log.dart';
+import 'annotation_display_filter.dart';
 import 'page_render_session.dart';
 import 'performance_policy.dart';
 import 'preview_cache.dart';
@@ -56,6 +57,7 @@ class PdfPageView extends StatefulWidget {
     this.settleGeneration = 0,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.onRasterReady,
     this.renderHold,
     this.renderScheduler,
@@ -264,6 +266,11 @@ class PdfPageView extends StatefulWidget {
   /// Whether the page's annotations render (see
   /// [PdfPageRenderer.renderPicture]). Changing it re-renders the page.
   final bool showAnnotations;
+
+  /// Annotation /Subtype names left out of the render while
+  /// [showAnnotations] is true (see [PdfViewer.hiddenAnnotationSubtypes]).
+  /// Display-only; changing it re-renders the page.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Resolution multiplier on top of the device pixel ratio. The viewer
   /// raises it to the settled zoom level so pages stay sharp.
@@ -991,6 +998,7 @@ class _PdfPageViewState extends State<PdfPageView>
   PdfPageRenderPlan get _renderPlan => PdfPageRenderPlan(
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         rotation: widget.rotation,
       );
 
@@ -1007,6 +1015,7 @@ class _PdfPageViewState extends State<PdfPageView>
         rotation: source.rotation,
         pageColor: source.pageColor,
         showAnnotations: source.showAnnotations,
+        hiddenAnnotationSubtypes: source.hiddenAnnotationSubtypes,
         scale: source.scale,
         settleGeneration: source.settleGeneration,
       );
@@ -2043,7 +2052,9 @@ class _PdfPageViewState extends State<PdfPageView>
         intent.trustContentStamp != widget.trustContentStamp ||
         intent.rotation != widget.rotation ||
         intent.pageColor != widget.pageColor ||
-        intent.showAnnotations != widget.showAnnotations) {
+        intent.showAnnotations != widget.showAnnotations ||
+        !sameHiddenAnnotationSubtypes(
+            intent.hiddenAnnotationSubtypes, widget.hiddenAnnotationSubtypes)) {
       return false;
     }
     return widget.trustContentStamp || identical(intent.page, widget.page);
@@ -2391,6 +2402,7 @@ class _PdfPageViewState extends State<PdfPageView>
       height: dimensions.$2,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       rotation: widget.rotation,
     );
     if (image == null) return false;
@@ -2536,6 +2548,7 @@ class _PdfPageViewState extends State<PdfPageView>
       height: dimensions.$2,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       rotation: widget.rotation,
       revision: _contentRevision(),
     );
@@ -2857,6 +2870,7 @@ class _PdfPageViewState extends State<PdfPageView>
           worker!.record(
             pageIndex,
             annotations: widget.showAnnotations,
+            hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             priority: widget.renderPriority,
             imagePixelRatio: imageRatio,
           ));
@@ -3437,6 +3451,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: priority,
       decodeImages: false,
       onPartial: !progressive
@@ -3636,6 +3651,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: widget.renderPriority,
       imagePixelRatio: imageRatio,
       onPartial: (partial) {
@@ -3663,6 +3679,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: widget.renderPriority,
       imagePixelRatio: imageRatio,
     );
@@ -4163,6 +4180,7 @@ class _PdfPageViewState extends State<PdfPageView>
           image,
           pageColor: widget.pageColor,
           annotations: widget.showAnnotations,
+          hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
           rotation: widget.rotation,
           revision: _contentRevision(),
         );
@@ -5078,6 +5096,7 @@ class _PdfPageViewState extends State<PdfPageView>
       final commands = await worker.record(
         pageIndex,
         annotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         priority: widget.renderPriority,
         imagePixelRatio: imageRatio,
         imageDecodeRegion: _pdfRegionForRasterRegion(region),
@@ -5703,6 +5722,7 @@ class _PdfPageViewState extends State<PdfPageView>
       worker.binStrips(
         widget.previewIndex,
         annotations: scene.plan.annotations,
+        hiddenAnnotationSubtypes: scene.plan.hiddenAnnotationSubtypes,
         pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
         deviceWidth: geometry.width,
         deviceHeight: geometry.height,
@@ -5739,6 +5759,7 @@ class _PdfPageViewState extends State<PdfPageView>
       worker.recordStripDetail(
         widget.previewIndex,
         annotations: scene.plan.annotations,
+        hiddenAnnotationSubtypes: scene.plan.hiddenAnnotationSubtypes,
         pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
         deviceWidth: geometry.width,
         deviceHeight: geometry.height,
@@ -5805,6 +5826,7 @@ class _PdfPageViewState extends State<PdfPageView>
     return worker.binStrips(
       widget.previewIndex,
       annotations: scene.plan.annotations,
+      hiddenAnnotationSubtypes: scene.plan.hiddenAnnotationSubtypes,
       pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
       deviceWidth: geometry.width,
       deviceHeight: geometry.height,
@@ -5828,6 +5850,7 @@ class _PdfPageViewState extends State<PdfPageView>
     return worker.binStrips(
       widget.previewIndex,
       annotations: scene.plan.annotations,
+      hiddenAnnotationSubtypes: scene.plan.hiddenAnnotationSubtypes,
       pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
       deviceWidth: geometry.width,
       deviceHeight: geometry.height,
@@ -5850,6 +5873,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: priority ?? widget.renderPriority,
       imagePixelRatio: ratio,
       imageDecodeRegion: decodeRegion,
@@ -5910,6 +5934,7 @@ class _PdfPageViewState extends State<PdfPageView>
       detail = await worker.recordStripDetail(
         pageIndex,
         annotations: baseScene.plan.annotations,
+        hiddenAnnotationSubtypes: baseScene.plan.hiddenAnnotationSubtypes,
         pageToDevice: [m.a, m.b, m.c, m.d, m.e, m.f],
         deviceWidth: geometry.width,
         deviceHeight: geometry.height,
@@ -6080,6 +6105,7 @@ class _PdfPageViewState extends State<PdfPageView>
                       worker: worker,
                       pageIndex: widget.previewIndex,
                       annotations: widget.showAnnotations,
+                      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
                       width: webDimensions.$1,
                       height: webDimensions.$2,
                       pageColor: widget.pageColor.toARGB32(),
@@ -6100,6 +6126,8 @@ class _PdfPageViewState extends State<PdfPageView>
                         worker: worker,
                         pageIndex: widget.previewIndex,
                         annotations: widget.showAnnotations,
+                        hiddenAnnotationSubtypes:
+                            widget.hiddenAnnotationSubtypes,
                         width: (webDetailGeometry.region.width *
                                 webDetailGeometry.pixelRatio)
                             .ceil()

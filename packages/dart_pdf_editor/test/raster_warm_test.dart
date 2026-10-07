@@ -938,6 +938,7 @@ void main() {
       int index = 0,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int? rotation,
       int? width,
       int? height,
@@ -950,6 +951,7 @@ void main() {
           height: height ?? image.height,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           rotation: rotation,
         );
 
@@ -1106,6 +1108,7 @@ class _RecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1148,6 +1151,7 @@ class _MultiPageRecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1181,6 +1185,7 @@ class _DecliningWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,

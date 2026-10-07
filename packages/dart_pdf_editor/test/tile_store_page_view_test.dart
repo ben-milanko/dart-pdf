@@ -1279,6 +1279,7 @@ class _DelayedIndexWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1290,6 +1291,7 @@ class _DelayedIndexWorker extends PdfRenderWorker {
     return inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1303,6 +1305,7 @@ class _DelayedIndexWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1312,6 +1315,7 @@ class _DelayedIndexWorker extends PdfRenderWorker {
     return inner.buildRegionIndex(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       maxCommands: maxCommands,
       buildGrid: buildGrid,
       priority: priority,

@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
+import 'annotation_display_filter.dart';
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'region_replay_index.dart';
@@ -163,6 +164,7 @@ abstract class PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -412,6 +414,7 @@ abstract class PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -478,6 +481,7 @@ abstract class PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -503,6 +507,7 @@ abstract class PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -535,6 +540,7 @@ abstract class PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1045,6 +1051,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1057,6 +1064,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       return urgent.record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
@@ -1070,6 +1078,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       return await _workers[worker].record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
@@ -1103,6 +1112,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1113,6 +1123,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].binStrips(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1125,6 +1136,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1135,6 +1147,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].recordStripDetail(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1157,6 +1170,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1164,6 +1178,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,
@@ -1310,6 +1325,7 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -1320,6 +1336,7 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
       _inner.render(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         width: width,
         height: height,
         pageColor: pageColor,
@@ -1337,10 +1354,21 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
   }
 }
 
-typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
+// The second slot is the annotation selection: whether annotations are drawn,
+// and the hidden-subtype set as a stable string (see
+// [hiddenAnnotationSubtypesKey]) so a toggle never reuses a stale buffer.
+typedef _RecordCacheKey = (
+  int,
+  (bool, String),
+  bool,
+  int,
+  int?,
+  _RegionBucket?
+);
 
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
-/// keyed by (page, annotations, decodeImages, image-ratio bucket,
+/// keyed by (page, annotations + hidden subtypes, decodeImages, image-ratio
+/// bucket,
 /// command-limit, image-decode-region when decoded image bytes are present).
 /// The lazy
 /// page list recycles a [PdfPageView]'s State when it scrolls out of view and
@@ -1540,6 +1568,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1551,6 +1580,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       return _inner.record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
@@ -1562,7 +1592,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     final effectiveRegion = decodeImages ? imageDecodeRegion : null;
     final key = (
       pageIndex,
-      annotations,
+      (
+        annotations,
+        annotations
+            ? hiddenAnnotationSubtypesKey(hiddenAnnotationSubtypes)
+            : '',
+      ),
       decodeImages,
       _ratioBucket(imagePixelRatio),
       effectiveCommandLimit,
@@ -1596,6 +1631,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
           key,
           pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
@@ -1617,6 +1653,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       key,
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1639,6 +1676,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     _RecordCacheKey key,
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int priority,
     required double? imagePixelRatio,
     required bool decodeImages,
@@ -1651,6 +1689,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       key,
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1677,6 +1716,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     _RecordCacheKey key,
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int priority,
     required double? imagePixelRatio,
     required bool decodeImages,
@@ -1690,6 +1730,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
         .record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1742,6 +1783,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1752,6 +1794,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.binStrips(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1767,6 +1810,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1777,6 +1821,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.recordStripDetail(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1797,6 +1842,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1804,6 +1850,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,
