@@ -35,3 +35,20 @@ Changes:
 
 Not verified on a real Windows machine from this session (Linux container):
 the C++ in `main.cpp` compiles only in the Windows CI/release builds.
+
+## Follow-up: Explorer's 15-file Open limit
+
+Explorer hides a legacy command-line verb once more than 15 files are selected
+(the default `Document` multi-select model). The NSIS installer now sets
+`MultiSelectModel=Player` on `DartPDF.pdf\shell\open`, which raises that to 100
+(Microsoft's "verb selection model" table: legacy verbs are 15 under Document
+and 100 under Player; only COM verbs have no limit). Explorer still runs the
+`"%1"` command once per file. Every extra process forwards its path over
+WM_COPYDATA, and `kIncomingSettleMs` (500 ms of quiet) batches them into one
+`openFiles` call, so the combine offer still sees the whole selection.
+
+The MSIX is unchanged: for a packaged app Windows uses Player for 15 or fewer
+files and Document (one launch per file) beyond that, so the verb never
+disappears. The `msix` tool can't express `MultiSelectModel` anyway. Past 100
+files would need a COM `DropTarget`/`ExecuteCommand` handler. See RELEASING.md
+"File associations".

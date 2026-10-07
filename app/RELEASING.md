@@ -276,6 +276,16 @@ time: the NSIS installer writes the ProgID registry keys, the Store MSIX
 declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
 the `.desktop` file's `MimeType`.
 
+Opening many PDFs at once from Explorer: the NSIS ProgID's `open` verb sets
+`MultiSelectModel=Player`, which raises Explorer's limit for a legacy
+command-line verb from 15 selected files (the default `Document` model, past
+which the verb is hidden) to 100. Explorer still launches one process per
+file, and the single-instance runner forwards each to the running window,
+which offers to combine them. Going past 100 would take a COM `DropTarget` /
+`ExecuteCommand` verb handler. The MSIX needs no change: Windows launches a
+packaged app once with every file for 15 or fewer and once per file beyond
+that, rather than hiding the verb.
+
 ### Document (file) icon
 
 The branded page icon Finder / Explorer draw for an associated `.pdf` is
