@@ -1018,6 +1018,47 @@ void main() {
     });
   });
 
+  group('page reorder (#1025)', () {
+    const white = Color(0xFFFFFFFF);
+    String key(PdfEditingController c, int i) =>
+        thumbnailKey(c, i, white, true, 128);
+
+    test('a moved page carries its thumbnail key; its old slot does not', () {
+      final controller = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(controller.dispose);
+      final before = [for (var i = 0; i < 4; i++) key(controller, i)];
+      expect(before.toSet(), hasLength(4),
+          reason: 'every page has its own key');
+
+      // the issue's gesture: page 3 dragged to position 2
+      controller.movePage(2, 1);
+
+      // a reorder bumps no render stamps - every page still renders the same -
+      // so the key must follow the page, not the slot, or slot 1 keeps showing
+      // the raster of the page that used to be there
+      expect([for (var i = 0; i < 4; i++) key(controller, i)],
+          [before[0], before[2], before[1], before[3]]);
+
+      controller.undo();
+      expect([for (var i = 0; i < 4; i++) key(controller, i)], before);
+    });
+
+    test('a reorder closes the index-keyed disk tier', () {
+      final controller = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(controller.dispose);
+      expect(controller.pageMatchesOpenedFile(0), isTrue);
+      expect(controller.pageMatchesOpenedFile(2), isTrue);
+
+      controller.movePage(0, 2);
+      // the disk thumbnail for index 0 is the opened file's page 1, not the
+      // page now there - even though no page's render stamp moved
+      for (var i = 0; i < 3; i++) {
+        expect(controller.pageRenderStamp(i), 0);
+        expect(controller.pageMatchesOpenedFile(i), isFalse);
+      }
+    });
+  });
+
   group('thumbnail disk persistence', () {
     testWidgets('warm render skips local fallback without an active worker',
         (tester) async {
