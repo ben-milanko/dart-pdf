@@ -6,32 +6,33 @@ import 'package:flutter/services.dart';
 
 const _channel = MethodChannel('dev.milanko.dartpdf/windows_drop');
 
-enum _WindowsDropEventKind { entered, updated, exited, dropped }
+enum _NativeWindowDropEventKind { entered, updated, exited, dropped }
 
-class _WindowsDropEvent {
-  const _WindowsDropEvent(this.kind, this.position, this.paths);
+class _NativeWindowDropEvent {
+  const _NativeWindowDropEvent(this.kind, this.position, this.paths);
 
-  final _WindowsDropEventKind kind;
+  final _NativeWindowDropEventKind kind;
   final Offset position;
   final List<String> paths;
 }
 
-typedef _WindowsDropListener = void Function(_WindowsDropEvent event);
+typedef _NativeWindowDropListener = void Function(_NativeWindowDropEvent event);
 
-/// Routes the engine-scoped Windows channel to the Flutter view whose HWND
-/// received the native OLE drop. `desktop_drop` cannot do this itself because
-/// it registers only against the registrar's implicit view; DartPDF's
-/// multi-window runner intentionally has no such view.
-class _WindowsDropRouter {
-  _WindowsDropRouter._() {
+/// Routes the engine-scoped drop channel to the Flutter view whose native
+/// window (HWND on Windows, NSWindow on macOS) received the drop.
+/// `desktop_drop` cannot do this itself because it registers only against the
+/// registrar's implicit view; DartPDF's multi-window runner intentionally has
+/// no such view, so on macOS `desktop_drop` installs nothing at all.
+class _NativeWindowDropRouter {
+  _NativeWindowDropRouter._() {
     _channel.setMethodCallHandler(_handleCall);
   }
 
-  static final instance = _WindowsDropRouter._();
+  static final instance = _NativeWindowDropRouter._();
 
-  final Map<int, Set<_WindowsDropListener>> _listeners = {};
+  final Map<int, Set<_NativeWindowDropListener>> _listeners = {};
 
-  void attach(int handle, _WindowsDropListener listener) {
+  void attach(int handle, _NativeWindowDropListener listener) {
     final listeners = _listeners.putIfAbsent(handle, () => {});
     final first = listeners.isEmpty;
     listeners.add(listener);
@@ -41,7 +42,7 @@ class _WindowsDropRouter {
     }
   }
 
-  void detach(int handle, _WindowsDropListener listener) {
+  void detach(int handle, _NativeWindowDropListener listener) {
     final listeners = _listeners[handle];
     if (listeners == null) return;
     listeners.remove(listener);
@@ -69,28 +70,28 @@ class _WindowsDropRouter {
       _ => const <String>[],
     };
     final kind = switch (call.method) {
-      'entered' => _WindowsDropEventKind.entered,
-      'updated' => _WindowsDropEventKind.updated,
-      'exited' => _WindowsDropEventKind.exited,
-      'performOperation' => _WindowsDropEventKind.dropped,
+      'entered' => _NativeWindowDropEventKind.entered,
+      'updated' => _NativeWindowDropEventKind.updated,
+      'exited' => _NativeWindowDropEventKind.exited,
+      'performOperation' => _NativeWindowDropEventKind.dropped,
       _ => null,
     };
     if (kind == null) return;
-    final event = _WindowsDropEvent(kind, position, paths);
-    for (final listener in List<_WindowsDropListener>.of(listeners)) {
+    final event = _NativeWindowDropEvent(kind, position, paths);
+    for (final listener in List<_NativeWindowDropListener>.of(listeners)) {
       listener(event);
     }
   }
 }
 
-/// A per-native-window counterpart to [DropTarget] for DartPDF's Windows
-/// multi-window runner.
+/// A per-native-window counterpart to [DropTarget] for DartPDF's Windows and
+/// macOS multi-window runners (`windows_drop.cpp`, `WindowDropService.swift`).
 ///
-/// The native bridge includes the receiving HWND with each event, so a drop in
+/// The native bridge includes the receiving window handle with each event, so a drop in
 /// one window cannot accidentally notify the identically-positioned body of a
 /// second window.
-class WindowsDropTarget extends StatefulWidget {
-  const WindowsDropTarget({
+class NativeWindowDropTarget extends StatefulWidget {
+  const NativeWindowDropTarget({
     super.key,
     required this.windowHandle,
     required this.child,
@@ -108,28 +109,28 @@ class WindowsDropTarget extends StatefulWidget {
   final OnDragDoneCallback? onDragDone;
 
   @override
-  State<WindowsDropTarget> createState() => _WindowsDropTargetState();
+  State<NativeWindowDropTarget> createState() => _NativeWindowDropTargetState();
 }
 
-class _WindowsDropTargetState extends State<WindowsDropTarget> {
+class _NativeWindowDropTargetState extends State<NativeWindowDropTarget> {
   bool _inside = false;
 
   @override
   void initState() {
     super.initState();
-    _WindowsDropRouter.instance.attach(widget.windowHandle, _onEvent);
+    _NativeWindowDropRouter.instance.attach(widget.windowHandle, _onEvent);
   }
 
   @override
-  void didUpdateWidget(WindowsDropTarget oldWidget) {
+  void didUpdateWidget(NativeWindowDropTarget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.windowHandle == widget.windowHandle) return;
-    _WindowsDropRouter.instance.detach(oldWidget.windowHandle, _onEvent);
-    _WindowsDropRouter.instance.attach(widget.windowHandle, _onEvent);
+    _NativeWindowDropRouter.instance.detach(oldWidget.windowHandle, _onEvent);
+    _NativeWindowDropRouter.instance.attach(widget.windowHandle, _onEvent);
     _inside = false;
   }
 
-  void _onEvent(_WindowsDropEvent event) {
+  void _onEvent(_NativeWindowDropEvent event) {
     if (!mounted) return;
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;
@@ -142,11 +143,11 @@ class _WindowsDropTargetState extends State<WindowsDropTarget> {
       globalPosition: global,
     );
     switch (event.kind) {
-      case _WindowsDropEventKind.entered:
+      case _NativeWindowDropEventKind.entered:
         if (!inBounds) return;
         _inside = true;
         widget.onDragEntered?.call(details);
-      case _WindowsDropEventKind.updated:
+      case _NativeWindowDropEventKind.updated:
         if (inBounds) {
           if (!_inside) {
             _inside = true;
@@ -158,11 +159,11 @@ class _WindowsDropTargetState extends State<WindowsDropTarget> {
           _inside = false;
           widget.onDragExited?.call(details);
         }
-      case _WindowsDropEventKind.exited:
+      case _NativeWindowDropEventKind.exited:
         if (!_inside) return;
         _inside = false;
         widget.onDragExited?.call(details);
-      case _WindowsDropEventKind.dropped:
+      case _NativeWindowDropEventKind.dropped:
         if (!_inside || !inBounds) return;
         _inside = false;
         widget.onDragDone?.call(DropDoneDetails(
@@ -175,7 +176,7 @@ class _WindowsDropTargetState extends State<WindowsDropTarget> {
 
   @override
   void dispose() {
-    _WindowsDropRouter.instance.detach(widget.windowHandle, _onEvent);
+    _NativeWindowDropRouter.instance.detach(widget.windowHandle, _onEvent);
     super.dispose();
   }
 

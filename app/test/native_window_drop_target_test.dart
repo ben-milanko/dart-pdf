@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dart_pdf_editor_app/windows_drop_target.dart';
+import 'package:dart_pdf_editor_app/native_window_drop_target.dart';
 
 void main() {
   const channel = MethodChannel('dev.milanko.dartpdf/windows_drop');
@@ -25,7 +25,7 @@ void main() {
 
     DropDoneDetails? dropped;
     await tester.pumpWidget(MaterialApp(
-      home: WindowsDropTarget(
+      home: NativeWindowDropTarget(
         windowHandle: 42,
         onDragDone: (details) => dropped = details,
         child: const SizedBox.expand(),
@@ -71,7 +71,7 @@ void main() {
 
     var drops = 0;
     await tester.pumpWidget(MaterialApp(
-      home: WindowsDropTarget(
+      home: NativeWindowDropTarget(
         windowHandle: 7,
         onDragDone: (_) => drops++,
         child: const SizedBox.expand(),

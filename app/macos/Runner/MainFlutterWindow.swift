@@ -62,6 +62,7 @@ final class FileAccessExecutor {
 class MainFlutterWindow: NSWindow {
   private let fileAccess = FileAccessExecutor()
   private let trackpadSignature = TrackpadSignatureCapture()
+  private var windowDrop: WindowDropService?
   private var channelsConfigured = false
 
   override func awakeFromNib() {
@@ -314,6 +315,10 @@ class MainFlutterWindow: NSWindow {
       }
       result(TrackpadSignatureCapture.isAvailable())
     }
+
+    // desktop_drop cannot attach to the headless engine's (absent) implicit
+    // view; Dart registers each window it creates here instead.
+    windowDrop = WindowDropService(binaryMessenger: binaryMessenger)
 
     RegisterGeneratedPlugins(registry: registry)
   }
