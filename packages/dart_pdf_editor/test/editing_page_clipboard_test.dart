@@ -577,4 +577,111 @@ void main() {
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
   });
+
+  group('PdfThumbnailView paste indicator', () {
+    Future<({PdfEditingController editing, PdfViewerController viewer})>
+        pumpGrid(
+      WidgetTester tester, {
+      int pages = 4,
+    }) async {
+      tester.view.physicalSize = const Size(1000, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final editing = PdfEditingController(buildMultiPagePdf(pages),
+          pageClipboard: PdfPageClipboard());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfThumbnailView(controller: editing, viewerController: viewer),
+        ),
+      ));
+      await tester.pump();
+      return (editing: editing, viewer: viewer);
+    }
+
+    Finder marker(int i) =>
+        find.byKey(ValueKey('pdf-thumbnail-paste-indicator-$i'));
+    Finder cell(int i) => find.byKey(ValueKey('pdf-thumbnail-grid-cell-$i'));
+
+    testWidgets('hovering the grid marks where a copied page would paste',
+        (tester) async {
+      // a desktop-hover affordance, as in the strip - see its copy
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpGrid(tester, pages: 4);
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(cell(1)));
+        await tester.pump();
+        // nothing on the clipboard yet - no insertion mark
+        expect(marker(1), findsNothing);
+
+        // copy a page: the hovered cell now shows the insertion bar, alone
+        refs.editing.copyPages([0]);
+        await tester.pump();
+        expect(marker(1), findsOneWidget);
+        expect(marker(0), findsNothing);
+        expect(marker(2), findsNothing);
+
+        // the bar stands along the cell's trailing (right, in LTR) edge -
+        // the gap between it and the next cell, where the pages will land
+        final bar = tester.getRect(marker(1));
+        final cellRect = tester.getRect(cell(1));
+        expect(bar.height, greaterThan(bar.width));
+        expect(bar.right, closeTo(cellRect.right, 4));
+        expect(bar.left, greaterThan(cellRect.center.dx));
+
+        // the mark follows the cursor to another cell
+        await mouse.moveTo(tester.getCenter(cell(2)));
+        await tester.pump();
+        expect(marker(1), findsNothing);
+        expect(marker(2), findsOneWidget);
+
+        // leaving the grid's cells clears it
+        await mouse.moveTo(const Offset(990, 890));
+        await tester.pump();
+        expect(marker(2), findsNothing);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('⌘/Ctrl+V lands after the hovered cell, not the selection',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpGrid(tester, pages: 3);
+
+        await tester.tap(find.text('Page 1'));
+        await tester.pump();
+        expect(refs.editing.selectedPages, [0]);
+        refs.editing.copyPages([0]);
+        await tester.pump();
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(cell(2)));
+        await tester.pump();
+        expect(marker(2), findsOneWidget);
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+
+        // pasted after the hovered Page 3, not after the selected Page 1
+        expect(labelsOf(refs.editing.document),
+            ['Page 1', 'Page 2', 'Page 3', 'Page 1']);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  });
 }

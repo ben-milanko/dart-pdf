@@ -1788,11 +1788,29 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
 
   void _cutPages() => widget.controller.cutPages(_clipboardTargets());
 
+  /// The page a paste would drop the clipboard's pages after while the mouse
+  /// hovers the grid: the cell under the cursor, once the shared page
+  /// clipboard holds something. Null when nothing is copied, no cell is
+  /// hovered, or the platform has no reliable hover (touch). Drives both the
+  /// cell's insertion indicator and where [_pastePages] lands - the strip's
+  /// rule, see [_PdfThumbnailSidebarState._pasteInsertionPage].
+  int? get _pasteInsertionPage => widget.allowPageEditing &&
+          widget.controller.hasPageClipboard &&
+          _hoverPage != null &&
+          pdfPanelControlsRevealOnHover()
+      ? _hoverPage
+      : null;
+
   /// Pastes the shared clipboard's pages after the selection (or the
-  /// keyboard/current page) and reveals where they landed.
+  /// keyboard/current page) and reveals where they landed. A live hover over
+  /// the grid - the case the insertion indicator marks - aims the paste at
+  /// the hovered cell instead, so ⌘/Ctrl+V drops the pages where the mark
+  /// shows.
   void _pastePages() {
     final selected = widget.controller.selectedPages;
-    final at = (selected.isNotEmpty ? selected.last : _keyboardBase()) + 1;
+    final base = _pasteInsertionPage ??
+        (selected.isNotEmpty ? selected.last : _keyboardBase());
+    final at = base + 1;
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
     _revealPage(at);
@@ -1946,6 +1964,10 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                 listenable: controller,
                 builder: (context, _) {
                   final rangePreview = _rangePreview;
+                  // the cell a paste would land after while the mouse hovers
+                  // - computed inside the controller's builder so filling/
+                  // clearing the clipboard re-evaluates it (see the strip)
+                  final pasteInsertionPage = _pasteInsertionPage;
                   // the slot an external PDF being dragged over the grid
                   // would drop into - marked on the leading edge of the
                   // cell its pages would land before
@@ -2038,6 +2060,9 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             onActivatePage: _openPage,
                                             inRangePreview:
                                                 rangePreview.contains(i),
+                                            showPasteIndicator:
+                                                pasteInsertionPage == i,
+                                            reversed: rtl,
                                             dropEdge: _tileDropEdge(
                                               dropIndex,
                                               i,
@@ -2188,6 +2213,8 @@ class _GridPageCell extends StatefulWidget {
     required this.onDragStarted,
     required this.onDragEnded,
     this.inRangePreview = false,
+    this.showPasteIndicator = false,
+    this.reversed = false,
     this.dropEdge,
     this.showPageActions = true,
     this.onHover,
@@ -2210,6 +2237,15 @@ class _GridPageCell extends StatefulWidget {
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
   final bool inRangePreview;
+
+  /// Whether to mark this cell as the one a paste would land after: a bar
+  /// along its reading-order end, the gap the pasted pages fill. See
+  /// [_PageTile.showPasteIndicator].
+  final bool showPasteIndicator;
+
+  /// Whether the grid flows right-to-left, which puts the paste mark on
+  /// the cell's left edge.
+  final bool reversed;
 
   /// The edge carrying the file-drop insertion marker, if this cell is the
   /// one the hovering drag would insert against. See [_PageTile.dropEdge].
@@ -2242,6 +2278,11 @@ class _GridPageCellState extends State<_GridPageCell> {
         onActivatePage: widget.onActivatePage,
         activateOnTap: false,
         inRangePreview: widget.inRangePreview,
+        // the grid flows like a horizontal strip, so the paste mark trails
+        // the cell at its reading-order end
+        scrollAxis: Axis.horizontal,
+        reversed: widget.reversed,
+        showPasteIndicator: widget.showPasteIndicator,
         dropEdge: widget.dropEdge,
         showPageActions: widget.showPageActions,
         onHover: widget.onHover,
@@ -2498,7 +2539,8 @@ class _PageTile extends StatefulWidget {
   final PdfRenderWorker? renderWorker;
 
   /// The containing strip's scroll axis. Paste markers trail a vertical
-  /// strip at the bottom and a horizontal strip at its reading-order end.
+  /// strip at the bottom and a horizontal strip (or the flowing grid) at
+  /// its reading-order end.
   final Axis scrollAxis;
 
   /// Whether the horizontal reading direction runs right-to-left.
@@ -2511,8 +2553,8 @@ class _PageTile extends StatefulWidget {
 
   /// Whether to paint a paste-insertion bar along this tile's trailing edge:
   /// bottom in a vertical strip, reading-order end in a horizontal one. The
-  /// strip sets it on the hovered tile while the page clipboard has pages,
-  /// marking where ⌘/Ctrl+V (or the strip's paste) will drop them.
+  /// strip and the grid set it on the hovered tile while the page clipboard
+  /// has pages, marking where ⌘/Ctrl+V will drop them.
   final bool showPasteIndicator;
 
   /// The edge to paint a file-drop insertion marker on while a PDF dragged
