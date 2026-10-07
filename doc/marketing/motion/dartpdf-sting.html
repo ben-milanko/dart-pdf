@@ -27,7 +27,14 @@
 'use strict';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const W = 1920, H = 1080, DURATION = 22, FPS = 60;
+const params = new URLSearchParams(location.search);
+// ?variant=app is the end-user cut: it opens on the page (no PDF-syntax
+// scene) and its copy talks about the app, not the library. It plays the same
+// master timeline from OFFSET, so every beat and cue stays in sync.
+const VARIANT = params.get('variant') === 'app' ? 'app' : 'dev';
+const APP = VARIANT === 'app';
+const MASTER = 22, OFFSET = APP ? 2.2 : 0;
+const W = 1920, H = 1080, DURATION = MASTER - OFFSET, FPS = 60;
 
 const COL = {
   bg: '#202124', blue: '#0175C2', cyan: '#16BAFD', yellow: '#FFC93C',
@@ -63,7 +70,7 @@ function rng(seed) {
 
 // ---------------------------------------------------------------- cue sheet
 // Every audible event, in seconds. soundtrack.py renders one sound per cue.
-const CUES = [
+const CUES_ALL = [
   { type: 'ticks', t: 0.15, dur: 2.5 },
   { type: 'riser', t: 1.45, dur: 1.3 },
   { type: 'land', t: 2.72 },
@@ -95,9 +102,11 @@ const CUES = [
   { type: 'logoHit', t: 18.55 },
   { type: 'sparkle', t: 19.1, dur: 0.7 },
 ];
+// Cue times are on the master timeline; soundtrack.py trims OFFSET off the front.
+const CUES = APP ? CUES_ALL.filter(c => c.type !== 'ticks' && c.type !== 'riser') : CUES_ALL;
 // Music map for soundtrack.py: drums enter with the render, the arp drives the
 // edit montage, a breakdown under the signature, one hit for the logo.
-const MUSIC = { bpm: 120, drumsIn: 3.0, hatsIn: 6.0, arp: [6.0, 15.0], breakdown: 15.0, hit: 18.55, end: DURATION };
+const MUSIC = { bpm: 120, drumsIn: 3.0, hatsIn: 6.0, arp: [6.0, 15.0], breakdown: 15.0, hit: 18.55, end: MASTER };
 
 // ---------------------------------------------------------------- helpers
 function rr(x, y, w, h, r) {
@@ -758,7 +767,11 @@ function drawStrip(t, layer) {
 }
 
 // ---------------------------------------------------------------- scene 5: seal + chain
-const CARDS = [
+const CARDS = APP ? [
+  { title: 'Trusted authority', sub: 'Certificate verified', color: COL.yellow },
+  { title: 'Issuing authority', sub: 'Certificate verified', color: COL.cyan },
+  { title: 'Alex Rivera', sub: 'Signed  ·  07 Oct 2026', color: COL.blue },
+] : [
   { title: 'Root CA', sub: 'Trust anchor', color: COL.yellow },
   { title: 'Intermediate CA', sub: 'Issuing authority', color: COL.cyan },
   { title: 'Alex Rivera', sub: 'Signer  ·  PAdES B-LTA', color: COL.blue },
@@ -977,7 +990,12 @@ function drawEnd(t) {
 }
 
 // ---------------------------------------------------------------- captions
-const CAPTIONS = [
+const CAPTIONS = APP ? [
+  { t0: 2.45, t1: 5.85, y: 520, eyebrow: '01   OPEN', title: 'Open any PDF.', sub: 'No account. No uploads.' },
+  { t0: 6.05, t1: 11.85, y: 520, eyebrow: '02   EDIT', title: 'Edit everything.', chip: true },
+  { t0: 12.45, t1: 14.92, y: 300, eyebrow: '03   ORGANIZE', title: 'Reorder. Insert. Merge.', align: 'center' },
+  { t0: 15.6, t1: 17.92, y: 520, eyebrow: '04   SIGN', title: 'Sign it. Seal it.', sub: 'Digital signatures, checked on your device.' },
+] : [
   { t0: 0.45, t1: 2.55, y: 540, eyebrow: '01   PARSE', title: 'From bytes.' },
   { t0: 3.15, t1: 5.85, y: 520, eyebrow: '02   RENDER', title: 'Rendered in pure Dart.', sub: 'No PDFium. No platform channels.' },
   { t0: 6.05, t1: 11.85, y: 520, eyebrow: '03   EDIT', title: 'Edit everything.', chip: true },
@@ -1055,12 +1073,13 @@ function drawChip(t, c, out) {
 }
 
 // ---------------------------------------------------------------- frame
-function draw(t) {
+function draw(local) {
+  const t = local + OFFSET;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.drawImage(bgCanvas, 0, 0);
-  drawCode(t);
-  const scrim = seg(t, 0.3, 0.7) * (1 - seg(t, 2.3, 2.7));
+  if (!APP) drawCode(t);
+  const scrim = APP ? 0 : seg(t, 0.3, 0.7) * (1 - seg(t, 2.3, 2.7));
   if (scrim > 0) {
     const g = ctx.createLinearGradient(0, 0, 900, 0);
     g.addColorStop(0, `rgba(32,33,36,${0.92 * scrim})`); g.addColorStop(0.6, `rgba(32,33,36,${0.75 * scrim})`);
@@ -1084,7 +1103,7 @@ function draw(t) {
   drawCards(t);
   drawEnd(t);
   for (const c of CAPTIONS) drawCaption(t, c);
-  const fade = Math.min(seg(t, 0, 0.35), 1 - seg(t, DURATION - 0.45, DURATION));
+  const fade = Math.min(seg(local, 0, APP ? 0.2 : 0.35), 1 - seg(local, DURATION - 0.45, DURATION));
   if (fade < 1) {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
     ctx.fillStyle = `rgba(32,33,36,${1 - fade})`; ctx.fillRect(0, 0, W, H);
@@ -1092,9 +1111,8 @@ function draw(t) {
 }
 
 // ---------------------------------------------------------------- drivers
-window.DURATION = DURATION; window.FPS = FPS; window.CUES = CUES; window.MUSIC = MUSIC;
+window.DURATION = DURATION; window.OFFSET = OFFSET; window.FPS = FPS; window.CUES = CUES; window.MUSIC = MUSIC;
 window.renderAt = t => { draw(t); return true; };
-const params = new URLSearchParams(location.search);
 document.fonts.ready.then(() => {
   measure();
   window.ready = true;

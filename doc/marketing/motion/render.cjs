@@ -4,6 +4,7 @@
 //   node render.cjs --out build/sting.mp4 [--audio build/soundtrack.wav] [--fps 60]
 //   node render.cjs --stills 3.5,8.6,18.9 --outdir build/stills
 //   node render.cjs --cues build/cues.json      (cue sheet for soundtrack.py)
+//   add --variant app to any of these for the end-user cut
 //
 // Needs playwright (global install is fine: NODE_PATH=$(npm root -g)) and
 // ffmpeg on PATH for video output.
@@ -19,21 +20,22 @@ const args = Object.fromEntries(
     return acc;
   }, []),
 );
-const html = 'file://' + path.resolve(__dirname, 'dartpdf-sting.html') + '?play=0';
+const html = 'file://' + path.resolve(__dirname, 'dartpdf-sting.html') + '?play=0' +
+  (args.variant ? '&variant=' + args.variant : '');
 
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
   await page.goto(html);
   await page.waitForFunction(() => window.ready === true);
-  const { duration, fps, cues, music } = await page.evaluate(() => ({
-    duration: window.DURATION, fps: window.FPS, cues: window.CUES, music: window.MUSIC,
+  const { duration, offset, fps, cues, music } = await page.evaluate(() => ({
+    duration: window.DURATION, offset: window.OFFSET, fps: window.FPS, cues: window.CUES, music: window.MUSIC,
   }));
   const clip = { x: 0, y: 0, width: 1920, height: 1080 };
 
   if (args.cues) {
     fs.mkdirSync(path.dirname(path.resolve(args.cues)), { recursive: true });
-    fs.writeFileSync(args.cues, JSON.stringify({ duration, cues, music }, null, 2));
+    fs.writeFileSync(args.cues, JSON.stringify({ duration, offset, cues, music }, null, 2));
     console.log('wrote', args.cues);
   }
 

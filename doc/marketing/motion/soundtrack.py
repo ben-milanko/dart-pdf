@@ -398,16 +398,19 @@ def main():
     cues_path, out_path = sys.argv[1], sys.argv[2]
     data = json.load(open(cues_path))
     dur = data["duration"]
+    off = data.get("offset", 0)  # cues/music are on the master timeline
     music = data["music"]
-    mus, sfx, verb = Bus(dur), Bus(dur), Bus(dur)
+    total = dur + off
+    mus, sfx, verb = Bus(total), Bus(total), Bus(total)
     render_music(music, mus, verb)
     for c in data["cues"]:
         render_cue(c, sfx, verb)
     vL, vR = reverb(verb)
     L = mus.L * 0.8 + sfx.L + vL * 0.55
     R = mus.R * 0.8 + sfx.R + vR * 0.55
+    a = int(off * SR)
     n = int(dur * SR)
-    L, R = L[:n], R[:n]
+    L, R = L[a:a + n], R[a:a + n]
     # fade in/out with the picture
     T = np.arange(n) / SR
     fade = np.clip(T / 0.3, 0, 1) * np.clip((dur - T) / 0.6, 0, 1)

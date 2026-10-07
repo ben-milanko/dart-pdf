@@ -12,6 +12,16 @@ is code: no stock footage, samples or fonts beyond Inter and DejaVu Sans Mono.
 | 15-18s | **Signed & sealed.** Ribbon and padlock close; root → intermediate → signer chain verifies |
 | 18-22s | The page morphs into the app icon (`doc/logo.svg`), then the wordmark, tagline and URL |
 
+### App-user cut (`?variant=app`)
+
+A 19.8s version for people who use the app and don't care about the library. It
+plays the same master timeline from 2.2s, so it opens on the page itself, and its
+copy is about the app: **Open any PDF.** (No account. No uploads.), **Edit
+everything.**, **Reorder. Insert. Merge.**, **Sign it. Seal it.** (Digital
+signatures, checked on your device.). The certificate cards drop CA/PAdES jargon.
+Add `--variant app` to every `render.cjs` call below. `soundtrack.py` trims the
+same offset, so the music stays on the beat.
+
 ## Files
 
 - `dartpdf-sting.html` is the whole animation as one canvas file. `draw(t)` is
