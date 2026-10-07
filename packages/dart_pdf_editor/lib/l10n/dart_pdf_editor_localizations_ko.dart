@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuAddNode => '노드 추가';
 
   @override
+  String get menuAddLeader => '지시선 추가';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '노드 제거';
+
+  @override
+  String get menuRemoveLeader => '지시선 제거';
 
   @override
   String get menuSaveToStamps => '스탬프에 저장';

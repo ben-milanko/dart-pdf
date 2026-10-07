@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuAddNode => 'नोड जोड़ें';
 
   @override
+  String get menuAddLeader => 'लीडर लाइन जोड़ें';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'नोड हटाएँ';
+
+  @override
+  String get menuRemoveLeader => 'लीडर लाइन हटाएँ';
 
   @override
   String get menuSaveToStamps => 'स्टैम्प में सहेजें';

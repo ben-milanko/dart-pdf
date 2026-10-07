@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuAddNode => '添加节点';
 
   @override
+  String get menuAddLeader => '添加引线';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '移除节点';
+
+  @override
+  String get menuRemoveLeader => '移除引线';
 
   @override
   String get menuSaveToStamps => '保存到图章';
@@ -2607,6 +2613,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuAddNode => '新增節點';
 
   @override
+  String get menuAddLeader => '新增引線';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2667,6 +2676,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRemoveNode => '移除節點';
+
+  @override
+  String get menuRemoveLeader => '移除引線';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';

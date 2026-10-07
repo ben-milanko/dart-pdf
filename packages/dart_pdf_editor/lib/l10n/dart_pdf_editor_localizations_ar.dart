@@ -355,6 +355,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuAddNode => 'إضافة عقدة';
 
   @override
+  String get menuAddLeader => 'إضافة خط إشارة';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -415,6 +418,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'إزالة عقدة';
+
+  @override
+  String get menuRemoveLeader => 'إزالة خط إشارة';
 
   @override
   String get menuSaveToStamps => 'حفظ في الأختام';

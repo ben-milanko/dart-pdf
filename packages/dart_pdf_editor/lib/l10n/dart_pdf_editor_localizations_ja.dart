@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuAddNode => '頂点を追加';
 
   @override
+  String get menuAddLeader => '引き出し線を追加';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '頂点を削除';
+
+  @override
+  String get menuRemoveLeader => '引き出し線を削除';
 
   @override
   String get menuSaveToStamps => 'スタンプに保存';

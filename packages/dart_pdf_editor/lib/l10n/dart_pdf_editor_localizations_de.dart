@@ -347,6 +347,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Knoten hinzufügen';
 
   @override
+  String get menuAddLeader => 'Führungslinie hinzufügen';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -407,6 +410,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Knoten entfernen';
+
+  @override
+  String get menuRemoveLeader => 'Führungslinie entfernen';
 
   @override
   String get menuSaveToStamps => 'In Stempeln speichern';

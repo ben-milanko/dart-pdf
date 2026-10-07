@@ -88,8 +88,8 @@ void main() {
   test('the leader attaches to the box edge nearest the target', () {
     // box is (300,600)-(460,660): left=300 right=460 bottom=600 top=660
     ((double, double), List<(double, double)>) place((double, double) target) {
-      final doc = roundTrip(
-          (e) => e.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', target));
+      final doc = roundTrip((e) =>
+          e.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', target));
       final line = doc.page(0).annotations.single.calloutLine!;
       return (line.last, line);
     }
@@ -255,8 +255,8 @@ void main() {
 
   test('resizing a callout scales its leader and keeps it a callout', () {
     final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
-    editor.addCallout(
-        0, const PdfRect(300, 600, 460, 660), 'detail', (120, 500));
+    editor
+        .addCallout(0, const PdfRect(300, 600, 460, 660), 'detail', (120, 500));
     final doc0 = PdfDocument.open(editor.save());
     final annot0 = doc0.page(0).annotations.single;
     final grown = PdfRect(annot0.rect.left, annot0.rect.bottom,
@@ -276,5 +276,118 @@ void main() {
     final content = appearanceText(doc, annot);
     expect(content, contains(' Tj'));
     expect(content, contains('Tf'));
+  });
+
+  group('multiple leaders', () {
+    PdfDocument reopen(PdfEditor editor) => PdfDocument.open(editor.save());
+
+    test('extraLeaders draws every arrow and round-trips', () {
+      final doc = roundTrip((e) => e.addCallout(
+            0,
+            const PdfRect(300, 600, 460, 660),
+            'two arrows',
+            (120, 500),
+            extraLeaders: const [(target: (560, 450), attach: null)],
+          ));
+      final annot = doc.page(0).annotations.single;
+      final leaders = annot.calloutLeaders!;
+      expect(leaders, hasLength(2));
+      expect(leaders[0].first, (120.0, 500.0));
+      expect(leaders[1].first, (560.0, 450.0));
+      expect(annot.calloutLine!.first, (120.0, 500.0),
+          reason: '/CL stays the first leader');
+      // /Rect covers both tips; the appearance strokes both leaders
+      expect(annot.rect.left, lessThanOrEqualTo(120));
+      expect(annot.rect.right, greaterThanOrEqualTo(560));
+      expect(annot.rect.bottom, lessThanOrEqualTo(450));
+      final content = appearanceText(doc, annot);
+      expect(content, contains('120 500 m'));
+      expect(content, contains('560 450 m'));
+    });
+
+    test('addCalloutLeader adds an arrow and keeps the box + first leader', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+      final doc0 = reopen(editor);
+      final a0 = doc0.page(0).annotations.single;
+      final box0 = a0.calloutBox!;
+      final editor2 = PdfEditor(doc0);
+      expect(editor2.addCalloutLeader(0, a0, (380, 450)), isTrue);
+      final a = reopen(editor2).page(0).annotations.single;
+      expect(a.calloutLeaders, hasLength(2));
+      expect(a.calloutLeaders![0].first, (120.0, 500.0));
+      expect(a.calloutLeaders![1].first, (380.0, 450.0));
+      expect(a.calloutLeaders![1].last.$2, closeTo(box0.bottom, 0.01),
+          reason: 'a target below the box meets the bottom edge');
+      expect(a.calloutBox!.left, closeTo(box0.left, 0.01));
+      expect(a.calloutBox!.top, closeTo(box0.top, 0.01));
+    });
+
+    test('removeCalloutLeader drops one arrow but never the last', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (
+          120,
+          500
+        ), extraLeaders: const [
+          (target: (560, 450), attach: null),
+          (target: (380, 720), attach: null),
+        ]);
+      final doc0 = reopen(editor);
+      final a0 = doc0.page(0).annotations.single;
+      final editor2 = PdfEditor(doc0);
+      // removing leader 0 promotes the next one into /CL
+      expect(editor2.removeCalloutLeader(0, a0, 0), isTrue);
+      final doc1 = reopen(editor2);
+      final a1 = doc1.page(0).annotations.single;
+      expect([for (final l in a1.calloutLeaders!) l.first],
+          [(560.0, 450.0), (380.0, 720.0)]);
+      expect(a1.calloutLine!.first, (560.0, 450.0));
+
+      final editor3 = PdfEditor(doc1);
+      expect(editor3.removeCalloutLeader(0, a1, 1), isTrue);
+      final doc2 = reopen(editor3);
+      final a2 = doc2.page(0).annotations.single;
+      expect(a2.calloutLeaders, hasLength(1));
+      expect(a2.dict.entries.containsKey(kPdfCalloutLeadersKey), isFalse);
+      expect(PdfEditor(doc2).removeCalloutLeader(0, a2, 0), isFalse,
+          reason: 'a callout keeps at least one leader');
+    });
+
+    test('a box reshape keeps every tip and re-aims one leader by index', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
+            extraLeaders: const [(target: (560, 450), attach: null)]);
+      final doc0 = reopen(editor);
+      final a0 = doc0.page(0).annotations.single;
+      final editor2 = PdfEditor(doc0);
+      expect(
+          editor2.reshapeCallout(0, a0, box: const PdfRect(250, 650, 410, 710)),
+          isTrue);
+      final doc1 = reopen(editor2);
+      final a1 = doc1.page(0).annotations.single;
+      expect([for (final l in a1.calloutLeaders!) l.first],
+          [(120.0, 500.0), (560.0, 450.0)]);
+      expect(a1.calloutBox!.left, closeTo(250, 0.01));
+
+      final editor3 = PdfEditor(doc1);
+      expect(
+          editor3.reshapeCallout(0, a1, target: (500, 300), leader: 1), isTrue);
+      final a2 = reopen(editor3).page(0).annotations.single;
+      expect(a2.calloutLeaders![0].first, (120.0, 500.0));
+      expect(a2.calloutLeaders![1].first, (500.0, 300.0));
+      expect(PdfEditor(doc1).reshapeCallout(0, a1, target: (1, 1), leader: 2),
+          isFalse);
+    });
+
+    test('moving a callout shifts its extra leaders too', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
+            extraLeaders: const [(target: (560, 450), attach: null)]);
+      final doc0 = reopen(editor);
+      final editor2 = PdfEditor(doc0)
+        ..moveAnnotation(0, doc0.page(0).annotations.single, 10, -20);
+      final a = reopen(editor2).page(0).annotations.single;
+      expect(a.calloutLeaders![1].first, (570.0, 430.0));
+    });
   });
 }

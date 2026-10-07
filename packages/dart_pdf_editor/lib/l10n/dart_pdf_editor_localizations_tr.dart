@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Düğüm ekle';
 
   @override
+  String get menuAddLeader => 'Gösterge çizgisi ekle';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Düğümü kaldır';
+
+  @override
+  String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
 
   @override
   String get menuSaveToStamps => 'Damgalara kaydet';

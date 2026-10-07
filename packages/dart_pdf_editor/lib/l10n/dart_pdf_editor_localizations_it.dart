@@ -348,6 +348,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Aggiungi nodo';
 
   @override
+  String get menuAddLeader => 'Aggiungi linea di richiamo';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -408,6 +411,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Rimuovi nodo';
+
+  @override
+  String get menuRemoveLeader => 'Rimuovi linea di richiamo';
 
   @override
   String get menuSaveToStamps => 'Salva nei timbri';

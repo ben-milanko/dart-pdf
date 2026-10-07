@@ -353,6 +353,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Dodaj węzeł';
 
   @override
+  String get menuAddLeader => 'Dodaj linię odniesienia';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -413,6 +416,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Usuń węzeł';
+
+  @override
+  String get menuRemoveLeader => 'Usuń linię odniesienia';
 
   @override
   String get menuSaveToStamps => 'Zapisz w stemplach';

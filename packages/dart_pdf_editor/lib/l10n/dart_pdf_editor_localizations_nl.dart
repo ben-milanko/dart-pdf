@@ -347,6 +347,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Knooppunt toevoegen';
 
   @override
+  String get menuAddLeader => 'Verwijslijn toevoegen';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -407,6 +410,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Knooppunt verwijderen';
+
+  @override
+  String get menuRemoveLeader => 'Verwijslijn verwijderen';
 
   @override
   String get menuSaveToStamps => 'Opslaan bij stempels';

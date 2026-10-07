@@ -428,6 +428,33 @@ class PdfAnnotation {
     return points;
   }
 
+  /// Every leader of a callout, page space, each arrow tip first and box
+  /// attachment last: the standard /CL leader, then any extra leaders this
+  /// package added (persisted under [kPdfCalloutLeadersKey], since /CL can
+  /// only describe one). Null when this is not a callout or carries no
+  /// usable /CL; malformed extra leaders are skipped.
+  List<List<(double, double)>>? get calloutLeaders {
+    final primary = calloutLine;
+    if (primary == null) return null;
+    final leaders = [primary];
+    final raw = document.cos.resolve(dict[kPdfCalloutLeadersKey]);
+    if (raw is CosArray) {
+      for (final item in raw.items) {
+        final leader = document.cos.resolve(item);
+        if (leader is! CosArray || leader.items.length < 4) continue;
+        final points = <(double, double)>[];
+        for (var i = 0; i + 1 < leader.items.length; i += 2) {
+          final x = _number(document.cos.resolve(leader.items[i]));
+          final y = _number(document.cos.resolve(leader.items[i + 1]));
+          if (x == null || y == null) break;
+          points.add((x, y));
+        }
+        if (points.length >= 2) leaders.add(points);
+      }
+    }
+    return leaders;
+  }
+
   /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
   /// distinct from /Rect which also encloses the leader line and arrowhead.
   /// Null when this is not a callout.
@@ -655,7 +682,8 @@ class PdfAnnotation {
     if (tf == null || size == null) return null;
 
     int? lastColor(String op) {
-      final m = (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
+      final m =
+          (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
       if (m == null) return null;
       int byte(String s) =>
           ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -990,6 +1018,22 @@ const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
 const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
 const String kPdfFreeTextHScaleKey = 'HScale';
 const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+
+/// One leader of a callout: the page-space point its arrow points at, and
+/// optionally where it meets the text box (snapped onto the box perimeter;
+/// null picks the edge facing [target]).
+typedef PdfCalloutLeader = ({
+  (double, double) target,
+  (double, double)? attach,
+});
+
+/// Dictionary key holding a callout's extra leader lines - an array of point
+/// arrays shaped like /CL (arrow tip first, box attachment last). /CL itself
+/// can only describe one leader (§12.5.6.19), so a multi-leader callout keeps
+/// its first leader there and the rest here; the appearance stream draws all
+/// of them, so other viewers still show every arrow. Non-standard, written
+/// and read back only by this package.
+const String kPdfCalloutLeadersKey = 'CalloutLeaders';
 
 /// The default free-text line-height multiplier (baseline-to-baseline
 /// distance is `fontSize * lineSpacing`).
