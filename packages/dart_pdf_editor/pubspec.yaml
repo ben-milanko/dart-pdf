@@ -47,7 +47,7 @@ dependencies:
   shared_preferences: ^2.3.0
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
-  url_launcher: ^6.3.0
+  url_launcher: ^6.3.3
   # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
   # Worker over package:web's typed bindings. A no-op everywhere else.
   web: ^1.1.0

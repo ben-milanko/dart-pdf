@@ -25,8 +25,8 @@ dependencies:
   # Optional bundled editor fonts + web render worker (registered in main()).
   dart_pdf_editor_assets: ^7.0.0
   pdf_ocr_vlm: ^7.0.0
-  share_plus: ^13.3.0
-  url_launcher: ^6.3.0
+  share_plus: ^13.3.1
+  url_launcher: ^6.3.3
   web: ^1.1.0
 
 dev_dependencies:

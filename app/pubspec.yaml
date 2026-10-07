@@ -45,8 +45,8 @@ dependencies:
   # own Windows dialog implementation (lib/windows_file_dialogs.dart) because
   # the plugin needs a Flutter view the multi-window runner never creates.
   file_selector_platform_interface: ^2.7.0
-  share_plus: ^13.3.0
-  url_launcher: ^6.3.0
+  share_plus: ^13.3.1
+  url_launcher: ^6.3.3
   # Optional preview, sheet composition and native system printing.
   dart_pdf_printing: ^0.4.0
   shared_preferences: ^2.3.0
@@ -67,7 +67,7 @@ dependencies:
   http: ^1.2.0
   # Reads the version stamped into the build artifact (derived from the
   # pubspec version above), so the About box can't drift from the release.
-  package_info_plus: ^10.2.1
+  package_info_plus: ^10.2.2
   web: ^1.1.1
   # The camera source for the image tool on phones and tablets - the OS file
   # picker cannot offer one (see lib/image_source_picker.dart). Needs
