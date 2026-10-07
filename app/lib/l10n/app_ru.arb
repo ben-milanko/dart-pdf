@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "Примечания к выпуску недоступны в этой сборке.",
   "incomingFilesTitle": "{count, plural, other{Открыть PDF-файлы: {count}}}",
   "incomingFilesMessage": "Открыть каждый файл в отдельной вкладке или объединить их в один новый документ? Перетащите файлы, чтобы задать порядок.",
-  "incomingFilesCombine": "Объединить"
+  "incomingFilesCombine": "Объединить",
+  "incomingFilesCombineTitle": "{count, plural, other{Объединить PDF-файлы: {count}}}",
+  "incomingFilesCombineMessage": "Перетащите файлы, чтобы задать порядок объединения."
 }

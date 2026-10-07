@@ -77,6 +77,14 @@ Section "DartPDF" SecInstall
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
   WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
+  ; Explorer right-click > "Combine with DartPDF" on any PDF selection, whatever
+  ; the default PDF app is. Explorer starts one process per selected file; the
+  ; runner coalesces their forwards into one batch (see windows/runner).
+  ; Player lifts the 15-file cap of the default multi-select model.
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "MUIVerb" "Combine with DartPDF"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "Icon" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" --combine "%1"'
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 SectionEnd
 
@@ -90,6 +98,7 @@ Section "Uninstall"
   DeleteRegKey HKCU "Software\DartPDF"
   DeleteRegKey HKCU "Software\Classes\DartPDF.pdf"
   DeleteRegValue HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine"
 
   RMDir /r "`$INSTDIR"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'

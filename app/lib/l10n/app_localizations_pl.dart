@@ -1318,4 +1318,18 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Połącz';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Połącz pliki PDF ($count)',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Przeciągnij pliki, aby ustalić kolejność łączenia.';
 }

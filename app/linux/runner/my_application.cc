@@ -50,13 +50,24 @@ static gboolean experimental_windowing_enabled() {
 
 // Builds the {name, path} payload the Dart side's IncomingFileService decodes,
 // matching the Windows/macOS runners.
-static FlValue* file_payload(const char* path) {
+static FlValue* file_payload(const char* path, gboolean combine) {
   g_autofree char* base = g_path_get_basename(path);
   FlValue* map = fl_value_new_map();
   fl_value_set_string_take(map, "name", fl_value_new_string(base));
   fl_value_set_string_take(map, "path", fl_value_new_string(path));
+  // Opened through the file manager's "Combine PDFs" entry (see
+  // dev.milanko.dartpdf.combine.desktop and my_application_local_command_line).
+  if (combine) {
+    fl_value_set_string_take(map, "combine", fl_value_new_bool(TRUE));
+  }
   return map;
 }
+
+// The `open` hint that marks files to combine into one document. GApplication
+// forwards it to the primary instance along with the files.
+static constexpr char kCombineHint[] = "combine";
+// The command-line flag the "Combine PDFs" desktop entry passes.
+static constexpr char kCombineFlag[] = "--combine";
 
 // Handles the dev.milanko.dartpdf/incoming channel. On Linux the cold-start
 // files arrive as Dart entrypoint arguments (handled by the app itself), so
@@ -521,6 +532,7 @@ static void my_application_activate(GApplication* application) {
 static void my_application_open(GApplication* application, GFile** files,
                                 gint n_files, const gchar* hint) {
   MyApplication* self = MY_APPLICATION(application);
+  const gboolean combine = g_strcmp0(hint, kCombineHint) == 0;
 
   // Every argument that resolves to a local path; non-file URIs are skipped
   // (g_file_get_path returns null for those). Several files - a multi-file
@@ -533,10 +545,12 @@ static void my_application_open(GApplication* application, GFile** files,
 
   if (!self->engine_started) {
     // Cold start: deliver the files the way the Dart side reads them on Linux
-    // - as entrypoint arguments (see editor_screen.dart's _openLaunchArgs) -
-    // then build the UI. dart_entrypoint_arguments is consumed in activate.
+    // - as entrypoint arguments (see editor_screen.dart's _openLaunchArgs),
+    // after `--combine` when they came from the "Combine PDFs" entry - then
+    // build the UI. dart_entrypoint_arguments is consumed in activate.
     g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
     if (paths->len > 0) {
+      if (combine) g_ptr_array_insert(paths, 0, g_strdup(kCombineFlag));
       g_ptr_array_add(paths, nullptr);
       self->dart_entrypoint_arguments =
           g_strdupv(reinterpret_cast<gchar**>(paths->pdata));
@@ -549,14 +563,58 @@ static void my_application_open(GApplication* application, GFile** files,
       g_autoptr(FlValue) batch = fl_value_new_list();
       for (guint i = 0; i < paths->len; i++) {
         fl_value_append_take(
-            batch, file_payload(
-                       static_cast<const char*>(g_ptr_array_index(paths, i))));
+            batch,
+            file_payload(static_cast<const char*>(g_ptr_array_index(paths, i)),
+                         combine));
       }
       fl_method_channel_invoke_method(self->incoming_channel, "openFiles",
                                       batch, nullptr, nullptr, nullptr);
     }
     present_existing_window(self);
   }
+}
+
+// Implements GApplication::local_command_line. `dartpdf --combine a.pdf b.pdf`
+// (the "Combine PDFs" desktop entry) opens the files with kCombineHint, so the
+// running instance - or this one, when it becomes primary - combines them.
+// GApplication's own parser rejects unknown flags and has no way to forward
+// one, so this mirrors its open path for that one flag and leaves every other
+// command line to it.
+static gboolean my_application_local_command_line(GApplication* application,
+                                                  gchar*** arguments,
+                                                  int* exit_status) {
+  gchar** argv = *arguments;
+  gboolean combine = FALSE;
+  for (gint i = 1; argv[i] != nullptr; i++) {
+    if (g_strcmp0(argv[i], kCombineFlag) == 0) combine = TRUE;
+  }
+  if (!combine) {
+    return G_APPLICATION_CLASS(my_application_parent_class)
+        ->local_command_line(application, arguments, exit_status);
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!g_application_register(application, nullptr, &error)) {
+    g_printerr("Failed to register: %s\n", error->message);
+    *exit_status = 1;
+    return TRUE;
+  }
+  g_autoptr(GPtrArray) files = g_ptr_array_new_with_free_func(g_object_unref);
+  for (gint i = 1; argv[i] != nullptr; i++) {
+    if (g_strcmp0(argv[i], kCombineFlag) == 0) continue;
+    g_ptr_array_add(files, g_file_new_for_commandline_arg(argv[i]));
+  }
+  if (files->len == 0) {
+    g_application_activate(application);
+  } else {
+    g_application_open(application,
+                       reinterpret_cast<GFile**>(files->pdata),
+                       static_cast<gint>(files->len), kCombineHint);
+  }
+  // Like the default handler: a remote instance is done, and the primary runs
+  // its main loop for as long as its window holds it.
+  *exit_status = 0;
+  return TRUE;
 }
 
 // Implements GApplication::before_emit. Runs in the primary instance before
@@ -620,6 +678,8 @@ static void my_application_dispose(GObject* object) {
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
   G_APPLICATION_CLASS(klass)->open = my_application_open;
+  G_APPLICATION_CLASS(klass)->local_command_line =
+      my_application_local_command_line;
   G_APPLICATION_CLASS(klass)->before_emit = my_application_before_emit;
   G_APPLICATION_CLASS(klass)->startup = my_application_startup;
   G_APPLICATION_CLASS(klass)->shutdown = my_application_shutdown;

@@ -330,5 +330,7 @@
   "whatsNewUnavailable": "ملاحظات الإصدار غير متوفرة في هذه النسخة.",
   "incomingFilesTitle": "{count, plural, other{فتح {count} من ملفات PDF}}",
   "incomingFilesMessage": "هل تريد فتح كل ملف في علامة تبويب خاصة به، أم دمجها في مستند جديد واحد؟ اسحب الملفات لتحديد ترتيب دمجها.",
-  "incomingFilesCombine": "دمج"
+  "incomingFilesCombine": "دمج",
+  "incomingFilesCombineTitle": "{count, plural, other{دمج {count} من ملفات PDF}}",
+  "incomingFilesCombineMessage": "اسحب الملفات لتحديد ترتيب دمجها."
 }

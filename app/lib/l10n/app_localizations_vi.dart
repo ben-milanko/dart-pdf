@@ -1281,4 +1281,18 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get incomingFilesCombine => 'Kết hợp';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Kết hợp $count tệp PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Kéo các tệp để sắp xếp thứ tự kết hợp.';
 }
