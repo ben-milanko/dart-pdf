@@ -1,5 +1,10 @@
 # Changelog
 
+## 8.0.0
+
+- Align with dart_pdf_editor 8.0.0 and regenerate the bundled render worker with annotation subtype filtering.
+
+
 ## 7.0.0
 
 - Raise the Flutter floor to `flutter: '>=3.47.0'`, matching

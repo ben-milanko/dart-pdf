@@ -1,5 +1,24 @@
 # Changelog
 
+## 8.0.0
+
+- Combine PDFs opened together and insert pages from several documents, with
+  page choices, bookmarks and interleaving.
+- Capture polygon snapshots, crop pasted snapshots and preview their paste
+  position in the page grid.
+- Add multiple callout leaders and move the text box without moving arrow
+  targets. Apply text style changes while editing.
+- Bulk-edit selected form fields' style and size.
+- Show stored thumbnails for unopened tabs and correct thumbnails after page
+  reordering. Refresh fields in pasted template stamps.
+- Restore desktop file drag-and-drop, preserve transparency in pasted images,
+  and open and combine long file paths and larger file selections.
+- Speed up scanned document decoding, preserve enlarged Controls accessibility,
+  place polygon vertices without delay and add Central Kurdish localization.
+- Update to the 8.0.0 package suite. Custom render-worker implementers should
+  read `doc/MIGRATING-8.0.0.md`.
+
+
 ## 7.0.0
 
 - Read small print and technical drawings more accurately with OCR, with

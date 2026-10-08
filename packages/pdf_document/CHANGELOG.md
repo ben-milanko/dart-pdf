@@ -1,5 +1,13 @@
 # Changelog
 
+## 8.0.0
+
+- Insert pages from multiple source documents, with interleaving, page choices and bookmarks.
+- Add multi-leader callouts and preserve arrow targets when their text boxes move. Read both common callout inset orders.
+- Capture polygon-clipped vector snapshots and crop pasted vector snapshots.
+- Align with the dart-pdf 8.0.0 suite.
+
+
 ## 7.0.0
 
 - Include un-flattened annotations in vector snapshots.
