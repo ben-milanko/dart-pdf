@@ -376,6 +376,26 @@ class PdfFormFieldStyle {
 
   /// Whether the field wraps over multiple lines (/Ff multiline flag).
   final bool multiline;
+
+  /// Reads [field]'s style from its /DA, /Q and /Ff.
+  factory PdfFormFieldStyle.of(PdfFormField field) {
+    final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
+            .firstMatch(field.defaultAppearance ?? '')
+            ?.group(1) ??
+        'Helv';
+    final size = field.appearanceFontSize;
+    return PdfFormFieldStyle(
+      font: PdfStandardFont.fromName(name),
+      size: size == 0 ? 12 : size,
+      autoSize: size == 0,
+      color: Color(0xFF000000 | (field.appearanceColor ?? 0)),
+      align: PdfTextAlign.values.firstWhere(
+        (a) => a.quadding == field.quadding,
+        orElse: () => PdfTextAlign.left,
+      ),
+      multiline: field.isMultiline,
+    );
+  }
 }
 
 /// The byte-level shape of one editor revision transition (an edit, undo, or
@@ -10252,25 +10272,61 @@ class PdfEditingController extends ChangeNotifier {
   bool flattenFormFields() => apply((e) => e.flattenForm());
 
   /// The selected text field (name + field), or null unless exactly one
-  /// text-field widget is selected - the styling controls' target.
+  /// text-field widget is selected - the single-field name handle.
   (String name, PdfFormField field)? get _selectedFormTextField {
     if (_selected.length != 1) return null;
-    if (selectedAnnotation?.subtype != 'Widget') return null;
-    final ref = _widgetFieldForSlot(_selected.last);
-    if (ref == null) return null;
-    final field = acroForm?.fieldNamed(ref.$1);
-    if (field == null || field.type != PdfFieldType.text) return null;
-    return (ref.$1, field);
+    final fields = _selectedFormTextFields;
+    return fields.length == 1 ? fields.single : null;
   }
 
-  /// Whether a single text-field widget is selected, so its text styling
+  /// Every distinct text field with a widget in the selection, primary
+  /// (most recently selected) first - the targets of the bulk form-field
+  /// style controls. Other annotations and other field types in the
+  /// selection are skipped; a field with several selected widgets is
+  /// listed once.
+  List<(String name, PdfFormField field)> get _selectedFormTextFields {
+    final form = acroForm;
+    if (form == null || _selected.isEmpty) return const [];
+    final seen = <String>{};
+    final out = <(String, PdfFormField)>[];
+    for (final slot in _selected.reversed) {
+      if (_annotationAt(slot)?.subtype != 'Widget') continue;
+      final ref = _widgetFieldForSlot(slot);
+      if (ref == null || !seen.add(ref.$1)) continue;
+      final field = form.fieldNamed(ref.$1);
+      if (field == null || field.type != PdfFieldType.text) continue;
+      out.add((ref.$1, field));
+    }
+    return out;
+  }
+
+  /// Whether at least one text-field widget is selected, so text styling
   /// (font, size, colour, alignment, auto-size, multiline) can be changed
-  /// via [setFormFieldStyle] / [selectedFormFieldStyle].
-  bool get canStyleSelectedFormField => _selectedFormTextField != null;
+  /// via [setSelectedFormFieldStyle] / [selectedFormFieldStyle]. With
+  /// several selected, the edit applies to every selected text field.
+  bool get canStyleSelectedFormField => _selectedFormTextFields.isNotEmpty;
 
   /// The name of the selected text field, or null unless exactly one is
-  /// selected - the handle the style controls pass to [setFormFieldStyle].
+  /// selected - the handle for single-field calls to [setFormFieldStyle].
   String? get selectedFormFieldName => _selectedFormTextField?.$1;
+
+  /// The names of every selected text field (see [canStyleSelectedFormField]),
+  /// primary first.
+  List<String> get selectedFormTextFieldNames => [
+        for (final (name, _) in _selectedFormTextFields) name,
+      ];
+
+  /// How many form-field widgets are selected - more than one means the
+  /// form-field controls act on a group (bulk style and size edits).
+  int get selectedFormWidgetCount => _selectedWidgetSlots.length;
+
+  /// The selected slots holding form-field widgets, in selection order.
+  List<(int, int)> get _selectedWidgetSlots => [
+        for (final slot in _selected)
+          if (_annotationAt(slot)?.subtype == 'Widget' &&
+              _widgetFieldForSlot(slot) != null)
+            slot,
+      ];
 
   /// The field name of the selected form widget of any field type (text,
   /// check box, radio, button, …), or null unless exactly one form widget
@@ -10314,28 +10370,127 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// The selected text field's current style, or null when no single text
-  /// field is selected - drives the form-field style controls.
+  /// The primary selected text field's current style, or null when no text
+  /// field is selected - drives the form-field style controls. With several
+  /// selected, compare against [selectedFormFieldStyles] to tell which
+  /// properties vary.
   PdfFormFieldStyle? get selectedFormFieldStyle {
-    final sel = _selectedFormTextField;
-    if (sel == null) return null;
-    final field = sel.$2;
-    final name = RegExp(
-          r'/(\S+)\s+[\d.]+\s+Tf',
-        ).firstMatch(field.defaultAppearance ?? '')?.group(1) ??
-        'Helv';
-    final size = field.appearanceFontSize;
-    return PdfFormFieldStyle(
-      font: PdfStandardFont.fromName(name),
-      size: size == 0 ? 12 : size,
-      autoSize: size == 0,
-      color: Color(0xFF000000 | (field.appearanceColor ?? 0)),
-      align: PdfTextAlign.values.firstWhere(
-        (a) => a.quadding == field.quadding,
-        orElse: () => PdfTextAlign.left,
-      ),
-      multiline: field.isMultiline,
-    );
+    final fields = _selectedFormTextFields;
+    return fields.isEmpty ? null : PdfFormFieldStyle.of(fields.first.$2);
+  }
+
+  /// The style of every selected text field, primary first (empty when none
+  /// is selected) - so the controls can show "Varies" for mixed values.
+  List<PdfFormFieldStyle> get selectedFormFieldStyles => [
+        for (final (_, field) in _selectedFormTextFields)
+          PdfFormFieldStyle.of(field),
+      ];
+
+  /// Restyles every selected text field at once - the bulk form of
+  /// [setFormFieldStyle], committed as one revision (so one undo step).
+  /// Read-only fields are skipped. Returns whether anything changed.
+  bool setSelectedFormFieldStyle({
+    PdfTextFont? font,
+    double? fontSize,
+    bool? autoSize,
+    int? color,
+    PdfTextAlign? align,
+    bool? multiline,
+  }) {
+    final names = [
+      for (final (name, field) in _selectedFormTextFields)
+        if (!field.isReadOnly) name,
+    ];
+    if (names.isEmpty) return false;
+    try {
+      return apply((e) {
+        for (final name in names) {
+          final f = e.acroForm?.fieldNamed(name);
+          if (f == null || f.type != PdfFieldType.text) continue;
+          e.setTextFieldStyle(
+            f,
+            font: font,
+            fontSize: fontSize,
+            autoSize: autoSize,
+            color: color,
+            align: align,
+            multiline: multiline,
+          );
+        }
+      });
+    } on ArgumentError {
+      return false;
+    } on StateError {
+      return false;
+    }
+  }
+
+  /// Sets the width and/or height (page points) of every selected form-field
+  /// widget at once, as one revision. Each widget keeps its top-left corner,
+  /// so a column of fields keeps its top edges where they were; a null
+  /// dimension is left as it is. Sizes under 1pt are refused. Returns
+  /// whether anything changed.
+  bool resizeSelectedFormWidgets({double? width, double? height}) {
+    if ((width == null && height == null) ||
+        (width != null && width < 1) ||
+        (height != null && height < 1)) {
+      return false;
+    }
+    final targets = <(String, int, PdfRect)>[];
+    for (final slot in _selectedWidgetSlots) {
+      final annotation = _annotationAt(slot)!;
+      if (!isAnnotationEditable(annotation)) continue;
+      final (name, widgetIndex) = _widgetFieldForSlot(slot)!;
+      final r = annotation.rect;
+      final w = width ?? r.width;
+      final h = height ?? r.height;
+      if ((w - r.width).abs() < 1e-6 && (h - r.height).abs() < 1e-6) continue;
+      targets.add(
+          (name, widgetIndex, PdfRect(r.left, r.top - h, r.left + w, r.top)));
+    }
+    if (targets.isEmpty) return false;
+    return apply((e) {
+      for (final (name, widgetIndex, to) in targets) {
+        e.resizeFormWidget(name, widgetIndex, to);
+      }
+    });
+  }
+
+  /// Selects every form-field widget on [pageIndex] whose rectangle meets
+  /// [rect] (page space) - the form tool's rubber band. With [add] the hits
+  /// join the existing selection. Widgets [selectableWidgetAt] would skip
+  /// (hidden or protected) are skipped here too. Returns how many it hit.
+  int selectFormWidgetsIn(int pageIndex, PdfRect rect, {bool add = false}) {
+    final annotations = _page(pageIndex).annotations;
+    final hits = <(int, int)>[];
+    for (var i = 0; i < annotations.length; i++) {
+      final annotation = annotations[i];
+      if (annotation.subtype != 'Widget' ||
+          annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
+          !isAnnotationEditable(annotation)) {
+        continue;
+      }
+      final r = annotation.rect;
+      if (r.left <= rect.right &&
+          r.right >= rect.left &&
+          r.bottom <= rect.top &&
+          r.top >= rect.bottom) {
+        hits.add((pageIndex, i));
+      }
+    }
+    final next = [
+      if (add) ..._selected,
+      for (final hit in hits)
+        if (!add || !_selected.contains(hit)) hit,
+    ];
+    if (!listEquals(next, _selected)) {
+      _selected
+        ..clear()
+        ..addAll(next);
+      notifyListeners();
+    }
+    return hits.length;
   }
 
   /// Restyles the text field [name] ([PdfEditor.setTextFieldStyle]): each
