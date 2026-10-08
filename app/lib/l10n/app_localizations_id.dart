@@ -939,7 +939,7 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Terima notifikasi pembaruan otomatis untuk build uji Windows tanpa tanda tangan dari main.';
+      'Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.';
 
   @override
   String get settingsUpdates => 'Pembaruan';

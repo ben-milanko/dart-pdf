@@ -962,7 +962,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'تلقي إشعارات تحديث تلقائية لإصدارات Windows التجريبية غير الموقعة من الفرع main.';
+      'تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.';
 
   @override
   String get settingsUpdates => 'التحديثات';

@@ -934,7 +934,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -2222,7 +2222,7 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -3510,7 +3510,7 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';

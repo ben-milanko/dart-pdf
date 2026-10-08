@@ -932,7 +932,7 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows ที่ไม่ได้ลงนามจาก main';
+      'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows/macOS ที่ไม่ได้ลงนามจาก main';
 
   @override
   String get settingsUpdates => 'การอัปเดต';

@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "アップデートを確認できませんでした。後でもう一度お試しください。",
   "settingsUpdateIdle": "{name} {version} を使用しています。",
   "settingsNightlyUpdates": "ナイトリーアップデート",
-  "settingsNightlyUpdatesSubtitle": "main の署名なし Windows テストビルドの更新通知を自動で受け取ります。",
+  "settingsNightlyUpdatesSubtitle": "main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。",
   "settingsUpdates": "アップデート",
   "settingsViewSource": "GitHub でソースを表示",
   "undo": "元に戻す",
