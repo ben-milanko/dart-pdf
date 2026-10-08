@@ -113,6 +113,8 @@ committed to all 21 Google Play listings (edit `13481048941378080280`), with
 the existing text and release tracks preserved. Playback and English captions
 were verified in the public Snap Store embed. The corresponding `video.txt`
 files keep later Play uploads consistent.
+Play Console confirmed all 21 video changes **in review**, with managed
+publishing off so they publish after approval.
 
 Microsoft's mezzanine MP4 can be regenerated from the app cut (prefer the
 full-quality master when available). Keep this large upload file outside Git:

@@ -69,6 +69,8 @@ channel, with English captions and embedding enabled. Each locale's `video.txt`
 preserves the URL for future metadata uploads. The video-only listing update
 was committed and verified through the Play API on 8 October 2026; existing
 listing text and release tracks were preserved.
+Play Console confirmed all 21 entries as **Change Video** under **Changes in
+review**, with managed publishing off (publication follows approval).
 
 ## Rules that shaped the copy
 
