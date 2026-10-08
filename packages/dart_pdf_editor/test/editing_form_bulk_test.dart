@@ -33,6 +33,9 @@ void main() {
       expect(editing.selectedFormFieldName, isNull);
       // primary (most recently selected) first
       expect(editing.selectedFormStyleFieldNames, ['address', 'name']);
+      // the 8.0.0 name still answers
+      // ignore: deprecated_member_use_from_same_package
+      expect(editing.selectedFormTextFieldNames, ['address', 'name']);
       final styles = editing.selectedFormFieldStyles;
       expect(styles, hasLength(2));
       expect(styles.map((s) => s.multiline), [true, false]);
