@@ -976,6 +976,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   final Set<String> _embeddedFontsLoading = {};
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
+  // the editor's typing style when it opened: an existing box whose default
+  // style differs at commit was restyled mid-edit with no text selected
+  _TextEditStyle? _textEditOpenStyle;
   Color? _textEditFill; // the box background the commit will paint
   double _textEditOpacity = 1;
   // box-level layout the inline editor previews so the live text matches
@@ -1062,6 +1065,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   bool _resizeFlipX = false;
   bool _resizeFlipY = false;
   int? _vertexHandle;
+  // a reshaped/moved callout's leaders, painted until the new raster lands
+  List<(Offset, Offset, Color, double)>? _afterCalloutLeaders;
   List<Offset>? _vertexPoints;
 
   // the "lift" model behind a free-text resize: the page rendered WITHOUT
@@ -2182,13 +2187,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
-    // a callout exposes two handles: the terminus (arrow tip, index 0) and
-    // the base where the leader meets the box (index 1), so each can be
-    // dragged without disturbing the other or the text box
-    if (annotation.calloutLine case final line?) {
+    // a callout exposes two handles per leader: the terminus (arrow tip,
+    // index 2k) and the base where the leader meets the box (index 2k + 1),
+    // so each can be dragged without disturbing the rest or the text box
+    if (annotation.calloutLeaders case final leaders?) {
       return [
-        _geometry.toViewOffset(line.first.$1, line.first.$2),
-        _geometry.toViewOffset(line.last.$1, line.last.$2),
+        for (final line in leaders) ...[
+          _geometry.toViewOffset(line.first.$1, line.first.$2),
+          _geometry.toViewOffset(line.last.$1, line.last.$2),
+        ],
       ];
     }
     if (annotation.line case final line?) {
@@ -2281,6 +2288,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterElementOnly = null;
     _afterElementFrom = null;
     _afterElementOffset = Offset.zero;
+    _afterCalloutLeaders = null;
     _afterRevisionId = null;
   }
 
@@ -3001,11 +3009,49 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (request.font is PdfEmbeddedFont) {
       _ensureEmbeddedFontPreview(request.font as PdfEmbeddedFont);
     }
-    _textEditText.applyStyle(_textEditText.selection,
-        font: request.font,
-        size: request.size,
-        color: request.color,
-        underline: request.underline);
+    final selection = _textEditText.selection;
+    if (selection.isValid && !selection.isCollapsed) {
+      _textEditText.applyStyle(selection,
+          font: request.font,
+          size: request.size,
+          color: request.color,
+          underline: request.underline);
+    } else {
+      _restyleWholeTextEdit(
+          font: request.font,
+          size: request.size,
+          color: request.color,
+          underline: request.underline);
+    }
+  }
+
+  /// Restyles the whole inline editor - every run plus the typing default -
+  /// for a restyle picked with no text selected. A box without per-run
+  /// styling stays uniform (no /RC on commit); the commit carries the new
+  /// default style ([_finishTextEdit]).
+  void _restyleWholeTextEdit(
+      {PdfTextFont? font, double? size, int? color, bool? underline}) {
+    final next = _textEditText.defaultStyle
+        .merge(font: font, size: size, color: color, underline: underline);
+    setState(() {
+      if (_textEditText.hasRichStyles) {
+        final length = _textEditText.text.length;
+        if (length > 0) {
+          _textEditText.applyStyle(
+              TextSelection(baseOffset: 0, extentOffset: length),
+              font: font,
+              size: size,
+              color: color,
+              underline: underline);
+        }
+        _textEditText.defaultStyle = next;
+      } else {
+        _textEditText.resetStyles(next);
+      }
+      if (font is PdfStandardFont) _textEditFont = font;
+      if (size != null) _textEditSize = size;
+      if (color != null) _textEditColor = next.color;
+    });
   }
 
   void _clearSavedAnnotationPicture() {
@@ -3317,6 +3363,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         size: defaultSize,
         color: defaultColor,
         underline: defaultUnderline);
+    _textEditOpenStyle = fallbackStyle;
     // a box saved with mixed styling carries /RC: reseed its per-run fonts
     // so reopening shows the bold/italic/colour, not a flattened style
     final richRuns = existing ? _controller.selectedRichRuns : null;
@@ -3394,46 +3441,111 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return box.center;
   }
 
-  /// The leader (terminus, base, color, width) to keep painted so a callout's
-  /// arrow stays visible: while a terminus/base handle is being dragged, and
-  /// while the box editor is open placing a new one. Null otherwise.
-  (Offset, Offset, Color, double)? _calloutLeaderPreview() {
+  /// The selected callout's leader stroke (color with opacity, view width).
+  (Color, double)? _selectedCalloutStroke() {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null || !annotation.isCallout) return null;
+    final style = annotation.freeTextStyle;
+    final rgb = style?.borderColor ?? style?.color ?? 0x000000;
+    final borderWidth = style?.borderWidth ?? 1;
+    // the model strokes a borderless callout's leaders at 1pt
+    final width = (borderWidth > 0 ? borderWidth : 1.0) * _geometry.scale;
+    return (
+      Color(0xFF000000 | rgb).withValues(alpha: annotation.appearanceOpacity),
+      width,
+    );
+  }
+
+  /// Pairs callout handle [points] (terminus, base, terminus, base, ...) into
+  /// (terminus, base) leaders.
+  static List<(Offset, Offset)> _calloutLeaderLines(List<Offset> points) => [
+        for (var i = 0; i + 1 < points.length; i += 2)
+          (points[i], points[i + 1]),
+      ];
+
+  /// Keeps [leaders] painted after a callout reshape until the new raster
+  /// lands, so the arrows don't blink out while the page re-renders. A
+  /// no-op when the edit produced no revision ([before] is unchanged).
+  void _holdCalloutLeaders(int before, List<(Offset, Offset)> leaders) {
+    if (before == _controller.revisionId) return;
+    final stroke = _selectedCalloutStroke();
+    if (stroke == null) return;
+    _clearAfterimage();
+    _afterCalloutLeaders = [
+      for (final (terminus, base) in leaders)
+        (terminus, base, stroke.$1, stroke.$2),
+    ];
+    _afterRevisionId = _controller.revisionId;
+  }
+
+  /// The leaders (terminus, base, color, width) to keep painted so a
+  /// callout's arrows stay visible: while the callout is being placed (press
+  /// at the terminus, drag to the box), while a terminus/base handle is
+  /// dragged, while the box is moved (every arrow holds its tip and the
+  /// leaders stretch to the moving box), and while the box editor is open
+  /// placing a new one. Null otherwise.
+  List<(Offset, Offset, Color, double)>? _calloutLeaderPreview() {
+    // placing: the leader runs from the press (the terminus) to the pointer
+    if (_tool == PdfEditTool.callout &&
+        _textEditRect == null &&
+        _dragStart != null &&
+        _dragCurrent != null) {
+      return [
+        (
+          _dragStart!,
+          _dragCurrent!,
+          _newCalloutStrokeColor(),
+          _controller.preferences.strokeWidth * _geometry.scale,
+        ),
+      ];
+    }
     if (_vertexHandle != null && _vertexPoints != null) {
-      final annotation = _controller.selectedAnnotation;
-      final box = _selectedViewRect;
-      if (annotation != null &&
-          annotation.isCallout &&
-          box != null &&
-          _vertexPoints!.isNotEmpty) {
-        final style = annotation.freeTextStyle;
-        final rgb = style?.borderColor ?? style?.color ?? 0x000000;
-        final width = (style?.borderWidth ?? 1) * _geometry.scale;
-        final terminus = _vertexPoints!.first;
-        final base = _vertexPoints!.length > 1
-            ? _vertexPoints![1]
-            : _nearestBoxEdge(box, terminus);
-        return (
-          terminus,
-          base,
-          Color(0xFF000000 | rgb)
-              .withValues(alpha: annotation.appearanceOpacity),
-          width > 0 ? width : _geometry.scale,
-        );
+      final stroke = _selectedCalloutStroke();
+      if (stroke != null && _vertexPoints!.length >= 2) {
+        return [
+          for (final (terminus, base) in _calloutLeaderLines(_vertexPoints!))
+            (terminus, base, stroke.$1, stroke.$2),
+        ];
+      }
+    }
+    if (_resizeHandle == null &&
+        _rotateStartAngle == null &&
+        _moveStart != null &&
+        _moveCurrent != null &&
+        _controller.selectedAnnotationSlots.length == 1) {
+      final delta = _moveCurrent! - _moveStart!;
+      final stroke = _selectedCalloutStroke();
+      final points = _selectedVertexPoints;
+      if (delta != Offset.zero &&
+          stroke != null &&
+          points != null &&
+          _controller.selectedAnnotation?.appearanceRotation == 0) {
+        return [
+          for (final (terminus, base) in _calloutLeaderLines(points))
+            (terminus, base + delta, stroke.$1, stroke.$2),
+        ];
       }
     }
     if (_textEditCalloutTarget != null && _textEditRect != null) {
       final terminus = _geometry.toViewOffset(
           _textEditCalloutTarget!.$1, _textEditCalloutTarget!.$2);
-      return (
-        terminus,
-        _nearestBoxEdge(_textEditRect!, terminus),
-        (_controller.preferences.textBorderColor ?? _controller.color)
-            .withValues(alpha: _controller.preferences.opacity),
-        _controller.preferences.strokeWidth * _geometry.scale,
-      );
+      return [
+        (
+          terminus,
+          _nearestBoxEdge(_textEditRect!, terminus),
+          _newCalloutStrokeColor(),
+          _controller.preferences.strokeWidth * _geometry.scale,
+        ),
+      ];
     }
-    return null;
+    return _afterCalloutLeaders;
   }
+
+  /// The stroke color a new callout's box outline and leader commit with
+  /// ([PdfEditingController.addCallout]: the box border, else the text color).
+  Color _newCalloutStrokeColor() =>
+      (_controller.preferences.textBorderColor ?? _controller.color)
+          .withValues(alpha: _controller.preferences.opacity);
 
   /// Commits the editor's text: a new free-text annotation, or the
   /// selected one rewritten. Empty text adds nothing / changes nothing.
@@ -3463,8 +3575,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _closeTextEditor();
     final before = _controller.revisionId;
     if (existing) {
+      final openStyle = _textEditOpenStyle;
+      final style = _textEditText.defaultStyle;
+      final restyled = openStyle != null &&
+          (style.font != openStyle.font ||
+              style.size != openStyle.size ||
+              style.color != openStyle.color ||
+              style.underline != openStyle.underline);
       if (text.isNotEmpty && richRuns != null) {
         _controller.setSelectedRichText(richRuns);
+      } else if (text.isNotEmpty && restyled) {
+        // restyled with just a caret: the whole box takes the new style
+        _controller.setSelectedText(text,
+            font: style.font == openStyle.font ? null : style.font,
+            size: style.size == openStyle.size ? null : style.size,
+            color: style.color == openStyle.color
+                ? null
+                : style.color.toARGB32() & 0xFFFFFF,
+            underline: style.underline == openStyle.underline
+                ? null
+                : style.underline);
       } else if (text.isNotEmpty && text != _controller.selectedText) {
         _controller.setSelectedText(text);
       }
@@ -4376,10 +4506,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
+      // a moved callout keeps its arrow tips: hold the stretched leaders the
+      // drag showed until the new raster lands
+      final leaders = _calloutLeaderPreview();
       // Wash the old spot so the stale raster does not leave a second copy
       // behind while the committed revision re-renders.
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
           to: _selectedViewRect?.shift(moveCurrent - moveStart));
+      if (leaders != null && _afterRevisionId == _controller.revisionId) {
+        _afterCalloutLeaders = leaders;
+      }
     } else if (stroke != null && stroke.isNotEmpty) {
       _bufferInkStroke(stroke, strokePressures, shiftAnchor);
     } else if (dragStart != null && dragCurrent != null) {
@@ -4496,15 +4632,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _commitVertexDrag(List<Offset> points, {int? handle}) {
     final annotation = _controller.selectedAnnotation;
     if (annotation != null && annotation.isCallout && points.isNotEmpty) {
-      // handle 0 is the terminus (re-aim the arrow), handle 1 is the base
-      // (slide where the leader meets the box); both leave the box in place
+      // even handles are a leader's terminus (re-aim that arrow), odd ones
+      // its base (slide where it meets the box); both leave the box and the
+      // other leaders in place
       final idx = (handle ?? 0).clamp(0, points.length - 1);
       final page = _geometry.toPagePoint(points[idx]);
-      if (idx == 1) {
-        _controller.reshapeSelectedCalloutBase(page);
+      final leaders = _calloutLeaderLines(points);
+      final before = _controller.revisionId;
+      if (idx.isOdd) {
+        _controller.reshapeSelectedCalloutBase(page, leader: idx ~/ 2);
       } else {
-        _controller.reshapeSelectedCalloutTarget(page);
+        _controller.reshapeSelectedCalloutTarget(page, leader: idx ~/ 2);
       }
+      _holdCalloutLeaders(before, leaders);
       return;
     }
     final tool = _selectedLineTool;
@@ -5395,9 +5535,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _textEditText._styleAt(offset.clamp(0, _textEditText.text.length));
   }
 
+  /// Restyles the inline editor's selected run - or, with just a caret, the
+  /// whole box - and makes the style the new default.
   void _applyInlineTextStyle(
       {PdfTextFont? font, double? size, Color? color, bool? underline}) {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     final rgb = color == null ? null : color.toARGB32() & 0xFFFFFF;
     if (font is PdfStandardFont) {
       _controller.fontFamily = font;
@@ -5502,7 +5644,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   Future<void> _showInlineTextFontMenu(BuildContext context) async {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
     await showPdfFontMenu(
@@ -5510,7 +5652,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         controller: _controller,
         currentFont: _currentInlineTextStyle().font,
         onSelected: (font) {
-          if (!mounted || !_canStyleInlineTextSelection) return;
+          if (!mounted || _textEditRect == null) return;
           _applyInlineTextStyle(font: font);
         });
     _textEditStyleMenuOpen = false;
@@ -5518,7 +5660,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   Future<void> _pickInlineTextColor(BuildContext context, Color initial) async {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
     final picked =
@@ -5540,6 +5682,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : editorRect.center.dx.clamp(halfChip, width - halfChip),
       above ? editorRect.top - 10 * s : editorRect.bottom + 10 * s,
     );
+    // font and size restyle the selected run; colour (like underline) works
+    // with a bare caret too, restyling the whole box
     final enabled = _canStyleInlineTextSelection;
     final iconColor = Color(0xFF000000 | (current.color.toARGB32() & 0xFFFFFF));
     return Positioned(
@@ -5608,12 +5752,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       key: const ValueKey('pdf-inline-text-color'),
                       icon: Icon(Icons.format_color_text, color: iconColor),
                       tooltip: pdfL10n(context).overlayColor,
-                      onPressed: enabled
-                          ? () async {
-                              await _pickInlineTextColor(
-                                  buttonContext, iconColor);
-                            }
-                          : null,
+                      onPressed: () async {
+                        await _pickInlineTextColor(buttonContext, iconColor);
+                      },
                     );
                   }),
                 ]),
@@ -6160,15 +6301,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // repaint, not a rebuild of this whole painter
                     strokes: _controller.strokesOn(widget.pageIndex),
                     pressures: _controller.strokePressuresOn(widget.pageIndex),
-                    dragRect: _dragStart != null && _dragCurrent != null
+                    // a callout placement drag previews only its leader
+                    // (calloutLeaders), never a rubber-band box
+                    dragRect: _dragStart != null &&
+                            _dragCurrent != null &&
+                            _tool != PdfEditTool.callout
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
                     dragLine: _dragStart != null &&
                             _dragCurrent != null &&
-                            (_lineDragTool || _tool == PdfEditTool.callout)
+                            _lineDragTool
                         ? (_dragStart!, _dragCurrent!)
                         : null,
-                    calloutLeader: _calloutLeaderPreview(),
+                    calloutLeaders: _calloutLeaderPreview(),
                     dragPath: polyPreview,
                     dragPathFill: (_tool == PdfEditTool.polygon ||
                                 _tool == PdfEditTool.cloudPolygon) &&
@@ -7651,7 +7796,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.inkOpacity = 1,
     required this.dragRect,
     required this.dragLine,
-    this.calloutLeader,
+    this.calloutLeaders,
     required this.dragPath,
     this.dragPathFill,
     required this.dashed,
@@ -7722,7 +7867,7 @@ class _EditingPreviewPainter extends CustomPainter {
   /// A callout leader to paint from its terminus to its base while the box is
   /// being placed/edited (before the annotation exists) or while the terminus
   /// or base handle is being dragged: (terminus, base, color, strokeWidth).
-  final (Offset, Offset, Color, double)? calloutLeader;
+  final List<(Offset, Offset, Color, double)>? calloutLeaders;
   final List<Offset>? dragPath;
 
   /// The interior fill for an in-progress polygon [dragPath], so drawing a
@@ -8240,7 +8385,11 @@ class _EditingPreviewPainter extends CustomPainter {
     final len = delta.distance;
     if (len == 0) return (tip, tip);
     final unit = delta / len;
-    final size = math.max(10.0, width * 5);
+    // the committed arrowhead is max(10pt, 5 x stroke width) in PAGE points
+    // (the model's line endings); [width] is already in view pixels, so only
+    // the 10pt floor needs scaling - else the preview arrow shrinks relative
+    // to the committed one as soon as the page is zoomed in
+    final size = math.max(10.0 * geometry.scale, width * 5);
     final half = size * 0.38;
     final base = tip + unit * size;
     final perp = Offset(-unit.dy, unit.dx);
@@ -8374,7 +8523,7 @@ class _EditingPreviewPainter extends CustomPainter {
       _paintShapePreview(canvas, rect, tool, color, strokeWidth, lineScale);
     }
 
-    if (calloutLeader case final leader?) {
+    for (final leader in calloutLeaders ?? const []) {
       _paintCalloutLeader(canvas, leader.$1, leader.$2, leader.$3, leader.$4);
     }
 
@@ -8562,7 +8711,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
-      oldDelegate.calloutLeader != calloutLeader ||
+      !listEquals(oldDelegate.calloutLeaders, calloutLeaders) ||
       oldDelegate.dragPathFill != dragPathFill ||
       oldDelegate.selectionRect != selectionRect ||
       !listEquals(oldDelegate.extraSelectionRects, extraSelectionRects) ||

@@ -349,6 +349,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Ajouter un nœud';
 
   @override
+  String get menuAddLeader => 'Ajouter une ligne de repère';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -409,6 +412,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Supprimer le nœud';
+
+  @override
+  String get menuRemoveLeader => 'Supprimer la ligne de repère';
 
   @override
   String get menuSaveToStamps => 'Enregistrer dans les tampons';

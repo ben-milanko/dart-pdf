@@ -348,6 +348,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Añadir nodo';
 
   @override
+  String get menuAddLeader => 'Añadir línea guía';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -408,6 +411,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Quitar nodo';
+
+  @override
+  String get menuRemoveLeader => 'Quitar línea guía';
 
   @override
   String get menuSaveToStamps => 'Guardar en sellos';

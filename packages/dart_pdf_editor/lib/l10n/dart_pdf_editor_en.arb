@@ -450,6 +450,10 @@
   "@menuAddNode": {
     "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
   },
+  "menuAddLeader": "Add leader",
+  "@menuAddLeader": {
+    "description": "Annotation context-menu item that adds another leader line (arrow) to the selected callout."
+  },
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Apply annotation to pages} other{Apply annotations to pages}}",
   "@menuApplyAnnotationsToPagesTitle": {
     "description": "Title of the page-range dialog when applying the selected annotation(s) to multiple pages.",
@@ -526,6 +530,10 @@
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
+  },
+  "menuRemoveLeader": "Remove leader",
+  "@menuRemoveLeader": {
+    "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
   },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {

@@ -404,6 +404,27 @@ Future<void> showPdfAnnotationMenu({
             request.controller.removeSelectedVertexNear(pagePoint),
       ),
     ],
+    // A callout grows another arrow from the same box (aimed just off the
+    // box, ready to drag by its tip) or drops the one nearest the click -
+    // the last one when the menu has no click point. One always stays.
+    if (hasSelection && controller.canAddSelectedCalloutLeader) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-add-leader'),
+        label: pdfL10n(context).menuAddLeader,
+        icon: Icons.call_made,
+        onSelected: (request) => request.controller.addSelectedCalloutLeader(),
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-remove-leader'),
+        label: pdfL10n(context).menuRemoveLeader,
+        icon: Icons.remove_circle_outline,
+        enabled: controller.canRemoveSelectedCalloutLeader,
+        onSelected: (request) => request.controller.removeSelectedCalloutLeader(
+            pagePoint == null
+                ? null
+                : request.controller.selectedCalloutLeaderNear(pagePoint)),
+      ),
+    ],
   ];
   final recolor = <PdfAnnotationMenuItem>[
     if (hasSelection && controller.canRecolorSnapshotSelected)
