@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'dart_pdf_editor_localizations_ar.dart';
+import 'dart_pdf_editor_localizations_ckb.dart';
 import 'dart_pdf_editor_localizations_de.dart';
 import 'dart_pdf_editor_localizations_en.dart';
 import 'dart_pdf_editor_localizations_es.dart';
@@ -113,6 +114,7 @@ abstract class DartPdfEditorLocalizations {
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
+    Locale('ckb'),
     Locale('de'),
     Locale('en'),
     Locale('en', 'AU'),
@@ -4386,6 +4388,7 @@ class _DartPdfEditorLocalizationsDelegate
   @override
   bool isSupported(Locale locale) => <String>[
         'ar',
+        'ckb',
         'de',
         'en',
         'es',
@@ -4441,6 +4444,8 @@ DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
   switch (locale.languageCode) {
     case 'ar':
       return DartPdfEditorLocalizationsAr();
+    case 'ckb':
+      return DartPdfEditorLocalizationsCkb();
     case 'de':
       return DartPdfEditorLocalizationsDe();
     case 'en':
