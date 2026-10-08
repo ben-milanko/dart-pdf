@@ -170,8 +170,8 @@ void main() {
         ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
       expect(single.selectAnnotation(0, 0), isTrue);
       single.autosizeSelectedTextBox();
-      expect(single.document.page(0).annotations.single.rect.width,
-          lessThan(60));
+      expect(
+          single.document.page(0).annotations.single.rect.width, lessThan(60));
     });
 
     test('textAlign preference flows into new free text', () {
@@ -995,6 +995,59 @@ void main() {
       expect(content, contains('/TimesBold 24 Tf'));
       expect(content, contains('1 0 0 rg'));
       expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
+    testWidgets(
+        'the end-of-text caret stays on its line after a run is resized back',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      const text = '60kg Rail: 25mm rubber pads\n53kg Rail: ';
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), text);
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      final render = tester
+          .state<EditableTextState>(find.descendant(
+              of: find.byKey(editorKey), matching: find.byType(EditableText)))
+          .renderEditable;
+      Future<void> select(int base, [int? extent]) async {
+        field.controller!.selection =
+            TextSelection(baseOffset: base, extentOffset: extent ?? base);
+        await tester.pump();
+      }
+
+      // a run grows the strut; a whole-box recolour then rebuilds Flutter's
+      // one-line caret template at that size...
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 24);
+      await tester.pump();
+      await select(text.length);
+      editing.restyleEditingTextSelection(color: 0x0000FF);
+      await tester.pump();
+      // ...and shrinking the run back must not leave the caret on it
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 14);
+      await tester.pump();
+      await select(text.length);
+
+      final line = render
+          .getBoxesForSelection(
+              const TextSelection(baseOffset: 28, extentOffset: text.length))
+          .single;
+      final caret =
+          render.getLocalRectForCaret(const TextPosition(offset: text.length));
+      expect(caret.top, closeTo(line.top, 1.5),
+          reason: 'the caret floated above the last line');
+      expect(caret.bottom, closeTo(line.bottom, 1.5));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
       await settle(tester);
     });
 
