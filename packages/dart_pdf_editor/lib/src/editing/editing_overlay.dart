@@ -3917,6 +3917,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
           return;
         }
+        final mouseLike = details.kind == null ||
+            details.kind == PointerDeviceKind.mouse ||
+            details.kind == PointerDeviceKind.trackpad;
+        if (mouseLike && _additiveModifier) {
+          // Shift/⌘/Ctrl-drag on empty page area rubber-bands form
+          // widgets into the selection (for bulk edits) instead of
+          // drawing a new field
+          _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
+          setState(() {
+            _marqueeStart = position;
+            _marqueeCurrent = position;
+            _marqueeAdd = true;
+          });
+          return;
+        }
         if (_controller.formFieldAt(widget.pageIndex, x, y) == null) {
           _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
           setState(() {
@@ -4404,6 +4419,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (marquee != null) {
       if (marquee.width < 4 && marquee.height < 4) return; // a click
+      if (_tool == PdfEditTool.form) {
+        _controller.selectFormWidgetsIn(
+            widget.pageIndex, _geometry.toPageRect(marquee),
+            add: marqueeAdd);
+        return;
+      }
       _controller.selectAnnotationsIn(
           widget.pageIndex, _geometry.toPageRect(marquee),
           add: marqueeAdd);
