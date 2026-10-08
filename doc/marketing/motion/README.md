@@ -64,3 +64,50 @@ ffmpeg -ss 19.0 -i build/dartpdf-sting-app.mp4 -frames:v 1 -vf scale=1600:-1 ../
 ```
 
 Do the same for `dartpdf-sting.mp4` → `promo-sdk.*`, with the poster taken at 21.2s.
+
+## Storefront video
+
+Use the **app-user cut** for app storefronts. The SDK cut contains developer
+terminology that does not belong in an app listing.
+
+- **Microsoft Store:** upload a 1920×1080 MP4 in Partner Center's English
+  listing, under Trailers. Title: `DartPDF — Edit, arrange, and sign PDFs`.
+  `store-assets/dartpdf-trailer-poster.png` is the required 1920×1080 PNG;
+  `store-assets/dartpdf-trailer.vtt` supplies English captions.
+  `store-assets/dartpdf-trailer-hero.png` is the text-free 16:9 hero art required
+  for the trailer to play at the top of the listing; regenerate it with
+  `rsvg-convert store-assets/dartpdf-trailer-hero.svg -o store-assets/dartpdf-trailer-hero.png`.
+  Submit the
+  listing change for certification; a saved draft is not a published trailer.
+- **Google Play:** the preview field requires a YouTube URL. The upload must
+  be public or unlisted, embeddable, without ads or an age restriction. Keep
+  the URL in the English `video.txt` files under `app/fastlane/metadata/android/`
+  when it is available, so later metadata uploads preserve it.
+- **Snap Store:** the listing's video field takes an external video URL.
+- **Linux software centers:** the AppStream metadata in `app/linux/` points at
+  `https://dart-pdf.com/assets/promo-app.webm` (AV1/Opus, under 1 MiB), as a
+  separate, non-default screenshot entry. Run the Flatpak desktop-asset sync
+  script after changing it. Centers that support video can play it; others
+  retain the existing screenshots. The change ships with the Linux packages.
+- **Apple App Store:** do not upload this sting as an app preview. Guideline
+  2.3.4 requires video screen captures of the app itself; the sting is an
+  animated illustration.
+
+Microsoft's mezzanine MP4 can be regenerated from the app cut (prefer the
+full-quality master when available). Keep this large upload file outside Git:
+
+```sh
+ffmpeg -i ../../../site/assets/promo-app.mp4 \
+  -c:v libx264 -preset slow -profile:v high -pix_fmt yuv420p -r 30 \
+  -g 15 -keyint_min 15 -bf 2 -sc_threshold 0 \
+  -b:v 50M -minrate 50M -maxrate 50M -bufsize 100M \
+  -x264-params 'nal-hrd=cbr:force-cfr=1:open-gop=0' \
+  -c:a aac -b:a 384k -ar 48000 -ac 2 \
+  -movflags +faststart -use_editlist 0 /tmp/dartpdf-msstore-trailer.mp4
+```
+
+Store requirements: [Microsoft trailers](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images#trailers),
+[Google Play preview video](https://support.google.com/googleplay/android-developer/answer/9866151),
+[Snap listing media](https://forum.snapcraft.io/t/store-listing-and-branding/16397),
+[AppStream screenshot/video metadata](https://www.freedesktop.org/software/appstream/docs/chap-Metadata.html#tag-screenshots),
+[Apple preview policy](https://developer.apple.com/app-store/review/guidelines/#accurate-metadata).

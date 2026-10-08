@@ -89,6 +89,10 @@
       <image>https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/marketing/app/macos/03-dark.png</image>
       <caption>Light and dark themes</caption>
     </screenshot>
+    <screenshot>
+      <video container="webm" codec="av1" width="1920" height="1080">https://dart-pdf.com/assets/promo-app.webm</video>
+      <caption>Edit, arrange, and sign PDFs on your device</caption>
+    </screenshot>
   </screenshots>
 
   <releases>
