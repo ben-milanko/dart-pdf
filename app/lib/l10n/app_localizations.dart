@@ -1584,7 +1584,7 @@ abstract class AppLocalizations {
   /// Explains the risk and behavior of the nightly update channel.
   ///
   /// In en, this message translates to:
-  /// **'Receive automatic update notifications for unsigned Windows test builds from main.'**
+  /// **'Receive automatic update notifications for unsigned Windows and macOS test builds from main.'**
   String get settingsNightlyUpdatesSubtitle;
 
   /// Section header for the software-update block in settings.

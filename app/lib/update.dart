@@ -9,7 +9,8 @@ import 'devtools.dart';
 import 'update_distribution_stub.dart'
     if (dart.library.io) 'update_distribution_io.dart';
 
-/// The rolling GitHub prerelease populated by the nightly Windows workflow.
+/// The rolling GitHub prerelease populated by the nightly desktop workflow
+/// (Windows + macOS).
 const dartPdfNightlyTag = 'app-nightly';
 
 /// A parsed semantic version (`major.minor.patch`), tolerant of the leading
@@ -336,7 +337,9 @@ class UpdateService extends ChangeNotifier {
 
   /// Whether this platform has a nightly artifact and can opt into the channel.
   bool get nightlySupported =>
-      supported && _targetPlatform == TargetPlatform.windows;
+      supported &&
+      (_targetPlatform == TargetPlatform.windows ||
+          _targetPlatform == TargetPlatform.macOS);
 
   /// Whether rolling builds from `main` participate in update checks.
   bool get nightlyUpdates => _nightlyUpdates && nightlySupported;
@@ -504,7 +507,10 @@ class UpdateService extends ChangeNotifier {
   String? _platformAssetName(Map<String, String> assets) {
     if (assets.isEmpty) return null;
     final patterns = switch (_targetPlatform) {
-      TargetPlatform.macOS => ['dartpdf-macos.dmg'],
+      TargetPlatform.macOS => [
+          'dartpdf-nightly-macos.dmg',
+          'dartpdf-macos.dmg',
+        ],
       TargetPlatform.windows => [
           'dartpdf-nightly-windows-installer.exe',
           'dartpdf-windows-installer.exe',

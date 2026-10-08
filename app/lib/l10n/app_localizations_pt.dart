@@ -943,7 +943,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receba notificações automáticas para compilações de teste do Windows não assinadas da main.';
+      'Receba notificações automáticas para compilações de teste do Windows/macOS não assinadas da main.';
 
   @override
   String get settingsUpdates => 'Atualizações';

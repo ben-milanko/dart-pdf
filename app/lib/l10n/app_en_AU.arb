@@ -241,7 +241,7 @@
   "settingsUpdateFailed": "Couldn’t check for updates. Try again later.",
   "settingsUpdateIdle": "You have {name} {version}.",
   "settingsNightlyUpdates": "Nightly updates",
-  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows test builds from main.",
+  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows and macOS test builds from main.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "View source on GitHub",
   "undo": "Undo",

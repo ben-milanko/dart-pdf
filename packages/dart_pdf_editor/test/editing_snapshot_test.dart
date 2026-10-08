@@ -403,6 +403,43 @@ void main() {
       expect(editing.document.page(1).annotations.single.subtype, 'Stamp');
     });
 
+    testWidgets('a polygon vertex lands on the tap, not after the timeout',
+        (tester) async {
+      PdfSnapshot? captured;
+      final editing = await pumpEditor(tester,
+          onSnapshot: (context, snap) async => captured = snap);
+      editing.tool = PdfEditTool.snapshot;
+      await tester.pump();
+
+      // quicker than the double-tap timeout: the tap recognizer used to hold
+      // each vertex back until it expired, so a far tap resolved first and
+      // the rubber band trailed the cursor
+      await tester.tapAt(view(100, 740));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(view(260, 740));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(view(100, 560));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(100, 560));
+      await tester.pump();
+      expect(editing.hasSnapshotClipboard, isTrue);
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50 && captured == null; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      final polygon = captured!.pagePolygon!;
+      expect(polygon, hasLength(3));
+      expect(polygon[0].$1, closeTo(100, 1));
+      expect(polygon[0].$2, closeTo(740, 1));
+      expect(polygon[1].$1, closeTo(260, 1));
+      expect(polygon[1].$2, closeTo(740, 1));
+      expect(polygon[2].$1, closeTo(100, 1));
+      expect(polygon[2].$2, closeTo(560, 1));
+    });
+
     testWidgets('tapping out a polygon captures the traced region',
         (tester) async {
       PdfSnapshot? captured;

@@ -25,6 +25,7 @@ metadata/
     title.txt             (≤30)
     short_description.txt  (≤80)
     full_description.txt   (≤4000)
+    video.txt             YouTube preview URL
     changelogs/
       <versionCode>.txt    (≤500) "What's New" (19 = 2.1.0+19)
 ```
@@ -61,6 +62,15 @@ locales differently; the folder names below are what each console accepts.
 Google Play has a separate British English listing, so its 21 locale folders
 cover the app's 20 languages. `en-GB` must include the listing text as well as
 changelogs: existing Play translations do not inherit later `en-US` changes.
+
+All 21 Play listings use the same English app sting:
+<https://www.youtube.com/watch?v=jKLzTw32Jd4>. It is unlisted on the Ben Milanko
+channel, with English captions and embedding enabled. Each locale's `video.txt`
+preserves the URL for future metadata uploads. The video-only listing update
+was committed and verified through the Play API on 8 October 2026; existing
+listing text and release tracks were preserved.
+Play Console confirmed all 21 entries as **Change Video** under **Changes in
+review**, with managed publishing off (publication follows approval).
 
 ## Rules that shaped the copy
 

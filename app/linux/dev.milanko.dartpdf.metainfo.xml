@@ -18,17 +18,9 @@
   <launchable type="desktop-id">dev.milanko.dartpdf.desktop</launchable>
 
   <description>
-    <p>
-      DartPDF is a PDF editor that runs entirely on your device. Open any PDF
-      to mark it up, fill in forms, sign it, redact content, rearrange pages,
-      or edit the text and images on the page. Changes save back to the
-      original file.
-    </p>
-    <p>
-      Nothing is uploaded. There is no account, no sync, and no ads. It is a
-      full, native PDF editor that keeps your documents on your own machine
-      rather than routing them through a proprietary incumbent's cloud.
-    </p>
+    <p>DartPDF is a PDF editor that runs entirely on your device.</p>
+    <p>Open any PDF to mark it up, fill in forms, sign it, redact content, rearrange pages, or edit the text and images on the page. Changes save back to the original file.</p>
+    <p>Nothing is uploaded. There's no account, no sync, and no ads.</p>
     <p>Features:</p>
     <ul>
       <li>Highlight, underline, strikethrough, and freehand ink</li>
@@ -43,10 +35,7 @@
       <li>Compare two versions side by side</li>
       <li>Open password-protected files</li>
     </ul>
-    <p>
-      Opens PDFs from your file manager, via drag-and-drop, or as a launch
-      argument. Light and dark themes.
-    </p>
+    <p>Runs on Linux. Opens PDFs from your file manager, via drag-and-drop, or as a launch argument. Light and dark themes.</p>
   </description>
 
   <categories>
@@ -88,6 +77,10 @@
     <screenshot>
       <image>https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/marketing/app/macos/03-dark.png</image>
       <caption>Light and dark themes</caption>
+    </screenshot>
+    <screenshot>
+      <video container="webm" codec="av1" width="1920" height="1080">https://dart-pdf.com/assets/promo-app.webm</video>
+      <caption>Edit, arrange, and sign PDFs on your device</caption>
     </screenshot>
   </screenshots>
 

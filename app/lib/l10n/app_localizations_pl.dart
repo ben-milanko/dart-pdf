@@ -967,7 +967,7 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Otrzymuj automatyczne powiadomienia o niepodpisanych testowych kompilacjach Windows z gałęzi main.';
+      'Otrzymuj automatyczne powiadomienia o niepodpisanych testowych kompilacjach Windows/macOS z gałęzi main.';
 
   @override
   String get settingsUpdates => 'Aktualizacje';

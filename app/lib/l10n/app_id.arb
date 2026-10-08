@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Tidak dapat memeriksa pembaruan. Coba lagi nanti.",
   "settingsUpdateIdle": "Anda memiliki {name} {version}.",
   "settingsNightlyUpdates": "Pembaruan nightly",
-  "settingsNightlyUpdatesSubtitle": "Terima notifikasi pembaruan otomatis untuk build uji Windows tanpa tanda tangan dari main.",
+  "settingsNightlyUpdatesSubtitle": "Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.",
   "settingsUpdates": "Pembaruan",
   "settingsViewSource": "Lihat sumber di GitHub",
   "undo": "Urungkan",

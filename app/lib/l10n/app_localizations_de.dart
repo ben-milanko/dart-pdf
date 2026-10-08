@@ -948,7 +948,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Automatische Update-Benachrichtigungen für unsignierte Windows-Testbuilds aus main erhalten.';
+      'Automatische Update-Benachrichtigungen für unsignierte Windows-/macOS-Testbuilds aus main erhalten.';
 
   @override
   String get settingsUpdates => 'Updates';

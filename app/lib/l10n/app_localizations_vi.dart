@@ -936,7 +936,7 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Nhận thông báo cập nhật tự động cho các bản dựng thử nghiệm Windows chưa ký từ main.';
+      'Nhận thông báo cập nhật tự động cho các bản dựng thử nghiệm Windows/macOS chưa ký từ main.';
 
   @override
   String get settingsUpdates => 'Cập nhật';
