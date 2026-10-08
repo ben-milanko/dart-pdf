@@ -16,6 +16,7 @@
   "hero_note": "Ücretsiz ve açık kaynak. Hesap yok. Yükleme yok.",
   "hero_shotAlt": "DartPDF düzenleyici, not ekleme araçları, sayfa küçük resimleri ve renk paleti ile bir PDF gösteriyor.",
   "hero_deviceTag": "Yerel",
+  "promo_videoAria": "DartPDF kısa videosu: vurgulama, imzalama, form doldurma, damga basma, sayfaları yeniden sıralama ve bir PDF'yi dijital olarak imzalama.",
   "platforms_label": "PDF'leriniz için tek uygulama",
 
   "feat_eyebrow": "Araçlar",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "pub.dev paketi",
   "sdk_hero_cta2": "GitHub'da görüntüle",
   "sdk_hero_cta3": "Canlı demo",
+  "sdk_promo_videoAria": "DartPDF motorunun bir PDF sayfasını işleyip ardından düzenlediği, yeniden sıraladığı ve dijital olarak imzaladığı kısa video.",
   "sdk_feat_eyebrow": "Özellikler",
   "sdk_feat_h2": "Ticari SDK özellik seti, açık kaynak.",
   "sdk_feat_intro": "Görüntüleme, not ekleme, formlar, imzalama, karartma, sayfa yönetimi, metin düzenleme ve OCR. Başka bir deyişle, uygulamaların gerçekten bir PDF SDK'sı lisansladığı şeyler.",

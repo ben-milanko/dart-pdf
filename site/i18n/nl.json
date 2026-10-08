@@ -16,6 +16,7 @@
   "hero_note": "Gratis en open source. Geen account. Geen uploads.",
   "hero_shotAlt": "De DartPDF-editor toont een PDF met annotatiehulpmiddelen, paginaminiaturen en een kleurenpalet.",
   "hero_deviceTag": "Lokaal",
+  "promo_videoAria": "Korte video van DartPDF: markeren, ondertekenen, een formulier invullen, stempelen, pagina's herschikken en een pdf digitaal ondertekenen.",
   "platforms_label": "Eén app voor je PDF's",
 
   "feat_eyebrow": "Hulpmiddelen",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "pub.dev-pakket",
   "sdk_hero_cta2": "Bekijk op GitHub",
   "sdk_hero_cta3": "Live demo",
+  "sdk_promo_videoAria": "Korte video van de DartPDF-engine die een pdf-pagina rendert en die vervolgens bewerkt, herschikt en digitaal ondertekent.",
   "sdk_feat_eyebrow": "Functies",
   "sdk_feat_h2": "De featureset van een commerciële SDK, open source.",
   "sdk_feat_intro": "Weergeven, annoteren, formulieren, ondertekenen, redactie, paginabeheer, tekstbewerking en OCR. Met andere woorden: de dingen waarvoor apps daadwerkelijk een PDF-SDK licentiëren.",
