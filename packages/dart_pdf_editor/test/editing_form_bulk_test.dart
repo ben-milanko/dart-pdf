@@ -32,7 +32,7 @@ void main() {
       // the single-field handle is for one field only
       expect(editing.selectedFormFieldName, isNull);
       // primary (most recently selected) first
-      expect(editing.selectedFormTextFieldNames, ['address', 'name']);
+      expect(editing.selectedFormStyleFieldNames, ['address', 'name']);
       final styles = editing.selectedFormFieldStyles;
       expect(styles, hasLength(2));
       expect(styles.map((s) => s.multiline), [true, false]);
@@ -75,7 +75,7 @@ void main() {
       expect(editing.selectFormWidgetAt(0, 136, 432, toggle: true), isTrue);
       expect(editing.selectedFormWidgetCount, 3);
       // the check box isn't a text field; the read-only one is listed
-      expect(editing.selectedFormTextFieldNames, ['serial', 'name']);
+      expect(editing.selectedFormStyleFieldNames, ['serial', 'name']);
 
       expect(editing.setSelectedFormFieldStyle(fontSize: 9), isTrue);
       expect(editing.acroForm!.fieldNamed('name')!.appearanceFontSize, 9);
@@ -189,7 +189,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
 
       expect(editing.selectedFormWidgetCount, 2);
-      expect(editing.selectedFormTextFieldNames.toSet(), {'name', 'address'});
+      expect(editing.selectedFormStyleFieldNames.toSet(), {'name', 'address'});
       // the drag selected - it did not draw a new field
       expect(editing.acroForm!.fields, hasLength(fieldCount));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));

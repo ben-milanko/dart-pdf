@@ -645,7 +645,9 @@ Future<void> showPdfFormFieldMenu({
   // rename/convert structure changes, and the destructive delete/flatten.
   final edit = <PdfAnnotationMenuItem>[
     if (editItem() case final item?) item,
-    if (type == PdfFieldType.text)
+    if (type == PdfFieldType.text ||
+        type == PdfFieldType.comboBox ||
+        type == PdfFieldType.listBox)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-form-menu-style'),
         label: pdfL10n(context).menuTextStyle,

@@ -354,6 +354,7 @@ class PdfFormFieldStyle {
     required this.color,
     required this.align,
     required this.multiline,
+    this.supportsMultiline = true,
   });
 
   /// The base-14 face the field's /DA names, mapped leniently (an embedded
@@ -377,6 +378,11 @@ class PdfFormFieldStyle {
   /// Whether the field wraps over multiple lines (/Ff multiline flag).
   final bool multiline;
 
+  /// Whether [multiline] applies - true for a text field, false for a
+  /// choice field (dropdown or list box), whose styling is the /DA and /Q
+  /// only.
+  final bool supportsMultiline;
+
   /// Reads [field]'s style from its /DA, /Q and /Ff.
   factory PdfFormFieldStyle.of(PdfFormField field) {
     final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
@@ -394,6 +400,7 @@ class PdfFormFieldStyle {
         orElse: () => PdfTextAlign.left,
       ),
       multiline: field.isMultiline,
+      supportsMultiline: field.type == PdfFieldType.text,
     );
   }
 }
@@ -10271,20 +10278,29 @@ class PdfEditingController extends ChangeNotifier {
   /// into its page and removes all fields ([PdfEditor.flattenForm]).
   bool flattenFormFields() => apply((e) => e.flattenForm());
 
-  /// The selected text field (name + field), or null unless exactly one
-  /// text-field widget is selected - the single-field name handle.
-  (String name, PdfFormField field)? get _selectedFormTextField {
+  /// The field types whose text the form-field style controls restyle:
+  /// text fields plus choice fields (dropdowns and list boxes), which share
+  /// a text field's /DA font, size and colour and its /Q alignment.
+  static const _styleableFieldTypes = {
+    PdfFieldType.text,
+    PdfFieldType.comboBox,
+    PdfFieldType.listBox,
+  };
+
+  /// The selected styleable field (name + field), or null unless exactly
+  /// one such widget is selected - the single-field name handle.
+  (String name, PdfFormField field)? get _selectedFormStyleField {
     if (_selected.length != 1) return null;
-    final fields = _selectedFormTextFields;
+    final fields = _selectedFormStyleFields;
     return fields.length == 1 ? fields.single : null;
   }
 
-  /// Every distinct text field with a widget in the selection, primary
-  /// (most recently selected) first - the targets of the bulk form-field
-  /// style controls. Other annotations and other field types in the
-  /// selection are skipped; a field with several selected widgets is
+  /// Every distinct text or choice field with a widget in the selection,
+  /// primary (most recently selected) first - the targets of the bulk
+  /// form-field style controls. Other annotations and other field types in
+  /// the selection are skipped; a field with several selected widgets is
   /// listed once.
-  List<(String name, PdfFormField field)> get _selectedFormTextFields {
+  List<(String name, PdfFormField field)> get _selectedFormStyleFields {
     final form = acroForm;
     if (form == null || _selected.isEmpty) return const [];
     final seen = <String>{};
@@ -10294,26 +10310,30 @@ class PdfEditingController extends ChangeNotifier {
       final ref = _widgetFieldForSlot(slot);
       if (ref == null || !seen.add(ref.$1)) continue;
       final field = form.fieldNamed(ref.$1);
-      if (field == null || field.type != PdfFieldType.text) continue;
+      if (field == null || !_styleableFieldTypes.contains(field.type)) {
+        continue;
+      }
       out.add((ref.$1, field));
     }
     return out;
   }
 
-  /// Whether at least one text-field widget is selected, so text styling
-  /// (font, size, colour, alignment, auto-size, multiline) can be changed
-  /// via [setSelectedFormFieldStyle] / [selectedFormFieldStyle]. With
-  /// several selected, the edit applies to every selected text field.
-  bool get canStyleSelectedFormField => _selectedFormTextFields.isNotEmpty;
+  /// Whether at least one text-field or choice-field (dropdown / list box)
+  /// widget is selected, so text styling (font, size, colour, alignment,
+  /// auto-size, and for text fields multiline) can be changed via
+  /// [setSelectedFormFieldStyle] / [selectedFormFieldStyle]. With several
+  /// selected, the edit applies to every selected field.
+  bool get canStyleSelectedFormField => _selectedFormStyleFields.isNotEmpty;
 
-  /// The name of the selected text field, or null unless exactly one is
-  /// selected - the handle for single-field calls to [setFormFieldStyle].
-  String? get selectedFormFieldName => _selectedFormTextField?.$1;
+  /// The name of the selected text or choice field, or null unless exactly
+  /// one is selected - the handle for single-field calls to
+  /// [setFormFieldStyle].
+  String? get selectedFormFieldName => _selectedFormStyleField?.$1;
 
-  /// The names of every selected text field (see [canStyleSelectedFormField]),
-  /// primary first.
-  List<String> get selectedFormTextFieldNames => [
-        for (final (name, _) in _selectedFormTextFields) name,
+  /// The names of every selected text or choice field (see
+  /// [canStyleSelectedFormField]), primary first.
+  List<String> get selectedFormStyleFieldNames => [
+        for (final (name, _) in _selectedFormStyleFields) name,
       ];
 
   /// How many form-field widgets are selected - more than one means the
@@ -10370,25 +10390,26 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// The primary selected text field's current style, or null when no text
-  /// field is selected - drives the form-field style controls. With several
+  /// The primary selected text or choice field's current style, or null
+  /// when none is selected - drives the form-field style controls. With several
   /// selected, compare against [selectedFormFieldStyles] to tell which
   /// properties vary.
   PdfFormFieldStyle? get selectedFormFieldStyle {
-    final fields = _selectedFormTextFields;
+    final fields = _selectedFormStyleFields;
     return fields.isEmpty ? null : PdfFormFieldStyle.of(fields.first.$2);
   }
 
-  /// The style of every selected text field, primary first (empty when none
+  /// The style of every selected text or choice field, primary first (empty when none
   /// is selected) - so the controls can show "Varies" for mixed values.
   List<PdfFormFieldStyle> get selectedFormFieldStyles => [
-        for (final (_, field) in _selectedFormTextFields)
+        for (final (_, field) in _selectedFormStyleFields)
           PdfFormFieldStyle.of(field),
       ];
 
-  /// Restyles every selected text field at once - the bulk form of
-  /// [setFormFieldStyle], committed as one revision (so one undo step).
-  /// Read-only fields are skipped. Returns whether anything changed.
+  /// Restyles every selected text and choice field at once - the bulk form
+  /// of [setFormFieldStyle], committed as one revision (so one undo step).
+  /// Read-only fields are skipped, and [multiline] reaches text fields
+  /// only. Returns whether anything changed.
   bool setSelectedFormFieldStyle({
     PdfTextFont? font,
     double? fontSize,
@@ -10398,7 +10419,7 @@ class PdfEditingController extends ChangeNotifier {
     bool? multiline,
   }) {
     final names = [
-      for (final (name, field) in _selectedFormTextFields)
+      for (final (name, field) in _selectedFormStyleFields)
         if (!field.isReadOnly) name,
     ];
     if (names.isEmpty) return false;
@@ -10406,8 +10427,9 @@ class PdfEditingController extends ChangeNotifier {
       return apply((e) {
         for (final name in names) {
           final f = e.acroForm?.fieldNamed(name);
-          if (f == null || f.type != PdfFieldType.text) continue;
-          e.setTextFieldStyle(
+          if (f == null) continue;
+          _styleFormField(
+            e,
             f,
             font: font,
             fontSize: fontSize,
@@ -10493,11 +10515,13 @@ class PdfEditingController extends ChangeNotifier {
     return hits.length;
   }
 
-  /// Restyles the text field [name] ([PdfEditor.setTextFieldStyle]): each
-  /// non-null argument is applied. [font] may be a base-14 [PdfStandardFont]
-  /// or an embedded [PdfEmbeddedFont]; [autoSize] true (or [preferences.fontSize] 0)
-  /// fits the text to the box; [color] is 0xRRGGBB. Returns false for a
-  /// missing, read-only, or non-text field.
+  /// Restyles the text or choice field [name] ([PdfEditor.setTextFieldStyle]
+  /// / [PdfEditor.setChoiceFieldStyle]): each non-null argument is applied.
+  /// [font] may be a base-14 [PdfStandardFont] or an embedded
+  /// [PdfEmbeddedFont]; [autoSize] true (or [preferences.fontSize] 0) fits
+  /// the text to the box; [color] is 0xRRGGBB; [multiline] applies to a
+  /// text field only. Returns false for a missing or read-only field, or one
+  /// that is neither a text nor a choice field.
   bool setFormFieldStyle(
     String name, {
     PdfTextFont? font,
@@ -10508,7 +10532,9 @@ class PdfEditingController extends ChangeNotifier {
     bool? multiline,
   }) {
     final field = acroForm?.fieldNamed(name);
-    if (field == null || field.isReadOnly || field.type != PdfFieldType.text) {
+    if (field == null ||
+        field.isReadOnly ||
+        !_styleableFieldTypes.contains(field.type)) {
       return false;
     }
     try {
@@ -10516,7 +10542,8 @@ class PdfEditingController extends ChangeNotifier {
         (e) {
           final f = e.acroForm?.fieldNamed(name);
           if (f != null) {
-            e.setTextFieldStyle(
+            _styleFormField(
+              e,
               f,
               font: font,
               fontSize: fontSize,
@@ -10532,6 +10559,52 @@ class PdfEditingController extends ChangeNotifier {
       return false;
     } on StateError {
       return false;
+    }
+  }
+
+  /// Restyles [field] through the editor call for its type: a text field
+  /// takes every argument, a choice field all but [multiline] - and is left
+  /// untouched when nothing else is given, so a multiline-only edit doesn't
+  /// regenerate a dropdown for nothing. Other field types are skipped.
+  static void _styleFormField(
+    PdfEditor e,
+    PdfFormField field, {
+    PdfTextFont? font,
+    double? fontSize,
+    bool? autoSize,
+    int? color,
+    PdfTextAlign? align,
+    bool? multiline,
+  }) {
+    switch (field.type) {
+      case PdfFieldType.text:
+        e.setTextFieldStyle(
+          field,
+          font: font,
+          fontSize: fontSize,
+          autoSize: autoSize,
+          color: color,
+          align: align,
+          multiline: multiline,
+        );
+      case PdfFieldType.comboBox || PdfFieldType.listBox:
+        if (font == null &&
+            fontSize == null &&
+            autoSize == null &&
+            color == null &&
+            align == null) {
+          return;
+        }
+        e.setChoiceFieldStyle(
+          field,
+          font: font,
+          fontSize: fontSize,
+          autoSize: autoSize,
+          color: color,
+          align: align,
+        );
+      default:
+        return;
     }
   }
 }
