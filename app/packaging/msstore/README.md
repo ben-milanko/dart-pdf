@@ -1,5 +1,23 @@
 # Microsoft Store packaging for DartPDF
 
+## Listing copy
+
+[`listing/en-US.json`](listing/en-US.json) is the reviewable English listing
+copy for Partner Center: product name, short/full descriptions, product
+features, search keywords, and the current release notes. It follows the
+live App Store/Google Play wording with Windows-specific file-opening details.
+See [`../../store-listing.md`](../../store-listing.md) for the shared source and
+the title-reservation step. This JSON is source material for the listing editor;
+it is not a Partner Center CSV import file.
+
+Prepared on 8 October 2026. The current trailer-only submission (16) is in
+certification, so these text changes have not yet been applied to Partner
+Center. Apply them after that submission finishes, or after explicitly
+approved cancellation and resubmission.
+
+The sting trailer and upload artwork are in
+[`doc/marketing/motion/`](../../../doc/marketing/motion/README.md).
+
 Builds the Store MSIX and pushes it into a Partner Center submission. Both
 halves are plain CLI, so the per-release path is fully headless after the first
 submission has a package registered in Partner Center:
