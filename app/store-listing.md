@@ -116,9 +116,14 @@ They reuse the verified live App Store and Google Play copy:
   features above, followed by: `Runs on Windows 10 and Windows 11. Opens PDFs
   from File Explorer, or drag-and-drop. Light and dark themes.`
 - **Product features:** all eleven features from the shared description.
-- **Keywords:** `PDF editor`, `PDF annotation`, `fill PDF forms`, `sign PDF`,
-  `redact PDF`, `OCR`, `merge PDF` (seven phrases, fourteen words).
+- **Keywords:** `PDF editor`, `PDF annotation`, `fill PDF forms`,
+  `sign PDF digitally`, `redact PDF content`, `OCR`, `merge PDF`
+  (seven phrases, sixteen words).
 - **What's new:** [`release-notes/7.0.0-stores.txt`](release-notes/7.0.0-stores.txt).
+
+Saved and submitted on 8 October 2026 in Partner Center submission **17**
+(`1152921505702072175`). Status: **In certification**, with automatic publishing
+after approval. The sting trailer from published submission 16 is retained.
 
 Use the native Windows captures under `doc/marketing/app/windows/` for this
 store, as described in [`doc/screenshots/README.md`](../doc/screenshots/README.md).

@@ -97,8 +97,11 @@ terminology that does not belong in an app listing.
 
 On 8 October 2026, the Microsoft trailer, poster, captions, and hero artwork
 were saved in Partner Center submission **16** (`1152921505702071402`) and
-submitted for certification. Partner Center confirmed **In certification**
-with automatic publishing after approval.
+submitted for certification. It passed certification and Partner Center
+confirmed it was published on the same day. Submission **17**
+(`1152921505702072175`) retains those assets and adds the aligned listing copy;
+Partner Center confirmed **In certification**, with automatic publishing after
+approval.
 
 Microsoft's mezzanine MP4 can be regenerated from the app cut (prefer the
 full-quality master when available). Keep this large upload file outside Git:

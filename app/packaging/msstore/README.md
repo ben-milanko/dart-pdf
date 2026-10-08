@@ -10,10 +10,12 @@ See [`../../store-listing.md`](../../store-listing.md) for the shared source and
 the title-reservation step. This JSON is source material for the listing editor;
 it is not a Partner Center CSV import file.
 
-Prepared on 8 October 2026. The current trailer-only submission (16) is in
-certification, so these text changes have not yet been applied to Partner
-Center. Apply them after that submission finishes, or after explicitly
-approved cancellation and resubmission.
+Applied on 8 October 2026 in Partner Center submission **17**
+(`1152921505702072175`). The aligned product name is reserved and selected,
+with the descriptions, eleven features, seven search phrases, and 7.0.0 release
+notes saved. Partner Center confirmed **In certification**, with automatic
+publishing after approval. The trailer, poster, captions, hero artwork, and
+top-of-listing playback selection are retained from published submission 16.
 
 The sting trailer and upload artwork are in
 [`doc/marketing/motion/`](../../../doc/marketing/motion/README.md).
