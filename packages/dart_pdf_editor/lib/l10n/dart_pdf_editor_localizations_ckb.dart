@@ -348,6 +348,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuAddNode => 'زیادکردنی گرێ';
 
   @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -408,6 +411,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'لابردنی گرێ';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
 
   @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
