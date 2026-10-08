@@ -153,6 +153,7 @@ class EditorScreen extends StatefulWidget {
     this.tabDragCoordinator,
     this.initialHandoff,
     this.ownsApplicationSession = true,
+    this.recentThumbnails,
   });
 
   final PdfEditingPreferences prefs;
@@ -283,6 +284,10 @@ class EditorScreen extends StatefulWidget {
   /// primary window's state.
   final bool ownsApplicationSession;
 
+  /// The device-persisted first-page thumbnails shared by Recent files and
+  /// the tab overview. Null builds the platform store; tests inject one.
+  final RecentThumbnailCache? recentThumbnails;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -312,7 +317,8 @@ class _EditorScreenState extends State<EditorScreen>
   bool get _canScan => _documentScanner != null;
 
   final _recents = RecentsStore();
-  final _recentThumbnails = RecentThumbnailCache();
+  late final _recentThumbnails =
+      widget.recentThumbnails ?? RecentThumbnailCache();
   final _session = SessionStore();
 
   /// Mirrors dirty documents to durable storage (a private directory on
@@ -722,7 +728,7 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
-    _recentThumbnails.dispose();
+    if (widget.recentThumbnails == null) _recentThumbnails.dispose();
     _viewMode.dispose();
     _thumbnailDrop.dispose();
     _updates.removeListener(_onUpdateStatus);
