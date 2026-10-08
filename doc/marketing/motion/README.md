@@ -81,7 +81,7 @@ terminology that does not belong in an app listing.
   listing change for certification; a saved draft is not a published trailer.
 - **Google Play:** the preview field requires a YouTube URL. The upload must
   be public or unlisted, embeddable, without ads or an age restriction. Keep
-  the URL in the English `video.txt` files under `app/fastlane/metadata/android/`
+  the URL in the locale `video.txt` files under `app/fastlane/metadata/android/`
   when it is available, so later metadata uploads preserve it.
 - **Snap Store:** the listing's video field supports YouTube or Vimeo embeds
   (plus asciinema for terminal recordings). Reuse the Google Play YouTube URL;
@@ -102,6 +102,17 @@ confirmed it was published on the same day. Submission **17**
 (`1152921505702072175`) retains those assets and adds the aligned listing copy;
 Partner Center confirmed **In certification**, with automatic publishing after
 approval.
+
+The shared Google Play/Snap video is
+<https://www.youtube.com/watch?v=jKLzTw32Jd4>, uploaded as **Unlisted** on the
+**Ben Milanko** channel on 8 October 2026. Title:
+`DartPDF — Edit, arrange, and sign PDFs`. English WebVTT captions are published,
+embedding is enabled, and the audience is set to not Made for Kids. YouTube's
+copyright check reported no issues. The URL was saved in Snap's listing and
+committed to all 21 Google Play listings (edit `13481048941378080280`), with
+the existing text and release tracks preserved. Playback and English captions
+were verified in the public Snap Store embed. The corresponding `video.txt`
+files keep later Play uploads consistent.
 
 Microsoft's mezzanine MP4 can be regenerated from the app cut (prefer the
 full-quality master when available). Keep this large upload file outside Git:

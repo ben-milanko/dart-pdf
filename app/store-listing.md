@@ -146,6 +146,11 @@ the release recipe adopts its description from the shared AppStream metadata
 in `linux/dev.milanko.dartpdf.metainfo.xml`. Update all of these sources when
 changing the live listing so future uploads stay aligned.
 
+**Video:** <https://www.youtube.com/watch?v=jKLzTw32Jd4>. The English app sting
+is unlisted with captions and embedding enabled, shared with all Google Play
+listings. The Snap listing video was saved on 8 October 2026 and playback was
+verified on the public listing.
+
 ---
 
 ## Notes for whoever fills the listing
