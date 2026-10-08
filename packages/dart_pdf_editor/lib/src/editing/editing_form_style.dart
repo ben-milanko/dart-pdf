@@ -123,8 +123,8 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
 /// choice (dropdown / list box) fields' text - font family, bold/italic,
 /// alignment, auto-size, size, multiline (text fields only), and colour -
 /// all routed through [PdfEditingController.setSelectedFormFieldStyle], so
-/// with several fields selected each edit applies to all of them. The controls reflect
-/// the primary (most recently selected) field.
+/// with several fields selected each edit applies to all of them. The
+/// controls reflect the primary (most recently selected) field.
 ///
 /// Shared by the field context-menu sheet and the toolbar style popup so
 /// the surfaces stay in lock-step; the properties panel renders its own
