@@ -1,11 +1,6 @@
 import 'package:cupertino_ui/cupertino_ui.dart'
-    show
-        CupertinoLocalizations,
-        DefaultCupertinoLocalizations,
-        GlobalCupertinoLocalizations;
+    show CupertinoLocalizations, DefaultCupertinoLocalizations;
 import 'package:flutter/foundation.dart' show SynchronousFuture;
-import 'package:flutter_localizations/flutter_localizations.dart'
-    show GlobalWidgetsLocalizations;
 import 'package:material_ui/material_ui.dart';
 
 import '../../l10n/dart_pdf_editor_localizations.dart';
@@ -57,15 +52,17 @@ abstract final class PdfEditorLocalizations {
       DartPdfEditorLocalizations.supportedLocales;
 }
 
-/// Whether [locale] is an editor locale the framework's [delegate] does not
-/// translate - the only locales the fallbacks below answer for.
-bool _editorOnly(LocalizationsDelegate<dynamic> delegate, Locale locale) =>
+/// Whether [locale] is an editor locale the framework does not translate -
+/// the only locales the fallbacks below answer for. material_ui's Material
+/// set stands for all three: the framework's Material, Cupertino and widgets
+/// language sets agree on every editor locale (`package:flutter_localizations`
+/// itself is off limits here - see tool/check_design_imports.dart).
+bool _editorOnly(Locale locale) =>
     DartPdfEditorLocalizations.delegate.isSupported(locale) &&
-    !delegate.isSupported(locale);
+    !GlobalMaterialLocalizations.delegate.isSupported(locale);
 
-/// Editor locales written right to left that Flutter's
-/// `GlobalWidgetsLocalizations` does not know (it covers ar, fa, he, ps, sd
-/// and ur).
+/// Editor locales written right to left that the framework's widgets
+/// localizations do not know (they cover ar, fa, he, ps, sd and ur).
 const _rtlLanguages = {'ckb'};
 
 class _FallbackMaterialDelegate
@@ -73,8 +70,7 @@ class _FallbackMaterialDelegate
   const _FallbackMaterialDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      _editorOnly(GlobalMaterialLocalizations.delegate, locale);
+  bool isSupported(Locale locale) => _editorOnly(locale);
 
   @override
   Future<MaterialLocalizations> load(Locale locale) =>
@@ -89,8 +85,7 @@ class _FallbackCupertinoDelegate
   const _FallbackCupertinoDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      _editorOnly(GlobalCupertinoLocalizations.delegate, locale);
+  bool isSupported(Locale locale) => _editorOnly(locale);
 
   @override
   Future<CupertinoLocalizations> load(Locale locale) =>
@@ -105,8 +100,7 @@ class _FallbackWidgetsDelegate
   const _FallbackWidgetsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      _editorOnly(GlobalWidgetsLocalizations.delegate, locale);
+  bool isSupported(Locale locale) => _editorOnly(locale);
 
   @override
   Future<WidgetsLocalizations> load(Locale locale) =>
