@@ -559,7 +559,7 @@
   "tbTipMeasureArc": "Measure arc length - click three points",
   "tbTipRedact": "Redact - drag a region, then apply",
   "tbTipSignature": "Signature - tap a page to place it",
-  "tbTipSnapshot": "Snapshot - drag a region to capture it (paste back as vector)",
+  "tbTipSnapshot": "Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)",
   "tbToolContent": "Content",
   "tbToolForm": "Form",
   "tbToolRedact": "Redact",
