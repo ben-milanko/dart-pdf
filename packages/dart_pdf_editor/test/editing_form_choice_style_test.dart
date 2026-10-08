@@ -132,4 +132,45 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-prop-form-color')), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-prop-form-multiline')), findsNothing);
   });
+
+  testWidgets('toolbar tune popup styles a dropdown, without multiline',
+      (tester) async {
+    final editing = controller();
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            controller: viewer,
+            editing: editing,
+          ),
+        ),
+        bottomNavigationBar:
+            PdfEditingToolbar(controller: editing, viewerController: viewer),
+      ),
+    ));
+    await tester.pump();
+
+    selectDropdown(editing);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('pdf-form-style-font-menu')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-form-style-multiline')), findsNothing);
+
+    // the alignment toggles reach the dropdown
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-form-style-align-right')).first);
+    await tester.pumpAndSettle();
+    expect(editing.acroForm!.fieldNamed('size')!.quadding,
+        PdfTextAlign.right.quadding);
+  });
 }
