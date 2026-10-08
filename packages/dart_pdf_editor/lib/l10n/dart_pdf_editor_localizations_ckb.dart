@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'dart_pdf_editor_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -2305,4 +2304,137 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'ڕەتکردنەوە';
+
+  @override
+  String get insertPagesTitle => 'خستنەناوی پەڕەکان';
+
+  @override
+  String get insertPagesFiles => 'پەڕگەکان';
+
+  @override
+  String get insertPagesAddFiles => 'زیادکردنی پەڕگە…';
+
+  @override
+  String get insertPagesSortByName => 'ڕیزکردن بەپێی ناو';
+
+  @override
+  String get insertPagesNoFiles => 'یەک یان چەند PDFێک زیاد بکە بۆ خستنەناو.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'نەتوانرا $names بکرێتەوە. لەوانەیە پەڕگەکە تێکچووبێت یان بە وشەی نهێنی پارێزرابێت.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count پەڕە',
+      one: '1 پەڕە',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'بردنە سەرەوە';
+
+  @override
+  String get insertPagesMoveDown => 'بردنە خوارەوە';
+
+  @override
+  String get insertPagesRemoveFile => 'لابردن لە لیستەکە';
+
+  @override
+  String get insertPagesRange => 'پەڕەکان';
+
+  @override
+  String get insertPagesRangeHint => 'هەموو (بۆ نموونە 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'پەڕەکانی 1–$count بەکاربهێنە، بۆ نموونە 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'هەموو پەڕەکان';
+
+  @override
+  String get insertPagesSubsetOdd => 'پەڕە تاکەکان';
+
+  @override
+  String get insertPagesSubsetEven => 'پەڕە جووتەکان';
+
+  @override
+  String get insertPagesReverse => 'پێچەوانەکردنەوەی ڕیزبەندی';
+
+  @override
+  String get insertPagesPlacement => 'شوێندانان';
+
+  @override
+  String get insertPagesBefore => 'پێش';
+
+  @override
+  String get insertPagesAfter => 'دوای';
+
+  @override
+  String get insertPagesFirstPage => 'یەکەم پەڕە';
+
+  @override
+  String get insertPagesLastPage => 'دوایین پەڕە';
+
+  @override
+  String get insertPagesPage => 'پەڕە';
+
+  @override
+  String get insertPagesPageNumber => 'ژمارەی پەڕە';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'لە $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count بنووسە';
+  }
+
+  @override
+  String get insertPagesInterleave => 'تێکەڵکردنی پەڕەکان بە نۆرە';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'لە شوێنی دانانەوە بە نۆرە پەڕەی خراوەناو و پەڕەی هەبوو دابنێ - بۆ نموونە، بۆ پێکەوەلکاندنەوەی پەڕە تاک و جووتەکان کە بە جیا سکان کراون.';
+
+  @override
+  String get insertPagesRunInserted => 'پەڕەی خراوەناو لە هەر جارێکدا';
+
+  @override
+  String get insertPagesRunExisting => 'پەڕەکانی بەڵگەنامە لە نێوانیاندا';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'نیشانەکانیش لەخۆبگرێت';
+
+  @override
+  String get insertPagesBookmarkFiles => 'نیشانەیەک بۆ هەر پەڕگەیەک زیاد بکە';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: '$inserted پەڕە دەخاتە ناوەوە',
+      one: '1 پەڕە دەخاتە ناوەوە',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total پەڕەی',
+      one: '1 پەڕەی',
+    );
+    return '$_temp0 - بەڵگەنامەکە $_temp1 دەبێت.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'خستنەناو';
 }

@@ -1,3 +1,11 @@
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show
+        CupertinoLocalizations,
+        DefaultCupertinoLocalizations,
+        GlobalCupertinoLocalizations;
+import 'package:flutter/foundation.dart' show SynchronousFuture;
+import 'package:flutter_localizations/flutter_localizations.dart'
+    show GlobalWidgetsLocalizations;
 import 'package:material_ui/material_ui.dart';
 
 import '../../l10n/dart_pdf_editor_localizations.dart';
@@ -17,7 +25,11 @@ import '../../l10n/dart_pdf_editor_localizations.dart';
 /// plus material_ui's `GlobalMaterialLocalizations.delegates`: the
 /// material_ui Material strings, cupertino_ui's Cupertino strings (which the
 /// iOS and macOS text-selection menus read) and the widgets strings. Spread
-/// it with your own app's delegates when you have them.
+/// it with your own app's delegates when you have them. For an editor locale
+/// the framework has no translation of (Central Kurdish, `ckb`) it ends with
+/// fallbacks: English Material and Cupertino strings, and the locale's own
+/// text direction - so the host's `Localizations` resolves every type and a
+/// right-to-left editor locale lays out right to left.
 ///
 /// Registering it is recommended, not required: the editor's widgets supply
 /// whichever of these localizations the host lacks, for the ambient locale.
@@ -34,9 +46,83 @@ abstract final class PdfEditorLocalizations {
       <LocalizationsDelegate<dynamic>>[
     DartPdfEditorLocalizations.delegate,
     ...GlobalMaterialLocalizations.delegates,
+    // after the framework's, which win wherever they have a translation
+    _FallbackMaterialDelegate(),
+    _FallbackCupertinoDelegate(),
+    _FallbackWidgetsDelegate(),
   ];
 
   /// The locales the editor's strings are translated into.
   static const List<Locale> supportedLocales =
       DartPdfEditorLocalizations.supportedLocales;
+}
+
+/// Whether [locale] is an editor locale the framework's [delegate] does not
+/// translate - the only locales the fallbacks below answer for.
+bool _editorOnly(LocalizationsDelegate<dynamic> delegate, Locale locale) =>
+    DartPdfEditorLocalizations.delegate.isSupported(locale) &&
+    !delegate.isSupported(locale);
+
+/// Editor locales written right to left that Flutter's
+/// `GlobalWidgetsLocalizations` does not know (it covers ar, fa, he, ps, sd
+/// and ur).
+const _rtlLanguages = {'ckb'};
+
+class _FallbackMaterialDelegate
+    extends LocalizationsDelegate<MaterialLocalizations> {
+  const _FallbackMaterialDelegate();
+
+  @override
+  bool isSupported(Locale locale) =>
+      _editorOnly(GlobalMaterialLocalizations.delegate, locale);
+
+  @override
+  Future<MaterialLocalizations> load(Locale locale) =>
+      DefaultMaterialLocalizations.load(locale);
+
+  @override
+  bool shouldReload(_FallbackMaterialDelegate old) => false;
+}
+
+class _FallbackCupertinoDelegate
+    extends LocalizationsDelegate<CupertinoLocalizations> {
+  const _FallbackCupertinoDelegate();
+
+  @override
+  bool isSupported(Locale locale) =>
+      _editorOnly(GlobalCupertinoLocalizations.delegate, locale);
+
+  @override
+  Future<CupertinoLocalizations> load(Locale locale) =>
+      DefaultCupertinoLocalizations.load(locale);
+
+  @override
+  bool shouldReload(_FallbackCupertinoDelegate old) => false;
+}
+
+class _FallbackWidgetsDelegate
+    extends LocalizationsDelegate<WidgetsLocalizations> {
+  const _FallbackWidgetsDelegate();
+
+  @override
+  bool isSupported(Locale locale) =>
+      _editorOnly(GlobalWidgetsLocalizations.delegate, locale);
+
+  @override
+  Future<WidgetsLocalizations> load(Locale locale) =>
+      SynchronousFuture<WidgetsLocalizations>(
+          _rtlLanguages.contains(locale.languageCode)
+              ? const _RtlWidgetsLocalizations()
+              : const DefaultWidgetsLocalizations());
+
+  @override
+  bool shouldReload(_FallbackWidgetsDelegate old) => false;
+}
+
+/// The English widgets strings, laid out right to left.
+class _RtlWidgetsLocalizations extends DefaultWidgetsLocalizations {
+  const _RtlWidgetsLocalizations();
+
+  @override
+  TextDirection get textDirection => TextDirection.rtl;
 }
