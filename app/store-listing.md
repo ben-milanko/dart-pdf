@@ -106,12 +106,12 @@ Runs on Android, iPhone, iPad, and Mac, plus Windows, Linux, and the web. Opens 
 
 English listing fields are saved in
 [`packaging/msstore/listing/en-US.json`](packaging/msstore/listing/en-US.json).
-They reuse the verified live App Store and Google Play copy:
+They share the App Store and Google Play feature descriptions, with a
+Windows-specific short description:
 
 - **Product name:** `DartPDF: Edit PDF Documents` (the App Store name).
   Reserve this name in Partner Center before selecting it for the listing.
-- **Short description:** `Easily annotate documents, fill forms, and redact text privately offline.`
-  (the Google Play short description).
+- **Short description:** `Fill and sign PDF forms. Edit, annotate and redact on your Windows PC, without uploading your files.`
 - **Description:** the shared introduction, privacy wording, and eleven
   features above, followed by: `Runs on Windows 10 and Windows 11. Opens PDFs
   from File Explorer, or drag-and-drop. Light and dark themes.`
@@ -121,9 +121,9 @@ They reuse the verified live App Store and Google Play copy:
   (seven phrases, sixteen words).
 - **What's new:** [`release-notes/7.0.0-stores.txt`](release-notes/7.0.0-stores.txt).
 
-Saved and submitted on 8 October 2026 in Partner Center submission **17**
-(`1152921505702072175`). Status: **In certification**, with automatic publishing
-after approval. The sting trailer from published submission 16 is retained.
+The English fields above match the published Microsoft Store listing. The
+existing sting trailer is retained. Keep Windows listing copy separate from
+Google Play's shorter description when preparing an update.
 
 Use the native Windows captures under `doc/marketing/app/windows/` for this
 store, as described in [`doc/screenshots/README.md`](../doc/screenshots/README.md).
