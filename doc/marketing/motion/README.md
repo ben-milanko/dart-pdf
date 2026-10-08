@@ -93,7 +93,7 @@ terminology that does not belong in an app listing.
   retain the existing screenshots. The change ships with the Linux packages.
 - **Apple App Store:** do not upload this sting as an app preview. Guideline
   2.3.4 requires video screen captures of the app itself; the sting is an
-  animated illustration.
+  animated illustration. Use the recorded preview below instead.
 
 On 8 October 2026, the Microsoft trailer, poster, captions, and hero artwork
 were saved in Partner Center submission **16** (`1152921505702071402`) and
@@ -115,6 +115,72 @@ were verified in the public Snap Store embed. The corresponding `video.txt`
 files keep later Play uploads consistent.
 Play Console confirmed all 21 video changes **in review**, with managed
 publishing off so they publish after approval.
+
+## App Store preview
+
+Apple's previews must be screen recordings of the app, with only captions,
+touch indicators, simple fades and a soundtrack added
+([guidance](https://developer.apple.com/app-store/app-previews/)). This one is
+a recording of the real app, operated by a script:
+
+- `app/tool/preview_main.dart` runs the shipping `EditorScreen` and works it
+  with real touch events on the app's own controls, found by widget key. It
+  opens a generated proposal (`app/tool/preview_document.dart`), highlights a
+  sentence, fills the client-name field, drags the appendix ahead of the
+  budget in the page grid, and signs on the signature line. A fingertip dot
+  shows each touch, which Apple allows as a touch hotspot. Every edit is
+  checked to have committed, so a missed highlight fails the take instead of
+  reaching the store. The tour prints caption and sound markers on stdout.
+- `app/tool/preview/record_ios.py` boots the iPhone 17 Pro Max simulator with
+  the 9:41 status bar and runs the tour. It records the screen with
+  `simctl io recordVideo` (1320×2868) and writes `tour.log`, the markers
+  timestamped against the recording.
+- `app/tool/preview/compose_preview.py` cuts the clip from `start` to `end` and
+  frames it under captions on the store screenshots' gradient. It adds this
+  sting's music bed, offset so the chord hit lands on the closing caption,
+  plus a sound per touch. The encode follows
+  [Apple's preview spec](https://developer.apple.com/help/app-store-connect/reference/app-preview-specifications):
+  886×1920, H.264 High@4.0, 30 fps, about 11 Mbps, and stereo 256 kbps AAC at
+  48 kHz. It also writes a poster PNG of the closing frame, which has every
+  edit on it.
+
+The clip opens on the highlight already in progress, because viewers give a
+listing only a few seconds. Captions carry the story, because previews
+autoplay muted. The last caption is the privacy line (no account, no ads, no
+uploads); the app has no in-app purchases to disclose.
+
+Run the **Marketing screenshots** workflow with `app_preview_only` checked.
+Download the `app-preview-iphone` artifact, then watch the MP4 before
+uploading it. Upload it to App Store Connect under the iPhone 6.9" previews;
+6.5" and smaller iPhones accept the same 886×1920 file. Set the poster frame
+to the time the composer prints, about 0.6 s before the end. Locally on a Mac:
+
+```sh
+cd app
+python3 tool/preview/record_ios.py --out build/preview-ios
+python3 tool/preview/compose_preview.py --device iphone \
+  --video build/preview-ios/raw.mov --log build/preview-ios/tour.log \
+  --out build/preview-ios/dartpdf-preview-iphone.mp4
+```
+
+To draft without a Mac, run the tour in headless Chromium. Software GL runs it
+about 3× slower than a device, so compose with the `--speed` value the
+recorder prints. This draft is for review only, not for upload:
+
+```sh
+cd app
+fvm flutter build web -t tool/preview_main.dart --no-tree-shake-icons
+npx http-server build/web -p 8765 &
+NODE_PATH=$(npm root -g) node tool/preview/record_web.cjs --out build/preview-web
+python3 tool/preview/compose_preview.py --video build/preview-web/raw.mp4 \
+  --log build/preview-web/tour.log --speed 3.1 --out build/preview-web/draft.mp4
+```
+
+The tour targets the phone layout, with its bottom tool dock and Tools sheet.
+An iPad preview (1200×1600, `--device ipad`) needs the tour adapted to the
+tablet toolbar first; `--dart-define=PREVIEW_PROBE=true` prints the keyed
+controls on screen at each step. Edit the captions in `CAPTIONS` in
+`compose_preview.py`, and the storyboard in `_Tour.play`.
 
 Microsoft's mezzanine MP4 can be regenerated from the app cut (prefer the
 full-quality master when available). Keep this large upload file outside Git:

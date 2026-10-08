@@ -21,6 +21,10 @@ on:
       source_ref:
         description: 'Windows app source ref (e.g. app-v4.5.0); blank uses this workflow commit'
         default: ''
+      app_preview_only:
+        description: 'Record only the App Store app preview video (iPhone simulator)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,7 +32,7 @@ permissions:
 jobs:
   # iOS (simctl) + macOS (window crop) on a macOS runner with a GUI session.
   apple:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.app_preview_only }}
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -61,7 +65,7 @@ jobs:
 
   # Android via an emulator on Linux (KVM-accelerated).
   android:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.app_preview_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -99,6 +103,45 @@ jobs:
           path: |
             doc/marketing/**
             doc/screenshots/**
+          if-no-files-found: warn
+
+  # The App Store app preview: the real app, driven by tool/preview_main.dart,
+  # recorded on the iPhone simulator and composed to Apple's preview spec. See
+  # doc/marketing/motion/README.md (App Store preview).
+  app-preview:
+    if: ${{ inputs.app_preview_only }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+      - name: Install ffmpeg + Python deps (compose)
+        run: |
+          brew install ffmpeg
+          python3 -m pip install --break-system-packages numpy pillow
+      - run: flutter pub get
+      - name: Record the tour on the iPhone simulator
+        working-directory: app
+        run: python3 tool/preview/record_ios.py --out build/preview-ios
+      - name: Compose the preview
+        working-directory: app
+        run: |
+          python3 tool/preview/compose_preview.py --device iphone \
+            --video build/preview-ios/raw.mov --log build/preview-ios/tour.log \
+            --out build/preview-ios/dartpdf-preview-iphone.mp4
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: app-preview-iphone
+          path: |
+            app/build/preview-ios/*.mp4
+            app/build/preview-ios/*.png
+            app/build/preview-ios/raw.mov
+            app/build/preview-ios/tour.log
           if-no-files-found: warn
 
   windows:
