@@ -755,7 +755,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // double-tap) must measure against this raw point, not the snapped vertex.
   Offset? _polyLastRaw;
   Offset? _polyHover;
-  Offset? _polyDoubleTapPosition;
+  // Poly-tool taps are read off the raw pointer events, not the tap/double-
+  // tap recognizers: with a double-tap recognizer in the arena every tap is
+  // held back for the double-tap timeout, so a hybrid tool's vertex landed
+  // ~300ms late (the rubber band kept chasing the cursor until it caught
+  // up), and a quick finishing double-tap was ignored while the recognizer
+  // was still sitting on an earlier tap. (The recognizer stays in the arena
+  // regardless, so the viewer's double-tap zoom can't take the finish.) [_polyTapPointer]/[_polyTapDown]
+  // track a press that may yet be a tap, and whether it went down close
+  // enough to [_polyLastTap] - the previous tap, until [_polyLastTapTimer]
+  // (the double-tap timeout) expires it - to finish the path when it lifts.
+  int? _polyTapPointer;
+  Offset? _polyTapDown;
+  bool _polyTapPaired = false;
+  Offset? _polyLastTap;
+  Timer? _polyLastTapTimer;
   // the form tool's double-tap fills the field under the down position
   TapDownDetails? _doubleTapDownDetails;
 
@@ -1777,6 +1791,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_pointers.gestureBailed) return;
+    if (_polyTool || _hybridPolyTool) {
+      // a second contact while one is down is not a tap
+      final fresh = _polyTapPointer == null && event.buttons == kPrimaryButton;
+      _polyTapPointer = fresh ? event.pointer : null;
+      _polyTapDown = fresh ? event.localPosition : null;
+      final last = _polyLastTap;
+      _polyTapPaired = fresh &&
+          last != null &&
+          (event.localPosition - last).distance <= kDoubleTapSlop;
+    }
     if (_polyTool) {
       _addPolyPoint(event.localPosition);
       return;
@@ -1837,6 +1861,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _onPointerMove(PointerMoveEvent event) {
     if (!mounted) return;
+    if (event.pointer == _polyTapPointer &&
+        (event.localPosition - _polyTapDown!).distance >
+            computeHitSlop(event.kind, null)) {
+      _clearPolyTap(); // a drag, not a vertex tap
+    }
     if (event.kind == PointerDeviceKind.mouse ||
         event.kind == PointerDeviceKind.trackpad) {
       _guideCursor = event.localPosition;
@@ -2886,6 +2915,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   @override
   void dispose() {
+    _polyLastTapTimer?.cancel();
     _controller.removeListener(_onControllerChanged);
     if (_textEditRect != null) _controller.setEditingText(false);
     // if THIS overlay was mid-move, drop the shared cross-page preview
@@ -5059,7 +5089,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// raw listener, so it fires regardless of the gesture arena.
   Future<void> _onPointerUp(PointerUpEvent event) async {
     if (!mounted) return;
+    // read before [_endRawPointer] resets the bail with the last touch
+    final paired = _polyTapPaired;
+    final tapDown = event.pointer == _polyTapPointer &&
+            !_pointers.gestureBailed &&
+            (_polyTool || _hybridPolyTool) &&
+            !_controller.isCroppingImage &&
+            !_controller.isPickingColor &&
+            _controller.activeSavedAnnotation == null &&
+            _textEditRect == null
+        ? _polyTapDown
+        : null;
+    if (event.pointer == _polyTapPointer) _clearPolyTap();
     _endRawPointer(event, canceled: false);
+    if (tapDown != null) _onPolyTap(tapDown, event.localPosition, paired);
     if (!_controller.isPickingColor) return;
     final dragged = _pickDragged;
     _pickDownPosition = null;
@@ -5084,7 +5127,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!mounted) return;
     _pickDownPosition = null;
     _pickDragged = false;
+    if (event.pointer == _polyTapPointer) _clearPolyTap();
     _endRawPointer(event, canceled: true);
+  }
+
+  void _clearPolyTap() {
+    _polyTapPointer = null;
+    _polyTapDown = null;
+    _polyTapPaired = false;
+  }
+
+  /// A poly-tool tap that went down at [down] has lifted at [up]. A hybrid
+  /// tool's vertex lands here (a press could still have been the drag that
+  /// rubber-bands a rectangle); a plain poly tool placed its vertex on the
+  /// way down. A tap that went down [paired] with the previous one - inside
+  /// the double-tap timeout and slop, as the recognizer would pair them -
+  /// finishes the path.
+  void _onPolyTap(Offset down, Offset up, bool paired) {
+    if (_hybridPolyTool) _addPolyPoint(up);
+    _polyLastTapTimer?.cancel();
+    if (paired) {
+      _polyLastTap = null;
+      _finishPolyPath(down);
+    } else {
+      _polyLastTap = down;
+      _polyLastTapTimer = Timer(kDoubleTapTimeout, () => _polyLastTap = null);
+    }
   }
 
   Future<void> _onTapUp(TapUpDetails details) async {
@@ -5124,13 +5192,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitTextEdit();
       return;
     }
-    if (_polyTool) {
-      return;
-    }
-    if (_hybridPolyTool) {
-      // a tap (not a drag) drops a vertex; double-tap finishes the region
-      _addPolyPoint(details.localPosition);
-      return;
+    if (_polyTool || _hybridPolyTool) {
+      return; // vertices land from the raw pointer events ([_onPolyTap])
     }
     final (x, y) = _geometry.toPagePoint(details.localPosition);
     final placementPosition = _snapPointToGrid(details.localPosition);
@@ -5253,21 +5316,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onDoubleTapDown(TapDownDetails details) {
-    _polyDoubleTapPosition = details.localPosition;
     _doubleTapDownDetails = details;
   }
 
   void _onDoubleTap() {
-    if (_tool == PdfEditTool.form) {
-      final details = _doubleTapDownDetails;
-      if (details != null) {
-        _fillFormFieldAt(details.localPosition, details.globalPosition);
-      }
-      return;
+    // poly tools already finished from the raw events ([_onPolyTap]); their
+    // recognizer only claims the double-tap so the viewer doesn't zoom
+    if (_tool != PdfEditTool.form) return;
+    final details = _doubleTapDownDetails;
+    if (details != null) {
+      _fillFormFieldAt(details.localPosition, details.globalPosition);
     }
-    if (!_polyTool && !_hybridPolyTool) return;
-    _finishPolyPath(_polyDoubleTapPosition);
-    _polyDoubleTapPosition = null;
   }
 
   void _onHover(PointerHoverEvent event) {
