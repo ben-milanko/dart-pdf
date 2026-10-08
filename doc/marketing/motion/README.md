@@ -83,7 +83,9 @@ terminology that does not belong in an app listing.
   be public or unlisted, embeddable, without ads or an age restriction. Keep
   the URL in the English `video.txt` files under `app/fastlane/metadata/android/`
   when it is available, so later metadata uploads preserve it.
-- **Snap Store:** the listing's video field takes an external video URL.
+- **Snap Store:** the listing's video field supports YouTube or Vimeo embeds
+  (plus asciinema for terminal recordings). Reuse the Google Play YouTube URL;
+  the direct MP4/WebM website URLs will not render in Snapcraft's video template.
 - **Linux software centers:** the AppStream metadata in `app/linux/` points at
   `https://dart-pdf.com/assets/promo-app.webm` (AV1/Opus, under 1 MiB), as a
   separate, non-default screenshot entry. Run the Flatpak desktop-asset sync
