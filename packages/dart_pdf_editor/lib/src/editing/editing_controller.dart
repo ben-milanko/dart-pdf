@@ -10336,6 +10336,11 @@ class PdfEditingController extends ChangeNotifier {
         for (final (name, _) in _selectedFormStyleFields) name,
       ];
 
+  /// The 8.0.0 name of [selectedFormStyleFieldNames], from before choice
+  /// fields joined the style targets - it now lists them too.
+  @Deprecated('Use selectedFormStyleFieldNames')
+  List<String> get selectedFormTextFieldNames => selectedFormStyleFieldNames;
+
   /// How many form-field widgets are selected - more than one means the
   /// form-field controls act on a group (bulk style and size edits).
   int get selectedFormWidgetCount => _selectedWidgetSlots.length;
