@@ -194,32 +194,35 @@ class _Tour {
   Future<void> _chooseTool(String group, String key, {Color? color}) async {
     await hand.tap(await _waitFor('pdf-tools-handle'));
     _sfx('click');
-    await _pause(550);
+    await _pause(350);
     await hand.tap(await _waitFor('pdf-group-tab-$group'));
     _sfx('tick');
-    await _pause(400);
+    await _pause(300);
     // A one-tool group (Select) arms its tool from the tab and closes.
     if (_rectsOf('pdf-group-tab-$group').isEmpty) return;
     await hand.tap(await _waitFor(key));
     _sfx('tick');
-    await _pause(450);
+    await _pause(300);
     if (color != null) {
       await hand.tap(await _waitForWidget(
           (w) => w is Container && _isSwatch(w.decoration, color)));
       _sfx('tick');
-      await _pause(350);
+      await _pause(250);
     }
-    // Some tiles close the sheet themselves; give it time to slide away
-    // before deciding to dismiss it through the scrim above it.
+    // Markup tiles close the sheet themselves; give it time to slide away
+    // before deciding to dismiss it through the scrim above it. Tool tiles
+    // leave it up, so don't wait for those.
     for (var i = 0;
-        i < 15 && _rectsOf('pdf-group-tab-$group').isNotEmpty;
+        key.startsWith('pdf-markup-') &&
+            i < 8 &&
+            _rectsOf('pdf-group-tab-$group').isNotEmpty;
         i++) {
       await _pause(60);
     }
     if (_rectsOf('pdf-group-tab-$group').isNotEmpty) {
       debugPrint('PREVIEW dismissing the tool sheet');
       await hand.tap(const Offset(24, 140));
-      await _pause(450);
+      await _pause(350);
     }
   }
 
@@ -250,7 +253,7 @@ class _Tour {
               _at(PreviewLayout.highlightTo, y),
               const Duration(milliseconds: 800),
             ));
-    await _pause(900);
+    await _pause(600);
 
     // 2. Fill the form field.
     _caption('fill');
@@ -259,12 +262,12 @@ class _Tour {
     await hand.tap(
         _at((field.left + field.right) / 2, (field.bottom + field.top) / 2));
     _sfx('click');
-    await _pause(500);
+    await _pause(300);
     _probeKeys('form field');
     await _type(PreviewLayout.clientName);
-    await _pause(400);
+    await _pause(200);
     await _edit('the form fill', () => hand.tap(_at(540, 260)));
-    await _pause(700);
+    await _pause(400);
 
     // 3. Organize: the page grid, then drag the appendix ahead of the budget.
     _caption('organize');
@@ -272,30 +275,30 @@ class _Tour {
     _sfx('click');
     await hand.tap(await _waitFor('pdf-shell-page-grid-toggle'));
     _sfx('swoosh', 0.6);
-    await _pause(1000);
+    await _pause(600);
     _probeKeys('page grid');
     await _edit('the page move', () => _reorder(from: 2, before: 1));
-    await _pause(1100);
+    await _pause(700);
     await hand.tap(await _waitFor('pdf-shell-controls'));
     _sfx('click');
     await hand.tap(await _waitFor('pdf-shell-view-mode-pages'));
     _sfx('swoosh', 0.5);
-    await _pause(900);
+    await _pause(500);
 
     // 4. Sign with a finger on the signature line.
     _caption('sign');
     await _chooseTool('draw', 'pdf-tool-ink', color: _signatureInk);
     _probeKeys('ink tool');
-    _sfx('pen', 1.3);
+    _sfx('pen', 1.2);
     await _edit('the signature',
-        () => hand.drag(_signature(), const Duration(milliseconds: 1500)));
+        () => hand.drag(_signature(), const Duration(milliseconds: 1300)));
     hand.hide();
-    await _pause(600);
+    await _pause(400);
 
     // The end frame: every edit on one page (also the poster frame).
     _caption('done');
     _sfx('ding');
-    await _pause(2600);
+    await _pause(2100);
     _mark('end');
   }
 
@@ -335,7 +338,7 @@ class _Tour {
       _mark('error no text field');
       return;
     }
-    _sfx('typing', text.length * 0.085);
+    _sfx('typing', text.length * 0.06);
     for (var i = 1; i <= text.length; i++) {
       final value = text.substring(0, i);
       editable.userUpdateTextEditingValue(
@@ -345,7 +348,7 @@ class _Tour {
         ),
         SelectionChangedCause.keyboard,
       );
-      await _pause(85);
+      await _pause(60);
     }
   }
 
@@ -357,7 +360,7 @@ class _Tour {
     await hand.longPressDrag(
       source.center,
       Offset(target.left + 6, target.center.dy),
-      const Duration(milliseconds: 1000),
+      const Duration(milliseconds: 800),
     );
     _sfx('thunk');
   }
@@ -552,7 +555,7 @@ class _Hand {
       _rest = to + const Offset(40, 90);
       _shown = true;
     }
-    const steps = 14;
+    const steps = 9;
     final from = _rest;
     for (var i = 1; i <= steps; i++) {
       final t = Curves.easeInOut.transform(i / steps);

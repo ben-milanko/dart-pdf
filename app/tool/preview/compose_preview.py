@@ -170,7 +170,7 @@ def soundtrack(events, duration, out_wav):
         if len(e["args"]) > 1:
             cue["dur"] = float(e["args"][1])
         if cue["type"] == "typing":
-            cue["count"] = max(4, round(cue.get("dur", 1) / 0.085))
+            cue["count"] = max(4, round(cue.get("dur", 1) / 0.06))
         cues.append(cue)
     music = dict(STING_MUSIC, end=offset + duration)
     spec = {"duration": duration, "offset": offset, "music": music, "cues": cues}
@@ -198,6 +198,8 @@ def main():
     ap.add_argument("--out", required=True, help="output .mp4")
     ap.add_argument("--speed", type=float, default=1.0,
                     help="playback speed-up, for drafts recorded on slow hosts")
+    ap.add_argument("--any-length", action="store_true",
+                    help="allow a clip outside Apple's 15-30 s (drafts only)")
     ap.add_argument("--lead", type=float, default=0.0,
                     help="seconds of recording to keep before the start marker")
     args = ap.parse_args()
@@ -213,9 +215,9 @@ def main():
     clip_out = vt(end_ev["t"])
     speed = args.speed
     duration = (clip_out - clip_in) / speed
-    if not 15 <= duration <= 30:
-        print(f"warning: {duration:.1f}s is outside Apple's 15-30s preview length",
-              file=sys.stderr)
+    if not 15 <= duration <= 30 and not args.any_length:
+        sys.exit(f"{duration:.1f}s is outside Apple's 15-30s app preview length "
+                 "(retime the tour, or pass --any-length for a draft)")
 
     capture = probe_size(args.video)
     w, h, band, box = layout(args.device, capture)
