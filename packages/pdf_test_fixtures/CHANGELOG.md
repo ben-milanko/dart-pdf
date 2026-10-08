@@ -1,5 +1,11 @@
 # Changelog
 
+## 8.0.0
+
+- Extend the JBIG2 encoder fixtures to exercise the optimized generic-region decoder.
+- Align with the dart-pdf 8.0.0 suite.
+
+
 ## 7.0.0
 
 - `buildOcrDrawingSheet`: a seeded A3 signalling-drawing sheet (/Rotate 90,

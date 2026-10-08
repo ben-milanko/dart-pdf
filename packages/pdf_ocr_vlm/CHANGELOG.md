@@ -1,5 +1,10 @@
 # Changelog
 
+## 8.0.0
+
+- Align dependency constraints with the dart-pdf 8.0.0 suite.
+
+
 ## 7.0.0
 
 - Raise the Flutter floor to `flutter: '>=3.47.0'`, matching

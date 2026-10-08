@@ -1,5 +1,12 @@
 # Changelog
 
+## 8.0.0
+
+- Optimize image-mask compositing and scan decoding without changing decoded pixels.
+- Allow annotation drawing to filter by annotation subtype.
+- Align with the dart-pdf 8.0.0 suite.
+
+
 ## 7.0.0
 
 - Add `ocrSpansNotIn` to skip OCR spans already covered by page text.
