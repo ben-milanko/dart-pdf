@@ -46,7 +46,7 @@ import 'preview_document.dart';
 
 /// Milliseconds to wait for the document to open, render and extract its text
 /// (the highlighter snaps to it) before the tour starts.
-const _warmupMs = int.fromEnvironment('PREVIEW_WARMUP_MS', defaultValue: 8000);
+const _warmupMs = int.fromEnvironment('PREVIEW_WARMUP_MS', defaultValue: 12000);
 
 /// Prints the keyed controls on screen at each step, for adapting the tour to
 /// a new layout: `--dart-define=PREVIEW_PROBE=true`.
@@ -242,10 +242,14 @@ class _Tour {
     _sfx('highlight', 0.8);
     await _edit(
         'the highlight',
-        () => hand.drag([
-              _at(PreviewLayout.highlightFrom, y),
+        // On touch a drag scrolls; text selection is a long press on a word
+        // that then extends by words as the finger moves - so press, hold,
+        // and sweep, as a person would.
+        () => hand.longPressDrag(
+              _at(PreviewLayout.highlightFrom + 6, y),
               _at(PreviewLayout.highlightTo, y),
-            ], const Duration(milliseconds: 800)));
+              const Duration(milliseconds: 800),
+            ));
     await _pause(900);
 
     // 2. Fill the form field.

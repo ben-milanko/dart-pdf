@@ -10,7 +10,8 @@ Boots the simulator (iPhone 17 Pro Max by default, whose screen records at
 and runs tool/preview_main.dart with `flutter run`. When the app prints
 @@PREVIEW_READY@@ it starts `simctl io recordVideo`, and from the moment the
 recorder reports it has started, every @@PREVIEW@@ marker the tour prints is
-written to tour.log prefixed with the seconds since recording began. At
+written to tour.log prefixed with the seconds since recording began
+(simctl announces the start on stdout; the file only appears at the end). At
 @@PREVIEW_DONE@@ it stops the recorder (SIGINT, so the file is finalised) and
 quits the app.
 
@@ -79,7 +80,7 @@ def main():
 
     recorder = None
     t0 = None
-    log = open(os.path.join(out, "tour.log"), "w")
+    markers = []
     deadline = time.monotonic() + args.timeout
     ok = False
     try:
@@ -93,30 +94,42 @@ def main():
             now, line = line[0], line[1].rstrip("\n")
             print(line, flush=True)
             if "@@PREVIEW_READY@@" in line and recorder is None:
+                launched = time.monotonic()
                 recorder = subprocess.Popen(
                     ["xcrun", "simctl", "io", udid, "recordVideo", "--codec=h264", "--force",
                      os.path.join(out, "raw.mov")],
-                    stderr=subprocess.PIPE, text=True)
-                # Time zero is when the recorder says frames are being written
-                # (or after a few seconds, if this simctl doesn't say).
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                # Time zero is when the recorder reports it has started (on
+                # stdout in current Xcodes); keep draining it after that.
                 started = threading.Event()
-                threading.Thread(
-                    target=lambda r=recorder: [started.set() for e in r.stderr
-                                               if "Recording started" in e],
-                    daemon=True).start()
-                started.wait(timeout=8)
-                t0 = time.monotonic()
+
+                def drain(r=recorder):
+                    for msg in r.stdout:
+                        print(f"[simctl] {msg.rstrip()}", flush=True)
+                        if "Recording started" in msg:
+                            started.set()
+
+                threading.Thread(target=drain, daemon=True).start()
+                if started.wait(timeout=10):
+                    t0 = time.monotonic()
+                else:
+                    # simctl starts writing about half a second after launch.
+                    t0 = launched + 0.5
+                    print("==> simctl never said 'Recording started'; "
+                          "timing from its launch", flush=True)
                 print("==> recording", flush=True)
-            elif "@@PREVIEW@@" in line and t0 is not None:
-                log.write(f"{now - t0:.3f} {line}\n")
-                log.flush()
+            elif "@@PREVIEW@@" in line:
+                # Stamped on arrival; written once time zero is known.
+                markers.append((now, line))
                 if "@@PREVIEW@@ error" in line:
                     break
             elif "@@PREVIEW_DONE@@" in line:
                 ok = t0 is not None
                 break
     finally:
-        log.close()
+        with open(os.path.join(out, "tour.log"), "w") as log:
+            for now, line in markers:
+                log.write(f"{now - (t0 or now):.3f} {line}\n")
         if recorder is not None:
             time.sleep(0.5)
             recorder.send_signal(signal.SIGINT)

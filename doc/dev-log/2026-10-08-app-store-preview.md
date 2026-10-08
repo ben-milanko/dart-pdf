@@ -38,9 +38,18 @@ preview).
 - The Select tab arms Select and closes the sheet, because it holds one tool.
 - `pdf-editing-layer` collapses to 0×0 while a tool arms, so the page rect
   falls back to the page picture and caches the last good answer.
+- On touch, a finger drag scrolls the viewer. Text selection, which is how
+  the highlighter works, starts with a long press on a word and extends by
+  words as the finger drags (`pdf_viewer.dart`, `_onLongPressStart`). The tour
+  therefore presses, holds and sweeps. A plain drag happened to select text in
+  headless Chromium but failed on the iOS simulator.
+- `simctl io recordVideo` prints its status on stdout, and the file only
+  appears when recording stops. `record_ios.py` takes time zero from the
+  "Recording started" line, or from half a second after launch if that line
+  never comes.
 - The highlighter snaps to extracted text. If the drag starts before text
   extraction finishes, nothing commits and no error appears. The warm-up is
-  8 s, and `_edit` checks `PdfEditingController.revisionId` after each step and
+  12 s, and `_edit` checks `PdfEditingController.revisionId` after each step and
   fails the take if it didn't move.
 - Reordering uses the page grid (`pdf-shell-page-grid-toggle` in the "…" sheet,
   cells `pdf-thumbnail-grid-cell-<i>`): long-press past the threshold, then drag
