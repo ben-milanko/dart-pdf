@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuAddNode => 'เพิ่มจุด';
 
   @override
+  String get menuAddLeader => 'เพิ่มเส้นชี้';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'นำจุดออก';
+
+  @override
+  String get menuRemoveLeader => 'นำเส้นชี้ออก';
 
   @override
   String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';

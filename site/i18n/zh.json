@@ -16,6 +16,7 @@
   "hero_note": "免费开源。无需账号。无需上传。",
   "hero_shotAlt": "DartPDF 编辑器显示一份带有批注工具、页面缩略图和调色板的 PDF。",
   "hero_deviceTag": "本地",
+  "promo_videoAria": "DartPDF 短视频：高亮、签名、填写表单、盖章、重新排列页面，以及为 PDF 添加数字签名。",
   "platforms_label": "一款应用搞定您的 PDF",
 
   "feat_eyebrow": "工具",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "pub.dev 软件包",
   "sdk_hero_cta2": "在 GitHub 上查看",
   "sdk_hero_cta3": "在线演示",
+  "sdk_promo_videoAria": "DartPDF 引擎短视频：渲染 PDF 页面，然后进行编辑、重新排序和数字签名。",
   "sdk_feat_eyebrow": "功能",
   "sdk_feat_h2": "商业 SDK 级别的功能集，开源。",
   "sdk_feat_intro": "查看、批注、表单、签名、密文遮盖、页面管理、文本编辑和 OCR。换句话说，应用真正需要授权 PDF SDK 来实现的那些功能。",

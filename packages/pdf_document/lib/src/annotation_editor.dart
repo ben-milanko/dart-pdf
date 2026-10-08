@@ -2082,11 +2082,17 @@ extension PdfAnnotationEditing on PdfEditor {
   /// and `/RD` (the inset from the enclosing /Rect to the text box). The
   /// appearance draws both the leader with its arrowhead and the text box,
   /// and /Rect encloses the two so the markup survives §12.5.5 fitting.
+  ///
+  /// [attach] pins where the first leader meets the box. [extraLeaders] adds
+  /// more arrows from the same box (kept under [kPdfCalloutLeadersKey], since
+  /// /CL holds only one); each shares the box's stroke and [ending].
   void addCallout(
     int pageIndex,
     PdfRect boxRect,
     String text,
     (double, double) target, {
+    (double, double)? attach,
+    List<PdfCalloutLeader> extraLeaders = const [],
     double fontSize = 12,
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
@@ -2097,6 +2103,10 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth = 1,
     double opacity = 1,
     PdfLineEnding ending = PdfLineEnding.openArrow,
+    double lineSpacing = _defaultLineSpacing,
+    double charSpacing = 0,
+    double horizontalScale = _defaultHorizontalScale,
+    bool underline = false,
     int? pageRotation,
     String? author,
     String? name,
@@ -2115,28 +2125,21 @@ extension PdfAnnotationEditing on PdfEditor {
     final effectiveFont = unicodeFont ?? font;
     if (font is PdfEmbeddedFont) font.resetUsage();
 
-    // A callout's box outline and leader share one stroke (color + width),
+    // A callout's box outline and leaders share one stroke (color + width),
     // as in Bluebeam - and it's always persisted (/BS width + /DA RG) so a
-    // later reshape reproduces the same arrow instead of guessing.
-    final callout = _calloutLine(boxRect, target);
-    // /Rect and BBox must cover the box, the leader, and the arrowhead.
-    final endingPoints = _endingExtent(
+    // later reshape reproduces the same arrows instead of guessing.
+    final geometry = _calloutGeometry(
+      boxRect,
+      [(target: target, attach: attach), ...extraLeaders],
       ending,
-      callout.first,
-      callout[1],
       strokeWidth,
     );
-    final rect = _pointBounds([
-      (boxRect.left, boxRect.bottom),
-      (boxRect.right, boxRect.top),
-      ...callout,
-      ...endingPoints,
-    ], strokeWidth);
+    final rect = geometry.rect;
 
     final gs = _alphaState(opacity);
     final w = _calloutContent(
       boxRect,
-      callout,
+      geometry.lines,
       text,
       fontSize: fontSize,
       font: effectiveFont,
@@ -2150,6 +2153,10 @@ extension PdfAnnotationEditing on PdfEditor {
       lineWidth: strokeWidth,
       ending: ending,
       hasAlpha: gs != null,
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      horizontalScale: horizontalScale,
+      underline: underline,
       pageRotation: effectivePageRotation,
     );
 
@@ -2160,7 +2167,6 @@ extension PdfAnnotationEditing on PdfEditor {
     final dict = _markupDict('FreeText', rect, fillColor ?? color, text, author)
       ..['DA'] = CosString.fromText(da)
       ..['IT'] = const CosName('FreeTextCallout')
-      ..['CL'] = _pointArray(callout)
       ..['LE'] = CosName(ending.pdfName)
       ..['RD'] = _rdArray(rect, boxRect)
       ..['BS'] = _borderStyle(strokeWidth)
@@ -2168,6 +2174,14 @@ extension PdfAnnotationEditing on PdfEditor {
         align?.quadding ??
             (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
       );
+    _writeCalloutLeaders(dict, geometry.lines);
+    _writeFreeTextSpacing(
+      dict,
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      horizontalScale: horizontalScale,
+      underline: underline,
+    );
     final CosDictionary fontResource;
     if (unicodeFont != null) {
       fontResource = unicodeFont.buildResource(_updater.addObject);
@@ -2182,6 +2196,47 @@ extension PdfAnnotationEditing on PdfEditor {
       _form(rect, w, resources: _resources(extGState: gs, font: fontResource)),
       name: name,
     );
+  }
+
+  /// The leader polylines of a callout whose text box is [box], one per
+  /// entry of [leaders], and the /Rect enclosing the box, every leader, and
+  /// each arrowhead (so the markup survives §12.5.5 appearance fitting).
+  ({List<List<(double, double)>> lines, PdfRect rect}) _calloutGeometry(
+    PdfRect box,
+    List<PdfCalloutLeader> leaders,
+    PdfLineEnding ending,
+    double strokeWidth, {
+    double? pad,
+  }) {
+    final lines = [
+      for (final leader in leaders)
+        _calloutLine(box, leader.target, attach: leader.attach),
+    ];
+    final rect = _pointBounds([
+      (box.left, box.bottom),
+      (box.right, box.top),
+      for (final line in lines) ...[
+        ...line,
+        ..._endingExtent(ending, line.first, line[1], strokeWidth),
+      ],
+    ], pad ?? strokeWidth);
+    return (lines: lines, rect: rect);
+  }
+
+  /// Persists a callout's leader polylines: the first in the standard /CL,
+  /// the rest under [kPdfCalloutLeadersKey] (dropped when there are none).
+  void _writeCalloutLeaders(
+    CosDictionary dict,
+    List<List<(double, double)>> lines,
+  ) {
+    dict['CL'] = _pointArray(lines.first);
+    if (lines.length > 1) {
+      dict[kPdfCalloutLeadersKey] = CosArray([
+        for (final line in lines.skip(1)) _pointArray(line),
+      ]);
+    } else {
+      dict.entries.remove(kPdfCalloutLeadersKey);
+    }
   }
 
   /// The leader-line points for a callout whose text box is [box] and whose
@@ -2291,20 +2346,23 @@ extension PdfAnnotationEditing on PdfEditor {
     }
   }
 
-  /// The /RD (rectangle differences, §12.5.6.19) insets - left, top, right,
-  /// bottom - from the annotation [rect] to the text [box] within it.
+  /// The /RD (rectangle differences, §12.5.6.19) insets from the annotation
+  /// [rect] to the text [box] within it, in the left, bottom, right, top
+  /// order Acrobat-family viewers (Bluebeam, PDFBox) read - the spec's prose
+  /// says left, top, right, bottom, but a box written that way opens in the
+  /// wrong place there. [PdfAnnotation.calloutBox] reads either order.
   CosArray _rdArray(PdfRect rect, PdfRect box) => CosArray([
         CosReal(box.left - rect.left),
-        CosReal(rect.top - box.top),
-        CosReal(rect.right - box.right),
         CosReal(box.bottom - rect.bottom),
+        CosReal(rect.right - box.right),
+        CosReal(rect.top - box.top),
       ]);
 
-  /// Builds a callout's appearance: the leader line with its arrowhead
+  /// Builds a callout's appearance: each leader line with its arrowhead
   /// (drawn first, in page space) and the text box on top.
   ContentWriter _calloutContent(
     PdfRect boxRect,
-    List<(double, double)> callout,
+    List<List<(double, double)>> leaders,
     String text, {
     required double fontSize,
     required PdfTextFont font,
@@ -2324,17 +2382,6 @@ extension PdfAnnotationEditing on PdfEditor {
     bool underline = false,
     int pageRotation = 0,
   }) {
-    final leader = _lineContent(
-      callout,
-      strokeColor: lineColor,
-      strokeWidth: lineWidth,
-      dashPattern: null,
-      closed: false,
-      fillColor: null,
-      startEnding: ending,
-      endEnding: PdfLineEnding.none,
-      hasAlpha: false,
-    );
     final box = _freeTextContent(
       boxRect,
       text,
@@ -2354,113 +2401,192 @@ extension PdfAnnotationEditing on PdfEditor {
     );
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
-    return w
-      ..append(leader)
-      ..append(box);
+    for (final leader in leaders) {
+      w.append(_lineContent(
+        leader,
+        strokeColor: lineColor,
+        strokeWidth: lineWidth,
+        dashPattern: null,
+        closed: false,
+        fillColor: null,
+        startEnding: ending,
+        endEnding: PdfLineEnding.none,
+        hasAlpha: false,
+      ));
+    }
+    return w..append(box);
   }
 
-  /// Reads a callout's leader line (/CL) and arrow (/LE) when [a] is a
-  /// /FreeTextCallout, else null.
-  ({List<(double, double)> line, PdfLineEnding ending})? _calloutInfo(
+  /// Reads a callout's leaders (/CL plus any [kPdfCalloutLeadersKey] extras)
+  /// and arrow (/LE) when [a] is a /FreeTextCallout, else null.
+  ({List<List<(double, double)>> leaders, PdfLineEnding ending})? _calloutInfo(
     PdfAnnotation a,
   ) {
-    final line = a.calloutLine;
-    if (line == null || line.length < 2) return null;
+    final leaders = a.calloutLeaders;
+    if (leaders == null || leaders.first.length < 2) return null;
     final le = document.cos.resolve(a.dict['LE']);
     final ending = le is CosName
         ? PdfLineEnding.fromName(le.value)
         : PdfLineEnding.openArrow;
-    return (line: line, ending: ending);
+    return (leaders: leaders, ending: ending);
   }
 
-  /// The text-box sub-rect of a callout: [rect] inset by /RD (§12.5.6.19),
-  /// falling back to the whole rect when /RD is absent or malformed.
-  PdfRect _boxFromRd(PdfAnnotation a, PdfRect rect) {
-    final rd = document.cos.resolve(a.dict['RD']);
-    double d(int i) {
-      if (rd is! CosArray || rd.items.length <= i) return 0;
-      final v = document.cos.resolve(rd.items[i]);
-      if (v is CosInteger) return v.value.toDouble();
-      if (v is CosReal) return v.value;
-      return 0;
-    }
-
-    return PdfRect(
-      rect.left + d(0),
-      rect.bottom + d(3),
-      rect.right - d(2),
-      rect.top - d(1),
-    );
-  }
+  /// The text-box sub-rect of callout [a] ([PdfAnnotation.calloutBox], which
+  /// settles the /RD order), or its whole /Rect without one.
+  PdfRect _boxFromRd(PdfAnnotation a) => a.calloutBox ?? a.rect;
 
   /// Rebuilds a callout from a new text [box] and/or arrow [target] (page
   /// space), keeping the other where it is - so the box and terminus move
   /// independently (Bluebeam's model: dragging one stretches the leader).
-  /// Preserves the text, style, and arrow ending; regenerates /CL, /RD,
-  /// /Rect, and the appearance. Returns false when [annotation] is not a
-  /// callout this editor can reproduce.
+  /// [target] and [attach] act on leader number [leader] (0 is /CL's); every
+  /// other leader keeps its tip, and its base rides a [box] change at the
+  /// same relative spot on the box. Preserves the text, style, and arrow
+  /// ending; regenerates /CL, the extra leaders, /RD, /Rect, and the
+  /// appearance. Returns false when [annotation] is not a callout this
+  /// editor can reproduce, or has no leader [leader].
   bool reshapeCallout(
     int pageIndex,
     PdfAnnotation annotation, {
     PdfRect? box,
     (double, double)? target,
     (double, double)? attach,
+    int leader = 0,
   }) {
     final info = _calloutInfo(annotation);
     if (info == null) return false;
+    if (leader < 0 || leader >= info.leaders.length) return false;
+    final oldBox = _boxFromRd(annotation);
+    final newBox = box ?? oldBox;
+    final leaders = <PdfCalloutLeader>[
+      for (var i = 0; i < info.leaders.length; i++)
+        (
+          target:
+              i == leader && target != null ? target : info.leaders[i].first,
+          attach: i == leader && attach != null
+              ? attach
+              : _carryCalloutAttach(info.leaders[i].last, oldBox, box),
+        ),
+    ];
+    return _rebuildCallout(pageIndex, annotation, newBox, leaders, info.ending);
+  }
+
+  /// Adds another leader to [annotation]'s callout box, pointing at [target]
+  /// (meeting the box at [attach], else the edge facing the target). The
+  /// existing leaders and the box stay put. Returns false when [annotation]
+  /// is not a callout this editor can reproduce.
+  bool addCalloutLeader(
+    int pageIndex,
+    PdfAnnotation annotation,
+    (double, double) target, {
+    (double, double)? attach,
+  }) {
+    final info = _calloutInfo(annotation);
+    if (info == null) return false;
+    return _rebuildCallout(
+      pageIndex,
+      annotation,
+      _boxFromRd(annotation),
+      [
+        for (final line in info.leaders)
+          (target: line.first, attach: line.last),
+        (target: target, attach: attach),
+      ],
+      info.ending,
+    );
+  }
+
+  /// Removes leader number [leader] from [annotation]'s callout; the box and
+  /// the other leaders stay put (removing leader 0 promotes the next one into
+  /// /CL). A callout keeps at least one leader, so this refuses - returning
+  /// false - for the last one, an out-of-range index, or a callout this
+  /// editor can't reproduce.
+  bool removeCalloutLeader(
+    int pageIndex,
+    PdfAnnotation annotation,
+    int leader,
+  ) {
+    final info = _calloutInfo(annotation);
+    if (info == null || info.leaders.length < 2) return false;
+    if (leader < 0 || leader >= info.leaders.length) return false;
+    return _rebuildCallout(
+      pageIndex,
+      annotation,
+      _boxFromRd(annotation),
+      [
+        for (var i = 0; i < info.leaders.length; i++)
+          if (i != leader)
+            (target: info.leaders[i].first, attach: info.leaders[i].last),
+      ],
+      info.ending,
+    );
+  }
+
+  /// Where a leader base at [current] on [oldBox] lands when the box becomes
+  /// [newBox]: the same relative spot (snapped back onto the perimeter by
+  /// [_calloutLine]). Unchanged when the box isn't changing.
+  (double, double) _carryCalloutAttach(
+    (double, double) current,
+    PdfRect oldBox,
+    PdfRect? newBox,
+  ) {
+    if (newBox == null || oldBox.width <= 0 || oldBox.height <= 0) {
+      return current;
+    }
+    return (
+      newBox.left + (current.$1 - oldBox.left) * newBox.width / oldBox.width,
+      newBox.bottom +
+          (current.$2 - oldBox.bottom) * newBox.height / oldBox.height,
+    );
+  }
+
+  /// Regenerates [annotation]'s callout around text [box] with [leaders]:
+  /// /CL + extra leaders, /RD, /Rect, and the appearance, keeping its text,
+  /// font (standard or recovered embedded face), colors, spacing, opacity,
+  /// and [ending]. False when the style can't be reproduced.
+  bool _rebuildCallout(
+    int pageIndex,
+    PdfAnnotation annotation,
+    PdfRect box,
+    List<PdfCalloutLeader> leaders,
+    PdfLineEnding ending,
+  ) {
+    if (leaders.isEmpty) return false;
     final style = annotation.freeTextStyle;
     if (style == null) return false;
     final stdFont = PdfStandardFont.tryFromName(style.fontName);
-    if (stdFont == null) return false;
-    final oldBox = _boxFromRd(annotation, annotation.rect);
-    final newBox = box ?? oldBox;
-    final newTarget = target ?? info.line.first;
-    // Keep the arrow base pinned where the user left it: use an explicit
-    // [attach], else carry the current base across a box move/resize by its
-    // relative position on the box, then snap it to the (new) perimeter.
-    final currentAttach = info.line.last;
-    final (double, double) mappedAttach;
-    if (box != null && oldBox.width > 0 && oldBox.height > 0) {
-      final sx = newBox.width / oldBox.width;
-      final sy = newBox.height / oldBox.height;
-      mappedAttach = (
-        newBox.left + (currentAttach.$1 - oldBox.left) * sx,
-        newBox.bottom + (currentAttach.$2 - oldBox.bottom) * sy,
-      );
-    } else {
-      mappedAttach = currentAttach;
-    }
-    final newAttach = attach ?? mappedAttach;
+    final embedded =
+        stdFont == null ? PdfEmbeddedFont.fromFreeText(annotation) : null;
+    // A third-party callout often names a font only through its own
+    // resources (/DA "/F2 12 Tf", Arial in /DS). Refusing would leave the
+    // caller to move/stretch the whole thing - arrows included - so redraw it
+    // in Helvetica, the base-14 stand-in for Arial, instead.
+    final PdfTextFont baseFont =
+        embedded ?? stdFont ?? PdfStandardFont.helvetica;
     final text = annotation.contents ?? '';
 
     PdfUnicodeFont? unicodeFont;
-    if (text.codeUnits.any((c) => c > 0xFF)) {
-      unicodeFont = PdfUnicodeFont(stdFont);
-      unicodeFont.resetUsage();
+    if (baseFont is PdfStandardFont && text.codeUnits.any((c) => c > 0xFF)) {
+      unicodeFont = PdfUnicodeFont(baseFont)..resetUsage();
     }
-    final PdfTextFont effectiveFont = unicodeFont ?? stdFont;
+    if (baseFont is PdfEmbeddedFont) baseFont.resetUsage();
+    final PdfTextFont effectiveFont = unicodeFont ?? baseFont;
 
-    final callout = _calloutLine(newBox, newTarget, attach: newAttach);
     final leaderColor = style.borderColor ?? style.color;
     final leaderWidth = style.borderWidth > 0 ? style.borderWidth : 1.0;
-    final endingPoints = _endingExtent(
-      info.ending,
-      callout.first,
-      callout[1],
+    final geometry = _calloutGeometry(
+      box,
+      leaders,
+      ending,
       leaderWidth,
+      pad: math.max(style.borderWidth, leaderWidth),
     );
-    final rect = _pointBounds([
-      (newBox.left, newBox.bottom),
-      (newBox.right, newBox.top),
-      ...callout,
-      ...endingPoints,
-    ], math.max(style.borderWidth, leaderWidth));
+    final rect = geometry.rect;
 
     final pageRotation = _appearancePageRotation(pageIndex, null);
     final gs = _alphaState(annotation.appearanceOpacity);
     final w = _calloutContent(
-      newBox,
-      callout,
+      box,
+      geometry.lines,
       text,
       fontSize: style.fontSize,
       font: effectiveFont,
@@ -2472,18 +2598,24 @@ extension PdfAnnotationEditing on PdfEditor {
       borderWidth: style.borderWidth,
       lineColor: leaderColor,
       lineWidth: leaderWidth,
-      ending: info.ending,
+      ending: ending,
       hasAlpha: gs != null,
+      lineSpacing: style.lineSpacing,
+      charSpacing: style.charSpacing,
+      horizontalScale: style.horizontalScale,
+      underline: style.underline,
       pageRotation: pageRotation,
     );
 
     final dict = annotation.dict;
     dict['Rect'] = _rectArray(rect);
-    dict['CL'] = _pointArray(callout);
-    dict['RD'] = _rdArray(rect, newBox);
+    _writeCalloutLeaders(dict, geometry.lines);
+    dict['RD'] = _rdArray(rect, box);
     final fontResource = unicodeFont != null
         ? unicodeFont.buildResource(_updater.addObject)
-        : _standardFont(stdFont);
+        : baseFont is PdfEmbeddedFont
+            ? baseFont.buildResource(_updater.addObject)
+            : _standardFont(baseFont as PdfStandardFont);
     final form = annotation.normalAppearance;
     if (form != null) {
       _replaceAppearance(
@@ -3970,10 +4102,12 @@ extension PdfAnnotationEditing on PdfEditor {
       final shifted = _shiftPoints(dict[key], dx, dy);
       if (shifted != null) dict[key] = shifted;
     }
-    final ink = document.cos.resolve(dict['InkList']);
-    if (ink is CosArray) {
-      dict['InkList'] = CosArray([
-        for (final stroke in ink.items) _shiftPoints(stroke, dx, dy) ?? stroke,
+    for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+      final nested = document.cos.resolve(dict[key]);
+      if (nested is! CosArray) continue;
+      dict[key] = CosArray([
+        for (final stroke in nested.items)
+          _shiftPoints(stroke, dx, dy) ?? stroke,
       ]);
     }
     _markAnnotationChanged(pageIndex, dict);
@@ -4336,10 +4470,11 @@ extension PdfAnnotationEditing on PdfEditor {
       final scaled = _mapPoints(dict[key], mapX, mapY);
       if (scaled != null) dict[key] = scaled;
     }
-    final ink = document.cos.resolve(dict['InkList']);
-    if (ink is CosArray) {
-      dict['InkList'] = CosArray([
-        for (final stroke in ink.items)
+    for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+      final nested = document.cos.resolve(dict[key]);
+      if (nested is! CosArray) continue;
+      dict[key] = CosArray([
+        for (final stroke in nested.items)
           _mapPoints(stroke, mapX, mapY) ?? stroke,
       ]);
     }
@@ -4459,10 +4594,11 @@ extension PdfAnnotationEditing on PdfEditor {
       final rotated = _mapPointPairs(annotDict[key], rotate);
       if (rotated != null) annotDict[key] = rotated;
     }
-    final ink = cos.resolve(annotDict['InkList']);
-    if (ink is CosArray) {
-      annotDict['InkList'] = CosArray([
-        for (final stroke in ink.items)
+    for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+      final nested = cos.resolve(annotDict[key]);
+      if (nested is! CosArray) continue;
+      annotDict[key] = CosArray([
+        for (final stroke in nested.items)
           _mapPointPairs(stroke, rotate) ?? stroke,
       ]);
     }
@@ -4600,10 +4736,12 @@ extension PdfAnnotationEditing on PdfEditor {
       final mapped = _mapPointPairs(dict[key], map);
       if (mapped != null) dict[key] = mapped;
     }
-    final ink = document.cos.resolve(dict['InkList']);
-    if (ink is CosArray) {
-      dict['InkList'] = CosArray([
-        for (final stroke in ink.items) _mapPointPairs(stroke, map) ?? stroke,
+    for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+      final nested = document.cos.resolve(dict[key]);
+      if (nested is! CosArray) continue;
+      dict[key] = CosArray([
+        for (final stroke in nested.items)
+          _mapPointPairs(stroke, map) ?? stroke,
       ]);
     }
     final formRef = document.cos.referenceTo(form);
@@ -4741,8 +4879,10 @@ extension PdfAnnotationEditing on PdfEditor {
                   to.left + (p.$1 - from.left) * sx,
                   to.bottom + (p.$2 - from.bottom) * sy,
                 );
-            final line = [for (final p in callout.line) map(p)];
-            final oldBox = _boxFromRd(annotation, from);
+            final leaders = [
+              for (final line in callout.leaders) [for (final p in line) map(p)]
+            ];
+            final oldBox = _boxFromRd(annotation);
             final box = PdfRect(
               to.left + (oldBox.left - from.left) * sx,
               to.bottom + (oldBox.bottom - from.bottom) * sy,
@@ -4752,7 +4892,7 @@ extension PdfAnnotationEditing on PdfEditor {
             dict['RD'] = _rdArray(to, box);
             w = _calloutContent(
               box,
-              line,
+              leaders,
               text,
               fontSize: style.fontSize,
               font: effectiveFont,

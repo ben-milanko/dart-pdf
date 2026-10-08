@@ -16,6 +16,7 @@
   "hero_note": "免費且開放原始碼。無需帳號。無需上傳。",
   "hero_shotAlt": "DartPDF 編輯器顯示一份 PDF，包含註解工具、頁面縮圖與色盤。",
   "hero_deviceTag": "本機",
+  "promo_videoAria": "DartPDF 短片：醒目提示、簽名、填寫表單、蓋章、重新排列頁面，以及為 PDF 加上數位簽章。",
   "platforms_label": "一款應用程式處理您所有的 PDF",
 
   "feat_eyebrow": "工具",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "pub.dev 套件",
   "sdk_hero_cta2": "在 GitHub 上檢視",
   "sdk_hero_cta3": "線上示範",
+  "sdk_promo_videoAria": "DartPDF 引擎短片：繪製 PDF 頁面，接著進行編輯、重新排序與數位簽章。",
   "sdk_feat_eyebrow": "功能",
   "sdk_feat_h2": "商業 SDK 的完整功能集，開放原始碼。",
   "sdk_feat_intro": "檢視、註解、表單、簽署、遮蔽、頁面管理、文字編輯與 OCR。換言之，就是應用程式真正需要授權 PDF SDK 的那些功能。",

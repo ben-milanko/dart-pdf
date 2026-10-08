@@ -143,6 +143,37 @@ void main() {
       expect(annotation.rect.right, greaterThan(612));
     });
 
+    test('autosizeSelectedTextBox keeps the width of text that already wraps',
+        () {
+      const paragraph =
+          'The quick brown fox jumps over the lazy dog and keeps on running';
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.fontSize = 12
+        // a tall, narrow column: the paragraph wraps onto several lines
+        ..addFreeText(0, const PdfRect(100, 300, 220, 700), paragraph);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.autosizeSelectedTextBox();
+
+      final rect = editing.document.page(0).annotations.single.rect;
+      expect(rect.left, 100);
+      expect(rect.top, 700);
+      expect(rect.width, closeTo(120, 0.01),
+          reason: 'the column width the user chose is kept');
+      // fitted to the wrapped lines: more than one line, far less than 400pt
+      expect(rect.height, greaterThan(2 * 12));
+      expect(rect.height, lessThan(120));
+
+      // a single unwrapped line still shrinks/grows to its natural width
+      final single = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.fontSize = 12
+        ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
+      expect(single.selectAnnotation(0, 0), isTrue);
+      single.autosizeSelectedTextBox();
+      expect(single.document.page(0).annotations.single.rect.width,
+          lessThan(60));
+    });
+
     test('textAlign preference flows into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..preferences.textAlign = PdfTextAlign.center
@@ -1923,6 +1954,118 @@ void main() {
           find.byKey(const ValueKey('pdf-text-resize-preview')), findsNothing);
       await gesture.up();
       await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('a colour picked mid-edit with just a caret recolours the box',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+      await tester.enterText(find.byKey(editorKey), 'Hello');
+      await tester.pump();
+      expect(editing.hasEditingTextSelection, isFalse, reason: 'a caret');
+
+      // what the toolbar colour control does
+      editing.color = const Color(0xFF00A000);
+      expect(editing.restyleEditingTextSelection(color: 0x00A000), isTrue);
+      await tester.pump();
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.style!.color!.toARGB32() & 0xFFFFFF, 0x00A000,
+          reason: 'the open editor shows the new colour');
+
+      await tap(tester, view(450, 400)); // commit
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'Hello');
+      expect(annotation.freeTextStyle!.color, 0x00A000);
+      expect(annotation.richContent, isNull, reason: 'still a uniform box');
+      await settle(tester);
+    });
+
+    testWidgets('an existing box restyled with a caret commits the new colour',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello world');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // select
+      await tap(tester, view(200, 630)); // edit
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      expect(editing.restyleEditingTextSelection(color: 0x2040C0), isTrue);
+      await tester.pump();
+      await tap(tester, view(450, 400)); // commit, text unchanged
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'Hello world');
+      expect(annotation.freeTextStyle!.color, 0x2040C0);
+      await settle(tester);
+    });
+
+    testWidgets('tapping a toolbar swatch mid-edit keeps the box open',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.binding.setSurfaceSize(const Size(1400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar:
+              PdfEditingToolbar(controller: editing, viewerController: viewer),
+        ),
+      ));
+      await tester.pump();
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      final gesture = await tester.startGesture(const Offset(150, 150),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(const Offset(250, 200));
+      await gesture.moveTo(const Offset(400, 250));
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(editorKey), findsOneWidget);
+      await tester.enterText(find.byKey(editorKey), 'Hello');
+      await tester.pump();
+
+      final swatch = find.byWidgetPredicate((w) =>
+          w is InkWell &&
+          w.customBorder is CircleBorder &&
+          w.child is Container &&
+          ((w.child! as Container).decoration as BoxDecoration?)?.color !=
+              editing.color);
+      expect(swatch, findsWidgets);
+      final picked = ((tester.widget<InkWell>(swatch.first).child! as Container)
+              .decoration! as BoxDecoration)
+          .color!;
+      final click = await tester.startGesture(tester.getCenter(swatch.first),
+          kind: PointerDeviceKind.mouse);
+      await click.up();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byKey(editorKey), findsOneWidget,
+          reason: 'the swatch tap must not blur and commit the box');
+      expect(editing.isEditingText, isTrue);
+      expect(editing.color, picked);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape); // finish the box
+      await tester.pump(const Duration(milliseconds: 400));
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.freeTextStyle!.color, picked.toARGB32() & 0xFFFFFF);
       await settle(tester);
     });
   });

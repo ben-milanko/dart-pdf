@@ -1209,6 +1209,21 @@
       background: var(--grad);
       color: #fff;
     }
+    /* ---------- Promo video ---------- */
+    .promo-video {
+      margin: 0 auto;
+      max-width: 1040px;
+    }
+
+    .promo-video video {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 16 / 9;
+      border-radius: var(--radius-lg);
+      background: #202124;
+      box-shadow: var(--shadow-lg);
+    }
   </style>
 
   <script type="application/ld+json">
@@ -1232,6 +1247,19 @@
     },
     "softwareHelp": "https://dart-pdf.com/support",
     "privacyPolicy": "https://dart-pdf.com/privacy"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "name": "DartPDF in 20 seconds",
+    "description": "Open a PDF, highlight, sign, fill a form, stamp, reorder pages, and add a digital signature, all on your device.",
+    "thumbnailUrl": "https://dart-pdf.com/assets/promo-app-poster.webp",
+    "contentUrl": "https://dart-pdf.com/assets/promo-app.mp4",
+    "uploadDate": "2026-10-07",
+    "duration": "PT20S",
+    "embedUrl": "https://dart-pdf.com/"
   }
   </script>
 </head>
@@ -1369,6 +1397,20 @@
             <path d="M2.5 12h19M12 2.5c2.7 2.7 2.7 16.3 0 19M12 2.5c-2.7 2.7-2.7 16.3 0 19M4 7h16M4 17h16" />
           </svg> Web</span>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ PROMO VIDEO ============ -->
+  <section class="section">
+    <div class="wrap">
+      <figure class="promo-video reveal">
+        <video data-promo muted loop playsinline controls preload="none" width="1920" height="1080"
+          poster="/assets/promo-app-poster.webp" data-i18n-attr="aria-label:promo_videoAria"
+          aria-label="Short video of DartPDF: highlighting, signing, filling a form, stamping, reordering pages, and digitally signing a PDF.">
+          <source src="/assets/promo-app.webm" type='video/webm; codecs="av01.0.08M.08, opus"' />
+          <source src="/assets/promo-app.mp4" type="video/mp4" />
+        </video>
+      </figure>
     </div>
   </section>
 
@@ -1869,6 +1911,7 @@
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
     document.querySelectorAll('.reveal').forEach(el => io.observe(el));
   </script>
+  <script src="/promo-video.js" defer></script>
   <script src="/i18n.js" defer></script>
 </body>
 

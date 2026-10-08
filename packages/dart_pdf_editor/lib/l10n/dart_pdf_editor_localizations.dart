@@ -744,6 +744,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Add node'**
   String get menuAddNode;
 
+  /// Annotation context-menu item that adds another leader line (arrow) to the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Add leader'**
+  String get menuAddLeader;
+
   /// Title of the page-range dialog when applying the selected annotation(s) to multiple pages.
   ///
   /// In en, this message translates to:
@@ -851,6 +857,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Remove node'**
   String get menuRemoveNode;
+
+  /// Annotation context-menu item that removes the leader line nearest the click point from the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove leader'**
+  String get menuRemoveLeader;
 
   /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
   ///
@@ -3483,7 +3495,7 @@ abstract class DartPdfEditorLocalizations {
   /// Tooltip for the snapshot capture tool.
   ///
   /// In en, this message translates to:
-  /// **'Snapshot - drag a region to capture it (paste back as vector)'**
+  /// **'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)'**
   String get tbTipSnapshot;
 
   /// Label for the page-content editing tool.

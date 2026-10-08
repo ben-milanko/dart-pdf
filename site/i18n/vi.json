@@ -16,6 +16,7 @@
   "hero_note": "Miễn phí và mã nguồn mở. Không cần tài khoản. Không tải lên.",
   "hero_shotAlt": "Trình chỉnh sửa DartPDF hiển thị một tệp PDF với các công cụ chú thích, hình thu nhỏ trang và bảng màu.",
   "hero_deviceTag": "Cục bộ",
+  "promo_videoAria": "Video ngắn về DartPDF: tô sáng, ký, điền biểu mẫu, đóng dấu, sắp xếp lại trang và ký số một tệp PDF.",
   "platforms_label": "Một ứng dụng cho các tệp PDF của bạn",
 
   "feat_eyebrow": "Công cụ",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "Gói pub.dev",
   "sdk_hero_cta2": "Xem trên GitHub",
   "sdk_hero_cta3": "Bản demo trực tiếp",
+  "sdk_promo_videoAria": "Video ngắn về công cụ DartPDF hiển thị một trang PDF, sau đó chỉnh sửa, sắp xếp lại và ký số trang đó.",
   "sdk_feat_eyebrow": "Tính năng",
   "sdk_feat_h2": "Bộ tính năng của SDK thương mại, mã nguồn mở.",
   "sdk_feat_intro": "Xem, chú thích, biểu mẫu, ký, biên tập ẩn, quản lý trang, chỉnh sửa văn bản và OCR. Nói cách khác, những thứ mà các ứng dụng thực sự cấp phép một PDF SDK để làm.",

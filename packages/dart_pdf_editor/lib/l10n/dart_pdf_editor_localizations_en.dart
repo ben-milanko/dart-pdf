@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Add node';
 
   @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -1876,7 +1882,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -2769,6 +2775,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuAddNode => 'Add node';
 
   @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2829,6 +2838,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -4299,7 +4311,7 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -5192,6 +5204,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get menuAddNode => 'Add node';
 
   @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -5252,6 +5267,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -6722,7 +6740,7 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';

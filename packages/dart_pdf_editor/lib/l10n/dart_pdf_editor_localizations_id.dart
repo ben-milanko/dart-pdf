@@ -347,6 +347,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Tambah simpul';
 
   @override
+  String get menuAddLeader => 'Tambah garis penunjuk';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -407,6 +410,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Hapus simpul';
+
+  @override
+  String get menuRemoveLeader => 'Hapus garis penunjuk';
 
   @override
   String get menuSaveToStamps => 'Simpan ke stempel';

@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DartPDF Launch Sting</title>
+<!--
+  22-second 1920x1080 launch sting for DartPDF. Everything is drawn on one
+  canvas by draw(t), a pure function of time, so the same file plays live
+  (loops), freezes on a frame (?t=12.5) and renders frame-exact video
+  (render.cjs calls window.renderAt(t) per frame). CUES is the sound-design
+  cue sheet; render.cjs hands it to soundtrack.py so audio and picture share
+  one timeline.
+-->
+<style>
+  :root { --bg: #202124; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  canvas {
+    position: absolute; inset: 0; margin: auto; display: block;
+    width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+'use strict';
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const params = new URLSearchParams(location.search);
+// ?variant=app is the end-user cut: it opens on the page (no PDF-syntax
+// scene) and its copy talks about the app, not the library. It plays the same
+// master timeline from OFFSET, so every beat and cue stays in sync.
+const VARIANT = params.get('variant') === 'app' ? 'app' : 'dev';
+const APP = VARIANT === 'app';
+const MASTER = 22, OFFSET = APP ? 2.2 : 0;
+const W = 1920, H = 1080, DURATION = MASTER - OFFSET, FPS = 60;
+
+const COL = {
+  bg: '#202124', blue: '#0175C2', cyan: '#16BAFD', yellow: '#FFC93C',
+  deep: '#0169B4', ink: '#202124', text: '#3c4043', muted: '#9aa0a6',
+  grey: '#5f6368', line: '#c4d2dc', slate: '#8fa6b5', ice: '#c6e3f8',
+  rule: '#e3e8ec', card: '#2a2b2f', cardEdge: '#3c4043',
+};
+const FONT = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
+const MONO = '"DejaVu Sans Mono", "JetBrains Mono", ui-monospace, monospace';
+
+// ---------------------------------------------------------------- timing
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const expoOut = t => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
+const expoInOut = t => t <= 0 ? 0 : t >= 1 ? 1 :
+  t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2;
+const cubicOut = t => 1 - Math.pow(1 - t, 3);
+const cubicIn = t => t * t * t;
+const cubicInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const sineInOut = t => -(Math.cos(Math.PI * t) - 1) / 2;
+// Damped spring settling to 1 with ~9% overshoot.
+const spring = t => t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.exp(-7 * t) * Math.cos(9 * t);
+
+function rng(seed) {
+  return () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------------------------------------------------------------- cue sheet
+// Every audible event, in seconds. soundtrack.py renders one sound per cue.
+const CUES_ALL = [
+  { type: 'ticks', t: 0.15, dur: 2.5 },
+  { type: 'riser', t: 1.45, dur: 1.3 },
+  { type: 'land', t: 2.72 },
+  { type: 'shimmer', t: 2.95, dur: 2.7 },
+  { type: 'highlight', t: 6.0, dur: 0.78 },
+  { type: 'pen', t: 7.0, dur: 0.95 },
+  { type: 'click', t: 8.28 },
+  { type: 'swoosh', t: 8.32, dur: 0.75 },
+  { type: 'tick', t: 9.06 },
+  { type: 'click', t: 9.42 },
+  { type: 'click', t: 9.62 },
+  { type: 'typing', t: 9.7, dur: 0.75, count: 11 },
+  { type: 'fall', t: 10.6, dur: 0.35 },
+  { type: 'stamp', t: 10.95 },
+  { type: 'whoosh', t: 11.95, dur: 0.95 },
+  { type: 'lift', t: 13.0 },
+  { type: 'swoosh', t: 13.25, dur: 0.7 },
+  { type: 'tick', t: 14.02 },
+  { type: 'swoosh', t: 14.3, dur: 0.45 },
+  { type: 'thunk', t: 14.62 },
+  { type: 'whoosh', t: 15.0, dur: 0.8 },
+  { type: 'ribbon', t: 15.7, dur: 0.4 },
+  { type: 'lock', t: 16.32 },
+  { type: 'ding', t: 16.52 },
+  { type: 'blip', t: 16.62, note: 0 },
+  { type: 'blip', t: 16.87, note: 1 },
+  { type: 'blip', t: 17.12, note: 2 },
+  { type: 'reverse', t: 17.55, dur: 1.0 },
+  { type: 'logoHit', t: 18.55 },
+  { type: 'sparkle', t: 19.1, dur: 0.7 },
+];
+// Cue times are on the master timeline; soundtrack.py trims OFFSET off the front.
+const CUES = APP ? CUES_ALL.filter(c => c.type !== 'ticks' && c.type !== 'riser') : CUES_ALL;
+// Music map for soundtrack.py: drums enter with the render, the arp drives the
+// edit montage, a breakdown under the signature, one hit for the logo.
+const MUSIC = { bpm: 120, drumsIn: 3.0, hatsIn: 6.0, arp: [6.0, 15.0], breakdown: 15.0, hit: 18.55, end: MASTER };
+
+// ---------------------------------------------------------------- helpers
+function rr(x, y, w, h, r) {
+  w = Math.max(0, w); h = Math.max(0, h);
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+// Strokes the current path builder up to fraction p of a length >= its real one.
+function strokeProgress(build, p, len) {
+  if (p <= 0) return;
+  ctx.save();
+  ctx.setLineDash([len, len + 2]);
+  ctx.lineDashOffset = len * (1 - p);
+  build();
+  ctx.stroke();
+  ctx.restore();
+}
+function withCum(pts) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+// Traces a polyline up to fraction p; returns the tip.
+function polyPartial(poly, p) {
+  const { pts, cum, len } = poly;
+  const target = len * clamp(p);
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  let tip = pts[0];
+  for (let i = 1; i < pts.length; i++) {
+    if (cum[i] <= target) { ctx.lineTo(pts[i][0], pts[i][1]); tip = pts[i]; continue; }
+    const f = (target - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+    tip = [lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f)];
+    ctx.lineTo(tip[0], tip[1]);
+    break;
+  }
+  return tip;
+}
+function textWidth(font, s, spacing = '0px') {
+  ctx.save(); ctx.font = font; ctx.letterSpacing = spacing;
+  const w = ctx.measureText(s).width; ctx.restore(); return w;
+}
+// Text revealed left to right by a clip, with a cyan scan edge while drawing.
+function wipeText(s, x, y, p, font, color, edge = true) {
+  if (p <= 0) return;
+  ctx.save();
+  ctx.font = font;
+  const w = ctx.measureText(s).width;
+  ctx.beginPath(); ctx.rect(x - 2, y - 40, (w + 4) * p, 60); ctx.clip();
+  ctx.fillStyle = color; ctx.fillText(s, x, y);
+  ctx.restore();
+  if (edge && p < 1) {
+    ctx.save();
+    ctx.globalAlpha = Math.sin(p * Math.PI) * 0.9;
+    ctx.fillStyle = COL.cyan;
+    ctx.fillRect(x + w * p, y - 15, 2, 19);
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------- background
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width = W; bgCanvas.height = H;
+{
+  const b = bgCanvas.getContext('2d');
+  b.fillStyle = COL.bg; b.fillRect(0, 0, W, H);
+  b.fillStyle = 'rgba(255,255,255,0.05)';
+  for (let x = 40; x < W; x += 40) for (let y = 40; y < H; y += 40) b.fillRect(x - 1, y - 1, 2, 2);
+  const g = b.createRadialGradient(W / 2, H / 2, 150, W / 2, H / 2, 1150);
+  g.addColorStop(0, 'rgba(22,186,253,0.06)');
+  g.addColorStop(0.45, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.5)');
+  b.fillStyle = g; b.fillRect(0, 0, W, H);
+}
+
+// ---------------------------------------------------------------- page geometry
+const PW = 600, PH = 776;
+const HOME = { x: 900, y: 152, s: 1 };
+const SEAL = { cx: 1060, cy: 540, s: 0.55 };
+const TS = 1 / 3, TW = PW * TS, TH = PH * TS, GAP = 40, STRIP_Y = 650;
+function slotX(slot, count) {
+  return 960 - (count * TW + (count - 1) * GAP) / 2 + slot * (TW + GAP);
+}
+
+// ---------------------------------------------------------------- scene 1: PDF source
+const PDF_SRC = `%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R
+   /MediaBox [0 0 612 792]
+   /Resources << /Font << /F1 5 0 R >> >>
+   /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1182 /Filter /FlateDecode >>
+stream
+q 0.004 0.459 0.761 rg
+44 48 512 72 re f Q
+BT /F1 30 Tf 68 95 Td (Q3 Field Report) Tj ET
+0.8 w 44 420 m 556 420 l S
+q 1 0 0 1 44 250 cm /Im1 Do Q
+BT /F1 17 Tf (Throughput rose 24%) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /TrueType >>
+endobj
+xref
+0 6
+0000000000 65535 f
+0000000015 00000 n
+0000000068 00000 n
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+1043
+%%EOF`.split('\n');
+const KEYWORDS = new Set(['obj', 'endobj', 'stream', 'endstream', 'xref', 'trailer', 'startxref',
+  'R', 'BT', 'ET', 'Tf', 'Td', 'Tj', 're', 'f', 'cm', 'Do', 'q', 'Q', 'rg', 'w', 'm', 'l', 'S', 'n']);
+function tokenColor(s) {
+  if (s.startsWith('%')) return COL.yellow;
+  if (s.startsWith('/')) return COL.cyan;
+  if (s.startsWith('(')) return '#e8eaed';
+  if (KEYWORDS.has(s)) return '#5aa9e6';
+  if (/^[<>\[\]]+$/.test(s)) return '#80868b';
+  return '#9aa0a6';
+}
+const CODE_COLS = [96, 716, 1336], CODE_LH = 33, CODE_FONT = `400 20px ${MONO}`;
+const TOKENS = [];
+{
+  ctx.font = CODE_FONT;
+  const cw = ctx.measureText('M').width;
+  const r = rng(7);
+  const L = PDF_SRC.length;
+  CODE_COLS.forEach((cx, c) => {
+    const start = (c * 13) % L;
+    for (let row = 0; row < 2 * L; row++) {
+      const line = PDF_SRC[(start + row) % L];
+      for (const m of line.matchAll(/\([^)]*\)|\S+/g)) {
+        TOKENS.push({
+          s: m[0], x: cx + m.index * cw, row, col: c, color: tokenColor(m[0]),
+          tx: HOME.x + 60 + r() * (PW - 120), ty: HOME.y + 60 + r() * (PH - 120),
+          d: r() * 0.4,
+        });
+      }
+    }
+  });
+}
+function codeScroll(t) { return t * 46; }
+function drawCode(t) {
+  if (t > 3.0) return;
+  const cycle = PDF_SRC.length * CODE_LH;
+  ctx.save();
+  ctx.font = CODE_FONT;
+  ctx.textBaseline = 'alphabetic';
+  for (const k of TOKENS) {
+    let by = 70 + k.row * CODE_LH + k.col * 11 - codeScroll(t);
+    if (by < -cycle * 0.5) by += cycle * 2;
+    const e = expoInOut(seg(t, 1.45 + k.d, 2.45 + k.d));
+    if (e <= 0 && (by < -30 || by > H + 30)) continue;
+    const x = lerp(k.x, k.tx, e), y = lerp(by, k.ty, e);
+    const a = 0.5 * (1 - seg(e, 0.7, 1)) + 0.35 * Math.sin(e * Math.PI);
+    if (a <= 0.003) continue;
+    const s = lerp(1, 0.3, e);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = e > 0.05 ? COL.cyan : k.color;
+    ctx.setTransform(s, 0, 0, s, x, y);
+    ctx.fillText(k.s, 0, 0);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- the report page (R)
+const RUN_TEXT = 'Prepared by Operations';
+const RUN_FONT = `400 13px ${FONT}`;
+const HL_TEXT = 'Throughput rose 24% this quarter, ahead of plan.';
+const HL_FONT = `600 17px ${FONT}`;
+let RUN_W = 0, HL_W = 0, RUN_SHIFT = 0;
+function measure() {
+  RUN_W = textWidth(RUN_FONT, RUN_TEXT);
+  HL_W = textWidth(HL_FONT, HL_TEXT);
+  RUN_SHIFT = 556 - RUN_W - 44;
+}
+measure();
+const BARS = [0.42, 0.55, 0.48, 0.68, 0.74, 0.9];
+const LINE = withCum([0.32, 0.47, 0.55, 0.6, 0.79, 0.95].map((v, i) => [44 + 52 + i * 80, 420 - v * 150]));
+const SIG = (() => {
+  const pts = [];
+  const N = 520, loops = 6, span = loops * 2 * Math.PI, r = 4.9, d = 13;
+  const HT = [2.1, 0.9, 0.7, 1.7, 0.8, 0.62, 0.55];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, U = u * span, j = Math.min(loops - 1, Math.floor(U / (2 * Math.PI)));
+    const f = U / (2 * Math.PI) - j, a = lerp(HT[j], HT[j + 1], sineInOut(f));
+    pts.push([346 + r * U + d * Math.sin(U) * (0.6 + 0.4 * a), 731 - a * 14 * (1 - Math.cos(U)) + u * 3]);
+  }
+  const [lx, ly] = pts[pts.length - 1];
+  for (let i = 1; i <= 90; i++) {
+    const v = i / 90;
+    pts.push([(1 - v) ** 2 * lx + 2 * (1 - v) * v * 600 + v * v * 330,
+      (1 - v) ** 2 * ly + 2 * (1 - v) * v * 760 + v * v * 738]);
+  }
+  return withCum(pts);
+})();
+const SIG_P = t => sineInOut(seg(t, 7.0, 7.95));
+const runX = t => 44 + RUN_SHIFT * expoInOut(seg(t, 8.3, 9.05));
+
+function drawReport(t) {
+  ctx.textBaseline = 'alphabetic';
+  // header band with gradient sweep
+  const pb = expoOut(seg(t, 2.9, 3.5));
+  if (pb > 0) {
+    const g = ctx.createLinearGradient(44, 0, 556, 0);
+    g.addColorStop(0, COL.blue); g.addColorStop(1, COL.cyan);
+    ctx.fillStyle = g; rr(44, 48, 512 * pb, 72, 10); ctx.fill();
+  }
+  // title: glyph outlines first, then the fill
+  {
+    const font = `700 30px ${FONT}`, s = 'Q3 Field Report';
+    const po = cubicInOut(seg(t, 3.1, 3.8)), pf = seg(t, 3.55, 4.0);
+    if (po > 0) {
+      ctx.save(); ctx.font = font;
+      const w = ctx.measureText(s).width;
+      ctx.beginPath(); ctx.rect(66, 50, (w + 4) * po, 70); ctx.clip();
+      ctx.lineWidth = 1.1; ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.strokeText(s, 68, 95);
+      ctx.globalAlpha = pf; ctx.fillStyle = '#fff'; ctx.fillText(s, 68, 95);
+      ctx.restore();
+    }
+    const pd = seg(t, 3.6, 4.0);
+    if (pd > 0) {
+      ctx.save(); ctx.globalAlpha = pd * 0.85; ctx.font = `600 13px ${FONT}`;
+      ctx.letterSpacing = '2px'; ctx.textAlign = 'right'; ctx.fillStyle = '#fff';
+      ctx.fillText('OCT 2026', 534, 91); ctx.restore();
+    }
+  }
+  // paragraph
+  ['Field inspections across all twelve sites are complete.',
+    'Every asset was checked against the approved design,',
+    'and the open items are scheduled for close-out in Q4.'].forEach((s, i) => {
+    wipeText(s, 44, 166 + i * 24, cubicOut(seg(t, 3.35 + i * 0.12, 3.95 + i * 0.12)), `400 15.5px ${FONT}`, COL.grey);
+  });
+  // chart: grid, axes, bars, trend line
+  {
+    ctx.save();
+    ctx.strokeStyle = '#e6ecf1'; ctx.lineWidth = 1;
+    [270, 320, 370].forEach((y, i) => strokeProgress(() => {
+      ctx.beginPath(); ctx.moveTo(44, y); ctx.lineTo(556, y);
+    }, cubicOut(seg(t, 3.75 + i * 0.06, 4.3 + i * 0.06)), 520));
+    ctx.strokeStyle = COL.slate; ctx.lineWidth = 1.6;
+    strokeProgress(() => {
+      ctx.beginPath(); ctx.moveTo(44, 250); ctx.lineTo(44, 420); ctx.lineTo(556, 420);
+    }, cubicInOut(seg(t, 3.7, 4.3)), 690);
+    BARS.forEach((v, i) => {
+      const p = expoOut(seg(t, 4.0 + i * 0.07, 4.6 + i * 0.07));
+      if (p <= 0) return;
+      const h = v * 150 * p;
+      ctx.fillStyle = i === BARS.length - 1 ? COL.blue : COL.ice;
+      rr(44 + 30 + i * 80, 420 - h, 44, h, 4); ctx.fill();
+    });
+    const pl = cubicInOut(seg(t, 4.4, 5.1));
+    if (pl > 0) {
+      ctx.strokeStyle = COL.cyan; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      polyPartial(LINE, pl); ctx.stroke();
+      LINE.pts.forEach(([x, y], i) => {
+        const at = 4.4 + 0.7 * (LINE.cum[i] / LINE.len);
+        const p = spring(seg(t, at - 0.02, at + 0.3));
+        if (p <= 0) return;
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 6 * p, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = 2.5; ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+  wipeText('Figure 1  ·  Throughput by month', 44, 446, cubicOut(seg(t, 4.8, 5.2)), `400 12px ${FONT}`, COL.muted);
+  wipeText(HL_TEXT, 44, 490, cubicOut(seg(t, 4.9, 5.4)), HL_FONT, COL.ink);
+  // highlight (scene 3) - multiply so the ink stays crisp underneath
+  const ph = cubicInOut(seg(t, 6.0, 6.75));
+  if (ph > 0) {
+    ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.85;
+    ctx.fillStyle = COL.yellow; rr(39, 470, (HL_W + 10) * ph, 27, 4); ctx.fill(); ctx.restore();
+  }
+  wipeText(RUN_TEXT, runX(t), 522, cubicOut(seg(t, 5.0, 5.4)), RUN_FONT, COL.grey);
+  // divider + form furniture
+  ctx.save();
+  ctx.strokeStyle = COL.rule; ctx.lineWidth = 1.2;
+  strokeProgress(() => { ctx.beginPath(); ctx.moveTo(44, 552); ctx.lineTo(556, 552); }, cubicOut(seg(t, 5.1, 5.6)), 520);
+  ctx.restore();
+  drawCheckbox(t);
+  drawField(t);
+  ctx.save();
+  ctx.strokeStyle = COL.line; ctx.lineWidth = 1.4;
+  strokeProgress(() => { ctx.beginPath(); ctx.moveTo(330, 740); ctx.lineTo(556, 740); }, cubicOut(seg(t, 5.35, 5.8)), 240);
+  ctx.globalAlpha = seg(t, 5.5, 5.8); ctx.font = `400 11px ${FONT}`; ctx.fillStyle = COL.muted;
+  ctx.fillText('Signature', 330, 758);
+  ctx.restore();
+  drawSignature(t);
+  drawStamp(t);
+  drawHighlighter(t);
+  drawRunSelection(t);
+  drawCursor(t);
+}
+
+function drawCheckbox(t) {
+  const a = seg(t, 5.2, 5.5);
+  if (a <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const fill = spring(seg(t, 9.42, 9.62));
+  ctx.strokeStyle = fill > 0 ? COL.blue : COL.grey; ctx.lineWidth = 1.6;
+  rr(44, 584, 22, 22, 5); ctx.stroke();
+  if (fill > 0) {
+    ctx.save(); ctx.translate(55, 595); ctx.scale(fill, fill);
+    ctx.fillStyle = COL.blue; rr(-11, -11, 22, 22, 5); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    strokeProgress(() => {
+      ctx.beginPath(); ctx.moveTo(49.5, 595.5); ctx.lineTo(53.5, 599.5); ctx.lineTo(61, 590.5);
+    }, cubicOut(seg(t, 9.48, 9.68)), 20);
+  }
+  ctx.restore();
+  wipeText('Reviewed and approved', 78, 600, cubicOut(seg(t, 5.25, 5.6)), `400 15px ${FONT}`, COL.text, false);
+}
+
+function drawField(t) {
+  const p = cubicOut(seg(t, 5.25, 5.75));
+  if (p <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = seg(t, 5.25, 5.5);
+  ctx.font = `500 12px ${FONT}`; ctx.fillStyle = COL.muted; ctx.fillText('Name', 44, 640);
+  ctx.globalAlpha = 1;
+  const focus = seg(t, 9.58, 9.7) * (1 - seg(t, 10.55, 10.7));
+  if (focus > 0) {
+    ctx.save(); ctx.globalAlpha = focus * 0.25; ctx.strokeStyle = COL.cyan; ctx.lineWidth = 6;
+    rr(41, 645, 266, 44, 8); ctx.stroke(); ctx.restore();
+  }
+  ctx.strokeStyle = focus > 0.5 ? COL.cyan : COL.line;
+  ctx.lineWidth = focus > 0.5 ? 2 : 1.4;
+  strokeProgress(() => rr(44, 648, 260, 38, 6), p, 620);
+  const n = Math.floor(seg(t, 9.7, 10.45) * 11 + 1e-6);
+  const typed = 'Alex Rivera'.slice(0, n);
+  ctx.font = `500 16px ${FONT}`; ctx.fillStyle = COL.ink;
+  ctx.fillText(typed, 56, 673);
+  if (focus > 0 && Math.floor(t * 2.5) % 2 === 0) {
+    ctx.fillStyle = COL.cyan;
+    ctx.fillRect(57 + ctx.measureText(typed).width, 658, 1.6, 20);
+  }
+  ctx.restore();
+}
+
+function drawSignature(t) {
+  const p = SIG_P(t);
+  if (p <= 0) return;
+  ctx.save();
+  const g = ctx.createLinearGradient(330, 0, 560, 0);
+  g.addColorStop(0, COL.blue); g.addColorStop(1, COL.cyan);
+  ctx.strokeStyle = g; ctx.lineWidth = 2.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const tip = polyPartial(SIG, p);
+  ctx.stroke();
+  if (p < 1) {
+    ctx.fillStyle = COL.cyan; ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.arc(tip[0], tip[1], 9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = COL.blue;
+    ctx.beginPath(); ctx.arc(tip[0], tip[1], 3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawHighlighter(t) {
+  const a = seg(t, 5.82, 6.0) * (1 - seg(t, 6.78, 6.95));
+  if (a <= 0) return;
+  const p = cubicInOut(seg(t, 6.0, 6.75));
+  const x = 39 + (HL_W + 10) * p, y = 484;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.translate(x, y + (1 - a) * -12);
+  ctx.rotate(-0.55);
+  ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = COL.yellow;
+  ctx.beginPath(); ctx.moveTo(-7, -2); ctx.lineTo(7, -10); ctx.lineTo(7, -22); ctx.lineTo(-7, -22); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = COL.text; rr(-9, -92, 18, 72, 5); ctx.fill();
+  ctx.fillStyle = COL.yellow; rr(-9, -98, 18, 10, 3); ctx.fill();
+  ctx.restore();
+}
+
+function drawRunSelection(t) {
+  const a = seg(t, 8.05, 8.22) * (1 - seg(t, 9.05, 9.3));
+  if (a <= 0) return;
+  const x = runX(t), pad = 6;
+  ctx.save();
+  // ghost of where it came from
+  const ghost = seg(t, 8.35, 8.5) * (1 - seg(t, 9.0, 9.3));
+  if (ghost > 0) {
+    ctx.globalAlpha = ghost * 0.55; ctx.setLineDash([4, 4]); ctx.strokeStyle = COL.cyan; ctx.lineWidth = 1.2;
+    rr(44 - pad, 507, RUN_W + pad * 2, 21, 3); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const pop = 1 + 0.06 * (1 - spring(seg(t, 8.05, 8.4)));
+  ctx.globalAlpha = a;
+  ctx.translate(x + RUN_W / 2, 517.5); ctx.scale(pop, pop);
+  ctx.fillStyle = 'rgba(22,186,253,0.10)'; ctx.strokeStyle = COL.cyan; ctx.lineWidth = 1.6;
+  rr(-RUN_W / 2 - pad, -10.5, RUN_W + pad * 2, 21, 3); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  for (const [hx, hy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const cx = hx * (RUN_W / 2 + pad), cy = hy * 10.5;
+    ctx.fillRect(cx - 3.5, cy - 3.5, 7, 7); ctx.strokeRect(cx - 3.5, cy - 3.5, 7, 7);
+  }
+  ctx.restore();
+}
+
+const CURSOR_KEYS = () => [
+  { t: 7.72, x: 640, y: 560 },
+  { t: 8.12, x: 112, y: 524, e: expoOut },
+  { t: 8.3, x: 112, y: 524 },
+  { t: 9.05, x: 112 + RUN_SHIFT, y: 524, e: expoInOut },
+  { t: 9.12, x: 112 + RUN_SHIFT, y: 524 },
+  { t: 9.38, x: 57, y: 597, e: expoInOut },
+  { t: 9.45, x: 57, y: 597 },
+  { t: 9.6, x: 170, y: 668, e: expoInOut },
+  { t: 10.48, x: 176, y: 672 },
+  { t: 10.75, x: 660, y: 760, e: cubicIn },
+];
+const CLICKS = [8.28, 9.42, 9.62];
+function drawCursor(t) {
+  const K = CURSOR_KEYS();
+  if (t < K[0].t || t > K[K.length - 1].t) return;
+  let x = K[0].x, y = K[0].y;
+  for (let i = 1; i < K.length; i++) {
+    if (t <= K[i].t) {
+      const e = (K[i].e || cubicInOut)(seg(t, K[i - 1].t, K[i].t));
+      x = lerp(K[i - 1].x, K[i].x, e); y = lerp(K[i - 1].y, K[i].y, e);
+      break;
+    }
+  }
+  ctx.save();
+  for (const c of CLICKS) {
+    const p = seg(t, c, c + 0.4);
+    if (p <= 0 || p >= 1) continue;
+    ctx.globalAlpha = (1 - p) * 0.6; ctx.strokeStyle = COL.cyan; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 6 + 22 * cubicOut(p), 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = seg(t, K[0].t, K[0].t + 0.12);
+  const press = CLICKS.some(c => t >= c && t < c + 0.12) || (t > 8.3 && t < 9.05) ? 0.9 : 1;
+  ctx.translate(x, y); ctx.scale(1.25 * press, 1.25 * press);
+  ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(0, 22); ctx.lineTo(6, 17); ctx.lineTo(10, 26);
+  ctx.lineTo(13.5, 24.5); ctx.lineTo(9.5, 16); ctx.lineTo(17, 16); ctx.closePath();
+  ctx.fillStyle = COL.ink; ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.restore();
+}
+
+function drawStamp(t) {
+  if (t < 10.6) return;
+  const fall = cubicIn(seg(t, 10.6, 10.95));
+  const settle = t > 10.95 ? Math.exp(-14 * (t - 10.95)) * Math.cos(40 * (t - 10.95)) : 0;
+  const s = t < 10.95 ? lerp(2.4, 1, fall) : 1 + 0.05 * settle;
+  const a = lerp(0, 0.92, seg(t, 10.6, 10.8));
+  ctx.save();
+  ctx.translate(440, 624);
+  // dust ring + flecks at impact
+  const pd = seg(t, 10.95, 11.6);
+  if (pd > 0 && pd < 1) {
+    ctx.save();
+    ctx.globalAlpha = (1 - pd) * 0.35; ctx.strokeStyle = COL.slate; ctx.lineWidth = 3 * (1 - pd) + 0.5;
+    ctx.beginPath(); ctx.ellipse(0, 0, 112 + 46 * cubicOut(pd), 50 + 22 * cubicOut(pd), 0, 0, Math.PI * 2); ctx.stroke();
+    const r = rng(42);
+    ctx.fillStyle = COL.slate;
+    for (let i = 0; i < 18; i++) {
+      const ang = r() * Math.PI * 2, dist = 40 + r() * 70;
+      const q = cubicOut(pd);
+      ctx.globalAlpha = (1 - pd) * 0.6;
+      ctx.beginPath();
+      ctx.arc(Math.cos(ang) * (60 + dist * q), Math.sin(ang) * (30 + dist * 0.45 * q), 2 + r() * 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // falling shadow
+  if (t < 10.95) {
+    ctx.save(); ctx.globalAlpha = 0.18 * fall; ctx.fillStyle = '#000';
+    ctx.filter = `blur(${lerp(18, 4, fall)}px)`;
+    ctx.beginPath(); ctx.ellipse(0, 8, 105 * lerp(1.4, 1, fall), 40, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  ctx.rotate(-0.17);
+  ctx.scale(s, s);
+  ctx.globalAlpha = a;
+  ctx.globalCompositeOperation = t >= 10.95 ? 'multiply' : 'source-over';
+  ctx.strokeStyle = COL.blue; ctx.fillStyle = COL.blue;
+  ctx.lineWidth = 4; rr(-108, -40, 216, 80, 10); ctx.stroke();
+  ctx.lineWidth = 1.5; rr(-100, -32, 200, 64, 6); ctx.stroke();
+  ctx.font = `800 31px ${FONT}`; ctx.letterSpacing = '4px'; ctx.textAlign = 'center';
+  ctx.fillText('APPROVED', 2, 7);
+  ctx.font = `700 11px ${FONT}`; ctx.letterSpacing = '3px';
+  ctx.fillText('07 OCT 2026', 2, 25);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- the other pages
+function bars(r, y0, y1, x0 = 44, x1 = 556, h = 12, step = 26) {
+  ctx.fillStyle = '#dde4ea';
+  for (let y = y0; y < y1; y += step) {
+    if (r() < 0.12) continue;
+    rr(x0, y, (x1 - x0) * (0.55 + r() * 0.45), h, h / 2); ctx.fill();
+  }
+}
+const MINI = {
+  A(r) {
+    ctx.fillStyle = COL.slate; rr(44, 56, 300, 26, 13); ctx.fill();
+    bars(r, 120, 720);
+  },
+  B(r) {
+    const g = ctx.createLinearGradient(44, 60, 556, 340);
+    g.addColorStop(0, COL.ice); g.addColorStop(1, '#7fd3fb');
+    ctx.fillStyle = g; rr(44, 60, 512, 280, 12); ctx.fill();
+    ctx.fillStyle = COL.yellow; ctx.beginPath(); ctx.arc(430, 140, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COL.blue; ctx.beginPath();
+    ctx.moveTo(44, 340); ctx.lineTo(200, 190); ctx.lineTo(300, 280); ctx.lineTo(380, 220); ctx.lineTo(556, 340); ctx.closePath(); ctx.fill();
+    bars(r, 380, 720);
+  },
+  C(r) {
+    ctx.fillStyle = COL.slate; rr(44, 56, 240, 26, 13); ctx.fill();
+    ctx.fillStyle = COL.ice; ctx.fillRect(44, 120, 512, 44);
+    ctx.strokeStyle = '#d5dde4'; ctx.lineWidth = 2;
+    for (let i = 0; i <= 10; i++) { ctx.beginPath(); ctx.moveTo(44, 120 + i * 44); ctx.lineTo(556, 120 + i * 44); ctx.stroke(); }
+    for (let j = 0; j <= 4; j++) { ctx.beginPath(); ctx.moveTo(44 + j * 128, 120); ctx.lineTo(44 + j * 128, 560); ctx.stroke(); }
+    bars(r, 600, 720);
+  },
+  D(r) {
+    ctx.fillStyle = COL.slate; rr(44, 56, 360, 26, 13); ctx.fill();
+    bars(r, 120, 460, 44, 288);
+    bars(r, 120, 300, 312, 556);
+    ctx.fillStyle = COL.ice; rr(312, 320, 244, 140, 10); ctx.fill();
+    ctx.fillStyle = COL.yellow; rr(44, 500, 400, 18, 9); ctx.fill();
+    bars(r, 540, 720);
+  },
+  N() {
+    const g = ctx.createLinearGradient(0, 0, PW, PH);
+    g.addColorStop(0, COL.cyan); g.addColorStop(1, COL.deep);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, PW, PH);
+    ctx.fillStyle = '#fff'; ctx.font = `800 64px ${FONT}`; ctx.fillText('Appendix', 44, 420);
+    ctx.globalAlpha = 0.6; rr(44, 452, 300, 16, 8); ctx.fill(); ctx.globalAlpha = 1;
+  },
+};
+function drawPageAt(x, y, s, alpha, content, opts = {}) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y); ctx.scale(s, s);
+  ctx.save();
+  ctx.shadowColor = `rgba(0,0,0,${opts.shadowA ?? 0.5})`;
+  ctx.shadowBlur = (opts.blur ?? 46) * s; ctx.shadowOffsetY = (opts.dy ?? 20) * s;
+  ctx.fillStyle = '#fff'; rr(0, 0, PW, PH, 6); ctx.fill();
+  ctx.restore();
+  ctx.save(); rr(0, 0, PW, PH, 6); ctx.clip(); content(); ctx.restore();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- scene layout of R
+function rPlacement(t) {
+  if (t < 12.0) {
+    const sm = 0.9 + 0.1 * spring(seg(t, 2.25, 3.0));
+    let x = HOME.x + PW * (1 - sm) / 2, y = HOME.y + PH * (1 - sm) / 2;
+    if (t > 10.95 && t < 11.35) {
+      const d = Math.exp(-12 * (t - 10.95));
+      x += Math.sin(t * 95) * 7 * d; y += Math.cos(t * 81) * 5 * d;
+    }
+    return { x, y, s: sm, a: seg(t, 2.25, 2.7) };
+  }
+  if (t < 15.0) {
+    const pr = expoOut(seg(t, 13.32, 13.95)), ins = expoOut(seg(t, 14.15, 14.6));
+    const slot = 1 + pr, count = 5 + ins;
+    const sx = slotX(slot, count), sy = STRIP_Y - TH / 2;
+    const e = expoInOut(seg(t, 12.0, 12.9));
+    return { x: lerp(HOME.x, sx, e), y: lerp(HOME.y, sy, e), s: lerp(1, TS, e), a: 1 };
+  }
+  const e = expoInOut(seg(t, 15.0, 15.8));
+  return {
+    x: lerp(slotX(2, 6), SEAL.cx - PW * SEAL.s / 2, e),
+    y: lerp(STRIP_Y - TH / 2, SEAL.cy - PH * SEAL.s / 2, e),
+    s: lerp(TS, SEAL.s, e), a: 1,
+  };
+}
+
+// ---------------------------------------------------------------- scene 4: page strip
+function drawStrip(t, layer) {
+  if (t < 12.2 || t > 15.6) return;
+  const appear = expoOut(seg(t, 12.35, 12.95));
+  const leave = cubicIn(seg(t, 15.0, 15.45));
+  const pr = expoOut(seg(t, 13.32, 13.95));
+  const ins = expoOut(seg(t, 14.15, 14.6));
+  const count = 5 + ins;
+  const ty = STRIP_Y - TH / 2;
+  const tiles = [
+    { k: 'A', slot: 0 + pr, home: 0 },
+    { k: 'B', slot: 2 + pr + ins, home: 2 },
+    { k: 'D', slot: 4 + ins, home: 4 },
+  ];
+  const r = slot => rng(slot.charCodeAt(0) * 31);
+  if (layer === 'under') {
+    // page numbers
+    ctx.save();
+    ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    for (let i = 0; i < 6; i++) {
+      const a = appear * (1 - leave) * 0.4 * (i < 5 ? 1 : ins);
+      if (a <= 0) continue;
+      ctx.globalAlpha = a;
+      ctx.fillText(String(i + 1), slotX(i, count) + TW / 2, STRIP_Y + TH / 2 + 38);
+    }
+    ctx.restore();
+    for (const tile of tiles) {
+      const side = tile.home < 1 ? -1 : 1;
+      const off = (1 - appear) * side * 140 + leave * side * 160;
+      const s = TS * lerp(0.9, 1, appear) * lerp(1, 0.85, leave);
+      drawPageAt(slotX(tile.slot, count) + off + (TW - PW * s) / 2, ty + (TH - PH * s) / 2 + leave * 40,
+        s, appear * (1 - leave), () => MINI[tile.k](r(tile.k)), { blur: 60, dy: 30 });
+    }
+    // insertion marker
+    const m = seg(t, 14.15, 14.35) * (1 - seg(t, 14.7, 14.95));
+    if (m > 0) {
+      const rightOfR = slotX(2, count) + TW, leftOfB = slotX(3 + ins, count);
+      const cx = (rightOfR + leftOfB) / 2, h = TH * 1.12 * cubicOut(m);
+      ctx.save();
+      ctx.globalAlpha = m; ctx.strokeStyle = COL.cyan; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.shadowColor = COL.cyan; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(cx, STRIP_Y - h / 2); ctx.lineTo(cx, STRIP_Y + h / 2); ctx.stroke();
+      ctx.restore();
+    }
+    // inserted page drops in
+    const pn = spring(seg(t, 14.3, 14.95));
+    if (t >= 14.3) {
+      const s = TS * lerp(1, 0.85, leave);
+      drawPageAt(slotX(3, count) + (TW - PW * s) / 2, lerp(-320, ty, pn) + (TH - PH * s) / 2 + leave * 40, s,
+        seg(t, 14.3, 14.42) * (1 - leave), () => MINI.N(), { blur: 60, dy: 30 });
+    }
+  } else {
+    // C is lifted above its neighbours while it travels to the front
+    const lift = cubicOut(seg(t, 13.0, 13.25)) - cubicOut(seg(t, 13.9, 14.1));
+    const slot = 3 - 3 * spring(seg(t, 13.25, 14.0));
+    const side = 1;
+    const off = (1 - appear) * side * 140 + leave * -160;
+    const s = TS * lerp(0.9, 1, appear) * (1 + 0.08 * lift) * lerp(1, 0.85, leave);
+    drawPageAt(slotX(slot, count) + off + (TW - PW * s) / 2, ty + (TH - PH * s) / 2 - 22 * lift + leave * 40,
+      s, appear * (1 - leave), () => MINI.C(r('C')),
+      { blur: 60 + 50 * lift, dy: 30 + 30 * lift, shadowA: 0.5 + 0.15 * lift });
+  }
+}
+
+// ---------------------------------------------------------------- scene 5: seal + chain
+const CARDS = APP ? [
+  { title: 'Trusted authority', sub: 'Certificate verified', color: COL.yellow },
+  { title: 'Issuing authority', sub: 'Certificate verified', color: COL.cyan },
+  { title: 'Alex Rivera', sub: 'Signed  ·  07 Oct 2026', color: COL.blue },
+] : [
+  { title: 'Root CA', sub: 'Trust anchor', color: COL.yellow },
+  { title: 'Intermediate CA', sub: 'Issuing authority', color: COL.cyan },
+  { title: 'Alex Rivera', sub: 'Signer  ·  PAdES B-LTA', color: COL.blue },
+];
+function drawSeal(t) {
+  if (t < 15.65 || t > 18.4) return;
+  const out = seg(t, 18.0, 18.3);
+  const cx = SEAL.cx, cy = SEAL.cy, half = PW * SEAL.s / 2 + 14;
+  ctx.save();
+  ctx.globalAlpha = 1 - out;
+  // ribbon closes in from both sides
+  const p = expoInOut(seg(t, 15.7, 16.1));
+  if (p > 0) {
+    const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+    g.addColorStop(0, COL.blue); g.addColorStop(1, COL.cyan);
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - half, cy - 22, half * p, 44);
+    ctx.fillRect(cx + half - half * p, cy - 22, half * p, 44);
+    ctx.restore();
+  }
+  // padlock
+  const ps = spring(seg(t, 15.95, 16.35));
+  if (ps > 0) {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(ps, ps);
+    const close = cubicIn(seg(t, 16.18, 16.32));
+    const bump = t > 16.32 ? 0.06 * Math.exp(-18 * (t - 16.32)) * Math.cos(50 * (t - 16.32)) : 0;
+    ctx.scale(1 + bump, 1 - bump);
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 8;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 12; ctx.lineCap = 'butt';
+    const lift = lerp(-24, 0, close);
+    ctx.beginPath(); ctx.moveTo(-24, -14 + lift); ctx.lineTo(-24, -40 + lift);
+    ctx.arc(0, -40 + lift, 24, Math.PI, 0); ctx.lineTo(24, -14 + lift * lerp(0.2, 1, close)); ctx.stroke();
+    ctx.fillStyle = '#fff'; rr(-46, -26, 92, 76, 14); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = COL.blue;
+    ctx.beginPath(); ctx.arc(0, 6, 9, 0, Math.PI * 2); ctx.fill();
+    rr(-4, 8, 8, 22, 4); ctx.fill();
+    // verified badge
+    const pb = spring(seg(t, 16.4, 16.7));
+    if (pb > 0) {
+      ctx.save(); ctx.translate(44, -34); ctx.scale(pb, pb);
+      ctx.fillStyle = COL.cyan; ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      strokeProgress(() => { ctx.beginPath(); ctx.moveTo(-10, 1); ctx.lineTo(-3, 8); ctx.lineTo(11, -7); }, cubicOut(seg(t, 16.5, 16.78)), 34);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawCards(t) {
+  if (t < 16.5 || t > 18.5) return;
+  const x0 = 1340, w = 340, h = 82, ys = [400, 540, 680];
+  const out = cubicIn(seg(t, 18.0, 18.42));
+  ctx.save();
+  CARDS.forEach((c, i) => {
+    const a = seg(t, 16.6 + i * 0.25, 16.85 + i * 0.25);
+    if (a <= 0) return;
+    const e = expoOut(a);
+    const tx = lerp(x0 + (1 - e) * 70, SEAL.cx - w / 2, out), ty = lerp(ys[i], SEAL.cy, out);
+    const s = lerp(1, 0.3, out);
+    // connector from the card above
+    if (i > 0) {
+      const pc = cubicOut(seg(t, 16.55 + i * 0.25, 16.8 + i * 0.25));
+      ctx.save();
+      ctx.globalAlpha = (1 - out) * 0.9; ctx.strokeStyle = COL.cardEdge; ctx.lineWidth = 2;
+      const lx = x0 + 42, y1 = ys[i - 1] + h / 2, y2 = ys[i] - h / 2;
+      ctx.beginPath(); ctx.moveTo(lx, y1); ctx.lineTo(lx, lerp(y1, y2, pc)); ctx.stroke();
+      ctx.fillStyle = COL.cyan; ctx.beginPath(); ctx.arc(lx, lerp(y1, y2, pc), 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.globalAlpha = e * (1 - out);
+    ctx.translate(tx + w / 2, ty); ctx.scale(s, s); ctx.translate(-w / 2, 0);
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 10;
+    ctx.fillStyle = COL.card; rr(0, -h / 2, w, h, 14); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = COL.cardEdge; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = c.color; ctx.beginPath(); ctx.arc(42, 0, 17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COL.card; ctx.beginPath(); ctx.arc(42, 0, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `600 20px ${FONT}`; ctx.fillText(c.title, 76, -4);
+    ctx.fillStyle = COL.muted; ctx.font = `400 15px ${FONT}`; ctx.fillText(c.sub, 76, 20);
+    const pv = seg(t, 16.95 + i * 0.25, 17.2 + i * 0.25);
+    if (pv > 0) {
+      ctx.save(); ctx.translate(w - 36, 0); const sp = spring(pv); ctx.scale(sp, sp);
+      ctx.strokeStyle = COL.cyan; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      strokeProgress(() => { ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-1.5, 4.5); ctx.lineTo(6.5, -4.5); }, cubicOut(pv), 20);
+      ctx.restore();
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- scene 6: logo morph + end card
+const LOGO = { page: { x: 272, y: 192, w: 480, h: 640 }, size: 270 };
+const WORD_FONT = `800 132px ${FONT}`;
+function endLayout(t) {
+  const wordW = textWidth(WORD_FONT, 'DartPDF', '-3px');
+  const total = LOGO.size + 60 + wordW;
+  const startX = 960 - total / 2;
+  const slide = expoInOut(seg(t, 19.0, 19.6));
+  const icx = lerp(960, startX + LOGO.size / 2, slide), icy = 450;
+  return { icx, icy, wordX: startX + LOGO.size + 60, wordW };
+}
+function logoPagePath(f, r) {
+  // the logo's page outline (logo units) with a corner fold of size f
+  ctx.beginPath();
+  ctx.moveTo(272 + r, 192); ctx.lineTo(752 - f, 192); ctx.lineTo(752, 192 + f);
+  ctx.lineTo(752, 832 - r); ctx.quadraticCurveTo(752, 832, 752 - r, 832);
+  ctx.lineTo(272 + r, 832); ctx.quadraticCurveTo(272, 832, 272, 832 - r);
+  ctx.lineTo(272, 192 + r); ctx.quadraticCurveTo(272, 192, 272 + r, 192);
+  ctx.closePath();
+}
+const LOGO_INK = new Path2D('M 330 748 C 384 642 462 642 506 716 C 542 776 584 772 618 718 C 646 674 686 690 702 712');
+function drawEnd(t) {
+  if (t < 18.0) return;
+  const L = endLayout(t);
+  const k = LOGO.size / 1024;
+  const ix = L.icx - LOGO.size / 2, iy = L.icy - LOGO.size / 2;
+  const target = { x: ix + LOGO.page.x * k, y: iy + LOGO.page.y * k, w: LOGO.page.w * k, h: LOGO.page.h * k };
+  const start = { x: SEAL.cx - PW * SEAL.s / 2, y: SEAL.cy - PH * SEAL.s / 2, w: PW * SEAL.s, h: PH * SEAL.s };
+  const p = expoInOut(seg(t, 18.0, 18.7));
+  const R = { x: lerp(start.x, target.x, p), y: lerp(start.y, target.y, p), w: lerp(start.w, target.w, p), h: lerp(start.h, target.h, p) };
+
+  // glow burst + icon tile
+  const pi = spring(seg(t, 18.5, 19.05));
+  const glow = seg(t, 18.5, 18.6) * (1 - seg(t, 18.65, 19.6));
+  if (glow > 0) {
+    ctx.save();
+    const g = ctx.createRadialGradient(L.icx, L.icy, 10, L.icx, L.icy, 420);
+    g.addColorStop(0, `rgba(22,186,253,${0.3 * glow})`); g.addColorStop(1, 'rgba(22,186,253,0)');
+    ctx.fillStyle = g; ctx.fillRect(L.icx - 420, L.icy - 420, 840, 840);
+    ctx.restore();
+  }
+  if (pi > 0) {
+    ctx.save();
+    ctx.globalAlpha = seg(t, 18.5, 18.62);
+    ctx.translate(L.icx, L.icy); ctx.scale(lerp(0.55, 1, pi), lerp(0.55, 1, pi));
+    ctx.translate(-LOGO.size / 2, -LOGO.size / 2); ctx.scale(k, k);
+    const g = ctx.createLinearGradient(0, 0, 1024, 1024);
+    g.addColorStop(0, COL.cyan); g.addColorStop(1, COL.deep);
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 18;
+    ctx.fillStyle = g; rr(0, 0, 1024, 1024, 224); ctx.fill();
+    ctx.restore();
+  }
+
+  // the page itself, mapped into logo units
+  const sx = R.w / LOGO.page.w, sy = R.h / LOGO.page.h;
+  const fold = 140 * cubicOut(seg(t, 18.35, 18.75));
+  const radius = lerp(6 / sx * SEAL.s, 32, p);
+  ctx.save();
+  ctx.translate(R.x - LOGO.page.x * sx, R.y - LOGO.page.y * sy); ctx.scale(sx, sy);
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 12;
+  ctx.fillStyle = '#fff'; logoPagePath(fold, radius); ctx.fill();
+  ctx.restore();
+  // fade the report out, clipped to the morphing page
+  const rep = 1 - seg(t, 18.12, 18.42);
+  if (rep > 0) {
+    ctx.save(); logoPagePath(fold, radius); ctx.clip();
+    ctx.translate(LOGO.page.x, LOGO.page.y); ctx.scale(LOGO.page.w / PW, LOGO.page.h / PH);
+    ctx.globalAlpha = rep; drawReport(t);
+    ctx.restore();
+  }
+  if (fold > 0) {
+    const f = fold, kk = f / 140;
+    ctx.fillStyle = COL.ice;
+    ctx.beginPath(); ctx.moveTo(752 - f, 192); ctx.lineTo(752, 192 + f); ctx.lineTo(752 - f + 34 * kk, 192 + f);
+    ctx.quadraticCurveTo(752 - f, 192 + f, 752 - f, 192 + f - 34 * kk); ctx.closePath(); ctx.fill();
+  }
+  const la = seg(t, 18.3, 18.6);
+  if (la > 0) {
+    ctx.save(); ctx.globalAlpha = la;
+    ctx.fillStyle = COL.slate; rr(332, 396, 216 * expoOut(la), 34, 17); ctx.fill();
+    ctx.fillStyle = COL.yellow; rr(332, 478, 384 * expoOut(seg(t, 18.36, 18.7)), 40, 20); ctx.fill();
+    ctx.fillStyle = COL.line; rr(332, 566, 340 * expoOut(seg(t, 18.42, 18.76)), 32, 16); ctx.fill();
+    const g = ctx.createLinearGradient(330, 0, 702, 0);
+    g.addColorStop(0, COL.blue); g.addColorStop(1, '#13B9FD');
+    ctx.strokeStyle = g; ctx.lineWidth = 32; ctx.lineCap = 'round';
+    ctx.setLineDash([700, 702]); ctx.lineDashOffset = 700 * (1 - cubicInOut(seg(t, 18.4, 18.85)));
+    ctx.stroke(LOGO_INK);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // wordmark, tagline, url
+  const pw = expoOut(seg(t, 19.15, 19.8));
+  if (pw > 0) {
+    ctx.save();
+    ctx.font = WORD_FONT; ctx.letterSpacing = '-3px'; ctx.textBaseline = 'middle';
+    ctx.beginPath(); ctx.rect(L.wordX - 10, L.icy - 120, (L.wordW + 30) * pw, 240); ctx.clip();
+    const x = L.wordX + (1 - pw) * 50;
+    ctx.fillStyle = '#fff'; ctx.fillText('DartPDF', x, L.icy + 6);
+    ctx.restore();
+  }
+  const tag = 'Edit, annotate, sign. Entirely on your device.';
+  ctx.save();
+  ctx.font = `500 40px ${FONT}`; ctx.fillStyle = '#e8eaed';
+  const words = tag.split(' ');
+  const space = ctx.measureText(' ').width;
+  let x = 960 - ctx.measureText(tag).width / 2;
+  words.forEach((w, i) => {
+    const q = expoOut(seg(t, 19.6 + i * 0.06, 20.2 + i * 0.06));
+    ctx.globalAlpha = q; ctx.fillText(w, x, 690 + (1 - q) * 26);
+    x += ctx.measureText(w).width + space;
+  });
+  const u = expoOut(seg(t, 20.15, 20.6));
+  ctx.globalAlpha = u; ctx.font = `600 30px ${FONT}`; ctx.letterSpacing = '1px'; ctx.fillStyle = COL.cyan;
+  ctx.textAlign = 'center'; ctx.fillText('dart-pdf.com', 960, 762 + (1 - u) * 16);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- captions
+const CAPTIONS = APP ? [
+  { t0: 2.45, t1: 5.85, y: 520, eyebrow: '01   OPEN', title: 'Open any PDF.', sub: 'No account. No uploads.' },
+  { t0: 6.05, t1: 11.85, y: 520, eyebrow: '02   EDIT', title: 'Edit everything.', chip: true },
+  { t0: 12.45, t1: 14.92, y: 300, eyebrow: '03   ORGANIZE', title: 'Reorder. Insert. Merge.', align: 'center' },
+  { t0: 15.6, t1: 17.92, y: 520, eyebrow: '04   SIGN', title: 'Sign it. Seal it.', sub: 'Digital signatures, checked on your device.' },
+] : [
+  { t0: 0.45, t1: 2.55, y: 540, eyebrow: '01   PARSE', title: 'From bytes.' },
+  { t0: 3.15, t1: 5.85, y: 520, eyebrow: '02   RENDER', title: 'Rendered in pure Dart.', sub: 'No PDFium. No platform channels.' },
+  { t0: 6.05, t1: 11.85, y: 520, eyebrow: '03   EDIT', title: 'Edit everything.', chip: true },
+  { t0: 12.45, t1: 14.92, y: 300, eyebrow: '04   ORGANIZE', title: 'Reorder. Insert. Merge.', align: 'center' },
+  { t0: 15.6, t1: 17.92, y: 520, eyebrow: '05   SIGN', title: 'Signed & sealed.', sub: 'Trust chain verified on-device.' },
+];
+const CHIPS = [
+  { t: 6.0, label: 'Highlight', color: COL.yellow },
+  { t: 7.0, label: 'Sign', color: COL.cyan },
+  { t: 8.0, label: 'Move text', color: COL.cyan },
+  { t: 9.2, label: 'Fill forms', color: COL.blue },
+  { t: 10.6, label: 'Stamp', color: COL.blue },
+];
+function drawCaption(t, c) {
+  if (t < c.t0 || t > c.t1) return;
+  const out = cubicIn(seg(t, c.t1 - 0.35, c.t1));
+  const center = c.align === 'center';
+  ctx.save();
+  ctx.textBaseline = 'alphabetic';
+  // eyebrow
+  {
+    const p = expoOut(seg(t, c.t0, c.t0 + 0.5));
+    ctx.font = `700 15px ${FONT}`; ctx.letterSpacing = '4px'; ctx.fillStyle = COL.cyan;
+    const w = ctx.measureText(c.eyebrow).width;
+    const x = center ? 960 - (w + 44) / 2 : 150;
+    ctx.globalAlpha = p * (1 - out);
+    ctx.fillRect(x, c.y - 92, 30 * p, 2);
+    ctx.fillText(c.eyebrow, x + 44, c.y - 86);
+  }
+  ctx.font = `700 68px ${FONT}`; ctx.letterSpacing = '-1.5px'; ctx.fillStyle = '#fff';
+  const space = ctx.measureText(' ').width;
+  let x = center ? 960 - ctx.measureText(c.title).width / 2 : 150;
+  c.title.split(' ').forEach((w, i) => {
+    const p = expoOut(seg(t, c.t0 + 0.08 + i * 0.07, c.t0 + 0.7 + i * 0.07));
+    ctx.globalAlpha = p * (1 - out);
+    ctx.fillText(w, x, c.y + (1 - p) * 36 - out * 16);
+    x += ctx.measureText(w).width + space;
+  });
+  if (c.sub) {
+    const p = expoOut(seg(t, c.t0 + 0.4, c.t0 + 1.0));
+    ctx.font = `400 27px ${FONT}`; ctx.letterSpacing = '0px'; ctx.fillStyle = COL.muted;
+    ctx.globalAlpha = p * (1 - out);
+    const sx = center ? 960 - ctx.measureText(c.sub).width / 2 : 150;
+    ctx.fillText(c.sub, sx, c.y + 58 + (1 - p) * 20 - out * 10);
+  }
+  ctx.restore();
+  if (c.chip) drawChip(t, c, out);
+}
+function drawChip(t, c, out) {
+  let k = -1;
+  for (let i = 0; i < CHIPS.length; i++) if (t >= CHIPS[i].t) k = i;
+  if (k < 0) return;
+  const font = `600 21px ${FONT}`;
+  const q = expoOut(seg(t, CHIPS[k].t, CHIPS[k].t + 0.35));
+  const wNew = textWidth(font, CHIPS[k].label) + 64;
+  const wOld = k > 0 ? textWidth(font, CHIPS[k - 1].label) + 64 : wNew;
+  const w = lerp(wOld, wNew, q);
+  const x = 150, y = c.y + 34, h = 46;
+  const a = (k === 0 ? q : 1) * (1 - out);
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = COL.card; ctx.strokeStyle = COL.cardEdge; ctx.lineWidth = 1.5;
+  rr(x, y, w, h, h / 2); ctx.fill(); ctx.stroke();
+  rr(x, y, w, h, h / 2); ctx.clip();
+  ctx.font = font; ctx.textBaseline = 'middle';
+  const draw = (chip, dy, alpha) => {
+    if (alpha <= 0) return;
+    ctx.globalAlpha = a * alpha;
+    ctx.fillStyle = chip.color; ctx.beginPath(); ctx.arc(x + 26, y + h / 2 + dy, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(chip.label, x + 44, y + h / 2 + 1 + dy);
+  };
+  if (k > 0) draw(CHIPS[k - 1], -q * 30, 1 - q);
+  draw(CHIPS[k], (1 - q) * 30, q);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- frame
+function draw(local) {
+  const t = local + OFFSET;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(bgCanvas, 0, 0);
+  if (!APP) drawCode(t);
+  const scrim = APP ? 0 : seg(t, 0.3, 0.7) * (1 - seg(t, 2.3, 2.7));
+  if (scrim > 0) {
+    const g = ctx.createLinearGradient(0, 0, 900, 0);
+    g.addColorStop(0, `rgba(32,33,36,${0.92 * scrim})`); g.addColorStop(0.6, `rgba(32,33,36,${0.75 * scrim})`);
+    g.addColorStop(1, 'rgba(32,33,36,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 900, H);
+  }
+  drawStrip(t, 'under');
+  if (t < 18.0) {
+    const P = rPlacement(t);
+    drawPageAt(P.x, P.y, P.s, P.a, () => drawReport(t));
+    // landing rim light
+    const rim = seg(t, 2.6, 2.75) * (1 - seg(t, 2.8, 3.4));
+    if (rim > 0) {
+      ctx.save(); ctx.globalAlpha = rim; ctx.strokeStyle = COL.cyan; ctx.lineWidth = 2;
+      ctx.shadowColor = COL.cyan; ctx.shadowBlur = 30;
+      rr(P.x, P.y, PW * P.s, PH * P.s, 6); ctx.stroke(); ctx.restore();
+    }
+  }
+  drawStrip(t, 'over');
+  drawSeal(t);
+  drawCards(t);
+  drawEnd(t);
+  for (const c of CAPTIONS) drawCaption(t, c);
+  const fade = Math.min(seg(local, 0, APP ? 0.2 : 0.35), 1 - seg(local, DURATION - 0.45, DURATION));
+  if (fade < 1) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+    ctx.fillStyle = `rgba(32,33,36,${1 - fade})`; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ---------------------------------------------------------------- drivers
+window.DURATION = DURATION; window.OFFSET = OFFSET; window.FPS = FPS; window.CUES = CUES; window.MUSIC = MUSIC;
+window.renderAt = t => { draw(t); return true; };
+document.fonts.ready.then(() => {
+  measure();
+  window.ready = true;
+  if (params.has('t')) { draw(parseFloat(params.get('t'))); return; }
+  if (params.get('play') === '0') return;
+  const t0 = performance.now();
+  const loop = now => { draw(((now - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>

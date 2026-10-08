@@ -644,4 +644,116 @@ void main() {
       expect(content, contains('(Page 1) Tj'));
     });
   });
+
+  group('PdfVectorSnapshot polygon clip', () {
+    test('a traced polygon clips the captured content', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final snap = editor.captureVectorSnapshot(
+          0, const PdfRect(0, 0, 100, 100),
+          clip: const [(0, 0), (100, 0), (0, 100)]);
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap);
+      final out = PdfDocument.open(editor.save());
+      final content = _capContent(out, out.page(0).annotations.single);
+      // the triangle is a W n clip path ahead of the page's own drawing
+      final clipAt = content.indexOf('W');
+      expect(content, contains('0 0 m'));
+      expect(content, contains('100 0 l'));
+      expect(content, contains('0 100 l'));
+      expect(clipAt, greaterThanOrEqualTo(0));
+      expect(content.indexOf('1 0 0 rg'), greaterThan(clipAt));
+      expect(snap.displayWidth, 100);
+      expect(snap.displayHeight, 100);
+      // the PDF interchange carries the clip too
+      final exported = PdfDocument.open(snap.toPdfBytes());
+      expect(latin1.decode(exported.page(0).contentBytes()), contains('W\nn'));
+    });
+
+    test('fewer than three vertices captures the plain box', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final snap = editor.captureVectorSnapshot(
+          0, const PdfRect(0, 0, 100, 100),
+          clip: const [(0, 0), (100, 0)]);
+      final exported = PdfDocument.open(snap.toPdfBytes());
+      final content = latin1.decode(exported.page(0).contentBytes());
+      expect(content, contains('re'));
+      expect(content, isNot(contains('W\nn')));
+    });
+  });
+
+  group('PdfVectorSnapshot crop', () {
+    PdfAnnotation pasted(PdfEditor editor, PdfDocument doc) {
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap,
+          opacity: 0.5);
+      return doc.page(0).annotations.single;
+    }
+
+    test('crop shrinks the box and clips the captured form', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final stamp = pasted(editor, doc);
+      expect(editor.vectorSnapshotCrop(stamp), isNull);
+      expect(
+          editor.cropVectorSnapshot(0, stamp,
+              crop: const PdfRect(0.5, 0, 1, 0.5),
+              rect: const PdfRect(50, 0, 100, 50)),
+          isTrue);
+
+      final out = PdfDocument.open(editor.save());
+      final outEditor = PdfEditor(out);
+      final cropped = out.page(0).annotations.single;
+      expect(outEditor.isVectorSnapshotStamp(cropped), isTrue);
+      expect(cropped.rect, const PdfRect(50, 0, 100, 50));
+      final crop = outEditor.vectorSnapshotCrop(cropped)!;
+      expect(crop.left, closeTo(0.5, 1e-6));
+      expect(crop.top, closeTo(0.5, 1e-6));
+      final ap = cropped.normalAppearance!;
+      final bbox = pdfRectFrom(out.cos, ap.dictionary['BBox'])!;
+      expect(bbox, const PdfRect(50, 0, 100, 50));
+      final drawing = latin1.decode(out.cos.decodeStreamData(ap));
+      // opacity survives; the box clips; the 200pt capture is drawn at
+      // half scale shifted so its right half lands in the box
+      expect(drawing, contains('/GS0 gs'));
+      expect(drawing, contains('50 0 50 50 re'));
+      expect(drawing, contains('W'));
+      expect(drawing, contains('0.5 0 0 0.5 0 0 cm'));
+      expect(drawing, contains('/Cap Do'));
+      // the captured vectors are untouched
+      expect(_capContent(out, cropped), contains('1 0 0 rg'));
+    });
+
+    test('a full crop restores the uncropped capture', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final stamp = pasted(editor, doc);
+      editor.cropVectorSnapshot(0, stamp,
+          crop: const PdfRect(0, 0, 0.5, 0.5),
+          rect: const PdfRect(0, 0, 50, 50));
+      final cropped = doc.page(0).annotations.single;
+      expect(editor.vectorSnapshotCrop(cropped), isNotNull);
+      editor.cropVectorSnapshot(0, cropped,
+          crop: const PdfRect(0, 0, 1, 1), rect: const PdfRect(0, 0, 100, 100));
+      final out = PdfDocument.open(editor.save());
+      final restored = out.page(0).annotations.single;
+      expect(PdfEditor(out).vectorSnapshotCrop(restored), isNull);
+      expect(restored.rect, const PdfRect(0, 0, 100, 100));
+      final drawing =
+          latin1.decode(out.cos.decodeStreamData(restored.normalAppearance!));
+      expect(drawing, isNot(contains('re')));
+    });
+
+    test('an ordinary stamp is not croppable as a snapshot', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc)
+        ..addStamp(0, const PdfRect(0, 0, 120, 40), 'APPROVED');
+      final stamp = doc.page(0).annotations.single;
+      expect(
+          editor.cropVectorSnapshot(0, stamp,
+              crop: const PdfRect(0, 0, 0.5, 0.5)),
+          isFalse);
+    });
+  });
 }

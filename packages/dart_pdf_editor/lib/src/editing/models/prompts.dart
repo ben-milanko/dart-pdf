@@ -94,13 +94,20 @@ class PdfSnapshot {
     required this.pageRect,
     required this.pngBytes,
     required this.vector,
+    this.pagePolygon,
   });
 
   /// The page the region was captured from.
   final int pageIndex;
 
   /// The captured region in PDF user space (points, origin bottom-left).
+  /// For a traced capture, the bounds of [pagePolygon].
   final PdfRect pageRect;
+
+  /// The traced footprint (PDF user space) when the region was captured by
+  /// tapping out a polygon rather than dragging a box, or null for a box.
+  /// [pngBytes] is transparent outside it and [vector] is clipped to it.
+  final List<(double, double)>? pagePolygon;
 
   /// The captured region rendered to a PNG image - for copying to the
   /// clipboard, saving, or sharing as a picture.

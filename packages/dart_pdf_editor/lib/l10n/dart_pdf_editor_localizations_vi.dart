@@ -347,6 +347,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Thêm nút';
 
   @override
+  String get menuAddLeader => 'Thêm đường dẫn chú thích';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -407,6 +410,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Xóa nút';
+
+  @override
+  String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
 
   @override
   String get menuSaveToStamps => 'Lưu vào con dấu';

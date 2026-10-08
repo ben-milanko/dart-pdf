@@ -352,6 +352,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Добавить узел';
 
   @override
+  String get menuAddLeader => 'Добавить линию выноски';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -413,6 +416,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Удалить узел';
+
+  @override
+  String get menuRemoveLeader => 'Удалить линию выноски';
 
   @override
   String get menuSaveToStamps => 'Сохранить в штампы';
