@@ -43,11 +43,20 @@ build:
     android:
       expected_signer: "CN=DartPDF, O=Railway Engineering Solutions Pty Ltd"
   providers:
+    # Local Flutter builds share generated files and the app build directory.
+    # Store uploads remain independent; only compilation is serialized.
+    ios:
+      serial_group: dartpdf-flutter-root
+    macos:
+      serial_group: dartpdf-flutter-root
+    android:
+      serial_group: dartpdf-flutter-root
     web:
       # Regenerate the bundled renderer, cache-bust assets, and include the
       # same-origin OCR models before Storeflight deploys the web app.
       command: [bash, ../tool/storeflight/build-web.sh]
       artifact: build/storeflight/web/app-web.tar.gz
+      serial_group: dartpdf-flutter-root
       timeout_minutes: 120
     windows:
       command:
@@ -168,7 +177,7 @@ profiles:
         packages:
           - {name: pdf_cos, path: ../packages/pdf_cos}
           - {name: pdf_test_fixtures, path: ../packages/pdf_test_fixtures, depends_on: [pdf_cos]}
-          - {name: pdf_document, path: ../packages/pdf_document, depends_on: [pdf_cos]}
+          - {name: pdf_document, path: ../packages/pdf_document, depends_on: [pdf_cos, pdf_test_fixtures]}
           - {name: pdf_graphics, path: ../packages/pdf_graphics, depends_on: [pdf_cos, pdf_document]}
           - {name: dart_pdf_cli, path: ../packages/dart_pdf_cli, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_editor, path: ../packages/dart_pdf_editor, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
