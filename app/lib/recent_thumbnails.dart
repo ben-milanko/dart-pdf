@@ -113,9 +113,13 @@ class RecentThumbnailCache {
 
   /// The first-page thumbnail for [entry], rendered once and memoized. Null
   /// when the entry has no readable source or the render fails.
-  Future<RecentThumbnail?> thumbnailFor(RecentFile entry) {
+  ///
+  /// [bytes], when the caller already holds the document (an open tab that has
+  /// not parsed yet), is rendered instead of reading [RecentFile.readPath] on a
+  /// miss, so a pathless document still gets a thumbnail.
+  Future<RecentThumbnail?> thumbnailFor(RecentFile entry, {Uint8List? bytes}) {
     final key = entry.id;
-    if (_cache.containsKey(key)) {
+    if (_cache.containsKey(key) && (_cache[key] != null || bytes == null)) {
       // Touch: move to the most-recently-used end.
       final value = _cache.remove(key);
       _cache[key] = value;
@@ -123,7 +127,8 @@ class RecentThumbnailCache {
     }
     final pending = _inflight[key];
     if (pending != null) return pending;
-    final future = _enqueue(() => _loadOrRender(entry)).then((thumb) {
+    final future =
+        _enqueue(() => _loadOrRender(entry, bytes: bytes)).then((thumb) {
       _inflight.remove(key);
       if (!_disposed) _store(key, thumb);
       return thumb;
@@ -132,7 +137,31 @@ class RecentThumbnailCache {
     return future;
   }
 
-  /// Drops persistent thumbnails for documents no longer in Recent files.
+  /// Replaces [entry]'s thumbnail - in memory and on disk - with [thumb], an
+  /// image the caller already rendered (an open tab's live preview).
+  Future<void> put(RecentFile entry, RecentThumbnail thumb) async {
+    if (_disposed) return;
+    _cache.remove(entry.id);
+    _store(entry.id, thumb);
+    await _writePersistent(entry.id, thumb);
+  }
+
+  /// Forgets [entry]'s thumbnail - in memory and on disk - so the next
+  /// request renders it afresh from the source. Called after a save, so the
+  /// stored thumbnail follows the file rather than the revision it was first
+  /// rendered from. An empty record reads back as a miss.
+  Future<void> invalidate(RecentFile entry) async {
+    if (_disposed) return;
+    _cache.remove(entry.id);
+    try {
+      await writeStored(_persistentKey(entry.id), Uint8List(0));
+    } catch (_) {
+      // Unwritable store: nothing persisted to go stale either.
+    }
+  }
+
+  /// Drops persistent thumbnails for documents no longer in Recent files (or
+  /// open in a tab - pass those too, so a restored tab keeps its thumbnail).
   Future<void> retain(Iterable<RecentFile> entries) => pruneStored({
         for (final entry in entries) _persistentKey(entry.id),
       });
@@ -157,7 +186,8 @@ class RecentThumbnailCache {
     }
   }
 
-  Future<RecentThumbnail?> _loadOrRender(RecentFile entry) async {
+  Future<RecentThumbnail?> _loadOrRender(RecentFile entry,
+      {Uint8List? bytes}) async {
     Uint8List? stored;
     try {
       stored = await readStored(_persistentKey(entry.id));
@@ -169,10 +199,10 @@ class RecentThumbnailCache {
     if (decoded != null) return decoded;
 
     final path = entry.readPath;
-    if (path == null) return null;
+    if (bytes == null && path == null) return null;
     try {
-      final bytes = await readBytes(path, bookmark: entry.bookmark);
-      final thumb = await _renderBytes(bytes);
+      final source = bytes ?? await readBytes(path!, bookmark: entry.bookmark);
+      final thumb = await _renderBytes(source);
       if (thumb != null) await _writePersistent(entry.id, thumb);
       return thumb;
     } catch (e) {
