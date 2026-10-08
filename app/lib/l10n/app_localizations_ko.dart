@@ -919,7 +919,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
+      'main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
 
   @override
   String get settingsUpdates => '업데이트';

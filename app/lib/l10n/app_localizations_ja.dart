@@ -921,7 +921,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main の署名なし Windows テストビルドの更新通知を自動で受け取ります。';
+      'main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。';
 
   @override
   String get settingsUpdates => 'アップデート';

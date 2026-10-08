@@ -937,7 +937,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main से बिना हस्ताक्षर वाले Windows परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
+      'main से बिना हस्ताक्षर वाले Windows/macOS परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
 
   @override
   String get settingsUpdates => 'अपडेट';

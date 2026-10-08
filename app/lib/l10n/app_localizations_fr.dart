@@ -947,7 +947,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Recevez des notifications automatiques pour les versions de test Windows non signées issues de main.';
+      'Recevez des notifications automatiques pour les versions de test Windows/macOS non signées issues de main.';
 
   @override
   String get settingsUpdates => 'Mises à jour';

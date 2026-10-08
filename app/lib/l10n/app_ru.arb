@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Не удалось проверить обновления. Попробуйте позже.",
   "settingsUpdateIdle": "У вас {name} {version}.",
   "settingsNightlyUpdates": "Ночные обновления",
-  "settingsNightlyUpdatesSubtitle": "Получайте автоматические уведомления о неподписанных тестовых сборках Windows из main.",
+  "settingsNightlyUpdatesSubtitle": "Получайте автоматические уведомления о неподписанных тестовых сборках Windows/macOS из main.",
   "settingsUpdates": "Обновления",
   "settingsViewSource": "Посмотреть исходный код на GitHub",
   "undo": "Отменить",

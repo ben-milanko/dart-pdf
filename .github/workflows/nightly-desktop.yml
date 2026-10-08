@@ -1,8 +1,10 @@
-name: Nightly Windows build
+name: Nightly desktop builds
 
-# Publishes one rolling, unsigned Windows prerelease from main. The release body
-# records the last successfully published commit, so the Windows runner is only
-# started when main has moved since that build.
+# Publishes one rolling, unsigned Windows + macOS prerelease from main. The
+# release body records the last successfully published commit, so the desktop
+# runners are only started when main has moved since that build. Both
+# platforms must build for the release to move, so every asset on the rolling
+# prerelease always comes from the same commit.
 on:
   schedule:
     # 02:20 AEST / 03:20 AEDT.
@@ -13,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-windows
+  group: nightly-desktop
   cancel-in-progress: false
 
 env:
@@ -130,33 +132,169 @@ jobs:
             -Version $buildName `
             -OutputPath dartpdf-nightly-windows-installer.exe
 
-      - name: Write checksums
-        working-directory: app
-        shell: pwsh
-        run: |
-          $assets = @(
-            "dartpdf-nightly-windows-installer.exe",
-            "dartpdf-nightly-windows-x64.zip"
-          )
-          $lines = foreach ($asset in $assets) {
-            $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $asset"
-          }
-          $lines | Set-Content -Path SHA256SUMS.txt -Encoding ascii
-
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-windows
           path: |
             app/dartpdf-nightly-windows-installer.exe
             app/dartpdf-nightly-windows-x64.zip
-            app/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  macos_cli:
+    name: Build macOS CLI (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.should_build == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.head_sha }}
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Compile native CLI/MCP slice
+        run: |
+          dart tool/build_desktop_cli.dart \
+            --output app/build/dartpdf-cli/dartpdf-${{ matrix.arch }} \
+            --target-os macos \
+            --target-arch ${{ matrix.arch }}
+          file app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-macos-cli-${{ matrix.arch }}
+          path: app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  macos:
+    name: Build macOS app
+    needs: [changes, macos_cli]
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changes.outputs.head_sha }}
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Neutralize code signing for the unsigned CI build (runner-only)
+        working-directory: app
+        # Same runner-only patch as release-app.yml: the committed pbxproj
+        # carries Automatic signing + the team for local App Store archives,
+        # while CI has no Apple account and produces an ad-hoc DMG.
+        run: |
+          sed -i '' \
+            -e 's/"Apple Development"/"-"/g' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/DEVELOPMENT_TEAM = N5K9GK8B27;/DEVELOPMENT_TEAM = "";/g' \
+            macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Build macOS release
+        working-directory: app
+        env:
+          HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          build_name="$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)"
+          flutter build macos --release \
+            --build-name="$build_name" \
+            --build-number="${{ github.run_number }}" \
+            --dart-define="PDF_BUILD_COMMIT=$HEAD_SHA"
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-macos-cli-*
+          path: app/build/dartpdf-cli-slices
+          merge-multiple: true
+
+      - name: Install universal CLI/MCP sidecar
+        working-directory: app
+        run: |
+          set -euo pipefail
+          sidecar=build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          /usr/bin/lipo -create \
+            build/dartpdf-cli-slices/dartpdf-arm64 \
+            build/dartpdf-cli-slices/dartpdf-x64 \
+            -output "$sidecar"
+          chmod 755 "$sidecar"
+          /usr/bin/lipo -info "$sidecar"
+          "$sidecar" --version
+
+      - name: Ad-hoc sign macOS app with distributable entitlements
+        working-directory: app
+        env:
+          CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
+        run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
+
+      - name: Smoke-test macOS app launch
+        working-directory: app
+        # A startup crash (plugin registration, missing dylib) exits the
+        # process immediately; require the app to survive the window.
+        run: |
+          set -euo pipefail
+          bin="build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/DartPDF"
+          "$bin" >"$RUNNER_TEMP/dartpdf-macos-smoke.log" 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "App still running after 12s - startup OK."
+            kill "$pid" 2>/dev/null || true
+          else
+            status=0
+            wait "$pid" || status=$?
+            cat "$RUNNER_TEMP/dartpdf-macos-smoke.log" || true
+            echo "macOS app exited during smoke launch (status $status)" >&2
+            exit 1
+          fi
+
+      - name: Package DMG
+        working-directory: app
+        run: |
+          set -euo pipefail
+          rm -rf build/dmg-root
+          mkdir -p build/dmg-root
+          cp -R build/macos/Build/Products/Release/DartPDF.app build/dmg-root/
+          ln -s /Applications build/dmg-root/Applications
+          hdiutil create -volname "DartPDF Nightly" \
+            -srcfolder build/dmg-root \
+            -ov -format UDZO dartpdf-nightly-macos.dmg
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-macos
+          path: app/dartpdf-nightly-macos.dmg
           if-no-files-found: error
           retention-days: 7
 
   release:
     name: Publish rolling GitHub prerelease
-    needs: [changes, windows]
+    needs: [changes, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -170,6 +308,21 @@ jobs:
         with:
           name: nightly-windows
           path: artifacts
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-macos
+          path: artifacts
+
+      - name: Write checksums
+        working-directory: artifacts
+        run: |
+          sha256sum \
+            dartpdf-nightly-macos.dmg \
+            dartpdf-nightly-windows-installer.exe \
+            dartpdf-nightly-windows-x64.zip \
+            > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Build release notes
         id: notes
@@ -187,12 +340,13 @@ jobs:
           notes="$RUNNER_TEMP/nightly-notes.md"
 
           {
-            echo "Rolling Windows test build from [\`$short_sha\`]($repo_url/commit/$HEAD_SHA), built $built_at."
+            echo "Rolling Windows + macOS test build from [\`$short_sha\`]($repo_url/commit/$HEAD_SHA), built $built_at."
             echo
-            echo "Use \`dartpdf-nightly-windows-installer.exe\` to install/update DartPDF, or download the portable ZIP and run \`dart_pdf_editor_app.exe\` from the extracted folder."
+            echo "- **Windows:** use \`dartpdf-nightly-windows-installer.exe\` to install/update DartPDF, or download the portable ZIP and run \`dart_pdf_editor_app.exe\` from the extracted folder."
+            echo "- **macOS:** open \`dartpdf-nightly-macos.dmg\` and drag DartPDF to Applications (universal: Apple silicon + Intel)."
             echo
             echo "> [!WARNING]"
-            echo "> This CI build is unsigned, so Windows may show a SmartScreen warning. It is not a Microsoft Store build."
+            echo "> These CI builds are not distribution-signed. Windows may show a SmartScreen warning; on macOS the app is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch - right-click DartPDF in Applications and choose **Open**, or run \`xattr -dr com.apple.quarantine /Applications/DartPDF.app\`. Neither is a store build."
             echo
             echo "## Changes since the previous nightly"
             echo
@@ -251,6 +405,7 @@ jobs:
           gh release upload "$NIGHTLY_TAG" \
             artifacts/dartpdf-nightly-windows-installer.exe \
             artifacts/dartpdf-nightly-windows-x64.zip \
+            artifacts/dartpdf-nightly-macos.dmg \
             artifacts/SHA256SUMS.txt \
             --clobber
 

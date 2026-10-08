@@ -952,7 +952,7 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows із гілки main.';
+      'Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows/macOS із гілки main.';
 
   @override
   String get settingsUpdates => 'Оновлення';

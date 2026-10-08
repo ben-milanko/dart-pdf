@@ -945,7 +945,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows sin firmar desde main.';
+      'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows/macOS sin firmar desde main.';
 
   @override
   String get settingsUpdates => 'Actualizaciones';
