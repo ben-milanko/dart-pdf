@@ -1335,9 +1335,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The tools that are hybrids: a drag rubber-bands a rectangle, but a tap
   /// starts (and each further tap extends) a free-form vertex list, finished
   /// by a double-tap. The cloud stamps a polygon annotation; content-delete
-  /// erases the page content the polygon encloses.
+  /// erases the page content the polygon encloses; the snapshot captures the
+  /// region the polygon traces.
   bool get _hybridPolyTool =>
-      _tool == PdfEditTool.cloudPolygon || _tool == PdfEditTool.contentDelete;
+      _tool == PdfEditTool.cloudPolygon ||
+      _tool == PdfEditTool.contentDelete ||
+      _tool == PdfEditTool.snapshot;
 
   /// True once at least one hybrid-tool vertex has been placed, so a drag no
   /// longer restarts the shape as a rectangle.
@@ -4601,6 +4604,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
         _tool == PdfEditTool.contentDelete ||
+        _tool == PdfEditTool.snapshot ||
         _tool == PdfEditTool.measureArea ||
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
@@ -4633,6 +4637,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // unlike the shape tools below)
       _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
       _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyLastRaw = null;
+        _polyHover = null;
+      });
+      return;
+    }
+    if (_tool == PdfEditTool.snapshot) {
+      // a traced snapshot only reads the page: capture the polygon's bounds,
+      // cut to the polygon, and clear the vertices (nothing to afterimage)
+      unawaited(_commitSnapshot(
+          _boundsOf(simplified), _geometry.toPageRect(_boundsOf(simplified)),
+          polygon: simplified, pagePolygon: pagePoints));
       setState(() {
         _polyPoints = null;
         _polyLastRaw = null;
@@ -4740,33 +4757,56 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (placer == null) return;
         await placer(context, pageIndex: widget.pageIndex, pageRect: rect);
       case PdfEditTool.snapshot:
-        // always keep a vector copy on the clipboard so it can paste back
-        // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
-        // callback is an optional export of the raster image on top
-        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
-            annotations: widget.showAnnotations);
-        final handler = widget.onSnapshot;
-        if (handler == null) return;
-        // page raster space (post-/Rotate, y down) = view space / scale -
-        // the same mapping the eyedropper's sampler uses
-        final s = _geometry.scale;
-        final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
-            viewRect.right / s, viewRect.bottom / s);
-        final bytes = await _controller.captureSnapshot(
-            widget.pageIndex, region,
-            pageColor: widget.pageColor, annotations: widget.showAnnotations);
-        if (bytes == null || !mounted) return;
-        await handler(
-            context,
-            PdfSnapshot(
-              pageIndex: widget.pageIndex,
-              pageRect: rect,
-              pngBytes: bytes,
-              vector: vector,
-            ));
+        await _commitSnapshot(viewRect, rect);
       default:
         break;
     }
+  }
+
+  /// The axis-aligned bounds of [points] (view space).
+  static Rect _boundsOf(List<Offset> points) {
+    var left = points.first.dx, right = left;
+    var top = points.first.dy, bottom = top;
+    for (final p in points.skip(1)) {
+      left = math.min(left, p.dx);
+      right = math.max(right, p.dx);
+      top = math.min(top, p.dy);
+      bottom = math.max(bottom, p.dy);
+    }
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  /// Captures the Snapshot tool's region: the dragged box [viewRect] (page
+  /// space [rect]), or - when [polygon] (view space) / [pagePolygon] (page
+  /// space) are given - the traced footprint inside those bounds.
+  Future<void> _commitSnapshot(Rect viewRect, PdfRect rect,
+      {List<Offset>? polygon, List<(double, double)>? pagePolygon}) async {
+    // always keep a vector copy on the clipboard so it can paste back
+    // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
+    // callback is an optional export of the raster image on top
+    final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
+        annotations: widget.showAnnotations, clip: pagePolygon);
+    final handler = widget.onSnapshot;
+    if (handler == null) return;
+    // page raster space (post-/Rotate, y down) = view space / scale -
+    // the same mapping the eyedropper's sampler uses
+    final s = _geometry.scale;
+    final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
+        viewRect.right / s, viewRect.bottom / s);
+    final bytes = await _controller.captureSnapshot(widget.pageIndex, region,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        clip: polygon == null ? null : [for (final p in polygon) p / s]);
+    if (bytes == null || !mounted) return;
+    await handler(
+        context,
+        PdfSnapshot(
+          pageIndex: widget.pageIndex,
+          pageRect: rect,
+          pngBytes: bytes,
+          vector: vector,
+          pagePolygon: pagePolygon,
+        ));
   }
 
   /// The form tool's double-tap: hands the hit field to this page's
@@ -8138,6 +8178,19 @@ class _EditingPreviewPainter extends CustomPainter {
             ..strokeWidth = 1 * chromeScale);
       return;
     }
+    if (tool == PdfEditTool.snapshot) {
+      // the traced capture region: the same selection marquee the snapshot's
+      // drag-rectangle draws, closed back to the first vertex
+      final region = Path()..addPolygon(points, true);
+      canvas.drawPath(region, Paint()..color = _chrome.withAlpha(0x1A));
+      canvas.drawPath(
+          region,
+          Paint()
+            ..color = _chrome
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * chromeScale);
+      return;
+    }
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -8150,6 +8203,7 @@ class _EditingPreviewPainter extends CustomPainter {
     }
     final closed = tool == PdfEditTool.polygon ||
         tool == PdfEditTool.cloudPolygon ||
+        tool == PdfEditTool.snapshot ||
         tool == PdfEditTool.measureArea;
     if (closed) {
       path.close();

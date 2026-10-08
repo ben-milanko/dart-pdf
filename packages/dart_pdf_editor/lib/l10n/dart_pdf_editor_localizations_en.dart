@@ -1876,7 +1876,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';

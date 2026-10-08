@@ -2443,7 +2443,7 @@
   "@tbTipSignature": {
     "description": "Tooltip for placing a saved handwritten signature."
   },
-  "tbTipSnapshot": "Snapshot - drag a region to capture it (paste back as vector)",
+  "tbTipSnapshot": "Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)",
   "@tbTipSnapshot": {
     "description": "Tooltip for the snapshot capture tool."
   },

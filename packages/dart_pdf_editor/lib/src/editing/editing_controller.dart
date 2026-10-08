@@ -233,8 +233,10 @@ enum PdfEditTool {
   /// [PdfEditingController.applyRedactions], which is irreversible.
   redact,
 
-  /// Drag out a rectangle to capture that region of the page as a raster
-  /// image, like Bluebeam's Snapshot. The captured PNG is rendered through
+  /// Drag out a rectangle - or tap out a polygon, double-tapping to finish,
+  /// like the cloud tool - to capture that region of the page as a raster
+  /// image, like Bluebeam's Snapshot. A traced polygon cuts the capture to
+  /// its shape ([PdfSnapshot.pagePolygon]). The captured PNG is rendered through
   /// [PdfEditingController.captureSnapshot] and handed to
   /// [PdfViewer.onSnapshot] - typically to copy it to the clipboard, save,
   /// or share it; with no handler the tool does nothing. It only reads the
@@ -5369,6 +5371,8 @@ class PdfEditingController extends ChangeNotifier {
   /// [pixelRatio] scales the output resolution (2 keeps a snapshot crisp
   /// at 100% zoom). [pageColor] and [annotations] should match how the
   /// page is displayed, so the snapshot looks like what's on screen.
+  /// [clip], a polygon in the same raster space, cuts the capture to that
+  /// traced shape: everything outside it comes out transparent.
   /// Returns null for a degenerate (sub-pixel) region.
   Future<Uint8List?> captureSnapshot(
     int pageIndex,
@@ -5376,13 +5380,22 @@ class PdfEditingController extends ChangeNotifier {
     double pixelRatio = 2,
     Color pageColor = const Color(0xFFFFFFFF),
     bool annotations = true,
+    List<ui.Offset>? clip,
   }) async {
     if (region.width < 1 || region.height < 1) return null;
-    final picture = await PdfPageRenderer.renderPicture(
+    var picture = await PdfPageRenderer.renderPicture(
       pageAt(pageIndex),
       pageColor: pageColor,
       annotations: annotations,
     );
+    if (clip != null && clip.length >= 3) {
+      final recorder = ui.PictureRecorder();
+      ui.Canvas(recorder)
+        ..clipPath(ui.Path()..addPolygon(clip, true))
+        ..drawPicture(picture);
+      picture.dispose();
+      picture = recorder.endRecording();
+    }
     try {
       final image = await PdfPageRenderer.rasterizeRegion(
         picture,
@@ -5488,15 +5501,16 @@ class PdfEditingController extends ChangeNotifier {
       selectedAnnotation?.behavior.textEditable == true &&
       selectedAnnotation?.isLockedContents != true;
 
-  /// Whether the selection is a single upright image stamp that the crop
-  /// tool can operate on. Rotated image stamps are excluded: cropping shrinks
-  /// the box to an axis-aligned sub-rectangle, which cannot describe a
-  /// rotated frame.
+  /// Whether the selection is a single upright image stamp or pasted vector
+  /// snapshot that the crop tool can operate on. Rotated stamps are excluded:
+  /// cropping shrinks the box to an axis-aligned sub-rectangle, which cannot
+  /// describe a rotated frame.
   bool get canCropSelected {
     final annotation = selectedAnnotation;
     if (_selected.length != 1 ||
         annotation == null ||
-        !annotation.isImageStamp ||
+        !(annotation.isImageStamp ||
+            PdfEditor(_document).isVectorSnapshotStamp(annotation)) ||
         annotation.normalAppearance == null) {
       return false;
     }
@@ -6681,21 +6695,23 @@ class PdfEditingController extends ChangeNotifier {
   /// with the page's /Rotate baked in. Read-only: the document is
   /// untouched. [annotations] includes the page's un-flattened annotations
   /// over the region (pass the viewer's annotation visibility so the
-  /// capture matches the screen). See
+  /// capture matches the screen). [clip] cuts the capture to a traced
+  /// polygon (PDF user space) inside [region]. See
   /// [PdfVectorSnapshotEditing.captureVectorSnapshot].
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
-          {bool annotations = true}) =>
-      PdfEditor(_document)
-          .captureVectorSnapshot(pageIndex, region, annotations: annotations);
+          {bool annotations = true, List<(double, double)>? clip}) =>
+      PdfEditor(_document).captureVectorSnapshot(pageIndex, region,
+          annotations: annotations, clip: clip);
 
   /// Captures [region] of [pageIndex] and keeps it on the snapshot
   /// clipboard for [pasteSnapshot] - the copy half of the Snapshot tool.
   /// The most recent copy wins, so this also drops the annotation
-  /// clipboard. Returns the captured snapshot.
+  /// clipboard. [clip] cuts the capture to a traced polygon (the Snapshot
+  /// tool's tap path). Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region,
-      {bool annotations = true}) {
-    final snapshot =
-        captureVectorSnapshot(pageIndex, region, annotations: annotations);
+      {bool annotations = true, List<(double, double)>? clip}) {
+    final snapshot = captureVectorSnapshot(pageIndex, region,
+        annotations: annotations, clip: clip);
     // publish to the shared clipboard; paste resets its per-document
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).
@@ -7368,6 +7384,32 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// The crop applied to [annotation] - an image stamp's
+  /// [PdfAnnotation.imageStampCrop] or a vector snapshot's
+  /// [PdfVectorSnapshotEditing.vectorSnapshotCrop] - or null when it shows
+  /// its whole picture.
+  PdfRect? _cropOf(PdfAnnotation annotation) => annotation.isImageStamp
+      ? annotation.imageStampCrop
+      : PdfEditor(_document).vectorSnapshotCrop(annotation);
+
+  /// Whether the selected croppable stamp currently has a crop applied, so
+  /// [resetSelectedImageCrop] has something to undo.
+  bool get selectedHasCrop {
+    final annotation = selectedAnnotation;
+    return annotation != null && canCropSelected && _cropOf(annotation) != null;
+  }
+
+  /// Applies [crop] (normalized against the source picture or capture) and
+  /// the new box [rect] to the selected croppable stamp.
+  void _applyCrop(PdfAnnotation annotation, PdfRect crop, PdfRect rect) {
+    final page = _selected.last.$1;
+    apply(
+      (e) => annotation.isImageStamp
+          ? e.cropImageStamp(page, annotation, crop: crop, rect: rect)
+          : e.cropVectorSnapshot(page, annotation, crop: crop, rect: rect),
+    );
+  }
+
   /// Crops the selected image stamp so only the picture currently shown
   /// inside [visibleRect] (page space) survives, shrinking the annotation's
   /// box to that rectangle. [visibleRect] is clamped to the current box, and
@@ -7387,7 +7429,7 @@ class PdfEditingController extends ChangeNotifier {
         (v.top - rect.top).abs() < 0.5) {
       return;
     }
-    final current = annotation.imageStampCrop ?? const PdfRect(0, 0, 1, 1);
+    final current = _cropOf(annotation) ?? const PdfRect(0, 0, 1, 1);
     // Fractions of the current box the visible rect covers, composed into the
     // source picture's normalized coordinates.
     final fx0 = (v.left - rect.left) / rect.width;
@@ -7400,14 +7442,7 @@ class PdfEditingController extends ChangeNotifier {
       current.left + fx1 * current.width,
       current.bottom + fy1 * current.height,
     );
-    apply(
-      (e) => e.cropImageStamp(
-        _selected.last.$1,
-        annotation,
-        crop: crop,
-        rect: v,
-      ),
-    );
+    _applyCrop(annotation, crop, v);
   }
 
   /// Removes any crop from the selected image stamp, restoring the whole
@@ -7416,7 +7451,7 @@ class PdfEditingController extends ChangeNotifier {
   void resetSelectedImageCrop() {
     final annotation = selectedAnnotation;
     if (annotation == null || !canCropSelected) return;
-    final current = annotation.imageStampCrop;
+    final current = _cropOf(annotation);
     if (current == null) return;
     // Grow the box back so the retained pixels keep their scale: the current
     // box shows `current`, so the full picture spans box / current.
@@ -7426,14 +7461,7 @@ class PdfEditingController extends ChangeNotifier {
     final left = rect.left - current.left * fullWidth;
     final bottom = rect.bottom - current.bottom * fullHeight;
     final full = PdfRect(left, bottom, left + fullWidth, bottom + fullHeight);
-    apply(
-      (e) => e.cropImageStamp(
-        _selected.last.$1,
-        annotation,
-        crop: const PdfRect(0, 0, 1, 1),
-        rect: full,
-      ),
-    );
+    _applyCrop(annotation, const PdfRect(0, 0, 1, 1), full);
   }
 
   /// Whether the interactive image-crop tool is armed. The overlay renders

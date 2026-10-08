@@ -2097,7 +2097,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// pointer users who reach for the toolbar.
   Widget _cropStrip(BuildContext context) {
     final l10n = pdfL10n(context);
-    final hasCrop = controller.selectedAnnotation?.imageStampCrop != null;
+    final hasCrop = controller.selectedHasCrop;
     final strip = _intrinsicStrip(
       _stripFlex([
         Padding(
