@@ -85,6 +85,11 @@
   </screenshots>
 
   <releases>
+    <release version="8.0.0" date="2026-10-09">
+      <description>
+        <p>Combine and interleave documents, capture polygon snapshots, add multiple callout arrows and bulk-edit form fields. Faster scan decoding and clearer tab previews.</p>
+      </description>
+    </release>
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
