@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:web/web.dart' as web;
 
+import 'annotation_display_filter.dart';
 import 'perf_log.dart';
 import 'render_worker.dart';
 
@@ -13,6 +14,7 @@ Widget pdfWebPageSurface({
   required PdfRenderWorker worker,
   required int pageIndex,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
   required int width,
   required int height,
   required int pageColor,
@@ -27,6 +29,7 @@ Widget pdfWebPageSurface({
       worker: worker,
       pageIndex: pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       width: width,
       height: height,
       pageColor: pageColor,
@@ -43,6 +46,7 @@ class _PdfWebPageSurface extends StatefulWidget {
     required this.worker,
     required this.pageIndex,
     required this.annotations,
+    required this.hiddenAnnotationSubtypes,
     required this.width,
     required this.height,
     required this.pageColor,
@@ -56,6 +60,7 @@ class _PdfWebPageSurface extends StatefulWidget {
   final PdfRenderWorker worker;
   final int pageIndex;
   final bool annotations;
+  final Set<String> hiddenAnnotationSubtypes;
   final int width;
   final int height;
   final int pageColor;
@@ -89,6 +94,8 @@ class _PdfWebPageSurfaceState extends State<_PdfWebPageSurface> {
     }
     if (oldWidget.pageIndex != widget.pageIndex ||
         oldWidget.annotations != widget.annotations ||
+        !sameHiddenAnnotationSubtypes(oldWidget.hiddenAnnotationSubtypes,
+            widget.hiddenAnnotationSubtypes) ||
         oldWidget.width != widget.width ||
         oldWidget.height != widget.height ||
         oldWidget.pageColor != widget.pageColor ||
@@ -144,6 +151,7 @@ class _PdfWebPageSurfaceState extends State<_PdfWebPageSurface> {
       final ok = await session.render(
         widget.pageIndex,
         annotations: widget.annotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         width: widget.width,
         height: widget.height,
         pageColor: widget.pageColor,

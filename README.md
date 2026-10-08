@@ -13,6 +13,9 @@
 > PDFs entirely on your device, with no account and no uploads. Get it at
 > [dart-pdf.com](https://dart-pdf.com) or
 > [open it in your browser](https://app.dart-pdf.com).
+>
+> Need to complete a form? [Fill and sign a PDF with DartPDF](doc/guides/fill-and-sign-pdf.md)
+> explains existing fields, flat forms, drawn signatures, and saving a checked copy.
 
 [![DartPDF, the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
 

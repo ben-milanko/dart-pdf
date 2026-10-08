@@ -1,5 +1,11 @@
 # Changelog
 
+## 8.0.0
+
+- Speed up MRC scan decoding with optimized JBIG2 generic regions, JPX inverse wavelets and MQ arithmetic decoding.
+- Align with the dart-pdf 8.0.0 suite.
+
+
 ## 7.0.0
 
 - Align dependency constraints with the dart-pdf 7.0.0 package suite.

@@ -46,12 +46,7 @@ build:
     web:
       # Regenerate the bundled renderer, cache-bust assets, and include the
       # same-origin OCR models before Storeflight deploys the web app.
-      command: >-
-        DART=dart FLUTTER=flutter tool/build_web.sh --release
-        --build-name="$STOREFLIGHT_VERSION"
-        --build-number="$STOREFLIGHT_BUILD_NUMBER" &&
-        mkdir -p build/storeflight/web &&
-        tar czf build/storeflight/web/app-web.tar.gz -C build web
+      command: [bash, ../tool/storeflight/build-web.sh]
       artifact: build/storeflight/web/app-web.tar.gz
       timeout_minutes: 120
     windows:

@@ -33,6 +33,7 @@ class _FakeBackend extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -79,7 +80,8 @@ void main() {
     expect(backend.recordCalls, 1);
   });
 
-  test('a concurrent late joiner replays buffered partials then shares the rest',
+  test(
+      'a concurrent late joiner replays buffered partials then shares the rest',
       () async {
     final backend = _FakeBackend();
     final worker = PdfCachingRenderWorker(backend);
@@ -110,7 +112,8 @@ void main() {
         reason: 'both callers share the one backend result');
   });
 
-  test('no partials are requested from the backend when the dispatcher opts out',
+  test(
+      'no partials are requested from the backend when the dispatcher opts out',
       () async {
     final backend = _FakeBackend();
     final worker = PdfCachingRenderWorker(backend);
@@ -124,7 +127,8 @@ void main() {
     // A joiner that DOES want partials cannot retroactively enable streaming -
     // the decode already started without it - so it only awaits the final.
     final joinerPartials = <int>[];
-    final join = worker.record(0, onPartial: (p) => joinerPartials.add(p.length));
+    final join =
+        worker.record(0, onPartial: (p) => joinerPartials.add(p.length));
 
     backend.gate.complete();
     await dispatch;

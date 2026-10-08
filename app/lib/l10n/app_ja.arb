@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "アップデートを確認できませんでした。後でもう一度お試しください。",
   "settingsUpdateIdle": "{name} {version} を使用しています。",
   "settingsNightlyUpdates": "ナイトリーアップデート",
-  "settingsNightlyUpdatesSubtitle": "main の署名なし Windows テストビルドの更新通知を自動で受け取ります。",
+  "settingsNightlyUpdatesSubtitle": "main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。",
   "settingsUpdates": "アップデート",
   "settingsViewSource": "GitHub でソースを表示",
   "undo": "元に戻す",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "カスタム設定",
   "whatsNew": "新機能",
   "whatsNewInstalled": "インストール済み",
-  "whatsNewUnavailable": "このビルドにはリリースノートがありません。"
+  "whatsNewUnavailable": "このビルドにはリリースノートがありません。",
+  "incomingFilesTitle": "{count, plural, other{{count} 個の PDF を開く}}",
+  "incomingFilesMessage": "各ファイルを別々のタブで開くか、1 つの新しいドキュメントに結合しますか?ドラッグして結合する順序を指定できます。",
+  "incomingFilesCombine": "結合",
+  "incomingFilesCombineTitle": "{count, plural, other{{count} 個の PDF を結合}}",
+  "incomingFilesCombineMessage": "ドラッグして結合する順序を指定できます。"
 }

@@ -937,7 +937,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main से बिना हस्ताक्षर वाले Windows परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
+      'main से बिना हस्ताक्षर वाले Windows/macOS परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
 
   @override
   String get settingsUpdates => 'अपडेट';
@@ -1263,4 +1263,35 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF खोलें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'हर फ़ाइल को अलग टैब में खोलें, या सभी को एक नए दस्तावेज़ में जोड़ें? क्रम तय करने के लिए फ़ाइलों को खींचें।';
+
+  @override
+  String get incomingFilesCombine => 'जोड़ें';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF जोड़ें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।';
 }

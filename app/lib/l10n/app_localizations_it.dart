@@ -945,7 +945,7 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Ricevi notifiche automatiche per le build di test Windows non firmate da main.';
+      'Ricevi notifiche automatiche per le build di test Windows/macOS non firmate da main.';
 
   @override
   String get settingsUpdates => 'Aggiornamenti';
@@ -1278,4 +1278,35 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Le note di rilascio non sono disponibili in questa build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Apri $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Aprire ogni file in una scheda separata o unirli in un unico nuovo documento? Trascina i file per scegliere l\'ordine.';
+
+  @override
+  String get incomingFilesCombine => 'Unisci';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Unisci $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Trascina i file per scegliere l\'ordine in cui unirli.';
 }

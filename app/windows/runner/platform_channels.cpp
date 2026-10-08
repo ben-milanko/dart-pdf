@@ -130,26 +130,38 @@ flutter::EncodableValue DialogPayload(const dart_pdf::FileDialogResult& result) 
   });
 }
 
-flutter::EncodableValue FilePayload(const std::wstring& path) {
+flutter::EncodableValue FilePayload(const std::wstring& path,
+                                    bool combine = false) {
   std::wstring name = path;
   size_t slash = path.find_last_of(L"/\\");
   if (slash != std::wstring::npos) name = path.substr(slash + 1);
-  return flutter::EncodableValue(flutter::EncodableMap{
+  flutter::EncodableMap payload{
       {flutter::EncodableValue("name"),
        flutter::EncodableValue(Utf8FromUtf16(name.c_str()))},
       {flutter::EncodableValue("path"),
        flutter::EncodableValue(Utf8FromUtf16(path.c_str()))},
-  });
+  };
+  if (combine) {
+    payload[flutter::EncodableValue("combine")] = flutter::EncodableValue(true);
+  }
+  return flutter::EncodableValue(std::move(payload));
 }
 
 }  // namespace
 
-DartPdfPlatformChannels::DartPdfPlatformChannels(
-    std::wstring initial_file, OwnerWindow owner_window)
-    : initial_file_(std::move(initial_file)),
-      owner_window_(std::move(owner_window)) {}
+DartPdfPlatformChannels* DartPdfPlatformChannels::incoming_owner_ = nullptr;
 
-DartPdfPlatformChannels::~DartPdfPlatformChannels() = default;
+DartPdfPlatformChannels::DartPdfPlatformChannels(
+    std::vector<DartPdfIncomingFile> initial_files, OwnerWindow owner_window)
+    : owner_window_(std::move(owner_window)),
+      pending_files_(std::move(initial_files)) {}
+
+DartPdfPlatformChannels::~DartPdfPlatformChannels() {
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+  }
+  if (incoming_owner_ == this) incoming_owner_ = nullptr;
+}
 
 void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
   windows_drop_service_ =
@@ -162,17 +174,14 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
-        if (call.method_name() != "getInitialFile") {
+        if (call.method_name() != "getInitialFiles") {
           result->NotImplemented();
           return;
         }
-        if (initial_file_.empty()) {
-          result->Success();
-          return;
-        }
-        std::wstring path = initial_file_;
-        initial_file_.clear();
-        result->Success(FilePayload(path));
+        // Held until the batch settles: the other processes of a multi-file
+        // launch may still be forwarding their files.
+        initial_files_result_ = std::move(result);
+        ArmIncomingFlush();
       });
 
   memory_channel_ =
@@ -475,9 +484,48 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
           }));
 }
 
-void DartPdfPlatformChannels::DeliverFileToFlutter(
-    const std::wstring& path) {
-  if (!incoming_channel_ || path.empty()) return;
+void DartPdfPlatformChannels::DeliverFileToFlutter(const std::wstring& path,
+                                                   bool combine) {
+  if (path.empty()) return;
+  pending_files_.push_back({path, combine});
+  // Before Dart asks for its initial files the queue just waits for that call.
+  if (dart_incoming_ready_ || initial_files_result_) ArmIncomingFlush();
+}
+
+void DartPdfPlatformChannels::ArmIncomingFlush() {
+  incoming_owner_ = this;
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+  }
+  incoming_flush_timer_ =
+      ::SetTimer(nullptr, 0, kIncomingSettleMs, &OnIncomingFlushTimer);
+  // No timer (out of resources): don't strand the files.
+  if (incoming_flush_timer_ == 0) FlushIncomingFiles();
+}
+
+void CALLBACK DartPdfPlatformChannels::OnIncomingFlushTimer(HWND, UINT,
+                                                            UINT_PTR, DWORD) {
+  if (incoming_owner_ != nullptr) incoming_owner_->FlushIncomingFiles();
+}
+
+void DartPdfPlatformChannels::FlushIncomingFiles() {
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+    incoming_flush_timer_ = 0;
+  }
+  flutter::EncodableList batch;
+  for (const auto& file : pending_files_) {
+    batch.push_back(FilePayload(file.path, file.combine));
+  }
+  pending_files_.clear();
+  if (initial_files_result_) {
+    initial_files_result_->Success(flutter::EncodableValue(std::move(batch)));
+    initial_files_result_.reset();
+    dart_incoming_ready_ = true;
+    return;
+  }
+  if (batch.empty() || !incoming_channel_ || !dart_incoming_ready_) return;
   incoming_channel_->InvokeMethod(
-      "openFile", std::make_unique<flutter::EncodableValue>(FilePayload(path)));
+      "openFiles",
+      std::make_unique<flutter::EncodableValue>(std::move(batch)));
 }

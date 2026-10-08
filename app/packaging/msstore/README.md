@@ -1,5 +1,25 @@
 # Microsoft Store packaging for DartPDF
 
+## Listing copy
+
+[`listing/en-US.json`](listing/en-US.json) is the reviewable English listing
+copy for Partner Center: product name, short/full descriptions, product
+features, search keywords, and the current release notes. It follows the
+live App Store/Google Play wording with Windows-specific file-opening details.
+See [`../../store-listing.md`](../../store-listing.md) for the shared source and
+the title-reservation step. This JSON is source material for the listing editor;
+it is not a Partner Center CSV import file.
+
+Applied on 8 October 2026 in Partner Center submission **17**
+(`1152921505702072175`). The aligned product name is reserved and selected,
+with the descriptions, eleven features, seven search phrases, and 7.0.0 release
+notes saved. Partner Center confirmed **In certification**, with automatic
+publishing after approval. The trailer, poster, captions, hero artwork, and
+top-of-listing playback selection are retained from published submission 16.
+
+The sting trailer and upload artwork are in
+[`doc/marketing/motion/`](../../../doc/marketing/motion/README.md).
+
 Builds the Store MSIX and pushes it into a Partner Center submission. Both
 halves are plain CLI, so the per-release path is fully headless after the first
 submission has a package registered in Partner Center:
@@ -151,6 +171,13 @@ $env:MSSTORE_PRODUCT_ID = '…'
   is what registers DartPDF as a PDF handler at install time. The NSIS installer
   does the same thing through the registry. Neither can make DartPDF the
   *default* handler — see RELEASING.md's "File associations".
+- **"Combine with DartPDF" is a shell extension here.** A packaged app can't
+  write the registry verb the NSIS installer adds, so `msix_config`'s
+  `context_menu` registers `windows/combine_menu` (an `IExplorerCommand` DLL
+  hosted in a COM surrogate) for `.pdf`. `flutter build windows` builds it at
+  `build/windows/x64/combine_menu/dartpdf_combine_menu.dll`, and `msix:create`
+  fails if it is missing. Its clsid in `pubspec.yaml` must match
+  `combine_menu.cpp`.
 - **The msstore CLI is framework-dependent** (`net9.0`), so a .NET 9 runtime must
   be present; the workflow installs it with `actions/setup-dotnet`. The CLI
   archive is pinned by version *and* SHA-256 in `publish-msix.ps1`, the way

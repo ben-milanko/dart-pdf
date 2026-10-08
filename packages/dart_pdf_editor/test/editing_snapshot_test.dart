@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:material_ui/material_ui.dart';
@@ -270,6 +271,56 @@ void main() {
     });
   });
 
+  group('cropping a pasted snapshot', () {
+    test('the crop tool trims a vector snapshot and resets it', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: PdfSnapshotClipboard());
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (300, 400)), isTrue);
+      editing.selectAnnotation(0, 0);
+      final rect = editing.selectedAnnotation!.rect;
+      expect(editing.canCropSelected, isTrue);
+      expect(editing.selectedHasCrop, isFalse);
+
+      // keep the left half
+      editing.cropSelectedImage(PdfRect(
+          rect.left, rect.bottom, rect.left + rect.width / 2, rect.top));
+      final cropped = editing.selectedAnnotation!;
+      expect(cropped.rect.width, closeTo(rect.width / 2, 1e-6));
+      expect(
+          PdfEditor(editing.document).isVectorSnapshotStamp(cropped), isTrue);
+      expect(editing.selectedHasCrop, isTrue);
+
+      // a second crop composes against the capture, not the cropped box
+      final half = cropped.rect;
+      editing.cropSelectedImage(PdfRect(
+          half.left, half.bottom + half.height / 2, half.right, half.top));
+      final crop = PdfEditor(editing.document)
+          .vectorSnapshotCrop(editing.selectedAnnotation!)!;
+      expect(crop.left, closeTo(0, 1e-6));
+      expect(crop.right, closeTo(0.5, 1e-6));
+      expect(crop.bottom, closeTo(0.5, 1e-6));
+      expect(crop.top, closeTo(1, 1e-6));
+
+      editing.resetSelectedImageCrop();
+      final restored = editing.selectedAnnotation!;
+      expect(editing.selectedHasCrop, isFalse);
+      expect(restored.rect.left, closeTo(rect.left, 1e-6));
+      expect(restored.rect.right, closeTo(rect.right, 1e-6));
+      expect(restored.rect.bottom, closeTo(rect.bottom, 1e-6));
+      expect(restored.rect.top, closeTo(rect.top, 1e-6));
+    });
+
+    test('an ordinary text stamp still cannot be cropped', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addStamp(0, const PdfRect(100, 100, 220, 140), 'APPROVED');
+      editing.selectAnnotation(0, 0);
+      expect(editing.canCropSelected, isFalse);
+    });
+  });
+
   group('snapshot tool in the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
@@ -350,6 +401,106 @@ void main() {
       // the vector half pastes back into the document
       expect(editing.pasteSnapshot(1, at: (300, 400)), isTrue);
       expect(editing.document.page(1).annotations.single.subtype, 'Stamp');
+    });
+
+    testWidgets('a polygon vertex lands on the tap, not after the timeout',
+        (tester) async {
+      PdfSnapshot? captured;
+      final editing = await pumpEditor(tester,
+          onSnapshot: (context, snap) async => captured = snap);
+      editing.tool = PdfEditTool.snapshot;
+      await tester.pump();
+
+      // quicker than the double-tap timeout: the tap recognizer used to hold
+      // each vertex back until it expired, so a far tap resolved first and
+      // the rubber band trailed the cursor
+      await tester.tapAt(view(100, 740));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(view(260, 740));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(view(100, 560));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(100, 560));
+      await tester.pump();
+      expect(editing.hasSnapshotClipboard, isTrue);
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50 && captured == null; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      final polygon = captured!.pagePolygon!;
+      expect(polygon, hasLength(3));
+      expect(polygon[0].$1, closeTo(100, 1));
+      expect(polygon[0].$2, closeTo(740, 1));
+      expect(polygon[1].$1, closeTo(260, 1));
+      expect(polygon[1].$2, closeTo(740, 1));
+      expect(polygon[2].$1, closeTo(100, 1));
+      expect(polygon[2].$2, closeTo(560, 1));
+    });
+
+    testWidgets('tapping out a polygon captures the traced region',
+        (tester) async {
+      PdfSnapshot? captured;
+      final editing = await pumpEditor(tester,
+          onSnapshot: (context, snap) async => captured = snap);
+      editing.tool = PdfEditTool.snapshot;
+      await tester.pump();
+
+      await tester.tapAt(view(100, 740));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(260, 740));
+      await tester.pump(const Duration(milliseconds: 400));
+      // two taps are a line, not a region: nothing captured yet
+      expect(editing.hasSnapshotClipboard, isFalse);
+      await tester.tapAt(view(100, 640));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(view(100, 640));
+      await tester.pump();
+      // the vector half lands synchronously on the double-tap
+      expect(editing.hasSnapshotClipboard, isTrue);
+      await tester.runAsync(() async {
+        // captureSnapshot renders + encodes a PNG (toImage) - let it finish
+        for (var i = 0; i < 50 && captured == null; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      expect(captured, isNotNull);
+      final polygon = captured!.pagePolygon!;
+      expect(polygon, hasLength(3),
+          reason: 'three tapped vertices, the double-tap not double-counted');
+      expect(polygon.first.$1, closeTo(100, 1));
+      expect(polygon.first.$2, closeTo(740, 1));
+      // the box is the polygon's bounds
+      expect(captured!.pageRect.left, closeTo(100, 1));
+      expect(captured!.pageRect.right, closeTo(260, 1));
+      expect(captured!.pageRect.bottom, closeTo(640, 1));
+      expect(captured!.pageRect.top, closeTo(740, 1));
+      // the vector half carries the polygon clip
+      final exported = PdfDocument.open(captured!.pdfBytes);
+      expect(latin1.decode(exported.page(0).contentBytes()), contains('W\nn'));
+      // the raster is cut to the triangle: its far corner is transparent,
+      // a point inside it is opaque paper
+      final pixels = await tester.runAsync(() async {
+        final codec = await ui.instantiateImageCodec(captured!.pngBytes);
+        final frame = await codec.getNextFrame();
+        final image = frame.image;
+        final data = await image.toByteData();
+        final size = (image.width, image.height);
+        image.dispose();
+        return (data!, size);
+      });
+      final (data, (w, h)) = pixels!;
+      int alphaAt(int x, int y) => data.getUint8((y * w + x) * 4 + 3);
+      expect(alphaAt(w - 2, h - 2), 0);
+      expect(alphaAt(4, 4), 255);
+      // nothing was written to the document by the capture itself
+      expect(editing.document.page(0).annotations, isEmpty);
+      expect(editing.isModified, isFalse);
+      await tester.pump(const Duration(milliseconds: 400));
     });
   });
 }

@@ -348,6 +348,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Adicionar nó';
 
   @override
+  String get menuAddLeader => 'Adicionar linha de chamada';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -408,6 +411,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Remover nó';
+
+  @override
+  String get menuRemoveLeader => 'Remover linha de chamada';
 
   @override
   String get menuSaveToStamps => 'Salvar nos carimbos';
@@ -2304,4 +2310,138 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Dispensar';
+
+  @override
+  String get insertPagesTitle => 'Inserir páginas';
+
+  @override
+  String get insertPagesFiles => 'Arquivos';
+
+  @override
+  String get insertPagesAddFiles => 'Adicionar arquivos…';
+
+  @override
+  String get insertPagesSortByName => 'Ordenar por nome';
+
+  @override
+  String get insertPagesNoFiles => 'Adicione um ou mais PDFs para inserir.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Não foi possível abrir $names. O arquivo pode estar danificado ou protegido por senha.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count páginas',
+      one: '1 página',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Mover para cima';
+
+  @override
+  String get insertPagesMoveDown => 'Mover para baixo';
+
+  @override
+  String get insertPagesRemoveFile => 'Remover da lista';
+
+  @override
+  String get insertPagesRange => 'Páginas';
+
+  @override
+  String get insertPagesRangeHint => 'Todas (ex.: 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Use as páginas 1–$count, ex.: 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Todas as páginas';
+
+  @override
+  String get insertPagesSubsetOdd => 'Páginas ímpares';
+
+  @override
+  String get insertPagesSubsetEven => 'Páginas pares';
+
+  @override
+  String get insertPagesReverse => 'Ordem inversa';
+
+  @override
+  String get insertPagesPlacement => 'Posição';
+
+  @override
+  String get insertPagesBefore => 'Antes de';
+
+  @override
+  String get insertPagesAfter => 'Depois de';
+
+  @override
+  String get insertPagesFirstPage => 'Primeira página';
+
+  @override
+  String get insertPagesLastPage => 'Última página';
+
+  @override
+  String get insertPagesPage => 'Página';
+
+  @override
+  String get insertPagesPageNumber => 'Número da página';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'de $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Digite 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Intercalar páginas';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alterna páginas inseridas e existentes a partir da posição — por exemplo, para juntar páginas ímpares e pares digitalizadas separadamente.';
+
+  @override
+  String get insertPagesRunInserted => 'Páginas inseridas por vez';
+
+  @override
+  String get insertPagesRunExisting => 'Páginas do documento entre elas';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Incluir marcadores';
+
+  @override
+  String get insertPagesBookmarkFiles =>
+      'Adicionar um marcador para cada arquivo';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Insere $inserted páginas',
+      one: 'Insere 1 página',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total páginas',
+      one: '1 página',
+    );
+    return '$_temp0 — o documento terá $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Inserir';
 }

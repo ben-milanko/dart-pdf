@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Не вдалося перевірити оновлення. Спробуйте пізніше.",
   "settingsUpdateIdle": "У вас {name} {version}.",
   "settingsNightlyUpdates": "Нічні оновлення",
-  "settingsNightlyUpdatesSubtitle": "Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows із гілки main.",
+  "settingsNightlyUpdatesSubtitle": "Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows/macOS із гілки main.",
   "settingsUpdates": "Оновлення",
   "settingsViewSource": "Переглянути код на GitHub",
   "undo": "Відмінити",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Власні налаштування",
   "whatsNew": "Що нового",
   "whatsNewInstalled": "Встановлено",
-  "whatsNewUnavailable": "Примітки до випуску недоступні в цій збірці."
+  "whatsNewUnavailable": "Примітки до випуску недоступні в цій збірці.",
+  "incomingFilesTitle": "{count, plural, other{Відкрити PDF-файли: {count}}}",
+  "incomingFilesMessage": "Відкрити кожен файл в окремій вкладці чи об'єднати їх в один новий документ? Перетягніть файли, щоб задати порядок.",
+  "incomingFilesCombine": "Об'єднати",
+  "incomingFilesCombineTitle": "{count, plural, other{Об'єднати PDF-файли: {count}}}",
+  "incomingFilesCombineMessage": "Перетягніть файли, щоб задати порядок об'єднання."
 }

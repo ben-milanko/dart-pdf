@@ -2097,7 +2097,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// pointer users who reach for the toolbar.
   Widget _cropStrip(BuildContext context) {
     final l10n = pdfL10n(context);
-    final hasCrop = controller.selectedAnnotation?.imageStampCrop != null;
+    final hasCrop = controller.selectedHasCrop;
     final strip = _intrinsicStrip(
       _stripFlex([
         Padding(
@@ -2276,7 +2276,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       for (final color in widget.palette)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: InkWell(
+          // a swatch tapped while a text box is being typed into recolours
+          // that box: count the tap as inside the field, so it doesn't blur
+          // (and commit) the editor before the colour lands
+          child: TextFieldTapRegion(
+              child: InkWell(
             onTap: () => _applyColor(color),
             customBorder: const CircleBorder(),
             child: Container(
@@ -2291,22 +2295,33 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Tooltip(
           message: pdfL10n(context).tbMoreColors,
-          child: Material(
+          // like the swatches: the press must not blur an open text box
+          child: TextFieldTapRegion(
+              child: Material(
             key: const ValueKey('pdf-more-colors'),
             color: Colors.transparent,
             shape: CircleBorder(side: BorderSide(color: scheme.outline)),
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked = await pickEditingColor(context, controller,
-                    initial: current);
-                if (picked != null) _applyColor(picked);
+                // the picker takes focus: hold the open text box's commit so
+                // the picked colour restyles it instead of landing after it
+                // closed
+                final hold = controller.isEditingText;
+                if (hold) controller.beginEditingTextFocusHold();
+                try {
+                  final picked = await pickEditingColor(context, controller,
+                      initial: current);
+                  if (picked != null) _applyColor(picked);
+                } finally {
+                  if (hold) controller.endEditingTextFocusHold();
+                }
               },
               child: SizedBox(
                 width: 40,
@@ -2316,7 +2331,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
       ),
       IconButton(
@@ -2849,7 +2864,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         Padding(
           key: ValueKey('pdf-mobile-swatch-${i++}'),
           padding: const EdgeInsets.symmetric(horizontal: 3),
-          child: InkWell(
+          // inside the text field's tap group: see _colorCluster
+          child: TextFieldTapRegion(
+              child: InkWell(
             onTap: () => _applyColor(color),
             customBorder: const CircleBorder(),
             child: Container(
@@ -2864,7 +2881,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
     ];
   }

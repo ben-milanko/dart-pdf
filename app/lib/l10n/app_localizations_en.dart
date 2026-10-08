@@ -934,7 +934,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -1259,6 +1259,37 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Release notes aren\'t available in this build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Open $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.';
+
+  @override
+  String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2191,7 +2222,7 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -2516,6 +2547,37 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get whatsNewUnavailable =>
       'Release notes aren\'t available in this build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Open $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.';
+
+  @override
+  String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -3448,7 +3510,7 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receive automatic update notifications for unsigned Windows test builds from main.';
+      'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -3773,4 +3835,35 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get whatsNewUnavailable =>
       'Release notes aren\'t available in this build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Open $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.';
+
+  @override
+  String get incomingFilesCombine => 'Combine';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combine $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Drag the files to set the order they\'re combined in.';
 }

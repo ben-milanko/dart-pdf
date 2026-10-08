@@ -66,44 +66,80 @@ class MqDecoder {
     (0x0001, 45, 43, 0), (0x5601, 46, 46, 0),
   ];
 
+  // [_qe] split into flat typed tables: [decode] runs once per coded bit of
+  // every JBIG2 generic region and JPEG 2000 code block, and reading a record
+  // out of a const list costs a field load per component on every call.
+  static final Uint16List _qeValue =
+      Uint16List.fromList([for (final e in _qe) e.$1]);
+  static final Uint8List _qeNmps =
+      Uint8List.fromList([for (final e in _qe) e.$2]);
+  static final Uint8List _qeNlps =
+      Uint8List.fromList([for (final e in _qe) e.$3]);
+  static final Uint8List _qeSwitch =
+      Uint8List.fromList([for (final e in _qe) e.$4]);
+
   /// Decodes one bit in [cx] using per-context state arrays.
+  ///
+  /// Split so the common case - the more probable symbol with no
+  /// renormalisation, nearly every pixel of a sparse JBIG2 mask - is a few
+  /// operations the compilers inline into the caller's pixel loop; the rest
+  /// of Annex E's DECODE runs out of line in [_decodeSlow].
+  @pragma('vm:prefer-inline')
+  @pragma('dart2js:prefer-inline')
   int decode(Int8List mpsTable, Uint8List indexTable, int cx) {
     final i = indexTable[cx];
-    final mps = mpsTable[cx];
-    final (qe, nmps, nlps, sw) = _qe[i];
+    final qe = _qeValue[i];
+    final a = _a - qe;
+    final c = _c;
+    if ((c >> 16) >= qe && a & 0x8000 != 0) {
+      _a = a;
+      _c = c - (qe << 16);
+      return mpsTable[cx];
+    }
+    return _decodeSlow(mpsTable, indexTable, cx, i, qe, a, c);
+  }
 
-    _a -= qe;
+  int _decodeSlow(Int8List mpsTable, Uint8List indexTable, int cx, int i,
+      int qe, int a, int c) {
+    final mps = mpsTable[cx];
     int d;
-    if (((_c >> 16) & 0xFFFF) < qe) {
-      if (_a < qe) {
-        _a = qe;
+    if ((c >> 16) < qe) {
+      if (a < qe) {
         d = mps;
-        indexTable[cx] = nmps;
+        indexTable[cx] = _qeNmps[i];
       } else {
-        _a = qe;
         d = 1 - mps;
-        if (sw == 1) mpsTable[cx] = 1 - mps;
-        indexTable[cx] = nlps;
+        if (_qeSwitch[i] == 1) mpsTable[cx] = 1 - mps;
+        indexTable[cx] = _qeNlps[i];
       }
+      a = qe;
     } else {
-      _c -= qe << 16;
-      _c &= 0xFFFFFFFF;
-      if (_a & 0x8000 != 0) return mps;
-      if (_a < qe) {
+      // a has dropped below 0x8000: the MPS path with renormalisation
+      c -= qe << 16;
+      if (a < qe) {
         d = 1 - mps;
-        if (sw == 1) mpsTable[cx] = 1 - mps;
-        indexTable[cx] = nlps;
+        if (_qeSwitch[i] == 1) mpsTable[cx] = 1 - mps;
+        indexTable[cx] = _qeNlps[i];
       } else {
         d = mps;
-        indexTable[cx] = nmps;
+        indexTable[cx] = _qeNmps[i];
       }
     }
+    var ct = _ct;
     do {
-      if (_ct == 0) _byteIn();
-      _a = (_a << 1) & 0xFFFF;
-      _c = (_c << 1) & 0xFFFFFFFF;
-      _ct--;
-    } while (_a & 0x8000 == 0);
+      if (ct == 0) {
+        _c = c;
+        _byteIn();
+        c = _c;
+        ct = _ct;
+      }
+      a = (a << 1) & 0xFFFF;
+      c = (c << 1) & 0xFFFFFFFF;
+      ct--;
+    } while (a & 0x8000 == 0);
+    _a = a;
+    _c = c;
+    _ct = ct;
     return d;
   }
 

@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "無法檢查更新。請稍後再試。",
   "settingsUpdateIdle": "您使用的是 {name} {version}。",
   "settingsNightlyUpdates": "Nightly 更新",
-  "settingsNightlyUpdatesSubtitle": "自動接收來自 main 的未簽署 Windows 測試版本更新通知。",
+  "settingsNightlyUpdatesSubtitle": "自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。",
   "settingsUpdates": "更新",
   "settingsViewSource": "在 GitHub 上檢視原始碼",
   "undo": "復原",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "自訂設定",
   "whatsNew": "新功能",
   "whatsNewInstalled": "已安裝",
-  "whatsNewUnavailable": "此版本未提供版本資訊。"
+  "whatsNewUnavailable": "此版本未提供版本資訊。",
+  "incomingFilesTitle": "{count, plural, other{開啟 {count} 個 PDF}}",
+  "incomingFilesMessage": "要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。",
+  "incomingFilesCombine": "合併",
+  "incomingFilesCombineTitle": "{count, plural, other{合併 {count} 個 PDF}}",
+  "incomingFilesCombineMessage": "拖曳檔案即可設定合併順序。"
 }

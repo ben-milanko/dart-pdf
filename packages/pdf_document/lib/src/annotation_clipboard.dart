@@ -361,10 +361,12 @@ extension PdfAnnotationClipboard on PdfEditor {
       final shifted = _shiftPoints(dict[key], dx, dy);
       if (shifted != null) dict[key] = shifted;
     }
-    final ink = dict['InkList'];
-    if (ink is CosArray) {
-      dict['InkList'] = CosArray([
-        for (final stroke in ink.items) _shiftPoints(stroke, dx, dy) ?? stroke,
+    for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+      final nested = dict[key];
+      if (nested is! CosArray) continue;
+      dict[key] = CosArray([
+        for (final stroke in nested.items)
+          _shiftPoints(stroke, dx, dy) ?? stroke,
       ]);
     }
     _reorientPastedAppearance(dict, pageIndex, snapshot.sourceRotation);

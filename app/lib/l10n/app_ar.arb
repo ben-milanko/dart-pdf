@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "تعذّر التحقق من التحديثات. حاول مرة أخرى لاحقًا.",
   "settingsUpdateIdle": "لديك {name} {version}.",
   "settingsNightlyUpdates": "التحديثات الليلية",
-  "settingsNightlyUpdatesSubtitle": "تلقي إشعارات تحديث تلقائية لإصدارات Windows التجريبية غير الموقعة من الفرع main.",
+  "settingsNightlyUpdatesSubtitle": "تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.",
   "settingsUpdates": "التحديثات",
   "settingsViewSource": "عرض المصدر على GitHub",
   "undo": "تراجع",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "إعدادات مخصصة",
   "whatsNew": "ما الجديد",
   "whatsNewInstalled": "مثبَّتة",
-  "whatsNewUnavailable": "ملاحظات الإصدار غير متوفرة في هذه النسخة."
+  "whatsNewUnavailable": "ملاحظات الإصدار غير متوفرة في هذه النسخة.",
+  "incomingFilesTitle": "{count, plural, other{فتح {count} من ملفات PDF}}",
+  "incomingFilesMessage": "هل تريد فتح كل ملف في علامة تبويب خاصة به، أم دمجها في مستند جديد واحد؟ اسحب الملفات لتحديد ترتيب دمجها.",
+  "incomingFilesCombine": "دمج",
+  "incomingFilesCombineTitle": "{count, plural, other{دمج {count} من ملفات PDF}}",
+  "incomingFilesCombineMessage": "اسحب الملفات لتحديد ترتيب دمجها."
 }

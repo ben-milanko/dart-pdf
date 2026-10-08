@@ -939,7 +939,7 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Terima notifikasi pembaruan otomatis untuk build uji Windows tanpa tanda tangan dari main.';
+      'Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.';
 
   @override
   String get settingsUpdates => 'Pembaruan';
@@ -1270,4 +1270,35 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Catatan rilis tidak tersedia di build ini.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Buka $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.';
+
+  @override
+  String get incomingFilesCombine => 'Gabungkan';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Gabungkan $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Seret file untuk mengatur urutan penggabungannya.';
 }

@@ -1,4 +1,4 @@
-# DartPDF App Store / Play Store listing copy
+# DartPDF storefront listing copy
 
 Accurate to what the app ships today. Character budgets noted per field.
 Update this file whenever the live listings change — it is the source of
@@ -62,8 +62,8 @@ Runs on iPhone, iPad, and Mac. Opens PDFs from the Files app, share sheets, or d
 **What's New** (write per release, in user-benefit language — no engine
 jargon like "retained rendering" or "off-thread processing"):
 
-Current (1.4.1):
-`Large drawings and scanned plans now render sharper and stay smooth while you scroll. New: callout annotations with leader lines, and rich-text styling when editing text.`
+Current (7.0.0):
+See [`release-notes/7.0.0-appstore.txt`](release-notes/7.0.0-appstore.txt).
 
 ---
 
@@ -99,6 +99,57 @@ Features:
 
 Runs on Android, iPhone, iPad, and Mac, plus Windows, Linux, and the web. Opens PDFs from your file manager, share sheets, or drag-and-drop. Light and dark themes.
 ```
+
+---
+
+## Microsoft Store
+
+English listing fields are saved in
+[`packaging/msstore/listing/en-US.json`](packaging/msstore/listing/en-US.json).
+They reuse the verified live App Store and Google Play copy:
+
+- **Product name:** `DartPDF: Edit PDF Documents` (the App Store name).
+  Reserve this name in Partner Center before selecting it for the listing.
+- **Short description:** `Easily annotate documents, fill forms, and redact text privately offline.`
+  (the Google Play short description).
+- **Description:** the shared introduction, privacy wording, and eleven
+  features above, followed by: `Runs on Windows 10 and Windows 11. Opens PDFs
+  from File Explorer, or drag-and-drop. Light and dark themes.`
+- **Product features:** all eleven features from the shared description.
+- **Keywords:** `PDF editor`, `PDF annotation`, `fill PDF forms`,
+  `sign PDF digitally`, `redact PDF content`, `OCR`, `merge PDF`
+  (seven phrases, sixteen words).
+- **What's new:** [`release-notes/7.0.0-stores.txt`](release-notes/7.0.0-stores.txt).
+
+Saved and submitted on 8 October 2026 in Partner Center submission **17**
+(`1152921505702072175`). Status: **In certification**, with automatic publishing
+after approval. The sting trailer from published submission 16 is retained.
+
+Use the native Windows captures under `doc/marketing/app/windows/` for this
+store, as described in [`doc/screenshots/README.md`](../doc/screenshots/README.md).
+The sting and its required artwork are documented in
+[`doc/marketing/motion/README.md`](../doc/marketing/motion/README.md).
+
+## Snap Store
+
+- **Title:** `DartPDF: Edit PDF Documents` (the App Store name).
+- **Summary:** `Easily annotate documents, fill forms, and redact text privately offline.`
+  (73 characters, matching Google Play).
+- **Description:** the shared introduction, privacy wording, and eleven
+  features above, with Markdown list bullets, followed by: `Runs on Linux.
+  Opens PDFs from your file manager, via drag-and-drop, or as a launch argument.
+  Light and dark themes.`
+
+Published on 8 October 2026 at <https://snapcraft.io/dartpdf>. The listing now
+uses saved store overrides. Both Snap recipes carry the same title/summary;
+the release recipe adopts its description from the shared AppStream metadata
+in `linux/dev.milanko.dartpdf.metainfo.xml`. Update all of these sources when
+changing the live listing so future uploads stay aligned.
+
+**Video:** <https://www.youtube.com/watch?v=jKLzTw32Jd4>. The English app sting
+is unlisted with captions and embedding enabled, shared with all Google Play
+listings. The Snap listing video was saved on 8 October 2026 and playback was
+verified on the public listing.
 
 ---
 

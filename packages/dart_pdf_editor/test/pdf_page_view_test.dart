@@ -1738,6 +1738,7 @@ class _DeferredRecordWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1748,6 +1749,7 @@ class _DeferredRecordWorker extends PdfRenderWorker {
     final result = await _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1789,6 +1791,7 @@ class _RatioRecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1803,6 +1806,7 @@ class _RatioRecordingWorker extends PdfRenderWorker {
     return _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1838,6 +1842,7 @@ class _BlockingDetailWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -1852,6 +1857,7 @@ class _BlockingDetailWorker extends PdfRenderWorker {
     return _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1887,6 +1893,7 @@ class _LocalCommandWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,

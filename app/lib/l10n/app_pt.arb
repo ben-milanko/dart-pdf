@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Não foi possível verificar atualizações. Tente novamente mais tarde.",
   "settingsUpdateIdle": "Você tem o {name} {version}.",
   "settingsNightlyUpdates": "Atualizações noturnas",
-  "settingsNightlyUpdatesSubtitle": "Receba notificações automáticas para compilações de teste do Windows não assinadas da main.",
+  "settingsNightlyUpdatesSubtitle": "Receba notificações automáticas para compilações de teste do Windows/macOS não assinadas da main.",
   "settingsUpdates": "Atualizações",
   "settingsViewSource": "Ver código-fonte no GitHub",
   "undo": "Desfazer",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Definições personalizadas",
   "whatsNew": "Novidades",
   "whatsNewInstalled": "Instalada",
-  "whatsNewUnavailable": "As notas de versão não estão disponíveis nesta compilação."
+  "whatsNewUnavailable": "As notas de versão não estão disponíveis nesta compilação.",
+  "incomingFilesTitle": "{count, plural, other{Abrir {count} PDFs}}",
+  "incomingFilesMessage": "Abrir cada arquivo em sua própria aba ou combiná-los em um novo documento? Arraste os arquivos para definir a ordem.",
+  "incomingFilesCombine": "Combinar",
+  "incomingFilesCombineTitle": "{count, plural, other{Combinar {count} PDFs}}",
+  "incomingFilesCombineMessage": "Arraste os arquivos para definir a ordem da combinação."
 }

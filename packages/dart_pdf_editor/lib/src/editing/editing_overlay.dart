@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../annotation_display_filter.dart';
 import '../debug_overlays.dart';
 import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
@@ -496,6 +497,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.linkPrompt = pdfPresentLinkPrompt,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.interactionHost,
     this.interactionSession,
     this.onPanViewport,
@@ -555,6 +557,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// Whether the page is displayed with its annotations - same
   /// requirement as [pageColor]: the eyedropper samples what's visible.
   final bool showAnnotations;
+
+  /// Annotation subtypes the viewer hides from display (see
+  /// [PdfViewer.hiddenAnnotationSubtypes]); previews and the eyedropper
+  /// leave them out the way the page does.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Viewer-owned services used by this page's interaction session.
   final PdfEditingInteractionHost? interactionHost;
@@ -748,7 +755,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // double-tap) must measure against this raw point, not the snapped vertex.
   Offset? _polyLastRaw;
   Offset? _polyHover;
-  Offset? _polyDoubleTapPosition;
+  // Poly-tool taps are read off the raw pointer events, not the tap/double-
+  // tap recognizers: with a double-tap recognizer in the arena every tap is
+  // held back for the double-tap timeout, so a hybrid tool's vertex landed
+  // ~300ms late (the rubber band kept chasing the cursor until it caught
+  // up), and a quick finishing double-tap was ignored while the recognizer
+  // was still sitting on an earlier tap. (The recognizer stays in the arena
+  // regardless, so the viewer's double-tap zoom can't take the finish.) [_polyTapPointer]/[_polyTapDown]
+  // track a press that may yet be a tap, and whether it went down close
+  // enough to [_polyLastTap] - the previous tap, until [_polyLastTapTimer]
+  // (the double-tap timeout) expires it - to finish the path when it lifts.
+  int? _polyTapPointer;
+  Offset? _polyTapDown;
+  bool _polyTapPaired = false;
+  Offset? _polyLastTap;
+  Timer? _polyLastTapTimer;
   // the form tool's double-tap fills the field under the down position
   TapDownDetails? _doubleTapDownDetails;
 
@@ -756,7 +777,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   PdfPageColorSampler? _sampler;
   int? _samplerRevisionId;
   Color? _samplerPageColor;
-  bool? _samplerAnnotations;
+  (bool, String)? _samplerAnnotations;
   Future<PdfPageColorSampler>? _samplerFuture;
   Offset? _pickPosition;
   Color? _pickPreview;
@@ -969,6 +990,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   final Set<String> _embeddedFontsLoading = {};
   double _textEditSize = 14; // pt
   Color _textEditColor = const Color(0xFF000000);
+  // the editor's typing style when it opened: an existing box whose default
+  // style differs at commit was restyled mid-edit with no text selected
+  _TextEditStyle? _textEditOpenStyle;
   Color? _textEditFill; // the box background the commit will paint
   double _textEditOpacity = 1;
   // box-level layout the inline editor previews so the live text matches
@@ -1055,6 +1079,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   bool _resizeFlipX = false;
   bool _resizeFlipY = false;
   int? _vertexHandle;
+  // a reshaped/moved callout's leaders, painted until the new raster lands
+  List<(Offset, Offset, Color, double)>? _afterCalloutLeaders;
   List<Offset>? _vertexPoints;
 
   // the "lift" model behind a free-text resize: the page rendered WITHOUT
@@ -1328,9 +1354,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The tools that are hybrids: a drag rubber-bands a rectangle, but a tap
   /// starts (and each further tap extends) a free-form vertex list, finished
   /// by a double-tap. The cloud stamps a polygon annotation; content-delete
-  /// erases the page content the polygon encloses.
+  /// erases the page content the polygon encloses; the snapshot captures the
+  /// region the polygon traces.
   bool get _hybridPolyTool =>
-      _tool == PdfEditTool.cloudPolygon || _tool == PdfEditTool.contentDelete;
+      _tool == PdfEditTool.cloudPolygon ||
+      _tool == PdfEditTool.contentDelete ||
+      _tool == PdfEditTool.snapshot;
 
   /// True once at least one hybrid-tool vertex has been placed, so a drag no
   /// longer restarts the shape as a rectangle.
@@ -1762,6 +1791,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_pointers.gestureBailed) return;
+    if (_polyTool || _hybridPolyTool) {
+      // a second contact while one is down is not a tap
+      final fresh = _polyTapPointer == null && event.buttons == kPrimaryButton;
+      _polyTapPointer = fresh ? event.pointer : null;
+      _polyTapDown = fresh ? event.localPosition : null;
+      final last = _polyLastTap;
+      _polyTapPaired = fresh &&
+          last != null &&
+          (event.localPosition - last).distance <= kDoubleTapSlop;
+    }
     if (_polyTool) {
       _addPolyPoint(event.localPosition);
       return;
@@ -1822,6 +1861,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _onPointerMove(PointerMoveEvent event) {
     if (!mounted) return;
+    if (event.pointer == _polyTapPointer &&
+        (event.localPosition - _polyTapDown!).distance >
+            computeHitSlop(event.kind, null)) {
+      _clearPolyTap(); // a drag, not a vertex tap
+    }
     if (event.kind == PointerDeviceKind.mouse ||
         event.kind == PointerDeviceKind.trackpad) {
       _guideCursor = event.localPosition;
@@ -2175,13 +2219,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
-    // a callout exposes two handles: the terminus (arrow tip, index 0) and
-    // the base where the leader meets the box (index 1), so each can be
-    // dragged without disturbing the other or the text box
-    if (annotation.calloutLine case final line?) {
+    // a callout exposes two handles per leader: the terminus (arrow tip,
+    // index 2k) and the base where the leader meets the box (index 2k + 1),
+    // so each can be dragged without disturbing the rest or the text box
+    if (annotation.calloutLeaders case final leaders?) {
       return [
-        _geometry.toViewOffset(line.first.$1, line.first.$2),
-        _geometry.toViewOffset(line.last.$1, line.last.$2),
+        for (final line in leaders) ...[
+          _geometry.toViewOffset(line.first.$1, line.first.$2),
+          _geometry.toViewOffset(line.last.$1, line.last.$2),
+        ],
       ];
     }
     if (annotation.line case final line?) {
@@ -2274,6 +2320,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterElementOnly = null;
     _afterElementFrom = null;
     _afterElementOffset = Offset.zero;
+    _afterCalloutLeaders = null;
     _afterRevisionId = null;
   }
 
@@ -2620,6 +2667,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       element: element.id,
       color: widget.pageColor,
       annotations: widget.showAnnotations,
+      hidden: hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes),
     );
     if (_elementLiftKey == key &&
         _elementClean != null &&
@@ -2639,6 +2687,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         PdfPageRenderPlan(
           pageColor: widget.pageColor,
           annotations: widget.showAnnotations,
+          hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         ),
         operations: elements.operationsRetaining((e) => e.id != id),
       );
@@ -2836,6 +2885,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.pageAt(widget.pageIndex),
         pageColor: widget.pageColor,
         annotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         skipAnnotation: (a) =>
             identical(a.dict, key) || (name != null && a.name == name),
       );
@@ -2865,6 +2915,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   @override
   void dispose() {
+    _polyLastTapTimer?.cancel();
     _controller.removeListener(_onControllerChanged);
     if (_textEditRect != null) _controller.setEditingText(false);
     // if THIS overlay was mid-move, drop the shared cross-page preview
@@ -2991,11 +3042,49 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (request.font is PdfEmbeddedFont) {
       _ensureEmbeddedFontPreview(request.font as PdfEmbeddedFont);
     }
-    _textEditText.applyStyle(_textEditText.selection,
-        font: request.font,
-        size: request.size,
-        color: request.color,
-        underline: request.underline);
+    final selection = _textEditText.selection;
+    if (selection.isValid && !selection.isCollapsed) {
+      _textEditText.applyStyle(selection,
+          font: request.font,
+          size: request.size,
+          color: request.color,
+          underline: request.underline);
+    } else {
+      _restyleWholeTextEdit(
+          font: request.font,
+          size: request.size,
+          color: request.color,
+          underline: request.underline);
+    }
+  }
+
+  /// Restyles the whole inline editor - every run plus the typing default -
+  /// for a restyle picked with no text selected. A box without per-run
+  /// styling stays uniform (no /RC on commit); the commit carries the new
+  /// default style ([_finishTextEdit]).
+  void _restyleWholeTextEdit(
+      {PdfTextFont? font, double? size, int? color, bool? underline}) {
+    final next = _textEditText.defaultStyle
+        .merge(font: font, size: size, color: color, underline: underline);
+    setState(() {
+      if (_textEditText.hasRichStyles) {
+        final length = _textEditText.text.length;
+        if (length > 0) {
+          _textEditText.applyStyle(
+              TextSelection(baseOffset: 0, extentOffset: length),
+              font: font,
+              size: size,
+              color: color,
+              underline: underline);
+        }
+        _textEditText.defaultStyle = next;
+      } else {
+        _textEditText.resetStyles(next);
+      }
+      if (font is PdfStandardFont) _textEditFont = font;
+      if (size != null) _textEditSize = size;
+      if (color != null) _textEditColor = next.color;
+    });
   }
 
   void _clearSavedAnnotationPicture() {
@@ -3307,6 +3396,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         size: defaultSize,
         color: defaultColor,
         underline: defaultUnderline);
+    _textEditOpenStyle = fallbackStyle;
     // a box saved with mixed styling carries /RC: reseed its per-run fonts
     // so reopening shows the bold/italic/colour, not a flattened style
     final richRuns = existing ? _controller.selectedRichRuns : null;
@@ -3384,46 +3474,111 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return box.center;
   }
 
-  /// The leader (terminus, base, color, width) to keep painted so a callout's
-  /// arrow stays visible: while a terminus/base handle is being dragged, and
-  /// while the box editor is open placing a new one. Null otherwise.
-  (Offset, Offset, Color, double)? _calloutLeaderPreview() {
+  /// The selected callout's leader stroke (color with opacity, view width).
+  (Color, double)? _selectedCalloutStroke() {
+    final annotation = _controller.selectedAnnotation;
+    if (annotation == null || !annotation.isCallout) return null;
+    final style = annotation.freeTextStyle;
+    final rgb = style?.borderColor ?? style?.color ?? 0x000000;
+    final borderWidth = style?.borderWidth ?? 1;
+    // the model strokes a borderless callout's leaders at 1pt
+    final width = (borderWidth > 0 ? borderWidth : 1.0) * _geometry.scale;
+    return (
+      Color(0xFF000000 | rgb).withValues(alpha: annotation.appearanceOpacity),
+      width,
+    );
+  }
+
+  /// Pairs callout handle [points] (terminus, base, terminus, base, ...) into
+  /// (terminus, base) leaders.
+  static List<(Offset, Offset)> _calloutLeaderLines(List<Offset> points) => [
+        for (var i = 0; i + 1 < points.length; i += 2)
+          (points[i], points[i + 1]),
+      ];
+
+  /// Keeps [leaders] painted after a callout reshape until the new raster
+  /// lands, so the arrows don't blink out while the page re-renders. A
+  /// no-op when the edit produced no revision ([before] is unchanged).
+  void _holdCalloutLeaders(int before, List<(Offset, Offset)> leaders) {
+    if (before == _controller.revisionId) return;
+    final stroke = _selectedCalloutStroke();
+    if (stroke == null) return;
+    _clearAfterimage();
+    _afterCalloutLeaders = [
+      for (final (terminus, base) in leaders)
+        (terminus, base, stroke.$1, stroke.$2),
+    ];
+    _afterRevisionId = _controller.revisionId;
+  }
+
+  /// The leaders (terminus, base, color, width) to keep painted so a
+  /// callout's arrows stay visible: while the callout is being placed (press
+  /// at the terminus, drag to the box), while a terminus/base handle is
+  /// dragged, while the box is moved (every arrow holds its tip and the
+  /// leaders stretch to the moving box), and while the box editor is open
+  /// placing a new one. Null otherwise.
+  List<(Offset, Offset, Color, double)>? _calloutLeaderPreview() {
+    // placing: the leader runs from the press (the terminus) to the pointer
+    if (_tool == PdfEditTool.callout &&
+        _textEditRect == null &&
+        _dragStart != null &&
+        _dragCurrent != null) {
+      return [
+        (
+          _dragStart!,
+          _dragCurrent!,
+          _newCalloutStrokeColor(),
+          _controller.preferences.strokeWidth * _geometry.scale,
+        ),
+      ];
+    }
     if (_vertexHandle != null && _vertexPoints != null) {
-      final annotation = _controller.selectedAnnotation;
-      final box = _selectedViewRect;
-      if (annotation != null &&
-          annotation.isCallout &&
-          box != null &&
-          _vertexPoints!.isNotEmpty) {
-        final style = annotation.freeTextStyle;
-        final rgb = style?.borderColor ?? style?.color ?? 0x000000;
-        final width = (style?.borderWidth ?? 1) * _geometry.scale;
-        final terminus = _vertexPoints!.first;
-        final base = _vertexPoints!.length > 1
-            ? _vertexPoints![1]
-            : _nearestBoxEdge(box, terminus);
-        return (
-          terminus,
-          base,
-          Color(0xFF000000 | rgb)
-              .withValues(alpha: annotation.appearanceOpacity),
-          width > 0 ? width : _geometry.scale,
-        );
+      final stroke = _selectedCalloutStroke();
+      if (stroke != null && _vertexPoints!.length >= 2) {
+        return [
+          for (final (terminus, base) in _calloutLeaderLines(_vertexPoints!))
+            (terminus, base, stroke.$1, stroke.$2),
+        ];
+      }
+    }
+    if (_resizeHandle == null &&
+        _rotateStartAngle == null &&
+        _moveStart != null &&
+        _moveCurrent != null &&
+        _controller.selectedAnnotationSlots.length == 1) {
+      final delta = _moveCurrent! - _moveStart!;
+      final stroke = _selectedCalloutStroke();
+      final points = _selectedVertexPoints;
+      if (delta != Offset.zero &&
+          stroke != null &&
+          points != null &&
+          _controller.selectedAnnotation?.appearanceRotation == 0) {
+        return [
+          for (final (terminus, base) in _calloutLeaderLines(points))
+            (terminus, base + delta, stroke.$1, stroke.$2),
+        ];
       }
     }
     if (_textEditCalloutTarget != null && _textEditRect != null) {
       final terminus = _geometry.toViewOffset(
           _textEditCalloutTarget!.$1, _textEditCalloutTarget!.$2);
-      return (
-        terminus,
-        _nearestBoxEdge(_textEditRect!, terminus),
-        (_controller.preferences.textBorderColor ?? _controller.color)
-            .withValues(alpha: _controller.preferences.opacity),
-        _controller.preferences.strokeWidth * _geometry.scale,
-      );
+      return [
+        (
+          terminus,
+          _nearestBoxEdge(_textEditRect!, terminus),
+          _newCalloutStrokeColor(),
+          _controller.preferences.strokeWidth * _geometry.scale,
+        ),
+      ];
     }
-    return null;
+    return _afterCalloutLeaders;
   }
+
+  /// The stroke color a new callout's box outline and leader commit with
+  /// ([PdfEditingController.addCallout]: the box border, else the text color).
+  Color _newCalloutStrokeColor() =>
+      (_controller.preferences.textBorderColor ?? _controller.color)
+          .withValues(alpha: _controller.preferences.opacity);
 
   /// Commits the editor's text: a new free-text annotation, or the
   /// selected one rewritten. Empty text adds nothing / changes nothing.
@@ -3453,8 +3608,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _closeTextEditor();
     final before = _controller.revisionId;
     if (existing) {
+      final openStyle = _textEditOpenStyle;
+      final style = _textEditText.defaultStyle;
+      final restyled = openStyle != null &&
+          (style.font != openStyle.font ||
+              style.size != openStyle.size ||
+              style.color != openStyle.color ||
+              style.underline != openStyle.underline);
       if (text.isNotEmpty && richRuns != null) {
         _controller.setSelectedRichText(richRuns);
+      } else if (text.isNotEmpty && restyled) {
+        // restyled with just a caret: the whole box takes the new style
+        _controller.setSelectedText(text,
+            font: style.font == openStyle.font ? null : style.font,
+            size: style.size == openStyle.size ? null : style.size,
+            color: style.color == openStyle.color
+                ? null
+                : style.color.toARGB32() & 0xFFFFFF,
+            underline: style.underline == openStyle.underline
+                ? null
+                : style.underline);
       } else if (text.isNotEmpty && text != _controller.selectedText) {
         _controller.setSelectedText(text);
       }
@@ -3742,6 +3915,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _moveCurrent = position;
           });
           _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
+          return;
+        }
+        final mouseLike = details.kind == null ||
+            details.kind == PointerDeviceKind.mouse ||
+            details.kind == PointerDeviceKind.trackpad;
+        if (mouseLike && _additiveModifier) {
+          // Shift/⌘/Ctrl-drag on empty page area rubber-bands form
+          // widgets into the selection (for bulk edits) instead of
+          // drawing a new field
+          _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
+          setState(() {
+            _marqueeStart = position;
+            _marqueeCurrent = position;
+            _marqueeAdd = true;
+          });
           return;
         }
         if (_controller.formFieldAt(widget.pageIndex, x, y) == null) {
@@ -4231,6 +4419,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (marquee != null) {
       if (marquee.width < 4 && marquee.height < 4) return; // a click
+      if (_tool == PdfEditTool.form) {
+        _controller.selectFormWidgetsIn(
+            widget.pageIndex, _geometry.toPageRect(marquee),
+            add: marqueeAdd);
+        return;
+      }
       _controller.selectAnnotationsIn(
           widget.pageIndex, _geometry.toPageRect(marquee),
           add: marqueeAdd);
@@ -4366,10 +4560,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
       }
       final (x1, y1) = _geometry.toPagePoint(moveCurrent);
+      // a moved callout keeps its arrow tips: hold the stretched leaders the
+      // drag showed until the new raster lands
+      final leaders = _calloutLeaderPreview();
       // Wash the old spot so the stale raster does not leave a second copy
       // behind while the committed revision re-renders.
       _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
           to: _selectedViewRect?.shift(moveCurrent - moveStart));
+      if (leaders != null && _afterRevisionId == _controller.revisionId) {
+        _afterCalloutLeaders = leaders;
+      }
     } else if (stroke != null && stroke.isNotEmpty) {
       _bufferInkStroke(stroke, strokePressures, shiftAnchor);
     } else if (dragStart != null && dragCurrent != null) {
@@ -4486,15 +4686,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _commitVertexDrag(List<Offset> points, {int? handle}) {
     final annotation = _controller.selectedAnnotation;
     if (annotation != null && annotation.isCallout && points.isNotEmpty) {
-      // handle 0 is the terminus (re-aim the arrow), handle 1 is the base
-      // (slide where the leader meets the box); both leave the box in place
+      // even handles are a leader's terminus (re-aim that arrow), odd ones
+      // its base (slide where it meets the box); both leave the box and the
+      // other leaders in place
       final idx = (handle ?? 0).clamp(0, points.length - 1);
       final page = _geometry.toPagePoint(points[idx]);
-      if (idx == 1) {
-        _controller.reshapeSelectedCalloutBase(page);
+      final leaders = _calloutLeaderLines(points);
+      final before = _controller.revisionId;
+      if (idx.isOdd) {
+        _controller.reshapeSelectedCalloutBase(page, leader: idx ~/ 2);
       } else {
-        _controller.reshapeSelectedCalloutTarget(page);
+        _controller.reshapeSelectedCalloutTarget(page, leader: idx ~/ 2);
       }
+      _holdCalloutLeaders(before, leaders);
       return;
     }
     final tool = _selectedLineTool;
@@ -4591,6 +4795,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
         _tool == PdfEditTool.contentDelete ||
+        _tool == PdfEditTool.snapshot ||
         _tool == PdfEditTool.measureArea ||
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
@@ -4623,6 +4828,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // unlike the shape tools below)
       _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
       _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyLastRaw = null;
+        _polyHover = null;
+      });
+      return;
+    }
+    if (_tool == PdfEditTool.snapshot) {
+      // a traced snapshot only reads the page: capture the polygon's bounds,
+      // cut to the polygon, and clear the vertices (nothing to afterimage)
+      unawaited(_commitSnapshot(
+          _boundsOf(simplified), _geometry.toPageRect(_boundsOf(simplified)),
+          polygon: simplified, pagePolygon: pagePoints));
       setState(() {
         _polyPoints = null;
         _polyLastRaw = null;
@@ -4730,33 +4948,56 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (placer == null) return;
         await placer(context, pageIndex: widget.pageIndex, pageRect: rect);
       case PdfEditTool.snapshot:
-        // always keep a vector copy on the clipboard so it can paste back
-        // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
-        // callback is an optional export of the raster image on top
-        final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
-            annotations: widget.showAnnotations);
-        final handler = widget.onSnapshot;
-        if (handler == null) return;
-        // page raster space (post-/Rotate, y down) = view space / scale -
-        // the same mapping the eyedropper's sampler uses
-        final s = _geometry.scale;
-        final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
-            viewRect.right / s, viewRect.bottom / s);
-        final bytes = await _controller.captureSnapshot(
-            widget.pageIndex, region,
-            pageColor: widget.pageColor, annotations: widget.showAnnotations);
-        if (bytes == null || !mounted) return;
-        await handler(
-            context,
-            PdfSnapshot(
-              pageIndex: widget.pageIndex,
-              pageRect: rect,
-              pngBytes: bytes,
-              vector: vector,
-            ));
+        await _commitSnapshot(viewRect, rect);
       default:
         break;
     }
+  }
+
+  /// The axis-aligned bounds of [points] (view space).
+  static Rect _boundsOf(List<Offset> points) {
+    var left = points.first.dx, right = left;
+    var top = points.first.dy, bottom = top;
+    for (final p in points.skip(1)) {
+      left = math.min(left, p.dx);
+      right = math.max(right, p.dx);
+      top = math.min(top, p.dy);
+      bottom = math.max(bottom, p.dy);
+    }
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  /// Captures the Snapshot tool's region: the dragged box [viewRect] (page
+  /// space [rect]), or - when [polygon] (view space) / [pagePolygon] (page
+  /// space) are given - the traced footprint inside those bounds.
+  Future<void> _commitSnapshot(Rect viewRect, PdfRect rect,
+      {List<Offset>? polygon, List<(double, double)>? pagePolygon}) async {
+    // always keep a vector copy on the clipboard so it can paste back
+    // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
+    // callback is an optional export of the raster image on top
+    final vector = _controller.copyVectorSnapshot(widget.pageIndex, rect,
+        annotations: widget.showAnnotations, clip: pagePolygon);
+    final handler = widget.onSnapshot;
+    if (handler == null) return;
+    // page raster space (post-/Rotate, y down) = view space / scale -
+    // the same mapping the eyedropper's sampler uses
+    final s = _geometry.scale;
+    final region = Rect.fromLTRB(viewRect.left / s, viewRect.top / s,
+        viewRect.right / s, viewRect.bottom / s);
+    final bytes = await _controller.captureSnapshot(widget.pageIndex, region,
+        pageColor: widget.pageColor,
+        annotations: widget.showAnnotations,
+        clip: polygon == null ? null : [for (final p in polygon) p / s]);
+    if (bytes == null || !mounted) return;
+    await handler(
+        context,
+        PdfSnapshot(
+          pageIndex: widget.pageIndex,
+          pageRect: rect,
+          pngBytes: bytes,
+          vector: vector,
+          pagePolygon: pagePolygon,
+        ));
   }
 
   /// The form tool's double-tap: hands the hit field to this page's
@@ -4790,7 +5031,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final document = _controller.document;
     final revisionId = _controller.revisionId;
     final pageColor = widget.pageColor;
-    final annotations = widget.showAnnotations;
+    final annotations = (
+      widget.showAnnotations,
+      hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes),
+    );
     if (revisionId != _samplerRevisionId ||
         pageColor != _samplerPageColor ||
         annotations != _samplerAnnotations) {
@@ -4799,9 +5043,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _samplerAnnotations = annotations;
       _sampler = null;
       _samplerFuture = PdfPageColorSampler.of(document.page(widget.pageIndex),
-              pageColor: pageColor,
-              annotations: annotations,
-              rotation: widget.geometry.rotation,
+              plan: PdfPageRenderPlan(
+                pageColor: pageColor,
+                annotations: widget.showAnnotations,
+                hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
+                rotation: widget.geometry.rotation,
+              ),
               worker: widget.renderWorker,
               pageIndex: widget.pageIndex)
           .then((s) {
@@ -4863,7 +5110,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// raw listener, so it fires regardless of the gesture arena.
   Future<void> _onPointerUp(PointerUpEvent event) async {
     if (!mounted) return;
+    // read before [_endRawPointer] resets the bail with the last touch
+    final paired = _polyTapPaired;
+    final tapDown = event.pointer == _polyTapPointer &&
+            !_pointers.gestureBailed &&
+            (_polyTool || _hybridPolyTool) &&
+            !_controller.isCroppingImage &&
+            !_controller.isPickingColor &&
+            _controller.activeSavedAnnotation == null &&
+            _textEditRect == null
+        ? _polyTapDown
+        : null;
+    if (event.pointer == _polyTapPointer) _clearPolyTap();
     _endRawPointer(event, canceled: false);
+    if (tapDown != null) _onPolyTap(tapDown, event.localPosition, paired);
     if (!_controller.isPickingColor) return;
     final dragged = _pickDragged;
     _pickDownPosition = null;
@@ -4888,7 +5148,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!mounted) return;
     _pickDownPosition = null;
     _pickDragged = false;
+    if (event.pointer == _polyTapPointer) _clearPolyTap();
     _endRawPointer(event, canceled: true);
+  }
+
+  void _clearPolyTap() {
+    _polyTapPointer = null;
+    _polyTapDown = null;
+    _polyTapPaired = false;
+  }
+
+  /// A poly-tool tap that went down at [down] has lifted at [up]. A hybrid
+  /// tool's vertex lands here (a press could still have been the drag that
+  /// rubber-bands a rectangle); a plain poly tool placed its vertex on the
+  /// way down. A tap that went down [paired] with the previous one - inside
+  /// the double-tap timeout and slop, as the recognizer would pair them -
+  /// finishes the path.
+  void _onPolyTap(Offset down, Offset up, bool paired) {
+    if (_hybridPolyTool) _addPolyPoint(up);
+    _polyLastTapTimer?.cancel();
+    if (paired) {
+      _polyLastTap = null;
+      _finishPolyPath(down);
+    } else {
+      _polyLastTap = down;
+      _polyLastTapTimer = Timer(kDoubleTapTimeout, () => _polyLastTap = null);
+    }
   }
 
   Future<void> _onTapUp(TapUpDetails details) async {
@@ -4928,13 +5213,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitTextEdit();
       return;
     }
-    if (_polyTool) {
-      return;
-    }
-    if (_hybridPolyTool) {
-      // a tap (not a drag) drops a vertex; double-tap finishes the region
-      _addPolyPoint(details.localPosition);
-      return;
+    if (_polyTool || _hybridPolyTool) {
+      return; // vertices land from the raw pointer events ([_onPolyTap])
     }
     final (x, y) = _geometry.toPagePoint(details.localPosition);
     final placementPosition = _snapPointToGrid(details.localPosition);
@@ -5057,21 +5337,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onDoubleTapDown(TapDownDetails details) {
-    _polyDoubleTapPosition = details.localPosition;
     _doubleTapDownDetails = details;
   }
 
   void _onDoubleTap() {
-    if (_tool == PdfEditTool.form) {
-      final details = _doubleTapDownDetails;
-      if (details != null) {
-        _fillFormFieldAt(details.localPosition, details.globalPosition);
-      }
-      return;
+    // poly tools already finished from the raw events ([_onPolyTap]); their
+    // recognizer only claims the double-tap so the viewer doesn't zoom
+    if (_tool != PdfEditTool.form) return;
+    final details = _doubleTapDownDetails;
+    if (details != null) {
+      _fillFormFieldAt(details.localPosition, details.globalPosition);
     }
-    if (!_polyTool && !_hybridPolyTool) return;
-    _finishPolyPath(_polyDoubleTapPosition);
-    _polyDoubleTapPosition = null;
   }
 
   void _onHover(PointerHoverEvent event) {
@@ -5379,9 +5655,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _textEditText._styleAt(offset.clamp(0, _textEditText.text.length));
   }
 
+  /// Restyles the inline editor's selected run - or, with just a caret, the
+  /// whole box - and makes the style the new default.
   void _applyInlineTextStyle(
       {PdfTextFont? font, double? size, Color? color, bool? underline}) {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     final rgb = color == null ? null : color.toARGB32() & 0xFFFFFF;
     if (font is PdfStandardFont) {
       _controller.fontFamily = font;
@@ -5486,7 +5764,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   Future<void> _showInlineTextFontMenu(BuildContext context) async {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
     await showPdfFontMenu(
@@ -5494,7 +5772,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         controller: _controller,
         currentFont: _currentInlineTextStyle().font,
         onSelected: (font) {
-          if (!mounted || !_canStyleInlineTextSelection) return;
+          if (!mounted || _textEditRect == null) return;
           _applyInlineTextStyle(font: font);
         });
     _textEditStyleMenuOpen = false;
@@ -5502,7 +5780,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   Future<void> _pickInlineTextColor(BuildContext context, Color initial) async {
-    if (!_canStyleInlineTextSelection) return;
+    if (_textEditRect == null) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
     final picked =
@@ -5524,6 +5802,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : editorRect.center.dx.clamp(halfChip, width - halfChip),
       above ? editorRect.top - 10 * s : editorRect.bottom + 10 * s,
     );
+    // font and size restyle the selected run; colour (like underline) works
+    // with a bare caret too, restyling the whole box
     final enabled = _canStyleInlineTextSelection;
     final iconColor = Color(0xFF000000 | (current.color.toARGB32() & 0xFFFFFF));
     return Positioned(
@@ -5592,12 +5872,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       key: const ValueKey('pdf-inline-text-color'),
                       icon: Icon(Icons.format_color_text, color: iconColor),
                       tooltip: pdfL10n(context).overlayColor,
-                      onPressed: enabled
-                          ? () async {
-                              await _pickInlineTextColor(
-                                  buttonContext, iconColor);
-                            }
-                          : null,
+                      onPressed: () async {
+                        await _pickInlineTextColor(buttonContext, iconColor);
+                      },
                     );
                   }),
                 ]),
@@ -6144,15 +6421,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // repaint, not a rebuild of this whole painter
                     strokes: _controller.strokesOn(widget.pageIndex),
                     pressures: _controller.strokePressuresOn(widget.pageIndex),
-                    dragRect: _dragStart != null && _dragCurrent != null
+                    // a callout placement drag previews only its leader
+                    // (calloutLeaders), never a rubber-band box
+                    dragRect: _dragStart != null &&
+                            _dragCurrent != null &&
+                            _tool != PdfEditTool.callout
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
                     dragLine: _dragStart != null &&
                             _dragCurrent != null &&
-                            (_lineDragTool || _tool == PdfEditTool.callout)
+                            _lineDragTool
                         ? (_dragStart!, _dragCurrent!)
                         : null,
-                    calloutLeader: _calloutLeaderPreview(),
+                    calloutLeaders: _calloutLeaderPreview(),
                     dragPath: polyPreview,
                     dragPathFill: (_tool == PdfEditTool.polygon ||
                                 _tool == PdfEditTool.cloudPolygon) &&
@@ -7635,7 +7916,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.inkOpacity = 1,
     required this.dragRect,
     required this.dragLine,
-    this.calloutLeader,
+    this.calloutLeaders,
     required this.dragPath,
     this.dragPathFill,
     required this.dashed,
@@ -7706,7 +7987,7 @@ class _EditingPreviewPainter extends CustomPainter {
   /// A callout leader to paint from its terminus to its base while the box is
   /// being placed/edited (before the annotation exists) or while the terminus
   /// or base handle is being dragged: (terminus, base, color, strokeWidth).
-  final (Offset, Offset, Color, double)? calloutLeader;
+  final List<(Offset, Offset, Color, double)>? calloutLeaders;
   final List<Offset>? dragPath;
 
   /// The interior fill for an in-progress polygon [dragPath], so drawing a
@@ -8122,6 +8403,19 @@ class _EditingPreviewPainter extends CustomPainter {
             ..strokeWidth = 1 * chromeScale);
       return;
     }
+    if (tool == PdfEditTool.snapshot) {
+      // the traced capture region: the same selection marquee the snapshot's
+      // drag-rectangle draws, closed back to the first vertex
+      final region = Path()..addPolygon(points, true);
+      canvas.drawPath(region, Paint()..color = _chrome.withAlpha(0x1A));
+      canvas.drawPath(
+          region,
+          Paint()
+            ..color = _chrome
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * chromeScale);
+      return;
+    }
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -8134,6 +8428,7 @@ class _EditingPreviewPainter extends CustomPainter {
     }
     final closed = tool == PdfEditTool.polygon ||
         tool == PdfEditTool.cloudPolygon ||
+        tool == PdfEditTool.snapshot ||
         tool == PdfEditTool.measureArea;
     if (closed) {
       path.close();
@@ -8224,7 +8519,11 @@ class _EditingPreviewPainter extends CustomPainter {
     final len = delta.distance;
     if (len == 0) return (tip, tip);
     final unit = delta / len;
-    final size = math.max(10.0, width * 5);
+    // the committed arrowhead is max(10pt, 5 x stroke width) in PAGE points
+    // (the model's line endings); [width] is already in view pixels, so only
+    // the 10pt floor needs scaling - else the preview arrow shrinks relative
+    // to the committed one as soon as the page is zoomed in
+    final size = math.max(10.0 * geometry.scale, width * 5);
     final half = size * 0.38;
     final base = tip + unit * size;
     final perp = Offset(-unit.dy, unit.dx);
@@ -8358,7 +8657,7 @@ class _EditingPreviewPainter extends CustomPainter {
       _paintShapePreview(canvas, rect, tool, color, strokeWidth, lineScale);
     }
 
-    if (calloutLeader case final leader?) {
+    for (final leader in calloutLeaders ?? const []) {
       _paintCalloutLeader(canvas, leader.$1, leader.$2, leader.$3, leader.$4);
     }
 
@@ -8546,7 +8845,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
-      oldDelegate.calloutLeader != calloutLeader ||
+      !listEquals(oldDelegate.calloutLeaders, calloutLeaders) ||
       oldDelegate.dragPathFill != dragPathFill ||
       oldDelegate.selectionRect != selectionRect ||
       !listEquals(oldDelegate.extraSelectionRects, extraSelectionRects) ||

@@ -962,7 +962,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'تلقي إشعارات تحديث تلقائية لإصدارات Windows التجريبية غير الموقعة من الفرع main.';
+      'تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.';
 
   @override
   String get settingsUpdates => 'التحديثات';
@@ -1285,4 +1285,34 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'ملاحظات الإصدار غير متوفرة في هذه النسخة.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'فتح $count من ملفات PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'هل تريد فتح كل ملف في علامة تبويب خاصة به، أم دمجها في مستند جديد واحد؟ اسحب الملفات لتحديد ترتيب دمجها.';
+
+  @override
+  String get incomingFilesCombine => 'دمج';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'دمج $count من ملفات PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'اسحب الملفات لتحديد ترتيب دمجها.';
 }

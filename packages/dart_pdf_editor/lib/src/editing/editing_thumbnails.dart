@@ -10,6 +10,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../annotation_display_filter.dart';
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_page_view.dart';
@@ -27,6 +28,7 @@ import 'editing_preferences.dart';
 import 'editing_thumbnail_drop.dart';
 import 'thumbnail_cache.dart';
 import '../design/editor_presenter.dart';
+import '../insert_pages_dialog.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
 /// down to reorder pages (with a mouse just drag; on touch, long-press
@@ -73,6 +75,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.width = 160,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.dock = PdfPanelDock.left,
     this.scrollDirection,
     this.resizable = true,
@@ -83,6 +86,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.bottomSheet = false,
     this.onClose,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.fileDropController,
@@ -117,6 +121,10 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// Whether thumbnails render their annotations - pass the viewer's
   /// [PdfViewer.showAnnotations] so they match the pages.
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge. A docked strip scrolls vertically at the
@@ -160,6 +168,12 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// footer menu and merges all of the picked file's pages in after the
   /// current page. Needs the host for file I/O.
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Picks one or more PDFs to insert (empty = cancelled). When given,
+  /// "Insert PDF…" opens the multi-document [showPdfInsertPagesDialog]
+  /// (page ranges, placement, interleave, bookmarks) instead of merging a
+  /// single file straight in; it takes precedence over [onPickPdfToInsert].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
 
   /// Receives the bytes of an exported page range, for the host to save.
   /// When given, an "Export pages…" entry appears in the page-actions
@@ -613,21 +627,23 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(controller, index, widget.pageColor,
-        widget.showAnnotations, pixelWidth);
+    final key = thumbnailKey(
+        controller, index, widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
       pageIndex: index,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
-      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      disk: controller.pageMatchesOpenedFile(index) ? cache.disk : null,
       previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
@@ -726,7 +742,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
         _cache.setWarm(
           this,
           controller.document.pageCount,
-          '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+          '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}'
+          '|${hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes)}',
           (index) => _warmRender(index, pixelWidth),
         );
       } else {
@@ -812,6 +829,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     final pageCount = controller.document.pageCount;
                     final rtl = Directionality.of(context) == TextDirection.rtl;
                     final showPageActions = widget.onPickPdfToInsert != null ||
+                        widget.onPickPdfFilesToInsert != null ||
                         widget.onExportPages != null ||
                         widget.onSplitPages != null ||
                         (widget.allowPageEditing &&
@@ -858,6 +876,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                 widget.allowPageEditing,
                                             onPickPdfToInsert:
                                                 widget.onPickPdfToInsert,
+                                            onPickPdfFilesToInsert:
+                                                widget.onPickPdfFilesToInsert,
                                             onExportPages: widget.onExportPages,
                                             onSplitPages: widget.onSplitPages,
                                           ),
@@ -914,6 +934,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                                   widget.allowPageEditing,
                                               onPickPdfToInsert:
                                                   widget.onPickPdfToInsert,
+                                              onPickPdfFilesToInsert:
+                                                  widget.onPickPdfFilesToInsert,
                                               onExportPages:
                                                   widget.onExportPages,
                                               onSplitPages: widget.onSplitPages,
@@ -988,6 +1010,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             pageIndex: index,
                             pageColor: widget.pageColor,
                             showAnnotations: widget.showAnnotations,
+                            hiddenAnnotationSubtypes:
+                                widget.hiddenAnnotationSubtypes,
                             allowPageEditing: widget.allowPageEditing,
                             onExportPages: widget.onExportPages,
                             cache: _cache,
@@ -1351,6 +1375,7 @@ class _PageActionsButton extends StatelessWidget {
     required this.viewerController,
     required this.allowPageEditing,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
   });
@@ -1362,6 +1387,7 @@ class _PageActionsButton extends StatelessWidget {
   /// read-only strip drops them and keeps only Export.
   final bool allowPageEditing;
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
   final void Function(Uint8List bytes)? onExportPages;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
@@ -1378,6 +1404,19 @@ class _PageActionsButton extends StatelessWidget {
   }
 
   Future<void> _insert(BuildContext context) async {
+    final pickFiles = onPickPdfFilesToInsert;
+    if (pickFiles != null) {
+      final inserted = await pdfInsertPagesInteractively(
+        context,
+        controller: controller,
+        pickFiles: pickFiles,
+        currentPage: viewerController.currentPage,
+      );
+      if (inserted != null) {
+        unawaited(_jumpToInsertedPage(viewerController, inserted.pages.first));
+      }
+      return;
+    }
     final pick = onPickPdfToInsert;
     if (pick == null) return;
     // read everything off the context BEFORE the async gap
@@ -1446,7 +1485,8 @@ class _PageActionsButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canPaste = allowPageEditing && controller.hasPageClipboard;
-    final canInsert = onPickPdfToInsert != null;
+    final canInsert =
+        onPickPdfToInsert != null || onPickPdfFilesToInsert != null;
     final canExport = onExportPages != null;
     return PopupMenuButton<_PageAction>(
       key: const ValueKey('pdf-thumbnail-page-actions'),
@@ -1537,8 +1577,10 @@ class PdfThumbnailView extends StatefulWidget {
     required this.viewerController,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.allowPageEditing = true,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.fileDropController,
@@ -1569,6 +1611,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Whether thumbnails render their annotations (match the viewer's).
   final bool showAnnotations;
 
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
+
   /// Whether pages can be reordered (drag), rotated, deleted, and added.
   /// False makes the grid a read-only page picker.
   final bool allowPageEditing;
@@ -1576,6 +1622,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Picks a PDF to insert after the current page; null hides the
   /// "Insert PDF…" page-action. See [PdfThumbnailSidebar.onPickPdfToInsert].
   final Future<Uint8List?> Function()? onPickPdfToInsert;
+
+  /// Picks PDFs for the multi-document insert dialog. See
+  /// [PdfThumbnailSidebar.onPickPdfFilesToInsert].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
 
   /// Receives the bytes of an exported page range; null hides the
   /// "Export pages…" page-action and the selection bar's export.
@@ -1788,11 +1838,29 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
 
   void _cutPages() => widget.controller.cutPages(_clipboardTargets());
 
+  /// The page a paste would drop the clipboard's pages after while the mouse
+  /// hovers the grid: the cell under the cursor, once the shared page
+  /// clipboard holds something. Null when nothing is copied, no cell is
+  /// hovered, or the platform has no reliable hover (touch). Drives both the
+  /// cell's insertion indicator and where [_pastePages] lands - the strip's
+  /// rule, see [_PdfThumbnailSidebarState._pasteInsertionPage].
+  int? get _pasteInsertionPage => widget.allowPageEditing &&
+          widget.controller.hasPageClipboard &&
+          _hoverPage != null &&
+          pdfPanelControlsRevealOnHover()
+      ? _hoverPage
+      : null;
+
   /// Pastes the shared clipboard's pages after the selection (or the
-  /// keyboard/current page) and reveals where they landed.
+  /// keyboard/current page) and reveals where they landed. A live hover over
+  /// the grid - the case the insertion indicator marks - aims the paste at
+  /// the hovered cell instead, so ⌘/Ctrl+V drops the pages where the mark
+  /// shows.
   void _pastePages() {
     final selected = widget.controller.selectedPages;
-    final at = (selected.isNotEmpty ? selected.last : _keyboardBase()) + 1;
+    final base = _pasteInsertionPage ??
+        (selected.isNotEmpty ? selected.last : _keyboardBase());
+    final at = base + 1;
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
     _revealPage(at);
@@ -1868,21 +1936,23 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     final controller = widget.controller;
     if (index >= controller.document.pageCount) return;
     final cache = _cache;
-    final key = thumbnailKey(controller, index, widget.pageColor,
-        widget.showAnnotations, pixelWidth);
+    final key = thumbnailKey(
+        controller, index, widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (cache.contains(key)) return;
     final image = await rasterizeThumbnail(
       controller: controller,
       pageIndex: index,
       pageColor: widget.pageColor,
       annotations: widget.showAnnotations,
+      hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       pixelWidth: pixelWidth,
       worker: widget.renderWorker,
       priority: 3,
       skipIfWorkerDeclines: true,
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
-      disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      disk: controller.pageMatchesOpenedFile(index) ? cache.disk : null,
       previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
@@ -1914,7 +1984,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       _cache.setWarm(
         this,
         controller.document.pageCount,
-        '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}',
+        '$pixelWidth|${widget.pageColor.toARGB32()}|${widget.showAnnotations}'
+        '|${hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes)}',
         (index) => _warmRender(index, pixelWidth),
       );
     } else {
@@ -1946,6 +2017,10 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                 listenable: controller,
                 builder: (context, _) {
                   final rangePreview = _rangePreview;
+                  // the cell a paste would land after while the mouse hovers
+                  // - computed inside the controller's builder so filling/
+                  // clearing the clipboard re-evaluates it (see the strip)
+                  final pasteInsertionPage = _pasteInsertionPage;
                   // the slot an external PDF being dragged over the grid
                   // would drop into - marked on the leading edge of the
                   // cell its pages would land before
@@ -1981,6 +2056,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                 _preferences.thumbnailViewTileWidth = value,
                           ),
                           if (widget.onPickPdfToInsert != null ||
+                              widget.onPickPdfFilesToInsert != null ||
                               widget.onExportPages != null ||
                               widget.onSplitPages != null ||
                               (widget.allowPageEditing &&
@@ -1990,6 +2066,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                               viewerController: widget.viewerController,
                               allowPageEditing: widget.allowPageEditing,
                               onPickPdfToInsert: widget.onPickPdfToInsert,
+                              onPickPdfFilesToInsert:
+                                  widget.onPickPdfFilesToInsert,
                               onExportPages: widget.onExportPages,
                               onSplitPages: widget.onSplitPages,
                             ),
@@ -2028,6 +2106,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             pageColor: widget.pageColor,
                                             showAnnotations:
                                                 widget.showAnnotations,
+                                            hiddenAnnotationSubtypes:
+                                                widget.hiddenAnnotationSubtypes,
                                             allowPageEditing:
                                                 widget.allowPageEditing,
                                             onExportPages: widget.onExportPages,
@@ -2038,6 +2118,9 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             onActivatePage: _openPage,
                                             inRangePreview:
                                                 rangePreview.contains(i),
+                                            showPasteIndicator:
+                                                pasteInsertionPage == i,
+                                            reversed: rtl,
                                             dropEdge: _tileDropEdge(
                                               dropIndex,
                                               i,
@@ -2178,6 +2261,7 @@ class _GridPageCell extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
     required this.cache,
@@ -2188,6 +2272,8 @@ class _GridPageCell extends StatefulWidget {
     required this.onDragStarted,
     required this.onDragEnded,
     this.inRangePreview = false,
+    this.showPasteIndicator = false,
+    this.reversed = false,
     this.dropEdge,
     this.showPageActions = true,
     this.onHover,
@@ -2199,6 +2285,10 @@ class _GridPageCell extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
   final PdfThumbnailCache cache;
@@ -2210,6 +2300,15 @@ class _GridPageCell extends StatefulWidget {
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
   final bool inRangePreview;
+
+  /// Whether to mark this cell as the one a paste would land after: a bar
+  /// along its reading-order end, the gap the pasted pages fill. See
+  /// [_PageTile.showPasteIndicator].
+  final bool showPasteIndicator;
+
+  /// Whether the grid flows right-to-left, which puts the paste mark on
+  /// the cell's left edge.
+  final bool reversed;
 
   /// The edge carrying the file-drop insertion marker, if this cell is the
   /// one the hovering drag would insert against. See [_PageTile.dropEdge].
@@ -2234,6 +2333,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         pageIndex: widget.pageIndex,
         pageColor: widget.pageColor,
         showAnnotations: widget.showAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         allowPageEditing: widget.allowPageEditing,
         onExportPages: widget.onExportPages,
         cache: widget.cache,
@@ -2242,6 +2342,11 @@ class _GridPageCellState extends State<_GridPageCell> {
         onActivatePage: widget.onActivatePage,
         activateOnTap: false,
         inRangePreview: widget.inRangePreview,
+        // the grid flows like a horizontal strip, so the paste mark trails
+        // the cell at its reading-order end
+        scrollAxis: Axis.horizontal,
+        reversed: widget.reversed,
+        showPasteIndicator: widget.showPasteIndicator,
         dropEdge: widget.dropEdge,
         showPageActions: widget.showPageActions,
         onHover: widget.onHover,
@@ -2469,6 +2574,7 @@ class _PageTile extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
     required this.cache,
@@ -2491,6 +2597,10 @@ class _PageTile extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
   final PdfThumbnailCache cache;
@@ -2498,7 +2608,8 @@ class _PageTile extends StatefulWidget {
   final PdfRenderWorker? renderWorker;
 
   /// The containing strip's scroll axis. Paste markers trail a vertical
-  /// strip at the bottom and a horizontal strip at its reading-order end.
+  /// strip at the bottom and a horizontal strip (or the flowing grid) at
+  /// its reading-order end.
   final Axis scrollAxis;
 
   /// Whether the horizontal reading direction runs right-to-left.
@@ -2511,8 +2622,8 @@ class _PageTile extends StatefulWidget {
 
   /// Whether to paint a paste-insertion bar along this tile's trailing edge:
   /// bottom in a vertical strip, reading-order end in a horizontal one. The
-  /// strip sets it on the hovered tile while the page clipboard has pages,
-  /// marking where ⌘/Ctrl+V (or the strip's paste) will drop them.
+  /// strip and the grid set it on the hovered tile while the page clipboard
+  /// has pages, marking where ⌘/Ctrl+V will drop them.
   final bool showPasteIndicator;
 
   /// The edge to paint a file-drop insertion marker on while a PDF dragged
@@ -2558,6 +2669,7 @@ class _PageTileState extends State<_PageTile> {
   int get pageIndex => widget.pageIndex;
   Color get pageColor => widget.pageColor;
   bool get showAnnotations => widget.showAnnotations;
+  Set<String> get hiddenAnnotationSubtypes => widget.hiddenAnnotationSubtypes;
   bool get allowPageEditing => widget.allowPageEditing;
   void Function(Uint8List bytes)? get onExportPages => widget.onExportPages;
   PdfThumbnailCache get cache => widget.cache;
@@ -2696,6 +2808,7 @@ class _PageTileState extends State<_PageTile> {
                   pageIndex: pageIndex,
                   pageColor: pageColor,
                   showAnnotations: showAnnotations,
+                  hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
                   cache: cache,
                   tileWidth: tileWidth,
                   renderWorker: renderWorker,
@@ -3140,6 +3253,7 @@ class _PageThumbnail extends StatefulWidget {
     required this.pageIndex,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -3150,6 +3264,10 @@ class _PageThumbnail extends StatefulWidget {
   final int pageIndex;
   final Color pageColor;
   final bool showAnnotations;
+
+  /// Annotation subtypes thumbnails leave out - pass the viewer's
+  /// [PdfViewer.hiddenAnnotationSubtypes] so they match the pages.
+  final Set<String> hiddenAnnotationSubtypes;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -3209,6 +3327,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final pageIndex = widget.pageIndex;
     final pageColor = widget.pageColor;
     final annotations = widget.showAnnotations;
+    final hiddenSubtypes = widget.hiddenAnnotationSubtypes;
     final cache = widget.cache;
     final worker = widget.renderWorker;
     final previews = widget.viewerController.pagePreviewCache;
@@ -3235,6 +3354,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           pageIndex: pageIndex,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenSubtypes,
           pixelWidth: pixelWidth,
           worker: worker,
           // The task may have been granted before a fast scroll and return
@@ -3248,7 +3368,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           },
           // only persist/read disk for pages untouched this session - the
           // disk key is content-derived and render stamps reset per session
-          disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
+          disk: controller.pageMatchesOpenedFile(pageIndex) ? cache.disk : null,
           previews: previews,
         );
         if (image == null) {
@@ -3359,7 +3479,8 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final pixelWidth = _thumbnailBucket(
         widget.tileWidth * MediaQuery.devicePixelRatioOf(context));
     final key = thumbnailKey(widget.controller, widget.pageIndex,
-        widget.pageColor, widget.showAnnotations, pixelWidth);
+        widget.pageColor, widget.showAnnotations, pixelWidth,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes);
     if (_imageKey != key) {
       final cached = widget.cache.claim(key);
       if (cached != null) {
@@ -3388,15 +3509,20 @@ class _PageThumbnailState extends State<_PageThumbnail> {
   }
 }
 
-/// The shared-cache key a page's thumbnail is stored under: page index, its
+/// The shared-cache key a page's thumbnail is stored under: the page's
+/// identity (its indirect reference, so a reordered page keeps its raster and
+/// the slot it left doesn't - a reorder bumps no stamps, see #1025), its
 /// render stamp (so an edit re-renders only the pages it touched), the paper
-/// color, the raster width bucket, and whether annotations are drawn. The
+/// color, the raster width bucket, and which annotations are drawn. The
 /// tile, the grid cell, and the background warm all derive the same key, so
 /// they reuse one another's rasters.
 String thumbnailKey(PdfEditingController controller, int pageIndex,
-        Color pageColor, bool annotations, int pixelWidth) =>
-    '$pageIndex|${controller.pageRenderStamp(pageIndex)}'
-    '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}';
+        Color pageColor, bool annotations, int pixelWidth,
+        {Set<String> hiddenAnnotationSubtypes = const {}}) =>
+    '${controller.pageRenderIdentity(pageIndex)}'
+    '|${controller.pageRenderStamp(pageIndex)}'
+    '|${pageColor.toARGB32()}|$pixelWidth${annotations ? '' : '|noannots'}'
+    '${!annotations || hiddenAnnotationSubtypes.isEmpty ? '' : '|hide:${hiddenAnnotationSubtypesKey(hiddenAnnotationSubtypes)}'}';
 
 /// Whole-document thumbnail warming policy.
 ///
@@ -3447,6 +3573,7 @@ Future<ui.Image?> rasterizeThumbnail({
   required int pageIndex,
   required Color pageColor,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
   required int pixelWidth,
   required PdfRenderWorker? worker,
   int priority = 2,
@@ -3467,7 +3594,9 @@ Future<ui.Image?> rasterizeThumbnail({
   // it back is always for the right pixels.
   if (disk != null) {
     final stored = await disk.loadThumbnail(pageIndex, pixelWidth,
-        pageColor: pageColor.toARGB32(), annotations: annotations);
+        pageColor: pageColor.toARGB32(),
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     if (stored != null) {
       PdfPerfLog.log(
           'thumbnail page=$pageIndex $reason px=$pixelWidth disk-hit');
@@ -3519,7 +3648,9 @@ Future<ui.Image?> rasterizeThumbnail({
     // colour, or with annotations the tile does not show simply misses and
     // every path below is unchanged.
     final retained = _retainedSceneForTile(previews, pageIndex, page,
-        pageColor: pageColor, annotations: annotations);
+        pageColor: pageColor,
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     if (retained != null) {
       try {
         final sceneImageRatio = retained.imagePixelRatio;
@@ -3539,7 +3670,9 @@ Future<ui.Image?> rasterizeThumbnail({
               'retained replay+raster=${_traceMs(retainedMs)} '
               'commands=${retained.scene.commands.length}');
           disk?.storeThumbnail(pageIndex, pixelWidth, image,
-              pageColor: pageColor.toARGB32(), annotations: annotations);
+              pageColor: pageColor.toARGB32(),
+              annotations: annotations,
+              hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
           return image;
         }
       } finally {
@@ -3553,6 +3686,7 @@ Future<ui.Image?> rasterizeThumbnail({
     final commands = usingWorker
         ? await worker.record(pageIndex,
             annotations: annotations,
+            hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
             priority: priority,
             imagePixelRatio: ratio)
         : null;
@@ -3607,7 +3741,9 @@ Future<ui.Image?> rasterizeThumbnail({
             'raster=${_traceMs(rasterMs)}');
         // write through so this page opens straight from disk next session
         disk?.storeThumbnail(pageIndex, pixelWidth, image,
-            pageColor: pageColor.toARGB32(), annotations: annotations);
+            pageColor: pageColor.toARGB32(),
+            annotations: annotations,
+            hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
         return image;
       } finally {
         picture.dispose();
@@ -3636,14 +3772,19 @@ Future<ui.Image?> rasterizeThumbnail({
     }
     sw.reset();
     final image = await PdfPageRenderer.renderImage(page,
-        pixelRatio: ratio, pageColor: pageColor, annotations: annotations);
+        pixelRatio: ratio,
+        pageColor: pageColor,
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     final localMs = sw.elapsedMicroseconds / 1000.0;
     trace.instant('local interpret+raster', arguments: {'ms': localMs});
     PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
         'local interpret+raster=${_traceMs(localMs)} '
         '${usingWorker ? '(worker declined)' : '(no worker)'}');
     disk?.storeThumbnail(pageIndex, pixelWidth, image,
-        pageColor: pageColor.toARGB32(), annotations: annotations);
+        pageColor: pageColor.toARGB32(),
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes);
     return image;
   } finally {
     trace.finish();
@@ -3676,6 +3817,7 @@ PdfRetainedSceneHandle? _retainedSceneForTile(
   PdfPage page, {
   required Color pageColor,
   required bool annotations,
+  Set<String> hiddenAnnotationSubtypes = const {},
 }) =>
     // A tile always asks for the page's own rotation, so
     // [PdfPagePreviewCache.retainedSceneForDisplay] - which the preview ladder
@@ -3685,6 +3827,7 @@ PdfRetainedSceneHandle? _retainedSceneForTile(
       page,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: null,
     );
 

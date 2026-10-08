@@ -12,6 +12,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
+import 'annotation_display_filter.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart' show pdfDefaultWorkerImageCacheBytes;
 import 'region_replay_index.dart';
@@ -471,6 +472,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
@@ -489,7 +491,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       imagePixelRatio,
       decodeImages,
       commandLimit,
@@ -538,6 +540,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -550,7 +553,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       List<double>.of(pageToDevice),
       deviceWidth,
       deviceHeight,
@@ -586,6 +589,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -604,7 +608,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       List<double>.of(pageToDevice),
       deviceWidth,
       deviceHeight,
@@ -643,6 +647,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -652,7 +657,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       maxCommands,
       buildGrid,
     );
@@ -702,6 +707,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     _WebPageSurfaceSession session,
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -714,7 +720,7 @@ class _WebRenderWorker extends PdfRenderWorker {
       priority,
       _seq++,
       pageIndex,
-      annotations,
+      PdfAnnotationLayerSpec(annotations, hiddenAnnotationSubtypes),
       session.id,
       session.takeSurface(),
       width,
@@ -829,7 +835,12 @@ class _WebRenderWorker extends PdfRenderWorker {
       ..setProperty('kind'.toJS, request.kind.name.toJS)
       ..setProperty('id'.toJS, request.id.toJS)
       ..setProperty('page'.toJS, request.pageIndex.toJS)
-      ..setProperty('annotations'.toJS, request.annotations.toJS);
+      ..setProperty('annotations'.toJS, request.annotations.draw.toJS);
+    final hiddenSubtypes = request.annotations.toWire();
+    if (hiddenSubtypes != null && hiddenSubtypes.isNotEmpty) {
+      message.setProperty('hiddenAnnotationSubtypes'.toJS,
+          [for (final name in hiddenSubtypes) name.toJS].toJS);
+    }
     if (request.kind == _WebRequestKind.record) {
       message.setProperty('decodeImages'.toJS, request.decodeImages.toJS);
       if (request.onPartialBytes != null) {
@@ -1189,7 +1200,7 @@ class _WebPending {
 
   _WebPending.extractText(this.priority, this.seq, this.pageIndex)
       : kind = _WebRequestKind.extractText,
-        annotations = false,
+        annotations = PdfAnnotationLayerSpec.none,
         imagePixelRatio = null,
         decodeImages = false,
         commandLimit = null,
@@ -1212,7 +1223,7 @@ class _WebPending {
   _WebPending.update(this.priority, this.seq, _WebRevision this.revision)
       : kind = _WebRequestKind.update,
         pageIndex = -1,
-        annotations = false,
+        annotations = PdfAnnotationLayerSpec.none,
         imagePixelRatio = null,
         decodeImages = false,
         commandLimit = null,
@@ -1260,7 +1271,7 @@ class _WebPending {
   int priority;
   final int seq;
   final int pageIndex;
-  final bool annotations;
+  final PdfAnnotationLayerSpec annotations;
   final double? imagePixelRatio;
   final bool decodeImages;
   final int? commandLimit;
@@ -1307,6 +1318,7 @@ class _WebPageSurfaceSession extends PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -1325,6 +1337,7 @@ class _WebPageSurfaceSession extends PdfPageSurfaceSession {
         this,
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         width: width,
         height: height,
         pageColor: pageColor,

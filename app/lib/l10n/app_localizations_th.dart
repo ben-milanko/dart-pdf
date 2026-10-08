@@ -932,7 +932,7 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows ที่ไม่ได้ลงนามจาก main';
+      'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows/macOS ที่ไม่ได้ลงนามจาก main';
 
   @override
   String get settingsUpdates => 'การอัปเดต';
@@ -1254,4 +1254,34 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'ไม่มีบันทึกประจำรุ่นในบิลด์นี้';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'เปิด PDF $count ไฟล์',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'เปิดแต่ละไฟล์ในแท็บของตัวเอง หรือรวมเป็นเอกสารใหม่เอกสารเดียว? ลากไฟล์เพื่อกำหนดลำดับการรวม';
+
+  @override
+  String get incomingFilesCombine => 'รวม';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'รวม PDF $count ไฟล์',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'ลากไฟล์เพื่อกำหนดลำดับการรวม';
 }

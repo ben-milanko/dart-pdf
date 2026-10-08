@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
 import 'autosave.dart';
+import 'combine_incoming.dart';
 import 'command_palette.dart';
 import 'devtools.dart';
 import 'devtools_panel.dart';
@@ -56,7 +57,7 @@ import 'web_launch.dart';
 import 'welcome_screen.dart';
 import 'whats_new.dart';
 import 'window_support.dart';
-import 'windows_drop_target.dart';
+import 'native_window_drop_target.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -152,6 +153,7 @@ class EditorScreen extends StatefulWidget {
     this.tabDragCoordinator,
     this.initialHandoff,
     this.ownsApplicationSession = true,
+    this.recentThumbnails,
   });
 
   final PdfEditingPreferences prefs;
@@ -282,6 +284,10 @@ class EditorScreen extends StatefulWidget {
   /// primary window's state.
   final bool ownsApplicationSession;
 
+  /// The device-persisted first-page thumbnails shared by Recent files and
+  /// the tab overview. Null builds the platform store; tests inject one.
+  final RecentThumbnailCache? recentThumbnails;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -311,7 +317,8 @@ class _EditorScreenState extends State<EditorScreen>
   bool get _canScan => _documentScanner != null;
 
   final _recents = RecentsStore();
-  final _recentThumbnails = RecentThumbnailCache();
+  late final _recentThumbnails =
+      widget.recentThumbnails ?? RecentThumbnailCache();
   final _session = SessionStore();
 
   /// Mirrors dirty documents to durable storage (a private directory on
@@ -322,7 +329,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
-  StreamSubscription<IncomingFile>? _incomingSub;
+  StreamSubscription<List<IncomingFile>>? _incomingSub;
   final Object _windowCloseOwner = Object();
   DartPdfWindowCloseCoordinator? _windowCloseCoordinator;
   bool _nativeWindowCloseApproved = false;
@@ -453,13 +460,13 @@ class _EditorScreenState extends State<EditorScreen>
       // have one Dart handler, so letting every window register would make the
       // newest secondary window steal delivery from the primary.
       _incoming.start();
-      _incomingSub = _incoming.files.listen(_openIncoming);
-      _incoming.initialFile().then((file) {
-        if (file != null && mounted) _openIncoming(file);
+      _incomingSub = _incoming.files.listen(_openIncomingBatch);
+      _incoming.initialFiles().then((files) {
+        if (mounted) _openIncomingBatch(files);
       });
       _openLaunchArgs();
       // PWA file-handler opens (installed web app); no-op off the web.
-      startWebLaunchQueue(_openIncoming);
+      startWebLaunchQueue(_openIncomingBatch);
     }
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
@@ -673,21 +680,26 @@ class _EditorScreenState extends State<EditorScreen>
     ));
   }
 
-  /// Opens a `.pdf` passed on the command line - how Windows and Linux deliver
-  /// a file association / "open with" at cold start (macOS and mobile use the
-  /// channel instead).
+  /// Opens the `.pdf`s passed on the command line - how Linux delivers a file
+  /// association / "open with" at cold start (the other runners answer
+  /// `getInitialFiles` instead; Windows does so from its own command line, so
+  /// that the files other launches forward during startup join the batch).
+  /// Several form one batch, which offers to combine them.
+  ///
+  /// `--combine` (the file manager's "Combine with DartPDF" entry) marks them
+  /// to combine.
   void _openLaunchArgs() {
-    if (kIsWeb) return;
-    if (defaultTargetPlatform != TargetPlatform.windows &&
-        defaultTargetPlatform != TargetPlatform.linux) {
-      return;
-    }
-    for (final arg in widget.launchArgs) {
-      if (!arg.toLowerCase().endsWith('.pdf')) continue;
-      final name = arg.split(RegExp(r'[/\\]')).last;
-      _openIncoming(IncomingFile(name: name, path: arg));
-      break; // open only the first file
-    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.linux) return;
+    final combine = widget.launchArgs.contains('--combine');
+    _openIncomingBatch([
+      for (final arg in widget.launchArgs)
+        if (arg.toLowerCase().endsWith('.pdf'))
+          IncomingFile(
+            name: arg.split(RegExp(r'[/\\]')).last,
+            path: arg,
+            combine: combine,
+          ),
+    ]);
   }
 
   @override
@@ -716,7 +728,7 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
-    _recentThumbnails.dispose();
+    if (widget.recentThumbnails == null) _recentThumbnails.dispose();
     _viewMode.dispose();
     _thumbnailDrop.dispose();
     _updates.removeListener(_onUpdateStatus);
@@ -992,7 +1004,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (available != null) {
       await _recents.updateCachedAvailability(keep, available);
     }
-    unawaited(_recentThumbnails.retain(_recents.items));
+    unawaited(_recentThumbnails.retain([
+      ..._recents.items,
+      for (final tab in _tabs)
+        if (_tabThumbnailEntry(tab) case final entry?) entry,
+    ]));
   }
 
   // --- opening -------------------------------------------------------------
@@ -2181,10 +2197,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// way (see [_addTab]), so this holds however the two race.
   ///
   /// If a tab already holds this exact path, focus it instead of opening a
-  /// duplicate. The same launch file can arrive twice - once via the
-  /// command-line launch args and once via the native `getInitialFile`
-  /// channel (Windows delivers both) - and re-opening an already-open
-  /// document from the OS should surface the existing tab, not stack copies.
+  /// duplicate: re-opening an already-open document from the OS should
+  /// surface the existing tab, not stack copies.
   /// When that existing tab is one startup restore put back, it moves to the
   /// end: the user opened this file, so it belongs exactly where it would
   /// have landed had the OS beaten restore to it.
@@ -2227,6 +2241,72 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
+  /// Opens a batch of files the OS handed over together. A single file opens
+  /// as before; several - a multi-file "Open with" from a file manager - ask
+  /// whether to open each in its own tab or combine them into one new
+  /// document. Files from the OS's "Combine with DartPDF" entry skip that
+  /// question: the dialog only asks for their order.
+  Future<void> _openIncomingBatch(List<IncomingFile> files) async {
+    final seen = <String>{};
+    files = [
+      for (final file in files)
+        if (file.path == null || seen.add(file.path!)) file,
+    ];
+    if (!mounted || files.isEmpty) return;
+    if (files.length == 1) {
+      await _openIncoming(files.single);
+      return;
+    }
+    // Linux launch files arrive from initState, before a dialog can be shown.
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final choice = await showIncomingFilesDialog(context, files,
+        combineOnly: files.any((file) => file.combine));
+    if (choice == null || !mounted) return;
+    if (choice.action == IncomingFilesAction.combine) {
+      await _combineIncoming(choice.files);
+      return;
+    }
+    for (final file in choice.files) {
+      if (!mounted) return;
+      await _openIncoming(file);
+    }
+  }
+
+  /// Combines [files], in order, into one new unsaved document. Its first
+  /// Save asks where to write it, so none of the sources is overwritten.
+  Future<void> _combineIncoming(List<IncomingFile> files) async {
+    final titles = {for (final tab in _tabs) tab.title};
+    var title = 'Combined.pdf';
+    for (var n = 2; titles.contains(title); n++) {
+      title = 'Combined $n.pdf';
+    }
+    final loading = _openLoading(title);
+    try {
+      final merged = await combinePdfs(await Future.wait([
+        for (final file in files)
+          file.bytes != null
+              ? Future<Uint8List>.value(file.bytes!)
+              : readPdfAtPath(file.path!, bookmark: file.bookmark),
+      ]));
+      if (!mounted) return;
+      final tab = DocumentTab.document(
+        title: title,
+        bytes: merged,
+        preferences: _prefs,
+        initiallyDirty: true,
+      );
+      // Like New: the result is a document to edit and save.
+      if (_replaceLoadingTab(loading, tab)) setState(() => _readOnly = false);
+    } catch (e) {
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        DocumentTab.error(title: title, error: _openFailureDetail(title, e)),
+      );
+    }
+  }
+
   /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are
   /// ignored. A drop onto the page thumbnails (the strip or the full-area
   /// grid) inserts the pages at the marked position - the drop point picked
@@ -2255,7 +2335,16 @@ class _EditorScreenState extends State<EditorScreen>
       final action = await _promptDropAction(pdfs.length, tab!.title);
       if (action == null || !mounted) return; // cancelled / disposed
       if (action == _DropAction.insert) {
-        await _insertDropped(pdfs, session, tab.title);
+        // the drop picked the files; the insert dialog picks where and how
+        final files = await _readInsertFiles([
+          for (final item in pdfs) (name: item.name, read: item.readAsBytes),
+        ]);
+        if (!mounted) return;
+        if (files.isEmpty) {
+          _toast(appL10n(context).editorCouldNotInsertDropped(pdfs.length));
+          return;
+        }
+        await _insertDocument(tab, files: files);
         return;
       }
     }
@@ -2355,32 +2444,55 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  /// The menu counterpart to dropping a PDF on a thumbnail: insert after the
-  /// current page, retain this tab's identity, and reveal the imported pages.
-  Future<void> _insertDocument(DocumentTab tab) async {
+  /// The menu counterpart to dropping a PDF on a thumbnail: pick one or more
+  /// PDFs (unless [files] were already dropped), choose page ranges,
+  /// placement, interleave and bookmarks in the insert-pages dialog, retain
+  /// this tab's identity, and reveal the imported pages.
+  Future<void> _insertDocument(DocumentTab tab,
+      {List<PdfInsertFile> files = const []}) async {
     final session = tab.session;
     if (session == null || _readOnly) return;
     final l10n = appL10n(context);
     final failure = pdfL10n(context).thumbInsertFileFailed;
     try {
-      final bytes = await pickPdfBytes(l10n.fileTypePdf);
-      if (bytes == null ||
-          !mounted ||
-          !containsTab(tab) ||
-          _readOnly ||
-          !identical(tab.session, session)) {
-        return;
-      }
-      final at =
-          (tab.viewer!.currentPage + 1).clamp(0, session.document.pageCount);
-      session.insertPagesFromBytes(bytes, at: at);
-      if (identical(_active, tab)) _revealInsertedPage(at);
-      _toast(l10n.editorInsertedIntoTitle(1, tab.title));
+      final result = await pdfInsertPagesInteractively(
+        context,
+        controller: session,
+        pickFiles: _pickInsertFiles,
+        initialFiles: files,
+        currentPage: tab.viewer?.currentPage ?? 0,
+      );
+      if (result == null || !mounted || !containsTab(tab)) return;
+      if (identical(_active, tab)) _revealInsertedPage(result.pages.first);
+      _toast(l10n.editorInsertedIntoTitle(result.files, tab.title));
     } catch (e) {
       AppDevTools.instance
           .addLog('insert document failed: $e', level: DevLogLevel.error);
       if (mounted) _toast('$failure ${openErrorSummary(e)}');
     }
+  }
+
+  /// Picks PDFs for the insert-pages dialog. A file that can't be read is
+  /// logged and left out rather than failing the whole pick.
+  Future<List<PdfInsertFile>> _pickInsertFiles() async {
+    final picked = await pickPdfFiles(appL10n(context).fileTypePdf);
+    return _readInsertFiles([
+      for (final file in picked) (name: file.name, read: file.readAsBytes),
+    ]);
+  }
+
+  Future<List<PdfInsertFile>> _readInsertFiles(
+      List<({String name, Future<Uint8List> Function() read})> files) async {
+    final out = <PdfInsertFile>[];
+    for (final file in files) {
+      try {
+        out.add(PdfInsertFile(file.name, await file.read()));
+      } catch (e) {
+        AppDevTools.instance.addLog('insert read failed: ${file.name} - $e',
+            level: DevLogLevel.error);
+      }
+    }
+    return out;
   }
 
   /// Scrolls the active viewer to [index] - the first page a positioned
@@ -2901,6 +3013,12 @@ class _EditorScreenState extends State<EditorScreen>
       // tell it directly. The bytes are on the user's own disk now and the
       // recovery copy has nothing left to protect.
       unawaited(_autosave.noteSaved(tab));
+      final thumbnailEntry = _tabThumbnailEntry(tab);
+      if (thumbnailEntry != null) {
+        // The stored thumbnail follows the file: a restored tab and the
+        // Recent files list re-render the saved revision next time.
+        unawaited(_recentThumbnails.invalidate(thumbnailEntry));
+      }
       if (path != null) {
         _recents.add(
             title: tab.title, path: path, bookmark: tab.originBookmark);
@@ -3981,9 +4099,10 @@ class _EditorScreenState extends State<EditorScreen>
 
     final handle = _nativeWindowHandle;
     if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.windows &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS) &&
         handle != null) {
-      return WindowsDropTarget(
+      return NativeWindowDropTarget(
         windowHandle: handle,
         onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
         onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
@@ -4364,6 +4483,8 @@ class _EditorScreenState extends State<EditorScreen>
       // regardless - see _buildAppBar - but ⌘S does not.)
       alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
+      // the strip's "Insert PDF…" opens the multi-document insert dialog
+      onPickPdfFilesToInsert: _pickInsertFiles,
       // a PDF dragged in from the desktop can be dropped between two page
       // thumbnails; the drop lands its pages exactly there
       thumbnailDropController: _thumbnailDrop,
@@ -4665,6 +4786,7 @@ class _EditorScreenState extends State<EditorScreen>
         return _MobileTabTile(
           key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
           tab: tab,
+          storedThumbnails: _recentThumbnails,
           selected: index == _activeIndex,
           onTap: () => activate(index),
           onClose: () async {
@@ -4973,6 +5095,7 @@ class _EditorScreenState extends State<EditorScreen>
         : _TabDragStartListener(index: index, child: chrome);
     final hoverPreview = _TabHoverPreview(
       tab: tab,
+      storedThumbnails: _recentThumbnails,
       enabled: !selected,
       child: dragSource,
     );
@@ -5293,9 +5416,11 @@ class _TabHoverPreview extends StatefulWidget {
     required this.tab,
     required this.enabled,
     required this.child,
+    this.storedThumbnails,
   });
 
   final DocumentTab tab;
+  final RecentThumbnailCache? storedThumbnails;
   final bool enabled;
   final Widget child;
 
@@ -5371,6 +5496,7 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
           child: _DesktopTabPreviewCard(
             tab: widget.tab,
             imageCache: _imageCache,
+            storedThumbnails: widget.storedThumbnails,
           ),
         ),
       ),
@@ -5414,10 +5540,15 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
 }
 
 class _DesktopTabPreviewCard extends StatelessWidget {
-  const _DesktopTabPreviewCard({required this.tab, required this.imageCache});
+  const _DesktopTabPreviewCard({
+    required this.tab,
+    required this.imageCache,
+    this.storedThumbnails,
+  });
 
   final DocumentTab tab;
   final _TabPreviewImageCache imageCache;
+  final RecentThumbnailCache? storedThumbnails;
 
   @override
   Widget build(BuildContext context) {
@@ -5456,6 +5587,7 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                 tab: tab,
                 pageIndex: pageIndex,
                 imageCache: imageCache,
+                storedThumbnails: storedThumbnails,
                 previewKey: const ValueKey('tab-hover-preview-thumbnail'),
                 imageKey: const ValueKey('tab-hover-preview-image'),
               ),
@@ -5803,9 +5935,11 @@ class _MobileTabTile extends StatelessWidget {
     required this.onTap,
     required this.onClose,
     this.onContextMenu,
+    this.storedThumbnails,
   });
 
   final DocumentTab tab;
+  final RecentThumbnailCache? storedThumbnails;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
@@ -5860,6 +5994,7 @@ class _MobileTabTile extends StatelessWidget {
                 child: _TabPreview(
                   tab: tab,
                   pageIndex: 0,
+                  storedThumbnails: storedThumbnails,
                   previewKey: const ValueKey('mobile-tab-preview'),
                   imageKey: const ValueKey('mobile-tab-preview-image'),
                 ),
@@ -5915,6 +6050,7 @@ class _TabPreview extends StatelessWidget {
     required this.previewKey,
     required this.imageKey,
     this.imageCache,
+    this.storedThumbnails,
   });
 
   final DocumentTab tab;
@@ -5923,23 +6059,58 @@ class _TabPreview extends StatelessWidget {
   final Key imageKey;
   final _TabPreviewImageCache? imageCache;
 
+  /// The device-persisted first-page thumbnails (shared with Recent files).
+  /// A tab with no edit session yet - restored from the last session, or
+  /// opened in a batch and not visited - paints its stored thumbnail instead
+  /// of a generic icon; an open tab's live preview of page 1 is written back
+  /// so the next launch has one.
+  final RecentThumbnailCache? storedThumbnails;
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final session = tab.session;
+    final stored = storedThumbnails;
+    final entry = stored == null ? null : _tabThumbnailEntry(tab);
     if (session != null) {
+      final rotation = tab.viewer?.viewRotation;
+      final pageColor = session.preferences.pageColor;
+      // Persist only what a fresh first-page render would look like: page 1,
+      // unrotated, on white paper with annotations, at the saved revision.
+      final persist = entry != null &&
+          pageIndex == 0 &&
+          (rotation ?? 0) % 360 == 0 &&
+          pageColor.toARGB32() == 0xFFFFFFFF &&
+          session.preferences.showAnnotations &&
+          !tab.isDirty;
       return _TabDocumentPreview(
         controller: session,
         pageIndex: pageIndex,
         stamp: session.pageRenderStamp(pageIndex),
         pageColor: session.preferences.pageColor,
         showAnnotations: session.preferences.showAnnotations,
-        rotation: tab.viewer?.viewRotation,
+        rotation: rotation,
         previewKey: previewKey,
         imageKey: imageKey,
         imageCache: imageCache,
+        onRendered: persist ? (thumb) => stored!.put(entry, thumb) : null,
       );
     }
+    if (entry != null && !tab.isLoading) {
+      return _TabStoredPreview(
+        key: ValueKey(entry.id),
+        thumbnails: stored!,
+        entry: entry,
+        bytes: tab.deferredBytes,
+        previewKey: previewKey,
+        imageKey: imageKey,
+        placeholder: _placeholder(context),
+      );
+    }
+    return _placeholder(context);
+  }
+
+  Widget _placeholder(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final l10n = appL10n(context);
     final (icon, label) = tab.isLoading
         ? (Icons.hourglass_empty, l10n.editorPreviewOpening)
@@ -5978,6 +6149,92 @@ class _TabPreview extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The identity a tab's thumbnail is stored under on the device - the same
+/// [RecentFile.id] its Recent files entry has, so the two share one image.
+/// Null for tabs that are not a single document.
+RecentFile? _tabThumbnailEntry(DocumentTab tab) {
+  if (tab.isComparison || tab.error != null) return null;
+  return RecentFile(
+    title: tab.title,
+    path: tab.originPath,
+    cachePath: tab.cachePath,
+    bookmark: tab.originBookmark,
+    openedAt: 0,
+  );
+}
+
+/// A not-yet-opened tab's first page, from the device thumbnail store (read
+/// from disk, or rendered once off the UI thread from the tab's source and
+/// then stored). Shows [placeholder] until it resolves, or if it can't.
+class _TabStoredPreview extends StatefulWidget {
+  const _TabStoredPreview({
+    super.key,
+    required this.thumbnails,
+    required this.entry,
+    required this.previewKey,
+    required this.imageKey,
+    required this.placeholder,
+    this.bytes,
+  });
+
+  final RecentThumbnailCache thumbnails;
+  final RecentFile entry;
+  final Uint8List? bytes;
+  final Key previewKey;
+  final Key imageKey;
+  final Widget placeholder;
+
+  @override
+  State<_TabStoredPreview> createState() => _TabStoredPreviewState();
+}
+
+class _TabStoredPreviewState extends State<_TabStoredPreview> {
+  // Keyed by entry id, so a different document lands on a fresh state.
+  late final Future<RecentThumbnail?> _thumbnail =
+      widget.thumbnails.thumbnailFor(widget.entry, bytes: widget.bytes);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return FutureBuilder<RecentThumbnail?>(
+      future: _thumbnail,
+      builder: (context, snapshot) {
+        final thumb = snapshot.data;
+        if (thumb == null) return widget.placeholder;
+        return Center(
+          child: AspectRatio(
+            aspectRatio: thumb.aspectRatio,
+            child: DecoratedBox(
+              key: widget.previewKey,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: scheme.outlineVariant),
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.shadow.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.memory(
+                  thumb.pngBytes,
+                  key: widget.imageKey,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -6025,6 +6282,7 @@ class _TabDocumentPreview extends StatefulWidget {
     required this.previewKey,
     required this.imageKey,
     this.imageCache,
+    this.onRendered,
   });
 
   final PdfEditingController controller;
@@ -6036,6 +6294,9 @@ class _TabDocumentPreview extends StatefulWidget {
   final Key previewKey;
   final Key imageKey;
   final _TabPreviewImageCache? imageCache;
+
+  /// Receives each finished render as a PNG thumbnail, for the device store.
+  final void Function(RecentThumbnail thumb)? onRendered;
 
   @override
   State<_TabDocumentPreview> createState() => _TabDocumentPreviewState();
@@ -6098,6 +6359,10 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
         image.dispose();
         return;
       }
+      final onRendered = widget.onRendered;
+      if (onRendered != null) {
+        unawaited(_persist(image.clone(), size, onRendered));
+      }
       final cache = widget.imageCache;
       final ui.Image shown;
       if (cache == null) {
@@ -6116,6 +6381,23 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       });
     } catch (_) {
       if (mounted && _pendingKey == key) _pendingKey = null;
+    }
+  }
+
+  static Future<void> _persist(ui.Image image, Size size,
+      void Function(RecentThumbnail thumb) onRendered) async {
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) return;
+      onRendered(RecentThumbnail(
+        pngBytes:
+            data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        aspectRatio: size.width / size.height,
+      ));
+    } catch (_) {
+      // Persisting is an optimization for the next launch; never surface it.
+    } finally {
+      image.dispose();
     }
   }
 

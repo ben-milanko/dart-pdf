@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Tidak dapat memeriksa pembaruan. Coba lagi nanti.",
   "settingsUpdateIdle": "Anda memiliki {name} {version}.",
   "settingsNightlyUpdates": "Pembaruan nightly",
-  "settingsNightlyUpdatesSubtitle": "Terima notifikasi pembaruan otomatis untuk build uji Windows tanpa tanda tangan dari main.",
+  "settingsNightlyUpdatesSubtitle": "Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.",
   "settingsUpdates": "Pembaruan",
   "settingsViewSource": "Lihat sumber di GitHub",
   "undo": "Urungkan",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Pengaturan khusus",
   "whatsNew": "Yang baru",
   "whatsNewInstalled": "Terpasang",
-  "whatsNewUnavailable": "Catatan rilis tidak tersedia di build ini."
+  "whatsNewUnavailable": "Catatan rilis tidak tersedia di build ini.",
+  "incomingFilesTitle": "{count, plural, other{Buka {count} PDF}}",
+  "incomingFilesMessage": "Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.",
+  "incomingFilesCombine": "Gabungkan",
+  "incomingFilesCombineTitle": "{count, plural, other{Gabungkan {count} PDF}}",
+  "incomingFilesCombineMessage": "Seret file untuk mengatur urutan penggabungannya."
 }

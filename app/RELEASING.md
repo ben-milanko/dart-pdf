@@ -31,20 +31,26 @@ so platform build files don't hardcode versions.
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
-## Nightly Windows builds
+## Nightly desktop builds
 
-`.github/workflows/nightly-windows.yml` checks `main` each night and starts a
-Windows runner only when the commit differs from the last successfully
-published nightly. It updates the rolling `app-nightly` prerelease with an
-unsigned per-user NSIS installer, a portable ZIP, checksums, and the commits
-since the previous build.
+`.github/workflows/nightly-desktop.yml` checks `main` each night and starts the
+Windows and macOS runners only when the commit differs from the last
+successfully published nightly. It updates the rolling `app-nightly`
+prerelease with an unsigned per-user NSIS installer, a portable ZIP, an
+ad-hoc-signed universal macOS DMG (`dartpdf-nightly-macos.dmg`, with the same
+universal CLI/MCP sidecar and launch smoke test as the release build),
+checksums, and the commits since the previous build. Both platforms must build
+before the release moves, so every asset on it comes from one commit; a failure
+on either is retried the next night.
 
-Windows users opt in under **Settings → Updates → Nightly updates**. The choice
-persists, participates in the normal startup update check/banner, and uses the
-same download-and-installer hand-off as final GitHub releases. CI stamps the
-source SHA into nightly and final Windows binaries so an installed nightly is
-not offered again; dismissing one nightly suppresses only that source commit,
-not the next rolling build.
+Windows and macOS users opt in under **Settings → Updates → Nightly updates**.
+The choice persists, participates in the normal startup update check/banner,
+and uses the same download-and-installer hand-off as final GitHub releases (the
+`.exe` runs, the `.dmg` mounts). CI stamps the source SHA into nightly and final
+desktop binaries so an installed nightly is not offered again; dismissing one
+nightly suppresses only that source commit, not the next rolling build. The
+nightly DMG is not notarized, so the first launch of each new copy needs
+right-click → **Open** (or removing the quarantine attribute).
 
 > **The CI artifacts are not store-uploadable.** The Android bundle is
 > debug-signed and the iOS build is unsigned; store builds are made locally
@@ -93,9 +99,10 @@ silent background swap. Stable app Releases must keep the
 `dartpdf-linux-x86_64.AppImage` /
 `dartpdf-linux-x64.tar.gz`, `app-release.apk`). Other tags, such as this
 repo's pub-package releases, are ignored. The one exception is the exact
-rolling tag `app-nightly`, recognized on Windows only after the user enables
-nightly updates; it must provide the source markers and
-`dartpdf-nightly-windows-installer.exe`/ZIP assets documented below. Publish
+rolling tag `app-nightly`, recognized on Windows and macOS only after the user
+enables nightly updates; it must provide the source markers and the
+`dartpdf-nightly-windows-installer.exe`/ZIP and `dartpdf-nightly-macos.dmg`
+assets documented above. Publish
 stable draft Releases so the GitHub `/releases` API exposes them (drafts
 aren't visible unauthenticated). Flatpak and Snap installations skip the
 GitHub checker and update through their package repositories. The web build is
@@ -275,6 +282,26 @@ Android via the manifest intent-filters, web via `manifest.json`
 time: the NSIS installer writes the ProgID registry keys, the Store MSIX
 declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
 the `.desktop` file's `MimeType`.
+
+Selecting many PDFs in Explorer: the NSIS installer's two verbs, the
+ProgID's `open` and the `SystemFileAssociations\.pdf` "Combine with DartPDF"
+(`--combine`), both set `MultiSelectModel=Player`. That raises Explorer's
+limit for a legacy command-line verb from 15 selected files (the default
+`Document` model, past which the verb is hidden) to 100. Explorer still
+launches one process per file, and the single-instance runner forwards each
+to the running window, which batches them (open-or-combine for Open,
+straight to ordering for Combine). Going past 100 would take a COM verb. The
+Store MSIX already has one for Combine (`windows/combine_menu`, an
+`IExplorerCommand` that receives the whole selection and has no item limit);
+its Open needs no change because Windows launches a packaged app once per
+file past 15 files rather than hiding the verb.
+
+Long paths: Explorer can hand any of these verbs a file past MAX_PATH as its
+8.3 short alias, so `PdfArguments` in `windows/runner/main.cpp` expands every
+path (Open or `--combine`) with `GetLongPathNameW` before it is opened or
+forwarded. The MSIX combine handler reads `SIGDN_FILESYSPATH`, which is
+already the long form, and splits a selection too long for one command line
+across several launches.
 
 ### Document (file) icon
 

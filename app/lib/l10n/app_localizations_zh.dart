@@ -918,7 +918,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自动接收来自 main 的未签名 Windows 测试版本更新通知。';
+      '自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
@@ -1227,6 +1227,36 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '此版本不提供发行说明。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '打开 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '在各自的标签页中打开每个文件,还是将它们合并为一个新文档?拖动文件可设置合并顺序。';
+
+  @override
+  String get incomingFilesCombine => '合并';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合并 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖动文件可设置合并顺序。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2143,7 +2173,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自動接收來自 main 的未簽署 Windows 測試版本更新通知。';
+      '自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
@@ -2453,4 +2483,34 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get whatsNewUnavailable => '此版本未提供版本資訊。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '開啟 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。';
+
+  @override
+  String get incomingFilesCombine => '合併';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合併 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖曳檔案即可設定合併順序。';
 }

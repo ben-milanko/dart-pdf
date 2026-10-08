@@ -951,7 +951,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Получайте автоматические уведомления о неподписанных тестовых сборках Windows из main.';
+      'Получайте автоматические уведомления о неподписанных тестовых сборках Windows/macOS из main.';
 
   @override
   String get settingsUpdates => 'Обновления';
@@ -1282,4 +1282,35 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Примечания к выпуску недоступны в этой сборке.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Открыть PDF-файлы: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Открыть каждый файл в отдельной вкладке или объединить их в один новый документ? Перетащите файлы, чтобы задать порядок.';
+
+  @override
+  String get incomingFilesCombine => 'Объединить';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Объединить PDF-файлы: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Перетащите файлы, чтобы задать порядок объединения.';
 }

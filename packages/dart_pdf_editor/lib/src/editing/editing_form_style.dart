@@ -119,14 +119,17 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
   }
 }
 
-/// A reusable column of controls that style the selected form text field's
+/// A reusable column of controls that style the selected form text fields'
 /// text - font family, bold/italic, alignment, auto-size, size, multiline,
-/// and colour - all routed through [PdfEditingController.setFormFieldStyle].
+/// and colour - all routed through
+/// [PdfEditingController.setSelectedFormFieldStyle], so with several text
+/// fields selected each edit applies to all of them. The controls reflect
+/// the primary (most recently selected) field.
 ///
 /// Shared by the field context-menu sheet and the toolbar style popup so
 /// the surfaces stay in lock-step; the properties panel renders its own
 /// panel-styled rows over the same controller calls. Renders nothing when
-/// no single text field is selected.
+/// no text field is selected.
 class PdfFormFieldStyleControls extends StatefulWidget {
   const PdfFormFieldStyleControls({
     super.key,
@@ -150,11 +153,12 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
 
   PdfEditingController get _controller => widget.controller;
 
-  Future<void> _pickColor(String name, Color current) async {
+  Future<void> _pickColor(Color current) async {
     final picked =
         await pickEditingColor(context, _controller, initial: current);
     if (picked != null) {
-      _controller.setFormFieldStyle(name, color: picked.toARGB32() & 0xFFFFFF);
+      _controller.setSelectedFormFieldStyle(
+          color: picked.toARGB32() & 0xFFFFFF);
     }
   }
 
@@ -163,9 +167,8 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
-        final name = _controller.selectedFormFieldName;
         final style = _controller.selectedFormFieldStyle;
-        if (name == null || style == null) return const SizedBox.shrink();
+        if (style == null) return const SizedBox.shrink();
         final scheme = Theme.of(context).colorScheme;
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -187,7 +190,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                 keyPrefix: 'pdf-form-style-font',
                 font: style.font,
                 onChanged: (font) =>
-                    _controller.setFormFieldStyle(name, font: font),
+                    _controller.setSelectedFormFieldStyle(font: font),
               ),
             ]),
             const SizedBox(height: 6),
@@ -197,7 +200,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                 keyPrefix: 'pdf-form-style-align',
                 align: style.align,
                 onChanged: (align) =>
-                    _controller.setFormFieldStyle(name, align: align),
+                    _controller.setSelectedFormFieldStyle(align: align),
               ),
             ]),
             SwitchListTile(
@@ -206,7 +209,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
               contentPadding: EdgeInsets.zero,
               title: Text(pdfL10n(context).propAutoSize),
               value: style.autoSize,
-              onChanged: (v) => _controller.setFormFieldStyle(name,
+              onChanged: (v) => _controller.setSelectedFormFieldStyle(
                   autoSize: v, fontSize: v ? null : style.size),
             ),
             if (!style.autoSize)
@@ -220,7 +223,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                     max: 72,
                     onChanged: (v) => setState(() => _draggingSize = v),
                     onChangeEnd: (v) {
-                      _controller.setFormFieldStyle(name,
+                      _controller.setSelectedFormFieldStyle(
                           fontSize: v.roundToDouble());
                       setState(() => _draggingSize = null);
                     },
@@ -236,7 +239,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                   width: 40,
                   display: (v) => '${v.round()}',
                   onSubmit: (v) {
-                    _controller.setFormFieldStyle(name,
+                    _controller.setSelectedFormFieldStyle(
                         fontSize: v.roundToDouble());
                     setState(() => _draggingSize = null);
                   },
@@ -249,13 +252,13 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
               title: Text(pdfL10n(context).propMultiline),
               value: style.multiline,
               onChanged: (v) =>
-                  _controller.setFormFieldStyle(name, multiline: v),
+                  _controller.setSelectedFormFieldStyle(multiline: v),
             ),
             Row(children: [
               Expanded(child: Text(pdfL10n(context).propColour)),
               InkWell(
                 key: const ValueKey('pdf-form-style-color'),
-                onTap: () => _pickColor(name, style.color),
+                onTap: () => _pickColor(style.color),
                 child: Container(
                   width: 28,
                   height: 28,

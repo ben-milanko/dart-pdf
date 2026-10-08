@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuAddNode => '노드 추가';
 
   @override
+  String get menuAddLeader => '지시선 추가';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '노드 제거';
+
+  @override
+  String get menuRemoveLeader => '지시선 제거';
 
   @override
   String get menuSaveToStamps => '스탬프에 저장';
@@ -2273,4 +2279,124 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => '닫기';
+
+  @override
+  String get insertPagesTitle => '페이지 삽입';
+
+  @override
+  String get insertPagesFiles => '파일';
+
+  @override
+  String get insertPagesAddFiles => '파일 추가…';
+
+  @override
+  String get insertPagesSortByName => '이름순 정렬';
+
+  @override
+  String get insertPagesNoFiles => '삽입할 PDF를 하나 이상 추가하세요.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '$names을(를) 열 수 없습니다. 파일이 손상되었거나 암호로 보호되어 있을 수 있습니다.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count페이지',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => '위로 이동';
+
+  @override
+  String get insertPagesMoveDown => '아래로 이동';
+
+  @override
+  String get insertPagesRemoveFile => '목록에서 제거';
+
+  @override
+  String get insertPagesRange => '페이지';
+
+  @override
+  String get insertPagesRangeHint => '전체 (예: 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return '1–$count 페이지를 사용하세요 (예: 1-3, 7)';
+  }
+
+  @override
+  String get insertPagesSubsetAll => '모든 페이지';
+
+  @override
+  String get insertPagesSubsetOdd => '홀수 페이지';
+
+  @override
+  String get insertPagesSubsetEven => '짝수 페이지';
+
+  @override
+  String get insertPagesReverse => '역순';
+
+  @override
+  String get insertPagesPlacement => '위치';
+
+  @override
+  String get insertPagesBefore => '앞';
+
+  @override
+  String get insertPagesAfter => '뒤';
+
+  @override
+  String get insertPagesFirstPage => '첫 페이지';
+
+  @override
+  String get insertPagesLastPage => '마지막 페이지';
+
+  @override
+  String get insertPagesPage => '페이지';
+
+  @override
+  String get insertPagesPageNumber => '페이지 번호';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count 입력';
+  }
+
+  @override
+  String get insertPagesInterleave => '페이지 교차 삽입';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      '지정한 위치부터 삽입 페이지와 기존 페이지를 번갈아 배치합니다. 예를 들어 따로 스캔한 홀수·짝수 페이지를 다시 합칠 때 사용합니다.';
+
+  @override
+  String get insertPagesRunInserted => '한 번에 삽입할 페이지 수';
+
+  @override
+  String get insertPagesRunExisting => '사이에 둘 문서 페이지 수';
+
+  @override
+  String get insertPagesIncludeBookmarks => '책갈피 포함';
+
+  @override
+  String get insertPagesBookmarkFiles => '파일마다 책갈피 추가';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    return '$inserted페이지를 삽입합니다. 문서는 $total페이지가 됩니다.';
+  }
+
+  @override
+  String get insertPagesConfirm => '삽입';
 }

@@ -16,6 +16,7 @@
   "hero_note": "無料・オープンソース。アカウント不要。アップロード不要。",
   "hero_shotAlt": "注釈ツール、ページのサムネイル、カラーパレットとともにPDFを表示するDartPDFエディター。",
   "hero_deviceTag": "ローカル",
+  "promo_videoAria": "DartPDF の短い動画：ハイライト、署名、フォーム入力、スタンプ、ページの並べ替え、PDF へのデジタル署名。",
   "platforms_label": "PDFのためのオールインワンアプリ",
 
   "feat_eyebrow": "ツール",
@@ -148,6 +149,7 @@
   "sdk_hero_cta1": "pub.devパッケージ",
   "sdk_hero_cta2": "GitHubで見る",
   "sdk_hero_cta3": "ライブデモ",
+  "sdk_promo_videoAria": "DartPDF エンジンの短い動画：PDF ページを描画し、編集、並べ替え、デジタル署名まで行います。",
   "sdk_feat_eyebrow": "機能",
   "sdk_feat_h2": "商用SDKの機能セットを、オープンソースで。",
   "sdk_feat_intro": "表示、注釈、フォーム、署名、墨消し、ページ管理、テキスト編集、OCR。つまり、アプリが実際にPDF SDKをライセンスする理由となる機能です。",

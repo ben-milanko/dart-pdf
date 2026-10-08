@@ -1584,7 +1584,7 @@ abstract class AppLocalizations {
   /// Explains the risk and behavior of the nightly update channel.
   ///
   /// In en, this message translates to:
-  /// **'Receive automatic update notifications for unsigned Windows test builds from main.'**
+  /// **'Receive automatic update notifications for unsigned Windows and macOS test builds from main.'**
   String get settingsNightlyUpdatesSubtitle;
 
   /// Section header for the software-update block in settings.
@@ -2102,6 +2102,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Release notes aren\'t available in this build.'**
   String get whatsNewUnavailable;
+
+  /// Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file "Open with").
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Open {count} PDFs}}'**
+  String incomingFilesTitle(int count);
+
+  /// Body of the dialog asking whether PDFs opened from the operating system should open in separate tabs or be combined into one new document. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.'**
+  String get incomingFilesMessage;
+
+  /// Button that combines several PDFs opened from the operating system into one new document.
+  ///
+  /// In en, this message translates to:
+  /// **'Combine'**
+  String get incomingFilesCombine;
+
+  /// Title of the dialog shown when PDFs arrive through the operating system's "Combine with DartPDF" menu entry; it only asks for their order.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Combine {count} PDFs}}'**
+  String incomingFilesCombineTitle(int count);
+
+  /// Body of the dialog that orders PDFs chosen through the operating system's "Combine with DartPDF" menu entry. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the files to set the order they\'re combined in.'**
+  String get incomingFilesCombineMessage;
 }
 
 class _AppLocalizationsDelegate

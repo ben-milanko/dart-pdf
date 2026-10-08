@@ -15,6 +15,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'annotation_display_filter.dart';
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
@@ -1423,6 +1424,7 @@ class PdfViewer extends StatefulWidget {
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.showScrollbarChapters = false,
     this.highlightFormFields = true,
     this.interactiveForms = true,
@@ -1885,6 +1887,16 @@ class PdfViewer extends StatefulWidget {
   /// and editing tools still work but draw over an unannotated page -
   /// hosts typically disarm editing while hiding.
   final bool showAnnotations;
+
+  /// Annotation /Subtype names to hide while [showAnnotations] is true -
+  /// `{'Link'}` hides link annotations and leaves every other mark on the
+  /// page. Display-only, exactly like [showAnnotations]: the document, its
+  /// revisions and undo/redo are untouched, and printing/export still carry
+  /// everything. A hidden annotation is not painted (page rasters,
+  /// thumbnails, the live annotation layer while editing) and doesn't take
+  /// taps, hover, or editing selection either, so a hidden link can't be
+  /// followed. Usually fed from [PdfEditingPreferences.hiddenAnnotationSubtypes].
+  final Set<String> hiddenAnnotationSubtypes;
 
   /// Whether outline/bookmark destinations are shown as labelled markers on
   /// the main scrollbar. Off by default to keep the scrollbar uncluttered.
@@ -3251,6 +3263,7 @@ class _PdfViewerState extends State<PdfViewer>
         final commands = await worker.record(
           index,
           annotations: _pageImagesShowAnnotations,
+          hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
           priority: 3,
           imagePixelRatio: warmImages ? warmImageRatio : null,
           decodeImages: warmImages,
@@ -3282,6 +3295,7 @@ class _PdfViewerState extends State<PdfViewer>
           final plan = PdfPageRenderPlan(
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
+            hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             rotation: _effectiveRotation(index),
           );
           final existing = _previews.retainedSceneFor(
@@ -3532,6 +3546,7 @@ class _PdfViewerState extends State<PdfViewer>
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
+            hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             worker: _effectiveRenderWorker,
             rotation: _effectiveRotation(index),
             decodeImages: !vectorOnly,
@@ -4094,6 +4109,7 @@ class _PdfViewerState extends State<PdfViewer>
         height: dimensions.$2,
         pageColor: widget.pageColor,
         annotations: _pageImagesShowAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         rotation: rotation,
       ),
     );
@@ -4281,7 +4297,9 @@ class _PdfViewerState extends State<PdfViewer>
           interactiveForms: oldWidget.interactiveForms,
         );
     if (oldWidget.pageColor != widget.pageColor ||
-        oldPageImagesShowAnnotations != _pageImagesShowAnnotations) {
+        oldPageImagesShowAnnotations != _pageImagesShowAnnotations ||
+        !sameHiddenAnnotationSubtypes(oldWidget.hiddenAnnotationSubtypes,
+            widget.hiddenAnnotationSubtypes)) {
       // previews bake the paper color and annotation visibility in, so the
       // disk key changes with them too - rebind and re-prime under the new key
       _previews.clear();
@@ -5146,7 +5164,9 @@ class _PdfViewerState extends State<PdfViewer>
     final id = widget.documentId;
     if (id == null) return null;
     final vr = _controller._viewRotation;
-    return '$id|${widget.pageColor.toARGB32()}|$_pageImagesShowAnnotations|$vr';
+    final hidden = hiddenAnnotationSubtypesKey(widget.hiddenAnnotationSubtypes);
+    return '$id|${widget.pageColor.toARGB32()}|$_pageImagesShowAnnotations|$vr'
+        '${hidden.isEmpty ? '' : '|hide:$hidden'}';
   }
 
   /// Binds (or unbinds) the preview cache's persistent backing to the open
@@ -6734,7 +6754,10 @@ class _PdfViewerState extends State<PdfViewer>
     final pageViewPosition = _toPageView(i, local);
     final annots = actionsOnly ? _interactiveAnnots(i) : _visibleAnnots(i);
     // later /Annots entries paint on top, so they win the hit test
+    final hiddenSubtypes = widget.hiddenAnnotationSubtypes;
     for (final annotation in annots.reversed) {
+      // a hidden subtype is display-filtered out: not drawn, not tappable
+      if (hiddenSubtypes.contains(annotation.subtype)) continue;
       // Text markups may contain several disjoint runs. Their bounding
       // /Rect includes the whitespace between those runs, so using it here
       // makes the host tap callback and click cursor claim visibly empty
@@ -9398,6 +9421,7 @@ class _PdfViewerState extends State<PdfViewer>
                     index: index,
                     pageColor: widget.pageColor,
                     showAnnotations: widget.showAnnotations,
+                    hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
                     pageImagesShowAnnotations: _pageImagesShowAnnotations,
                     trustContentStamp: _annotationLayerController != null ||
                         widget.editing != null ||
@@ -9933,6 +9957,7 @@ class _AnnotationAppearanceLayer extends StatefulWidget {
     required this.active,
     required this.renderScheduler,
     required this.onReady,
+    this.hiddenSubtypes = const {},
   });
 
   final PdfPage page;
@@ -9940,6 +9965,10 @@ class _AnnotationAppearanceLayer extends StatefulWidget {
   final int focusDistance;
   final int rotation;
   final int pageEpoch;
+
+  /// Annotation subtypes this layer leaves unpainted (see
+  /// [PdfViewer.hiddenAnnotationSubtypes]).
+  final Set<String> hiddenSubtypes;
 
   /// Cold layers farther than one page from the reading position stay idle.
   /// Their cache remains mounted and resumes when navigation approaches.
@@ -10002,6 +10031,14 @@ class _AnnotationAppearanceLayerState
   static (Object, PdfRect) _appearanceKey(PdfAnnotation annotation) =>
       (annotation.normalAppearance!, annotation.rect);
 
+  /// Whether this layer paints [annotation]: visible, with an appearance, and
+  /// not of a subtype the viewer hides.
+  bool _paints(PdfAnnotation annotation) =>
+      !annotation.isHidden &&
+      !annotation.isNoView &&
+      annotation.normalAppearance != null &&
+      !widget.hiddenSubtypes.contains(annotation.subtype);
+
   @override
   void initState() {
     super.initState();
@@ -10020,7 +10057,14 @@ class _AnnotationAppearanceLayerState
     final pageChanged = !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
         oldWidget.pageEpoch != widget.pageEpoch;
-    if (pageChanged) {
+    final hiddenChanged = !sameHiddenAnnotationSubtypes(
+        oldWidget.hiddenSubtypes, widget.hiddenSubtypes);
+    if (hiddenChanged && !pageChanged) {
+      // A display filter flip: stop painting newly hidden marks at once, keep
+      // the rest, and let a pass add back any that were just un-hidden.
+      _dropStalePictures();
+      if (widget.active) _render(keepCurrent: true);
+    } else if (pageChanged) {
       final oldSize = PdfPageRenderer.pageSize(oldWidget.page,
           rotation: oldWidget.rotation);
       final newSize =
@@ -10087,10 +10131,7 @@ class _AnnotationAppearanceLayerState
     if (_pictureKeys.isEmpty) return;
     final live = {
       for (final annotation in widget.page.annotations)
-        if (!annotation.isHidden &&
-            !annotation.isNoView &&
-            annotation.normalAppearance != null)
-          _appearanceKey(annotation),
+        if (_paints(annotation)) _appearanceKey(annotation),
     };
     if (_pictureKeys.every(live.contains)) return;
     final keys = <(Object, PdfRect)>[];
@@ -10175,10 +10216,7 @@ class _AnnotationAppearanceLayerState
     }
     final annotations = [
       for (final annotation in page.annotations)
-        if (!annotation.isHidden &&
-            !annotation.isNoView &&
-            annotation.normalAppearance != null)
-          annotation,
+        if (_paints(annotation)) annotation,
     ];
     if (annotations.isEmpty) {
       _publish(generation, const [], pageSize);
@@ -10426,6 +10464,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.index,
     required this.pageColor,
     required this.showAnnotations,
+    required this.hiddenAnnotationSubtypes,
     required this.pageImagesShowAnnotations,
     required this.trustContentStamp,
     required this.formFields,
@@ -10479,6 +10518,7 @@ class _PdfViewerPage extends StatefulWidget {
   final int index;
   final Color pageColor;
   final bool showAnnotations;
+  final Set<String> hiddenAnnotationSubtypes;
   final bool pageImagesShowAnnotations;
   final bool trustContentStamp;
 
@@ -10782,6 +10822,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
             (widget.forceForeground && !_qualityVisible ? 1 : 0),
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
+        hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         trustContentStamp: widget.trustContentStamp,
         onRasterReady: _onRasterReady,
         renderScheduler: widget.renderScheduler,
@@ -10809,6 +10850,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
             active: widget.focusDistance <= 1 || widget.forceForeground,
             renderScheduler: widget.renderScheduler,
             onReady: _onAnnotationLayerReady,
+            hiddenSubtypes: widget.hiddenAnnotationSubtypes,
           ),
         ),
       // the field highlight sits under text highlights and overlays:
@@ -10926,6 +10968,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                     onPlaceSignature: widget.onPlaceSignature,
                                     pageColor: widget.pageColor,
                                     showAnnotations: widget.showAnnotations,
+                                    hiddenAnnotationSubtypes:
+                                        widget.hiddenAnnotationSubtypes,
                                     interactionHost: widget.interactionHost,
                                     interactionSession:
                                         widget.interactionSession,

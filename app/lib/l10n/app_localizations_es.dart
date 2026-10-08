@@ -945,7 +945,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows sin firmar desde main.';
+      'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows/macOS sin firmar desde main.';
 
   @override
   String get settingsUpdates => 'Actualizaciones';
@@ -1278,4 +1278,35 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Las notas de la versión no están disponibles en esta compilación.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Abrir $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '¿Abrir cada archivo en su propia pestaña o combinarlos en un documento nuevo? Arrastra los archivos para elegir el orden.';
+
+  @override
+  String get incomingFilesCombine => 'Combinar';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combinar $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Arrastra los archivos para elegir el orden en que se combinan.';
 }

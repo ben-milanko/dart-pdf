@@ -241,7 +241,7 @@
   "settingsUpdateFailed": "Couldn’t check for updates. Try again later.",
   "settingsUpdateIdle": "You have {name} {version}.",
   "settingsNightlyUpdates": "Nightly updates",
-  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows test builds from main.",
+  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows and macOS test builds from main.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "View source on GitHub",
   "undo": "Undo",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Custom settings",
   "whatsNew": "What's new",
   "whatsNewInstalled": "Installed",
-  "whatsNewUnavailable": "Release notes aren't available in this build."
+  "whatsNewUnavailable": "Release notes aren't available in this build.",
+  "incomingFilesTitle": "{count, plural, other{Open {count} PDFs}}",
+  "incomingFilesMessage": "Open each file in its own tab, or combine them into one new document? Drag to set the order they're combined in.",
+  "incomingFilesCombine": "Combine",
+  "incomingFilesCombineTitle": "{count, plural, other{Combine {count} PDFs}}",
+  "incomingFilesCombineMessage": "Drag the files to set the order they're combined in."
 }

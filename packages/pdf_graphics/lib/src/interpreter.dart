@@ -676,8 +676,14 @@ class PdfInterpreter {
   /// "hide on screen, show on paper"), and an annotation is printed only when
   /// its Print flag is set - so screen-only markup (e.g. a viewer's own
   /// highlights) stays off the page. Hidden is honored either way.
+  ///
+  /// [skipSubtypes] leaves out every annotation whose /Subtype it names (for
+  /// example `{'Link'}`) - a display filter that, unlike [skip], is plain data
+  /// and so can cross to a render worker.
   void drawAnnotations(PdfPage page,
-      {bool Function(PdfAnnotation)? skip, bool forPrint = false}) {
+      {bool Function(PdfAnnotation)? skip,
+      Set<String> skipSubtypes = const {},
+      bool forPrint = false}) {
     _pageBox = page.mediaBox;
     _overprint = null;
     _scanImages = _scanImagesOnly;
@@ -690,6 +696,7 @@ class PdfInterpreter {
       }
       if (annotation.subtype == 'Popup') continue;
       if (annotation.isReply || annotation.isStateAnnotation) continue;
+      if (skipSubtypes.contains(annotation.subtype)) continue;
       if (skip != null && skip(annotation)) continue;
       final form = annotation.normalAppearance;
       if (form == null) {

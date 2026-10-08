@@ -919,7 +919,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
+      'main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
 
   @override
   String get settingsUpdates => '업데이트';
@@ -1235,4 +1235,34 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '이 빌드에서는 릴리스 정보를 사용할 수 없습니다.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 열기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '각 파일을 별도의 탭에서 열까요, 아니면 하나의 새 문서로 합칠까요? 파일을 끌어 합칠 순서를 정하세요.';
+
+  @override
+  String get incomingFilesCombine => '합치기';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 합치기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '파일을 끌어 합칠 순서를 정하세요.';
 }

@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Güncellemeler denetlenemedi. Daha sonra tekrar deneyin.",
   "settingsUpdateIdle": "{name} {version} sürümüne sahipsiniz.",
   "settingsNightlyUpdates": "Gecelik güncellemeler",
-  "settingsNightlyUpdatesSubtitle": "main dalındaki imzasız Windows test derlemeleri için otomatik güncelleme bildirimleri alın.",
+  "settingsNightlyUpdatesSubtitle": "main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.",
   "settingsUpdates": "Güncellemeler",
   "settingsViewSource": "GitHub'da kaynağı görüntüle",
   "undo": "Geri al",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Özel ayarlar",
   "whatsNew": "Yenilikler",
   "whatsNewInstalled": "Yüklü",
-  "whatsNewUnavailable": "Bu sürümde sürüm notları kullanılamıyor."
+  "whatsNewUnavailable": "Bu sürümde sürüm notları kullanılamıyor.",
+  "incomingFilesTitle": "{count, plural, other{{count} PDF aç}}",
+  "incomingFilesMessage": "Her dosya kendi sekmesinde mi açılsın, yoksa tek bir yeni belgede mi birleştirilsin? Sırayı belirlemek için dosyaları sürükleyin.",
+  "incomingFilesCombine": "Birleştir",
+  "incomingFilesCombineTitle": "{count, plural, other{{count} PDF'yi birleştir}}",
+  "incomingFilesCombineMessage": "Birleştirme sırasını belirlemek için dosyaları sürükleyin."
 }

@@ -21,8 +21,8 @@ class _FakeWorker extends PdfRenderWorker {
   bool get supportsRevisionUpdate => true;
 
   @override
-  void updateRevision(
-      int baseLength, Uint8List appended, int newLength, Set<int>? changedPages) {
+  void updateRevision(int baseLength, Uint8List appended, int newLength,
+      Set<int>? changedPages) {
     revisions.add((baseLength, newLength, changedPages));
   }
 
@@ -32,11 +32,13 @@ class _FakeWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
+          Set<String> hiddenAnnotationSubtypes = const {},
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -66,7 +68,8 @@ void main() {
   test('first sync starts exactly one generation', () {
     final host = PdfRenderWorkerHost();
     final doc = openDoc();
-    host.sync(document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
+    host.sync(
+        document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
 
     expect(host.generations, 1);
     expect(spawned, hasLength(1));
@@ -76,8 +79,10 @@ void main() {
   test('the same document is a no-op', () {
     final host = PdfRenderWorkerHost();
     final doc = openDoc();
-    host.sync(document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
-    host.sync(document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
+    host.sync(
+        document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
+    host.sync(
+        document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
 
     expect(host.generations, 1, reason: 'unchanged document must not restart');
     expect(spawned, hasLength(1));
@@ -99,7 +104,11 @@ void main() {
       document: doc2,
       bytes: grown,
       pageCount: 3,
-      revision: (baseLength: baseLength, newLength: grown.length, changedPages: {1}),
+      revision: (
+        baseLength: baseLength,
+        newLength: grown.length,
+        changedPages: {1}
+      ),
     );
 
     expect(host.generations, 1, reason: 'an incremental edit keeps the worker');
@@ -123,19 +132,25 @@ void main() {
       document: doc2,
       bytes: doc2.cos.bytes,
       pageCount: 3,
-      revision: (baseLength: 0, newLength: doc2.cos.bytes.length + 999, changedPages: null),
+      revision: (
+        baseLength: 0,
+        newLength: doc2.cos.bytes.length + 999,
+        changedPages: null
+      ),
     );
 
     expect(host.generations, 2);
     expect(spawned, hasLength(2));
-    expect(spawned.first.disposed, isTrue, reason: 'the old worker is disposed');
+    expect(spawned.first.disposed, isTrue,
+        reason: 'the old worker is disposed');
     expect(spawned.last.disposed, isFalse);
   });
 
   test('dispose tears down the worker and is idempotent', () {
     final host = PdfRenderWorkerHost();
     final doc = openDoc();
-    host.sync(document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
+    host.sync(
+        document: doc, bytes: doc.cos.bytes, pageCount: 3, revision: null);
     final worker = spawned.single;
 
     host.dispose();
@@ -155,12 +170,17 @@ void main() {
 
     // In-place update: no onGeneration.
     final baseLength = doc1.cos.bytes.length;
-    final grown = Uint8List(baseLength + 8)..setRange(0, baseLength, doc1.cos.bytes);
+    final grown = Uint8List(baseLength + 8)
+      ..setRange(0, baseLength, doc1.cos.bytes);
     host.sync(
       document: openDoc(),
       bytes: grown,
       pageCount: 3,
-      revision: (baseLength: baseLength, newLength: grown.length, changedPages: {0}),
+      revision: (
+        baseLength: baseLength,
+        newLength: grown.length,
+        changedPages: {0}
+      ),
     );
     expect(generations, 1);
   });

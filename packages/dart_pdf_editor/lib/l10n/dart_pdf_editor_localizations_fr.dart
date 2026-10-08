@@ -349,6 +349,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Ajouter un nœud';
 
   @override
+  String get menuAddLeader => 'Ajouter une ligne de repère';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -409,6 +412,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Supprimer le nœud';
+
+  @override
+  String get menuRemoveLeader => 'Supprimer la ligne de repère';
 
   @override
   String get menuSaveToStamps => 'Enregistrer dans les tampons';
@@ -2314,4 +2320,137 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Ignorer';
+
+  @override
+  String get insertPagesTitle => 'Insérer des pages';
+
+  @override
+  String get insertPagesFiles => 'Fichiers';
+
+  @override
+  String get insertPagesAddFiles => 'Ajouter des fichiers…';
+
+  @override
+  String get insertPagesSortByName => 'Trier par nom';
+
+  @override
+  String get insertPagesNoFiles => 'Ajoutez un ou plusieurs PDF à insérer.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Impossible d\'ouvrir $names. Le fichier est peut-être endommagé ou protégé par mot de passe.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pages',
+      one: '1 page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Monter';
+
+  @override
+  String get insertPagesMoveDown => 'Descendre';
+
+  @override
+  String get insertPagesRemoveFile => 'Retirer de la liste';
+
+  @override
+  String get insertPagesRange => 'Pages';
+
+  @override
+  String get insertPagesRangeHint => 'Toutes (ex. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Utilisez les pages 1–$count, ex. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Toutes les pages';
+
+  @override
+  String get insertPagesSubsetOdd => 'Pages impaires';
+
+  @override
+  String get insertPagesSubsetEven => 'Pages paires';
+
+  @override
+  String get insertPagesReverse => 'Ordre inverse';
+
+  @override
+  String get insertPagesPlacement => 'Emplacement';
+
+  @override
+  String get insertPagesBefore => 'Avant';
+
+  @override
+  String get insertPagesAfter => 'Après';
+
+  @override
+  String get insertPagesFirstPage => 'Première page';
+
+  @override
+  String get insertPagesLastPage => 'Dernière page';
+
+  @override
+  String get insertPagesPage => 'Page';
+
+  @override
+  String get insertPagesPageNumber => 'Numéro de page';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'sur $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Saisissez 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Entrelacer les pages';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alterne pages insérées et pages existantes à partir de l\'emplacement, par exemple pour réunir des pages impaires et paires numérisées séparément.';
+
+  @override
+  String get insertPagesRunInserted => 'Pages insérées à chaque fois';
+
+  @override
+  String get insertPagesRunExisting => 'Pages du document entre deux';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Inclure les signets';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Ajouter un signet par fichier';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Insère $inserted pages',
+      one: 'Insère 1 page',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total pages',
+      one: '1 page',
+    );
+    return '$_temp0 : le document comptera $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Insérer';
 }

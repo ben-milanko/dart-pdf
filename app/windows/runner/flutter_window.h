@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "platform_channels.h"
 #include "win32_window.h"
@@ -14,15 +15,17 @@
 // second instance of the app. The sender (runner/main.cpp) stamps the same
 // value so unrelated WM_COPYDATA traffic is ignored.
 constexpr ULONG_PTR kIncomingFileCopyDataMagic = 0x44504446;  // 'DPDF'
+// The same, for a file from Explorer's "Combine with DartPDF" verb.
+constexpr ULONG_PTR kIncomingCombineCopyDataMagic = 0x44504443;  // 'DPDC'
 
 // A window that hosts a Flutter view and bridges OS file opens to Dart.
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  // |initial_file| is the document the app was launched with (cold start), or
-  // empty; the Dart side drains it once via `getInitialFile`.
+  // |initial_files| are the documents the app was launched with (cold start);
+  // the Dart side drains them once via `getInitialFiles`.
   explicit FlutterWindow(const flutter::DartProject& project,
-                         std::wstring initial_file = L"");
+                         std::vector<DartPdfIncomingFile> initial_files = {});
   virtual ~FlutterWindow();
 
  protected:
@@ -35,7 +38,7 @@ class FlutterWindow : public Win32Window {
  private:
   // Hands a file path to the Dart IncomingFileService as a warm-start open
   // (a second instance forwarded it via WM_COPYDATA).
-  void DeliverFileToFlutter(const std::wstring& path);
+  void DeliverFileToFlutter(const std::wstring& path, bool combine);
 
   // The project to run.
   flutter::DartProject project_;

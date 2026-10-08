@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "Nach Updates konnte nicht gesucht werden. Versuchen Sie es später erneut.",
   "settingsUpdateIdle": "Sie haben {name} {version}.",
   "settingsNightlyUpdates": "Nightly-Updates",
-  "settingsNightlyUpdatesSubtitle": "Automatische Update-Benachrichtigungen für unsignierte Windows-Testbuilds aus main erhalten.",
+  "settingsNightlyUpdatesSubtitle": "Automatische Update-Benachrichtigungen für unsignierte Windows-/macOS-Testbuilds aus main erhalten.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "Quellcode auf GitHub anzeigen",
   "undo": "Rückgängig",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "Benutzerdefinierte Einstellungen",
   "whatsNew": "Neuerungen",
   "whatsNewInstalled": "Installiert",
-  "whatsNewUnavailable": "In diesem Build sind keine Versionshinweise verfügbar."
+  "whatsNewUnavailable": "In diesem Build sind keine Versionshinweise verfügbar.",
+  "incomingFilesTitle": "{count, plural, other{{count} PDFs öffnen}}",
+  "incomingFilesMessage": "Jede Datei in einem eigenen Tab öffnen oder alle zu einem neuen Dokument zusammenführen? Ziehen Sie die Dateien, um die Reihenfolge festzulegen.",
+  "incomingFilesCombine": "Zusammenführen",
+  "incomingFilesCombineTitle": "{count, plural, other{{count} PDFs zusammenführen}}",
+  "incomingFilesCombineMessage": "Ziehen Sie die Dateien, um die Reihenfolge festzulegen."
 }

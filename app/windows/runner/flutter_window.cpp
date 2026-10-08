@@ -9,9 +9,9 @@
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
-                             std::wstring initial_file)
+                             std::vector<DartPdfIncomingFile> initial_files)
     : project_(project),
-      platform_channels_(std::move(initial_file),
+      platform_channels_(std::move(initial_files),
                          [this]() { return GetHandle(); }) {}
 
 FlutterWindow::~FlutterWindow() {}
@@ -56,8 +56,9 @@ void FlutterWindow::OnDestroy() {
   Win32Window::OnDestroy();
 }
 
-void FlutterWindow::DeliverFileToFlutter(const std::wstring& path) {
-  platform_channels_.DeliverFileToFlutter(path);
+void FlutterWindow::DeliverFileToFlutter(const std::wstring& path,
+                                         bool combine) {
+  platform_channels_.DeliverFileToFlutter(path, combine);
 }
 
 LRESULT
@@ -84,13 +85,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       // runner/main.cpp). Decode the path and hand it to Dart, then surface
       // this window so the user sees the freshly opened document.
       auto* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
-      if (cds != nullptr && cds->dwData == kIncomingFileCopyDataMagic &&
+      const bool combine =
+          cds != nullptr && cds->dwData == kIncomingCombineCopyDataMagic;
+      if (cds != nullptr &&
+          (cds->dwData == kIncomingFileCopyDataMagic || combine) &&
           cds->lpData != nullptr && cds->cbData >= sizeof(wchar_t)) {
         const wchar_t* data = reinterpret_cast<const wchar_t*>(cds->lpData);
         size_t max_chars = cds->cbData / sizeof(wchar_t);
         std::wstring path(data, ::wcsnlen(data, max_chars));
         if (!path.empty()) {
-          DeliverFileToFlutter(path);
+          DeliverFileToFlutter(path, combine);
           if (::IsIconic(hwnd)) {
             ::ShowWindow(hwnd, SW_RESTORE);
           }

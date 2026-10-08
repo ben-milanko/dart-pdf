@@ -347,6 +347,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Knoten hinzufügen';
 
   @override
+  String get menuAddLeader => 'Führungslinie hinzufügen';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -407,6 +410,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Knoten entfernen';
+
+  @override
+  String get menuRemoveLeader => 'Führungslinie entfernen';
 
   @override
   String get menuSaveToStamps => 'In Stempeln speichern';
@@ -2308,4 +2314,139 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Schließen';
+
+  @override
+  String get insertPagesTitle => 'Seiten einfügen';
+
+  @override
+  String get insertPagesFiles => 'Dateien';
+
+  @override
+  String get insertPagesAddFiles => 'Dateien hinzufügen…';
+
+  @override
+  String get insertPagesSortByName => 'Nach Name sortieren';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Füge eine oder mehrere PDFs zum Einfügen hinzu.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '$names konnte nicht geöffnet werden. Die Datei ist möglicherweise beschädigt oder passwortgeschützt.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Seiten',
+      one: '1 Seite',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Nach oben';
+
+  @override
+  String get insertPagesMoveDown => 'Nach unten';
+
+  @override
+  String get insertPagesRemoveFile => 'Aus Liste entfernen';
+
+  @override
+  String get insertPagesRange => 'Seiten';
+
+  @override
+  String get insertPagesRangeHint => 'Alle (z. B. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Seiten 1–$count verwenden, z. B. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Alle Seiten';
+
+  @override
+  String get insertPagesSubsetOdd => 'Ungerade Seiten';
+
+  @override
+  String get insertPagesSubsetEven => 'Gerade Seiten';
+
+  @override
+  String get insertPagesReverse => 'Umgekehrte Reihenfolge';
+
+  @override
+  String get insertPagesPlacement => 'Position';
+
+  @override
+  String get insertPagesBefore => 'Vor';
+
+  @override
+  String get insertPagesAfter => 'Nach';
+
+  @override
+  String get insertPagesFirstPage => 'Erste Seite';
+
+  @override
+  String get insertPagesLastPage => 'Letzte Seite';
+
+  @override
+  String get insertPagesPage => 'Seite';
+
+  @override
+  String get insertPagesPageNumber => 'Seitenzahl';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'von $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count eingeben';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Seiten verschachteln';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Eingefügte und vorhandene Seiten ab der Position abwechseln – z. B. um getrennt gescannte ungerade und gerade Seiten wieder zusammenzuführen.';
+
+  @override
+  String get insertPagesRunInserted => 'Eingefügte Seiten je Durchgang';
+
+  @override
+  String get insertPagesRunExisting => 'Dokumentseiten dazwischen';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Lesezeichen übernehmen';
+
+  @override
+  String get insertPagesBookmarkFiles =>
+      'Für jede Datei ein Lesezeichen hinzufügen';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Fügt $inserted Seiten ein',
+      one: 'Fügt 1 Seite ein',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total Seiten',
+      one: '1 Seite',
+    );
+    return '$_temp0 – das Dokument hat dann $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Einfügen';
 }

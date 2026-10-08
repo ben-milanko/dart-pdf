@@ -3,6 +3,7 @@ import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'annotation_display_filter.dart';
 import 'render_scheduler.dart';
 
 /// The page and viewport state that determines what pixels a page view needs.
@@ -22,6 +23,7 @@ class PdfPageRenderIntent {
     required this.rotation,
     required this.pageColor,
     required this.showAnnotations,
+    this.hiddenAnnotationSubtypes = const {},
     required this.scale,
     required this.settleGeneration,
   });
@@ -35,6 +37,7 @@ class PdfPageRenderIntent {
   final int? rotation;
   final Color pageColor;
   final bool showAnnotations;
+  final Set<String> hiddenAnnotationSubtypes;
   final double scale;
   final int settleGeneration;
 }
@@ -96,7 +99,9 @@ class PdfPageRenderSession {
             old.trustContentStamp != next.trustContentStamp ||
             old.rotation != next.rotation ||
             old.pageColor != next.pageColor ||
-            old.showAnnotations != next.showAnnotations;
+            old.showAnnotations != next.showAnnotations ||
+            !sameHiddenAnnotationSubtypes(
+                old.hiddenAnnotationSubtypes, next.hiddenAnnotationSubtypes);
     final visualChanged = contentChanged || nonContentVisualChanged;
     final scaleChanged = old.scale != next.scale;
     final viewportChanged =

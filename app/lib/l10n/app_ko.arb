@@ -234,7 +234,7 @@
   "settingsUpdateFailed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
   "settingsUpdateIdle": "{name} {version}을(를) 사용 중입니다.",
   "settingsNightlyUpdates": "나이틀리 업데이트",
-  "settingsNightlyUpdatesSubtitle": "main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.",
+  "settingsNightlyUpdatesSubtitle": "main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.",
   "settingsUpdates": "업데이트",
   "settingsViewSource": "GitHub에서 소스 보기",
   "undo": "실행 취소",
@@ -327,5 +327,10 @@
   "reduceSizeCustom": "사용자 지정 설정",
   "whatsNew": "새로운 기능",
   "whatsNewInstalled": "설치됨",
-  "whatsNewUnavailable": "이 빌드에서는 릴리스 정보를 사용할 수 없습니다."
+  "whatsNewUnavailable": "이 빌드에서는 릴리스 정보를 사용할 수 없습니다.",
+  "incomingFilesTitle": "{count, plural, other{PDF {count}개 열기}}",
+  "incomingFilesMessage": "각 파일을 별도의 탭에서 열까요, 아니면 하나의 새 문서로 합칠까요? 파일을 끌어 합칠 순서를 정하세요.",
+  "incomingFilesCombine": "합치기",
+  "incomingFilesCombineTitle": "{count, plural, other{PDF {count}개 합치기}}",
+  "incomingFilesCombineMessage": "파일을 끌어 합칠 순서를 정하세요."
 }

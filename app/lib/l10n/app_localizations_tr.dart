@@ -935,7 +935,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main dalındaki imzasız Windows test derlemeleri için otomatik güncelleme bildirimleri alın.';
+      'main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.';
 
   @override
   String get settingsUpdates => 'Güncellemeler';
@@ -1262,4 +1262,35 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'Bu sürümde sürüm notları kullanılamıyor.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF aç',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Her dosya kendi sekmesinde mi açılsın, yoksa tek bir yeni belgede mi birleştirilsin? Sırayı belirlemek için dosyaları sürükleyin.';
+
+  @override
+  String get incomingFilesCombine => 'Birleştir';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF\'yi birleştir',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Birleştirme sırasını belirlemek için dosyaları sürükleyin.';
 }
