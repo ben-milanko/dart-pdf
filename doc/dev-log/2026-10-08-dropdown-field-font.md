@@ -37,3 +37,16 @@ act on choice fields - dropdowns and list boxes - as well as text fields.
 - Tests: `pdf_document/test/form_styling_test.dart` (`setChoiceFieldStyle`
   group) and `dart_pdf_editor/test/editing_form_choice_style_test.dart`
   (fixture `buildListBoxFormPdf`).
+
+## CI fix carried here: interleaved perf lines
+
+`flutter-gpu-smoke` failed with "Scenario gpu-system-text-page-0-canvas-tile
+produced 5 complete run(s); required 6" even though all six runs finished.
+A line relayed through the engine's `Shell:` stream printed 2 ms behind the
+Dart stream (`[perf 1361] … phase=start`, then `Shell: [perf 1359] …`).
+`tool/patrol_perf_summary.dart` read any backwards timestamp as an app
+restart and cleared the active scenario. A backwards step of at most
+`_interleaveToleranceMs` (50 ms) is now treated as interleaving. Real
+restarts are marked by each process's `build` stamp, and an unstamped
+trace's reset still drops far more than 50 ms. Both cases are covered in
+`tool/patrol_perf_summary_test.dart`.

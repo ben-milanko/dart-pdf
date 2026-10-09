@@ -368,6 +368,35 @@ void main() {
   _expectEqual(orphan['runs'], 0, 'cross-process scenario is incomplete');
   _expectEqual(orphan['elapsedMs'], null, 'cross-process elapsed is absent');
 
+  // The engine's `Shell:` relay can print a line a few ms behind the Dart
+  // print stream (seen in flutter-gpu-smoke); that is not a restart, so the
+  // scenario around it still completes.
+  final interleavedTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=interleaved',
+    '[perf 1361] scenario name=canvas-tile phase=start',
+    'Shell: [perf 1359] tile gpu complete page=- success=true',
+    '[perf 1507] scenario name=canvas-tile phase=validated',
+  ]).toJson();
+  final interleaved =
+      _map(_map(interleavedTrace, 'scenarioMetrics'), 'canvas-tile');
+  _expectEqual(interleaved['runs'], 1, 'interleaved line keeps the run');
+  _expectEqual(
+    _map(interleaved, 'elapsedMs')['p95'],
+    146.0,
+    'interleaved run elapsed',
+  );
+
+  // Without build stamps, a real stopwatch reset still splits the trace.
+  final unstampedResetTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 900] scenario name=unstamped phase=start',
+    '[perf 12] scenario name=unstamped phase=validated',
+  ]).toJson();
+  _expectEqual(
+    _map(_map(unstampedResetTrace, 'scenarioMetrics'), 'unstamped')['runs'],
+    0,
+    'unstamped stopwatch reset is still a restart',
+  );
+
   final repeatedTrace = summary.PatrolPerfTrace.parse(const [
     '[perf 0] build commit=repeated',
     '[perf 10] scenario name=repeatable phase=start',
