@@ -332,5 +332,13 @@
   "incomingFilesMessage": "هل تريد فتح كل ملف في علامة تبويب خاصة به، أم دمجها في مستند جديد واحد؟ اسحب الملفات لتحديد ترتيب دمجها.",
   "incomingFilesCombine": "دمج",
   "incomingFilesCombineTitle": "{count, plural, other{دمج {count} من ملفات PDF}}",
-  "incomingFilesCombineMessage": "اسحب الملفات لتحديد ترتيب دمجها."
+  "incomingFilesCombineMessage": "اسحب الملفات لتحديد ترتيب دمجها.",
+  "appMenuNew": "جديد",
+  "appMenuOpen": "فتح",
+  "appMenuPrint": "طباعة",
+  "appMenuSign": "توقيع",
+  "appMenuRecent": "الأخيرة",
+  "appMenuSeeAll": "عرض الكل",
+  "appMenuExport": "تصدير",
+  "appMenuMoreTools": "المزيد من الأدوات"
 }

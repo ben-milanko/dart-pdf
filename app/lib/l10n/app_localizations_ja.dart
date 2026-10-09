@@ -1265,4 +1265,28 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get incomingFilesCombineMessage => 'ドラッグして結合する順序を指定できます。';
+
+  @override
+  String get appMenuNew => '新規';
+
+  @override
+  String get appMenuOpen => '開く';
+
+  @override
+  String get appMenuPrint => '印刷';
+
+  @override
+  String get appMenuSign => '署名';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => 'すべて表示';
+
+  @override
+  String get appMenuExport => '書き出し';
+
+  @override
+  String get appMenuMoreTools => 'その他のツール';
 }

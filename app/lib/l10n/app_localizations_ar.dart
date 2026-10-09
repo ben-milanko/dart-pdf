@@ -1315,4 +1315,28 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get incomingFilesCombineMessage => 'اسحب الملفات لتحديد ترتيب دمجها.';
+
+  @override
+  String get appMenuNew => 'جديد';
+
+  @override
+  String get appMenuOpen => 'فتح';
+
+  @override
+  String get appMenuPrint => 'طباعة';
+
+  @override
+  String get appMenuSign => 'توقيع';
+
+  @override
+  String get appMenuRecent => 'الأخيرة';
+
+  @override
+  String get appMenuSeeAll => 'عرض الكل';
+
+  @override
+  String get appMenuExport => 'تصدير';
+
+  @override
+  String get appMenuMoreTools => 'المزيد من الأدوات';
 }

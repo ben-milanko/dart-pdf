@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Jede Datei in einem eigenen Tab öffnen oder alle zu einem neuen Dokument zusammenführen? Ziehen Sie die Dateien, um die Reihenfolge festzulegen.",
   "incomingFilesCombine": "Zusammenführen",
   "incomingFilesCombineTitle": "{count, plural, other{{count} PDFs zusammenführen}}",
-  "incomingFilesCombineMessage": "Ziehen Sie die Dateien, um die Reihenfolge festzulegen."
+  "incomingFilesCombineMessage": "Ziehen Sie die Dateien, um die Reihenfolge festzulegen.",
+  "appMenuNew": "Neu",
+  "appMenuOpen": "Öffnen",
+  "appMenuPrint": "Drucken",
+  "appMenuSign": "Signieren",
+  "appMenuRecent": "Zuletzt verwendet",
+  "appMenuSeeAll": "Alle anzeigen",
+  "appMenuExport": "Exportieren",
+  "appMenuMoreTools": "Weitere Werkzeuge"
 }

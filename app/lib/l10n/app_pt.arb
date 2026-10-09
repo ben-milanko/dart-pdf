@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Abrir cada arquivo em sua própria aba ou combiná-los em um novo documento? Arraste os arquivos para definir a ordem.",
   "incomingFilesCombine": "Combinar",
   "incomingFilesCombineTitle": "{count, plural, other{Combinar {count} PDFs}}",
-  "incomingFilesCombineMessage": "Arraste os arquivos para definir a ordem da combinação."
+  "incomingFilesCombineMessage": "Arraste os arquivos para definir a ordem da combinação.",
+  "appMenuNew": "Novo",
+  "appMenuOpen": "Abrir",
+  "appMenuPrint": "Imprimir",
+  "appMenuSign": "Assinar",
+  "appMenuRecent": "Recentes",
+  "appMenuSeeAll": "Ver tudo",
+  "appMenuExport": "Exportar",
+  "appMenuMoreTools": "Mais ferramentas"
 }

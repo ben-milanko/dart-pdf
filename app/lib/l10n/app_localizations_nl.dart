@@ -1307,4 +1307,28 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Sleep de bestanden om de volgorde te bepalen.';
+
+  @override
+  String get appMenuNew => 'Nieuw';
+
+  @override
+  String get appMenuOpen => 'Openen';
+
+  @override
+  String get appMenuPrint => 'Afdrukken';
+
+  @override
+  String get appMenuSign => 'Ondertekenen';
+
+  @override
+  String get appMenuRecent => 'Recent';
+
+  @override
+  String get appMenuSeeAll => 'Alles weergeven';
+
+  @override
+  String get appMenuExport => 'Exporteren';
+
+  @override
+  String get appMenuMoreTools => 'Meer hulpmiddelen';
 }

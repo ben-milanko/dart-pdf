@@ -1313,4 +1313,28 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Перетащите файлы, чтобы задать порядок объединения.';
+
+  @override
+  String get appMenuNew => 'Создать';
+
+  @override
+  String get appMenuOpen => 'Открыть';
+
+  @override
+  String get appMenuPrint => 'Печать';
+
+  @override
+  String get appMenuSign => 'Подписать';
+
+  @override
+  String get appMenuRecent => 'Недавние';
+
+  @override
+  String get appMenuSeeAll => 'Показать все';
+
+  @override
+  String get appMenuExport => 'Экспорт';
+
+  @override
+  String get appMenuMoreTools => 'Другие инструменты';
 }

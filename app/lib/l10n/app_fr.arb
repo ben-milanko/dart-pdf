@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Ouvrir chaque fichier dans son propre onglet, ou les combiner en un nouveau document ? Faites glisser les fichiers pour choisir l'ordre.",
   "incomingFilesCombine": "Combiner",
   "incomingFilesCombineTitle": "{count, plural, other{Combiner {count} PDF}}",
-  "incomingFilesCombineMessage": "Faites glisser les fichiers pour choisir l'ordre de combinaison."
+  "incomingFilesCombineMessage": "Faites glisser les fichiers pour choisir l'ordre de combinaison.",
+  "appMenuNew": "Nouveau",
+  "appMenuOpen": "Ouvrir",
+  "appMenuPrint": "Imprimer",
+  "appMenuSign": "Signer",
+  "appMenuRecent": "Récents",
+  "appMenuSeeAll": "Tout afficher",
+  "appMenuExport": "Exporter",
+  "appMenuMoreTools": "Plus d’outils"
 }

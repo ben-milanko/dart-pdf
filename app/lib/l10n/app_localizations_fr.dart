@@ -1314,4 +1314,28 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Faites glisser les fichiers pour choisir l\'ordre de combinaison.';
+
+  @override
+  String get appMenuNew => 'Nouveau';
+
+  @override
+  String get appMenuOpen => 'Ouvrir';
+
+  @override
+  String get appMenuPrint => 'Imprimer';
+
+  @override
+  String get appMenuSign => 'Signer';
+
+  @override
+  String get appMenuRecent => 'Récents';
+
+  @override
+  String get appMenuSeeAll => 'Tout afficher';
+
+  @override
+  String get appMenuExport => 'Exporter';
+
+  @override
+  String get appMenuMoreTools => 'Plus d’outils';
 }

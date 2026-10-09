@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Otworzyć każdy plik w osobnej karcie czy połączyć je w jeden nowy dokument? Przeciągnij pliki, aby ustalić kolejność.",
   "incomingFilesCombine": "Połącz",
   "incomingFilesCombineTitle": "{count, plural, other{Połącz pliki PDF ({count})}}",
-  "incomingFilesCombineMessage": "Przeciągnij pliki, aby ustalić kolejność łączenia."
+  "incomingFilesCombineMessage": "Przeciągnij pliki, aby ustalić kolejność łączenia.",
+  "appMenuNew": "Nowy",
+  "appMenuOpen": "Otwórz",
+  "appMenuPrint": "Drukuj",
+  "appMenuSign": "Podpisz",
+  "appMenuRecent": "Ostatnie",
+  "appMenuSeeAll": "Pokaż wszystkie",
+  "appMenuExport": "Eksportuj",
+  "appMenuMoreTools": "Więcej narzędzi"
 }

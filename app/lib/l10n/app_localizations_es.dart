@@ -1309,4 +1309,28 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Arrastra los archivos para elegir el orden en que se combinan.';
+
+  @override
+  String get appMenuNew => 'Nuevo';
+
+  @override
+  String get appMenuOpen => 'Abrir';
+
+  @override
+  String get appMenuPrint => 'Imprimir';
+
+  @override
+  String get appMenuSign => 'Firmar';
+
+  @override
+  String get appMenuRecent => 'Recientes';
+
+  @override
+  String get appMenuSeeAll => 'Ver todo';
+
+  @override
+  String get appMenuExport => 'Exportar';
+
+  @override
+  String get appMenuMoreTools => 'Más herramientas';
 }

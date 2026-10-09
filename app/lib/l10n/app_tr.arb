@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Her dosya kendi sekmesinde mi açılsın, yoksa tek bir yeni belgede mi birleştirilsin? Sırayı belirlemek için dosyaları sürükleyin.",
   "incomingFilesCombine": "Birleştir",
   "incomingFilesCombineTitle": "{count, plural, other{{count} PDF'yi birleştir}}",
-  "incomingFilesCombineMessage": "Birleştirme sırasını belirlemek için dosyaları sürükleyin."
+  "incomingFilesCombineMessage": "Birleştirme sırasını belirlemek için dosyaları sürükleyin.",
+  "appMenuNew": "Yeni",
+  "appMenuOpen": "Aç",
+  "appMenuPrint": "Yazdır",
+  "appMenuSign": "İmzala",
+  "appMenuRecent": "Son kullanılanlar",
+  "appMenuSeeAll": "Tümünü gör",
+  "appMenuExport": "Dışa aktar",
+  "appMenuMoreTools": "Diğer araçlar"
 }

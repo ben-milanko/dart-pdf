@@ -332,5 +332,13 @@
   "incomingFilesMessage": "要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。",
   "incomingFilesCombine": "合併",
   "incomingFilesCombineTitle": "{count, plural, other{合併 {count} 個 PDF}}",
-  "incomingFilesCombineMessage": "拖曳檔案即可設定合併順序。"
+  "incomingFilesCombineMessage": "拖曳檔案即可設定合併順序。",
+  "appMenuNew": "新增",
+  "appMenuOpen": "開啟",
+  "appMenuPrint": "列印",
+  "appMenuSign": "簽署",
+  "appMenuRecent": "最近",
+  "appMenuSeeAll": "查看全部",
+  "appMenuExport": "匯出",
+  "appMenuMoreTools": "更多工具"
 }
