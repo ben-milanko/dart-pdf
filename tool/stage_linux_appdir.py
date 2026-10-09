@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 APP_ID = "dev.milanko.dartpdf"
 BINARY = "dart_pdf_editor_app"
+APPIMAGE_METAINFO = f"{APP_ID}.appdata.xml"
 
 
 def stage_appdir(bundle: Path, appdir: Path) -> None:
@@ -96,8 +97,11 @@ def stage_appdir(bundle: Path, appdir: Path) -> None:
             component.remove(screenshots)
         elif not any(item.get("type") == "default" for item in remaining):
             remaining[0].set("type", "default")
-    tree.write(appdir / "usr/share/metainfo" / metainfo.name,
+    # appimagetool 1.9.1 discovers the desktop-ID .appdata.xml spelling only.
+    # Ship one standard component file, not aliases an importer may read twice.
+    tree.write(appdir / "usr/share/metainfo" / APPIMAGE_METAINFO,
                encoding="utf-8", xml_declaration=True)
+    (appdir / "usr/share/metainfo" / metainfo.name).unlink()
 
     staged_desktop = appdir / "usr/share/applications" / desktop.name
     staged_desktop.write_text("\n".join(portable_desktop) + "\n", encoding="utf-8")

@@ -215,7 +215,7 @@ jobs:
           APPDIR=DartPDF.AppDir
           python3 ../tool/stage_linux_appdir.py \
             --bundle build/linux/x64/release/bundle --appdir "$APPDIR"
-          appstreamcli validate --no-net "$APPDIR/usr/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
+          appstreamcli validate --no-net "$APPDIR/usr/share/metainfo/dev.milanko.dartpdf.appdata.xml"
           curl -fsSL -o appimagetool-x86_64.AppImage \
             "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -

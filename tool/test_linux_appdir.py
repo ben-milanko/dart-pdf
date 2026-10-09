@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from stage_linux_appdir import APP_ID, BINARY, stage_appdir
+from stage_linux_appdir import APP_ID, APPIMAGE_METAINFO, BINARY, stage_appdir
 
 
 class AppDirTest(unittest.TestCase):
@@ -53,7 +53,7 @@ class AppDirTest(unittest.TestCase):
     def test_standard_share_layout_and_single_root_desktop(self):
         stage_appdir(self.bundle, self.appdir)
         self.assertFalse((self.appdir / "usr/bin/share").exists())
-        self.assertTrue((self.appdir / "usr/share/metainfo" / self.metainfo.name).is_file())
+        self.assertTrue((self.appdir / "usr/share/metainfo" / APPIMAGE_METAINFO).is_file())
         self.assertEqual([p.name for p in self.appdir.glob("*.desktop")], [self.desktop.name])
         self.assertTrue((self.appdir / self.desktop.name).is_symlink())
 
@@ -80,7 +80,7 @@ class AppDirTest(unittest.TestCase):
         self.assertEqual(self.metainfo.read_bytes(), before)
         original = ET.fromstring(before)
         original.remove(original.find("screenshots"))
-        staged = ET.parse(self.appdir / "usr/share/metainfo" / self.metainfo.name).getroot()
+        staged = ET.parse(self.appdir / "usr/share/metainfo" / APPIMAGE_METAINFO).getroot()
         self.assertEqual(ET.tostring(original), ET.tostring(staged))
         self.assertIsNone(staged.find("screenshots"))
 
@@ -89,6 +89,12 @@ class AppDirTest(unittest.TestCase):
         self.assertEqual((self.appdir / ".DirIcon").read_bytes(), self.icon.read_bytes())
         self.assertEqual((self.appdir / f"{APP_ID}.png").read_bytes(), self.icon.read_bytes())
 
+    def test_packager_spelling_has_only_one_component_file(self):
+        stage_appdir(self.bundle, self.appdir)
+        files = list((self.appdir / "usr/share/metainfo").iterdir())
+        self.assertEqual([p.name for p in files], [APPIMAGE_METAINFO])
+        self.assertTrue(self.metainfo.is_file())
+
     def test_native_linux_media_retained_and_default_reassigned(self):
         original = ET.parse(self.metainfo)
         screenshots = original.getroot().find("screenshots")
@@ -96,7 +102,7 @@ class AppDirTest(unittest.TestCase):
         ET.SubElement(linux, "image").text = "https://example.invalid/app/linux/editor.png"
         original.write(self.metainfo)
         stage_appdir(self.bundle, self.appdir)
-        staged = ET.parse(self.appdir / "usr/share/metainfo" / self.metainfo.name).getroot()
+        staged = ET.parse(self.appdir / "usr/share/metainfo" / APPIMAGE_METAINFO).getroot()
         remaining = staged.findall("screenshots/screenshot")
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0].get("type"), "default")
@@ -110,7 +116,7 @@ class AppDirTest(unittest.TestCase):
         original.write(self.metainfo)
         before = self.metainfo.read_bytes()
         stage_appdir(self.bundle, self.appdir)
-        staged = ET.parse(self.appdir / "usr/share/metainfo" / self.metainfo.name).getroot()
+        staged = ET.parse(self.appdir / "usr/share/metainfo" / APPIMAGE_METAINFO).getroot()
         self.assertIsNone(staged.find("screenshots"))
         self.assertEqual(before, self.metainfo.read_bytes())
 
