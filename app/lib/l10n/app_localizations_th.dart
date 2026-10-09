@@ -1284,4 +1284,28 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get incomingFilesCombineMessage => 'ลากไฟล์เพื่อกำหนดลำดับการรวม';
+
+  @override
+  String get appMenuNew => 'ใหม่';
+
+  @override
+  String get appMenuOpen => 'เปิด';
+
+  @override
+  String get appMenuPrint => 'พิมพ์';
+
+  @override
+  String get appMenuSign => 'ลงนาม';
+
+  @override
+  String get appMenuRecent => 'ล่าสุด';
+
+  @override
+  String get appMenuSeeAll => 'ดูทั้งหมด';
+
+  @override
+  String get appMenuExport => 'ส่งออก';
+
+  @override
+  String get appMenuMoreTools => 'เครื่องมือเพิ่มเติม';
 }

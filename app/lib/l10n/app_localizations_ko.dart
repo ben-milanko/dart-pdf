@@ -1265,4 +1265,28 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get incomingFilesCombineMessage => '파일을 끌어 합칠 순서를 정하세요.';
+
+  @override
+  String get appMenuNew => '새로 만들기';
+
+  @override
+  String get appMenuOpen => '열기';
+
+  @override
+  String get appMenuPrint => '인쇄';
+
+  @override
+  String get appMenuSign => '서명';
+
+  @override
+  String get appMenuRecent => '최근 항목';
+
+  @override
+  String get appMenuSeeAll => '모두 보기';
+
+  @override
+  String get appMenuExport => '내보내기';
+
+  @override
+  String get appMenuMoreTools => '기타 도구';
 }

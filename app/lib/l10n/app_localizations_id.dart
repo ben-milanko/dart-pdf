@@ -1301,4 +1301,28 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Seret file untuk mengatur urutan penggabungannya.';
+
+  @override
+  String get appMenuNew => 'Baru';
+
+  @override
+  String get appMenuOpen => 'Buka';
+
+  @override
+  String get appMenuPrint => 'Cetak';
+
+  @override
+  String get appMenuSign => 'Tanda tangani';
+
+  @override
+  String get appMenuRecent => 'Terbaru';
+
+  @override
+  String get appMenuSeeAll => 'Lihat semua';
+
+  @override
+  String get appMenuExport => 'Ekspor';
+
+  @override
+  String get appMenuMoreTools => 'Alat lainnya';
 }

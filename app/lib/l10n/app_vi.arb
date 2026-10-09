@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Mở từng tệp trong thẻ riêng hay kết hợp chúng thành một tài liệu mới? Kéo các tệp để sắp xếp thứ tự.",
   "incomingFilesCombine": "Kết hợp",
   "incomingFilesCombineTitle": "{count, plural, other{Kết hợp {count} tệp PDF}}",
-  "incomingFilesCombineMessage": "Kéo các tệp để sắp xếp thứ tự kết hợp."
+  "incomingFilesCombineMessage": "Kéo các tệp để sắp xếp thứ tự kết hợp.",
+  "appMenuNew": "Mới",
+  "appMenuOpen": "Mở",
+  "appMenuPrint": "In",
+  "appMenuSign": "Ký",
+  "appMenuRecent": "Gần đây",
+  "appMenuSeeAll": "Xem tất cả",
+  "appMenuExport": "Xuất",
+  "appMenuMoreTools": "Công cụ khác"
 }

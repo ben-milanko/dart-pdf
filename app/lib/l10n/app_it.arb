@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Aprire ogni file in una scheda separata o unirli in un unico nuovo documento? Trascina i file per scegliere l'ordine.",
   "incomingFilesCombine": "Unisci",
   "incomingFilesCombineTitle": "{count, plural, other{Unisci {count} PDF}}",
-  "incomingFilesCombineMessage": "Trascina i file per scegliere l'ordine in cui unirli."
+  "incomingFilesCombineMessage": "Trascina i file per scegliere l'ordine in cui unirli.",
+  "appMenuNew": "Nuovo",
+  "appMenuOpen": "Apri",
+  "appMenuPrint": "Stampa",
+  "appMenuSign": "Firma",
+  "appMenuRecent": "Recenti",
+  "appMenuSeeAll": "Mostra tutti",
+  "appMenuExport": "Esporta",
+  "appMenuMoreTools": "Altri strumenti"
 }

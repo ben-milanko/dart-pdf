@@ -2132,6 +2132,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Drag the files to set the order they\'re combined in.'**
   String get incomingFilesCombineMessage;
+
+  /// Short label of the New button in the phone app menu sheet (blank or scanned document).
+  ///
+  /// In en, this message translates to:
+  /// **'New'**
+  String get appMenuNew;
+
+  /// Short label of the Open button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get appMenuOpen;
+
+  /// Short label of the Print button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get appMenuPrint;
+
+  /// Short label of the Digitally sign button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign'**
+  String get appMenuSign;
+
+  /// Section header over the recent files in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get appMenuRecent;
+
+  /// Row in the phone app menu sheet that opens the full recent-files list.
+  ///
+  /// In en, this message translates to:
+  /// **'See all'**
+  String get appMenuSeeAll;
+
+  /// Phone app menu sheet row (and page title) grouping the export actions: page as image, reduce file size, save as.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get appMenuExport;
+
+  /// Phone app menu sheet row (and page title) grouping the less common document tools: OCR, compare, insert pages.
+  ///
+  /// In en, this message translates to:
+  /// **'More tools'**
+  String get appMenuMoreTools;
 }
 
 class _AppLocalizationsDelegate

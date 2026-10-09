@@ -332,5 +332,13 @@
   "incomingFilesMessage": "हर फ़ाइल को अलग टैब में खोलें, या सभी को एक नए दस्तावेज़ में जोड़ें? क्रम तय करने के लिए फ़ाइलों को खींचें।",
   "incomingFilesCombine": "जोड़ें",
   "incomingFilesCombineTitle": "{count, plural, other{{count} PDF जोड़ें}}",
-  "incomingFilesCombineMessage": "जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।"
+  "incomingFilesCombineMessage": "जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।",
+  "appMenuNew": "नया",
+  "appMenuOpen": "खोलें",
+  "appMenuPrint": "प्रिंट करें",
+  "appMenuSign": "हस्ताक्षर करें",
+  "appMenuRecent": "हाल के",
+  "appMenuSeeAll": "सभी देखें",
+  "appMenuExport": "निर्यात करें",
+  "appMenuMoreTools": "और टूल"
 }

@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.",
   "incomingFilesCombine": "Gabungkan",
   "incomingFilesCombineTitle": "{count, plural, other{Gabungkan {count} PDF}}",
-  "incomingFilesCombineMessage": "Seret file untuk mengatur urutan penggabungannya."
+  "incomingFilesCombineMessage": "Seret file untuk mengatur urutan penggabungannya.",
+  "appMenuNew": "Baru",
+  "appMenuOpen": "Buka",
+  "appMenuPrint": "Cetak",
+  "appMenuSign": "Tanda tangani",
+  "appMenuRecent": "Terbaru",
+  "appMenuSeeAll": "Lihat semua",
+  "appMenuExport": "Ekspor",
+  "appMenuMoreTools": "Alat lainnya"
 }

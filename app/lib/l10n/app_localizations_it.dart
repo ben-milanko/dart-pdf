@@ -1309,4 +1309,28 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Trascina i file per scegliere l\'ordine in cui unirli.';
+
+  @override
+  String get appMenuNew => 'Nuovo';
+
+  @override
+  String get appMenuOpen => 'Apri';
+
+  @override
+  String get appMenuPrint => 'Stampa';
+
+  @override
+  String get appMenuSign => 'Firma';
+
+  @override
+  String get appMenuRecent => 'Recenti';
+
+  @override
+  String get appMenuSeeAll => 'Mostra tutti';
+
+  @override
+  String get appMenuExport => 'Esporta';
+
+  @override
+  String get appMenuMoreTools => 'Altri strumenti';
 }

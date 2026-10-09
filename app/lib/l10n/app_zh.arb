@@ -332,5 +332,13 @@
   "incomingFilesMessage": "在各自的标签页中打开每个文件,还是将它们合并为一个新文档?拖动文件可设置合并顺序。",
   "incomingFilesCombine": "合并",
   "incomingFilesCombineTitle": "{count, plural, other{合并 {count} 个 PDF}}",
-  "incomingFilesCombineMessage": "拖动文件可设置合并顺序。"
+  "incomingFilesCombineMessage": "拖动文件可设置合并顺序。",
+  "appMenuNew": "新建",
+  "appMenuOpen": "打开",
+  "appMenuPrint": "打印",
+  "appMenuSign": "签名",
+  "appMenuRecent": "最近",
+  "appMenuSeeAll": "查看全部",
+  "appMenuExport": "导出",
+  "appMenuMoreTools": "更多工具"
 }
