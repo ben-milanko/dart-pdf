@@ -481,6 +481,42 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('opening a text box primes the iOS keyboard inside the tap',
+        (tester) async {
+      // iOS web only raises the keyboard for a focus made during a gesture,
+      // and the field focuses a frame later - the primer has to run while
+      // the opening tap is still being handled, before the field exists
+      var primes = 0;
+      var primedBeforeField = true;
+      final original = debugPdfPrimeSoftKeyboard;
+      debugPdfPrimeSoftKeyboard = () {
+        primes++;
+        primedBeforeField &= find.byKey(editorKey).evaluate().isEmpty;
+      };
+      addTearDown(() => debugPdfPrimeSoftKeyboard = original);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      expect(primedBeforeField, isTrue);
+      await tap(tester, view(450, 400)); // commit
+      await settle(tester);
+
+      // off iOS the framework's own focus raises the keyboard
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      await tester.pump();
+      await drag(tester, view(100, 500), view(300, 440));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      await tap(tester, view(450, 300));
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets('dragging out a text box opens an inline editor that commits',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
