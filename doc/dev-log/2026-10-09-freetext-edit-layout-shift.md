@@ -52,7 +52,27 @@ laid out exactly as before.
 The page ignores the platform text size. The editor didn't, so at 200%
 system text the live text was twice the committed size. The field now sits
 under `MediaQuery.withNoTextScaling`, and the afterimage uses
-`TextScaler.noScaling`.
+`TextScaler.noScaling`. The wrapper has to sit *inside* `pdfZoomAwareCaret`:
+on iOS/macOS that helper rebuilds `MediaQuery` from the outer context to
+adjust the caret's devicePixelRatio, which silently reinstated the OS scale
+when the no-scaling wrapper sat outside it.
+
+## 4. Desktop/web density (found in the browser, not the VM)
+
+The first round still showed ~8 screen px of lift at 507% in Chromium.
+Logging showed the field's real baseline and the replica painter agreed
+exactly; the whole field sat ~2 layout px above its padding. Desktop
+platforms (web included) default to `VisualDensity.compact`, and
+`InputDecorator` applies that offset even to a collapsed decoration. The VM
+tests ran as Android (standard density), so they never saw it. The
+decoration now pins `visualDensity: VisualDensity.standard`. The regression
+test runs as Android, macOS and Linux (`TargetPlatformVariant`); on the
+previous code the Linux variant is ~2px high and the macOS one 17px off (the
+text-scale leak above).
+
+The baseline translate wrapper is always present (offset 0 when unused):
+toggling it as the shift crossed zero mid-edit rebuilt the `TextField` and
+dropped its editing state.
 
 ## Test
 

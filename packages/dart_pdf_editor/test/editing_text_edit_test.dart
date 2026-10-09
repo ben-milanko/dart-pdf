@@ -899,7 +899,14 @@ void main() {
       final afterBaseline = paragraph.localToGlobal(Offset(0, afterOffset)).dy;
       expect(afterBaseline, closeTo(expected, 0.5));
       await settle(tester);
-    });
+    },
+        // Apple's caret wrapper rebuilds MediaQuery (and so the OS text
+        // scale); desktop platforms take Material's compact density
+        variant: TargetPlatformVariant(const {
+          TargetPlatform.android,
+          TargetPlatform.macOS,
+          TargetPlatform.linux,
+        }));
 
     testWidgets('Escape while editing existing free text keeps the annotation',
         (tester) async {

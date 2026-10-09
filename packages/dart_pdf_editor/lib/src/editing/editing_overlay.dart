@@ -6882,7 +6882,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             );
                             Widget field = _zoomAwareCursor(
                                 context,
-                                TextField(
+                                // the page ignores the OS text size; so must
+                                // the preview of what it will draw. Inside the
+                                // caret wrapper, which rebuilds MediaQuery from
+                                // the outer context on Apple platforms
+                                MediaQuery.withNoTextScaling(
+                                    child: TextField(
                                   key: const ValueKey('pdf-freetext-editor'),
                                   controller: _textEditText,
                                   focusNode: _textEditFocus,
@@ -6926,6 +6931,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   decoration: InputDecoration(
                                     isCollapsed: true,
                                     border: InputBorder.none,
+                                    // the decorator's layout tightens with the
+                                    // theme's density (compact on desktop and
+                                    // web), lifting the text off the measured
+                                    // baseline; pin it platform-independent
+                                    visualDensity: VisualDensity.standard,
                                     // the measured first-baseline shift
                                     // (a negative one is a translate below)
                                     contentPadding: EdgeInsets.fromLTRB(
@@ -6938,7 +6948,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                       _textEditPad,
                                     ),
                                   ),
-                                ));
+                                )));
                             // always wrapped, even at 0: toggling the wrapper
                             // as the shift crosses zero (a run resized
                             // mid-edit) would rebuild the field and drop its
@@ -6946,14 +6956,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             field = Transform.translate(
                                 offset: Offset(0, math.min(0.0, baselineShift)),
                                 child: field);
-                            // the page ignores the OS text size; so must the
-                            // preview of what it will draw
-                            return MediaQuery.withNoTextScaling(
-                              child: Directionality(
-                                textDirection: direction,
-                                child: field,
-                              ),
-                            );
+                            return Directionality(
+                                textDirection: direction, child: field);
                           },
                         ),
                       ),
