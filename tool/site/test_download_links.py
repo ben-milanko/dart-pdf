@@ -40,7 +40,7 @@ class DownloadLinksTest(unittest.TestCase):
     def test_each_native_platform_keeps_its_store_path_without_javascript(self):
         expected = {
             "ios": "https://apps.apple.com/app/dartpdf/id6780083686",
-            "macos": "https://apps.apple.com/app/dartpdf/id6780083686",
+            "macos": "https://apps.apple.com/app/dartpdf/id6780083686?platform=mac",
             "android": "https://play.google.com/store/apps/details?id=dev.milanko.dartpdf",
             "windows": "https://apps.microsoft.com/detail/9n071vsv6rgk",
             "linux": "https://snapcraft.io/dartpdf",
