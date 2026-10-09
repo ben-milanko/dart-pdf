@@ -170,8 +170,8 @@ void main() {
         ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
       expect(single.selectAnnotation(0, 0), isTrue);
       single.autosizeSelectedTextBox();
-      expect(single.document.page(0).annotations.single.rect.width,
-          lessThan(60));
+      expect(
+          single.document.page(0).annotations.single.rect.width, lessThan(60));
     });
 
     test('textAlign preference flows into new free text', () {
@@ -479,6 +479,42 @@ void main() {
 
       expect(editing.selectedTextStyle!.size, closeTo(35.9, 0.01));
       await settle(tester);
+    });
+
+    testWidgets('opening a text box primes the iOS keyboard inside the tap',
+        (tester) async {
+      // iOS web only raises the keyboard for a focus made during a gesture,
+      // and the field focuses a frame later - the primer has to run while
+      // the opening tap is still being handled, before the field exists
+      var primes = 0;
+      var primedBeforeField = true;
+      final original = debugPdfPrimeSoftKeyboard;
+      debugPdfPrimeSoftKeyboard = () {
+        primes++;
+        primedBeforeField &= find.byKey(editorKey).evaluate().isEmpty;
+      };
+      addTearDown(() => debugPdfPrimeSoftKeyboard = original);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      expect(primedBeforeField, isTrue);
+      await tap(tester, view(450, 400)); // commit
+      await settle(tester);
+
+      // off iOS the framework's own focus raises the keyboard
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      await tester.pump();
+      await drag(tester, view(100, 500), view(300, 440));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      await tap(tester, view(450, 300));
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('dragging out a text box opens an inline editor that commits',
@@ -998,6 +1034,59 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets(
+        'the end-of-text caret stays on its line after a run is resized back',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      const text = '60kg Rail: 25mm rubber pads\n53kg Rail: ';
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), text);
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      final render = tester
+          .state<EditableTextState>(find.descendant(
+              of: find.byKey(editorKey), matching: find.byType(EditableText)))
+          .renderEditable;
+      Future<void> select(int base, [int? extent]) async {
+        field.controller!.selection =
+            TextSelection(baseOffset: base, extentOffset: extent ?? base);
+        await tester.pump();
+      }
+
+      // a run grows the strut; a whole-box recolour then rebuilds Flutter's
+      // one-line caret template at that size...
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 24);
+      await tester.pump();
+      await select(text.length);
+      editing.restyleEditingTextSelection(color: 0x0000FF);
+      await tester.pump();
+      // ...and shrinking the run back must not leave the caret on it
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 14);
+      await tester.pump();
+      await select(text.length);
+
+      final line = render
+          .getBoxesForSelection(
+              const TextSelection(baseOffset: 28, extentOffset: text.length))
+          .single;
+      final caret =
+          render.getLocalRectForCaret(const TextPosition(offset: text.length));
+      expect(caret.top, closeTo(line.top, 1.5),
+          reason: 'the caret floated above the last line');
+      expect(caret.bottom, closeTo(line.bottom, 1.5));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
     testWidgets('an embedded font applied to a run previews in its real face',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -1051,6 +1140,61 @@ void main() {
                 'Type0';
       }), isTrue);
       await settle(tester);
+    });
+
+    testWidgets("the iOS selection menu doesn't cover the inline style chip",
+        (tester) async {
+      // Both float just above the box, so on a phone the caret tap's
+      // "Paste" bubble landed on the chip and hid its font/size buttons.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasteable'};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return <String, dynamic>{'value': true};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(200, 550, 380, 600), 'Hello');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(290, 575)); // select
+      await tap(tester, view(290, 575)); // edit
+
+      final chip = find.byKey(const ValueKey('pdf-inline-text-style-chip'));
+      expect(chip, findsOneWidget);
+      final gesture = await tester.startGesture(
+          tester.getRect(find.byKey(editorKey)).center,
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final buttons = find.descendant(
+          of: find.byType(CupertinoTextSelectionToolbar),
+          matching: find.byType(CupertinoTextSelectionToolbarButton));
+      expect(buttons, findsWidgets);
+      final menu = List.generate(buttons.evaluate().length, (i) => i)
+          .map((i) => tester.getRect(buttons.at(i)))
+          .reduce((a, b) => a.expandToInclude(b));
+      final chipRect = tester.getRect(chip);
+      expect(menu.overlaps(chipRect), isFalse,
+          reason: 'menu $menu vs chip $chipRect');
+      // still beside the box, stacked beyond the chip
+      expect(menu.bottom, lessThanOrEqualTo(chipRect.top + 1));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('touch inline style chip changes selected text font',
