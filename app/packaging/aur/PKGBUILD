@@ -1,53 +1,56 @@
 # Maintainer: Ben Milanko <ben.milanko@protonmail.com>
 pkgname=dartpdf-bin
-pkgver=4.0.0
+pkgver=8.0.0
 pkgrel=1
-pkgdesc="Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)"
+pkgdesc='Local PDF editor with annotations, forms, signatures and redaction'
 arch=('x86_64')
 url="https://dart-pdf.com"
 license=('Apache-2.0')
-# Runtime libs the Flutter/GTK bundle links against. Verified by ldd-ing the
-# released bundle on Ubuntu 24.04 (glibc 2.39): the binary + every bundled .so
-# resolve against gtk3 (which pulls pango/cairo/gdk-pixbuf/glib2/at-spi2/
-# harfbuzz/fontconfig/freetype/libx*/wayland/libxkbcommon) and libsecret; there
-# are no other unbundled runtime deps. NOTE: jsoncpp is a *build*-time dep only
-# (libjsoncpp-dev in CI) - nothing in the shipped bundle links libjsoncpp, so it
-# is intentionally NOT listed here.
-depends=('gtk3' 'libsecret')
-# lib/libdartjni.so links libjvm.so (the `jni` plugin). The app launches and
-# runs fine with no JRE; only the on-device OCR path could touch it. If OCR is
-# found to require Java on Linux, add `java-runtime` here as an optdepend.
-optdepends=('org.freedesktop.secrets: store digital-signing identities in a keyring')
+# Direct ELF providers verified on Arch, plus the installed icon hierarchy.
+# Keep the complete upstream bundle, including its native plugins.
+depends=('at-spi2-core' 'cairo' 'fontconfig' 'gdk-pixbuf2' 'glib2' 'glibc'
+         'gtk3' 'harfbuzz' 'hicolor-icon-theme' 'libepoxy' 'libgcc'
+         'libsecret' 'libstdc++' 'pango' 'zlib')
+makedepends=('patchelf')
+# The bundled JNI helper links libjvm.so. Validate its runtime requirement
+# separately rather than attributing it to OCR without evidence.
+optdepends=('org.freedesktop.secrets: store digital-signing identities in a keyring'
+            'java-runtime: JVM for the bundled JNI helper')
 provides=('dartpdf')
 conflicts=('dartpdf')
-options=('!strip')  # bundled .so files are already stripped; don't touch the AOT blob
+options=('!strip' '!debug')  # preserve upstream binaries without an empty debug package
 
 source=("dartpdf-${pkgver}.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v${pkgver}/dartpdf-linux-x64.tar.gz"
         "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v${pkgver}/LICENSE")
 
-sha256sums=('a76ef546a97a03c4aee3b063652394d13b69cc33aa10dd9711fe08d0e7711cb8'
+sha256sums=('3bb2bf6b940020de29ba45101680b70f758e83090b3b18eb09541c1c80b414f2'
             'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
 
 package() {
   # The release tarball extracts the runner, data/, lib/, and share/ straight
-  # into $srcdir. Install the runtime bundle under /opt/dartpdf; the
+  # into $srcdir. Install the runtime bundle under /usr/lib/dartpdf; the
   # runner resolves its real path via readlink and finds data/ + lib/ next to
   # it, so a /usr/bin symlink works.
-  install -d "${pkgdir}/opt/dartpdf"
+  install -d "${pkgdir}/usr/lib/dartpdf"
   cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/data" "${srcdir}/lib" \
-        "${pkgdir}/opt/dartpdf/"
-  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app"
+        "${pkgdir}/usr/lib/dartpdf/"
+  chmod 755 "${pkgdir}/usr/lib/dartpdf/dart_pdf_editor_app"
+
+  # Flutter plugins contain an upstream CI build directory in RUNPATH.
+  # Resolve the bundled engine beside each plugin, not from a writable home.
+  local _plugin
+  for _plugin in dart_pdf_printing desktop_drop file_selector_linux \
+                 flutter_doc_scanner flutter_secure_storage_linux url_launcher_linux; do
+    patchelf --set-rpath '$ORIGIN' \
+      "${pkgdir}/usr/lib/dartpdf/lib/lib${_plugin}_plugin.so"
+  done
 
   install -d "${pkgdir}/usr/bin"
-  ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
-  # The checked-in PKGBUILD remains pinned to the stable release while the
-  # next release is prepared. Install the sidecar as soon as that release
-  # archive contains it without breaking reproducible builds of the old pin.
-  if [[ -f "${srcdir}/dartpdf-cli" ]]; then
-    install -Dm755 "${srcdir}/dartpdf-cli" \
-      "${pkgdir}/opt/dartpdf/dartpdf-cli"
-    ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
-  fi
+  ln -s /usr/lib/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
+  # Release 8.0.0 includes the CLI. Fail rather than silently omit it.
+  install -Dm755 "${srcdir}/dartpdf-cli" \
+    "${pkgdir}/usr/lib/dartpdf/dartpdf-cli"
+  ln -s /usr/lib/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
 
   install -d "${pkgdir}/usr/share"
   cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"
