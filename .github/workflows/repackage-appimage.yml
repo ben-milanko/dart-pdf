@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     environment: storeflight-production
     env:
       GH_TOKEN: ${{ github.token }}
@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Test Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
       - name: Download and verify the released Linux bundle
         run: |
           set -euo pipefail
@@ -36,25 +38,24 @@ jobs:
           actual="sha256:$(sha256sum dartpdf-linux-x64.tar.gz | cut -d' ' -f1)"
           [[ -n "$expected" && "$actual" == "$expected" ]]
           echo "Packaging verified release archive $actual"
+      - name: Install Linux packaging and validation dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb x11-utils
+          python3-venv libcurl4-openssl-dev libxml2-dev libyaml-dev libstemmer-dev
+          libsystemd-dev liblzma-dev libzstd-dev gperf gettext xsltproc docbook-xsl itstool
+      - name: Build schema-aware AppStream validator
+        run: bash tool/build_appstream_validator.sh
       - name: Package the existing bundle
         run: |
           set -euo pipefail
           APPDIR=DartPDF.AppDir
-          mkdir -p "$APPDIR/usr/bin"
-          tar xzf dartpdf-linux-x64.tar.gz -C "$APPDIR/usr/bin"
-          cp "$APPDIR/usr/bin/share/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png" "$APPDIR/dartpdf.png"
-          cp "$APPDIR/usr/bin/share/applications/dev.milanko.dartpdf.desktop" "$APPDIR/dartpdf.desktop"
-          # The desktop file's installed executable path is different inside
-          # this portable container; AppRun resolves the bundled executable.
-          sed -i 's|^Exec=.*|Exec=dart_pdf_editor_app %F|' "$APPDIR/dartpdf.desktop"
-          sed -i 's|^Icon=.*|Icon=dartpdf|' "$APPDIR/dartpdf.desktop"
-          cat > "$APPDIR/AppRun" <<'EOF'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
-          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
-          EOF
-          chmod +x "$APPDIR/AppRun"
+          mkdir released-bundle
+          tar xzf dartpdf-linux-x64.tar.gz -C released-bundle
+          python3 tool/check_linux_glibc.py released-bundle --max-version 2.35
+          python3 tool/stage_linux_appdir.py \
+            --bundle released-bundle --appdir "$APPDIR"
+          appstreamcli validate --no-net "$APPDIR/usr/share/metainfo/dev.milanko.dartpdf.appdata.xml"
           curl -fsSL -o appimagetool-x86_64.AppImage \
             "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
@@ -62,8 +63,6 @@ jobs:
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
       - name: Smoke-test the portable app
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb x11-utils
           tool/smoke_test_linux_gui.sh \
             --cmd "./dartpdf-linux-x86_64.AppImage --appimage-extract-and-run" \
             --timeout 15

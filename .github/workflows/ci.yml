@@ -834,7 +834,8 @@ jobs:
   # toolchain) and adds desktop-file/AppStream validation plus a headless
   # smoke launch under Xvfb. Kept green so `flutter build linux` can't rot.
   linux:
-    runs-on: ubuntu-latest
+    # Match the release builder so a plugin cannot silently raise the libc floor.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux desktop build + validation deps
@@ -842,7 +843,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
-            desktop-file-utils appstream xvfb x11-utils
+            desktop-file-utils xvfb x11-utils python3-venv \
+            libcurl4-openssl-dev libxml2-dev libyaml-dev libstemmer-dev \
+            libsystemd-dev liblzma-dev libzstd-dev gperf gettext xsltproc docbook-xsl itstool
       - name: Test Windows clipboard DIB decode (host-portable C++)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
@@ -862,6 +865,10 @@ jobs:
       - name: Build Linux (release)
         working-directory: app
         run: flutter build linux --release
+      - name: Test the Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
+      - name: Check Linux libc baseline (including bundled plugins)
+        run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Validate .desktop entry
         run: |
           desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
@@ -871,6 +878,8 @@ jobs:
             echo "::error::Flatpak desktop assets are stale; run app/packaging/flatpak/sync-desktop-assets.sh"
             exit 1
           }
+      - name: Build schema-aware AppStream validator
+        run: bash tool/build_appstream_validator.sh
       - name: Validate AppStream metainfo
         run: |
           set -euo pipefail
