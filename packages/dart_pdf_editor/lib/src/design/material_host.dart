@@ -327,19 +327,23 @@ Widget pdfTextContextMenu(
 
 /// [pdfTextContextMenu] with the editor's options: [systemMenu] false keeps
 /// Flutter's own toolbar on iOS (the in-page editors, whose menu
-/// [place]ment corrects for the viewer's zoom transform).
+/// [place]ment corrects for the viewer's zoom transform). [anchors]
+/// replaces the field's own [EditableTextState.contextMenuAnchors] for
+/// Flutter's toolbar (an editor steering it clear of its own chrome).
 Widget pdfStockTextContextMenu(
   BuildContext context,
   EditableTextState editableTextState, {
   bool systemMenu = true,
   Widget Function(EditableTextState state, Widget menu)? place,
+  TextSelectionToolbarAnchors? anchors,
 }) {
   Widget menu =
       systemMenu && SystemContextMenu.isSupportedByField(editableTextState)
           ? SystemContextMenu.editableText(editableTextState: editableTextState)
-          : AdaptiveTextSelectionToolbar.editableText(
+          : AdaptiveTextSelectionToolbar.buttonItems(
               key: const ValueKey('pdf-text-context-menu'),
-              editableTextState: editableTextState);
+              buttonItems: editableTextState.contextMenuButtonItems,
+              anchors: anchors ?? editableTextState.contextMenuAnchors);
   if (place != null) menu = place(editableTextState, menu);
   return pdfHostRoute(context, menu, themesFrom: editableTextState.context);
 }

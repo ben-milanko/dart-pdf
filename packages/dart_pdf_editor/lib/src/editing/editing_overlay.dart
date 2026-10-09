@@ -5790,6 +5790,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (picked != null && mounted) _applyInlineTextStyle(color: picked);
   }
 
+  /// The inline style chip's global bounds, which the free-text editor's
+  /// selection toolbar steers clear of; null while it isn't laid out.
+  Rect? _inlineTextStyleChipRect() {
+    final box = _inlineTextStyleChipKey.currentContext?.findRenderObject()
+        as RenderBox?;
+    if (box == null || !box.attached || !box.hasSize) return null;
+    return MatrixUtils.transformRect(
+        box.getTransformTo(null), Offset.zero & box.size);
+  }
+
+  final _inlineTextStyleChipKey = GlobalKey();
+
   Widget _buildInlineTextStyleChip(Rect editorRect) {
     final s = _chromeScale;
     final current = _currentInlineTextStyle();
@@ -5818,6 +5830,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // the tap otherwise blurs the field and the focus-loss listener
           // commits/deselects the box before the button's action runs
           child: Listener(
+            key: _inlineTextStyleChipKey,
             behavior: HitTestBehavior.deferToChild,
             onPointerDown: (_) => _holdChipFocus(),
             onPointerUp: (_) => _releaseChipFocus(),
@@ -6786,6 +6799,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                       editableTextState,
                                       systemMenu: false,
                                       place: pdfPlacedTextSelectionMenu,
+                                      // keep "Paste" off the style chip
+                                      anchors: pdfTextMenuAnchorsClearOf(
+                                          editableTextState.contextMenuAnchors,
+                                          _inlineTextStyleChipRect()),
                                     ),
                                     // mirrors the committed appearance: same size
                                     // in view pixels, same leading/spacing,

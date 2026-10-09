@@ -48,6 +48,44 @@ Widget pdfPlacedTextSelectionMenu(
   return Transform(transform: correction, child: menu);
 }
 
+/// The band a selection toolbar takes beside its anchor: Cupertino's 43px
+/// bar plus its arrow and gap (Material's is shorter), with some slack.
+const double _kToolbarBand = 64;
+
+/// [anchors] moved so the selection toolbar clears [avoid] - an editor's own
+/// chrome hugging the field, in the same global coordinates as the anchors.
+///
+/// The toolbar sits just above [TextSelectionToolbarAnchors.primaryAnchor]
+/// (or below the secondary one when there's no room above). An inline
+/// editor's style chip floats in exactly that band, so on a phone the
+/// "Paste" bubble lands on top of the chip's buttons and hides them. Where
+/// the chip is in the toolbar's band, the anchor moves to the chip's far
+/// edge so the bar stacks beyond it instead; anchors already clear of it
+/// are returned unchanged.
+TextSelectionToolbarAnchors pdfTextMenuAnchorsClearOf(
+    TextSelectionToolbarAnchors anchors, Rect? avoid) {
+  if (avoid == null || avoid.isEmpty) return anchors;
+  var primary = anchors.primaryAnchor;
+  var secondary = anchors.secondaryAnchor;
+  // chip above the selection, inside the band the bar would fill
+  if (avoid.bottom <= primary.dy + 1 &&
+      avoid.bottom > primary.dy - _kToolbarBand) {
+    primary = Offset(primary.dx, math.min(primary.dy, avoid.top));
+  }
+  // chip below the selection, where the flipped bar would go
+  if (secondary != null &&
+      avoid.top >= secondary.dy - 1 &&
+      avoid.top < secondary.dy + _kToolbarBand) {
+    secondary = Offset(secondary.dx, math.max(secondary.dy, avoid.bottom));
+  }
+  if (primary == anchors.primaryAnchor &&
+      secondary == anchors.secondaryAnchor) {
+    return anchors;
+  }
+  return TextSelectionToolbarAnchors(
+      primaryAnchor: primary, secondaryAnchor: secondary);
+}
+
 /// Wraps an in-page [TextField] so Flutter's Apple-platform caret nudge
 /// stays constant in *screen* space.
 ///

@@ -170,8 +170,8 @@ void main() {
         ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
       expect(single.selectAnnotation(0, 0), isTrue);
       single.autosizeSelectedTextBox();
-      expect(single.document.page(0).annotations.single.rect.width,
-          lessThan(60));
+      expect(
+          single.document.page(0).annotations.single.rect.width, lessThan(60));
     });
 
     test('textAlign preference flows into new free text', () {
@@ -1051,6 +1051,61 @@ void main() {
                 'Type0';
       }), isTrue);
       await settle(tester);
+    });
+
+    testWidgets("the iOS selection menu doesn't cover the inline style chip",
+        (tester) async {
+      // Both float just above the box, so on a phone the caret tap's
+      // "Paste" bubble landed on the chip and hid its font/size buttons.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasteable'};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return <String, dynamic>{'value': true};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(200, 550, 380, 600), 'Hello');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(290, 575)); // select
+      await tap(tester, view(290, 575)); // edit
+
+      final chip = find.byKey(const ValueKey('pdf-inline-text-style-chip'));
+      expect(chip, findsOneWidget);
+      final gesture = await tester.startGesture(
+          tester.getRect(find.byKey(editorKey)).center,
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final buttons = find.descendant(
+          of: find.byType(CupertinoTextSelectionToolbar),
+          matching: find.byType(CupertinoTextSelectionToolbarButton));
+      expect(buttons, findsWidgets);
+      final menu = List.generate(buttons.evaluate().length, (i) => i)
+          .map((i) => tester.getRect(buttons.at(i)))
+          .reduce((a, b) => a.expandToInclude(b));
+      final chipRect = tester.getRect(chip);
+      expect(menu.overlaps(chipRect), isFalse,
+          reason: 'menu $menu vs chip $chipRect');
+      // still beside the box, stacked beyond the chip
+      expect(menu.bottom, lessThanOrEqualTo(chipRect.top + 1));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('touch inline style chip changes selected text font',
