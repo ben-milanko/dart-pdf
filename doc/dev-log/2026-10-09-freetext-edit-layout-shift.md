@@ -39,10 +39,13 @@ negative, by the difference. The result is cached per style, so typing costs
 nothing extra.
 
 The gotcha that cost a round: the `TextField` merges the Material 3 theme's
-body style, which sets `leadingDistribution: even`. That moved the real line
-2pt off the replica painter's. Both the field style and the strut now pin
-`TextLeadingDistribution.proportional`. The afterimage's `Text` inherits the
-same default style and is pinned too.
+body style, which sets `leadingDistribution: even`, while the measuring
+painter never sees the theme - so the real line sat 2pt off the replica.
+The field style, the strut and the afterimage now all pin
+`TextLeadingDistribution.even` explicitly. Pinning `proportional` instead
+also lines the baselines up, but it moves the selection line box ~0.4px
+and breaks the end-of-text caret check from #1052; `even` leaves the field
+laid out exactly as before.
 
 ## 3. OS text scaling
 

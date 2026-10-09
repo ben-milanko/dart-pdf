@@ -434,6 +434,9 @@ class _RichTextEditingController extends TextEditingController {
     if (value.isEmpty || _ranges.isEmpty) {
       return TextSpan(text: value, style: style);
     }
+    // the root style is sized to [maxStyleSize] (see the editor's
+    // `style:`), so unstyled gaps carry the typing default's size themselves
+    final gapStyle = TextStyle(fontSize: defaultStyle.size * scale);
     final children = <InlineSpan>[];
     var offset = 0;
     for (final range in _mergeRanges(List.of(_ranges))) {
@@ -441,7 +444,8 @@ class _RichTextEditingController extends TextEditingController {
       final start = range.start.clamp(0, value.length);
       final end = range.end.clamp(0, value.length);
       if (offset < start) {
-        children.add(TextSpan(text: value.substring(offset, start)));
+        children.add(
+            TextSpan(text: value.substring(offset, start), style: gapStyle));
       }
       children.add(TextSpan(
           text: value.substring(start, end),
@@ -450,7 +454,7 @@ class _RichTextEditingController extends TextEditingController {
       offset = end;
     }
     if (offset < value.length) {
-      children.add(TextSpan(text: value.substring(offset)));
+      children.add(TextSpan(text: value.substring(offset), style: gapStyle));
     }
     return TextSpan(style: style, children: children);
   }
@@ -6154,8 +6158,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
       decoration: underline ? TextDecoration.underline : null,
       decorationColor: underline ? color : null,
-      // pinned against the inherited theme style, as in the inline editor
-      leadingDistribution: TextLeadingDistribution.proportional,
+      // the inline editor's leading split, so the handover doesn't move
+      leadingDistribution: TextLeadingDistribution.even,
     );
     const heightBehavior = TextHeightBehavior(applyHeightToFirstAscent: false);
     final pad = 3 * _geometry.scale;
@@ -6173,10 +6177,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       textScaler: TextScaler.noScaling,
       style: style,
     );
-    if (baselineShift < 0) {
-      label =
-          Transform.translate(offset: Offset(0, baselineShift), child: label);
-    }
+    label = Transform.translate(
+        offset: Offset(0, math.min(0.0, baselineShift)), child: label);
     final content = Container(
       key: key,
       color: background,
@@ -6825,11 +6827,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             final baseFont = _textEditText.defaultStyle.font;
                             // mirrors the committed appearance: same size in
                             // view pixels, same leading/spacing, matching
-                            // family, color and underline
+                            // family, color and underline. Sized like the
+                            // strut, not the typing default (unstyled runs
+                            // size themselves, see buildTextSpan): Flutter
+                            // positions an end-of-text caret off a one-line
+                            // layout template it rebuilds only when this root
+                            // style changes - a strut change alone leaves it
+                            // stale, and the caret floats a line fragment
+                            // above the text after a run's size changes.
                             final fieldStyle = TextStyle(
                               color: _textEditColor.withValues(
                                   alpha: _textEditOpacity.clamp(0.0, 1.0)),
-                              fontSize: _textEditSize * _geometry.scale,
+                              fontSize:
+                                  _textEditText.maxStyleSize * _geometry.scale,
                               height: _textEditLineSpacing,
                               letterSpacing:
                                   _textEditCharSpacing * _geometry.scale,
@@ -6840,11 +6850,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                               decoration: _textEditText.defaultStyle.underline
                                   ? TextDecoration.underline
                                   : null,
-                              // pinned: the field merges the theme's body
-                              // style, whose leading split would otherwise
-                              // move the line off the measured baseline
-                              leadingDistribution:
-                                  TextLeadingDistribution.proportional,
+                              // pinned to the theme's own even split: the
+                              // field merges the theme's body style, the
+                              // measuring painter never sees it, and the two
+                              // must lay the line out alike
+                              leadingDistribution: TextLeadingDistribution.even,
                             );
                             // pin line height to the box's leading so the
                             // preview spacing is font-independent, matching
@@ -6856,8 +6866,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                               fontSize:
                                   _textEditText.maxStyleSize * _geometry.scale,
                               height: _textEditLineSpacing,
-                              leadingDistribution:
-                                  TextLeadingDistribution.proportional,
+                              leadingDistribution: TextLeadingDistribution.even,
                               forceStrutHeight: true,
                             );
                             // the appearance writes the first baseline one
@@ -6930,11 +6939,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     ),
                                   ),
                                 ));
-                            if (baselineShift < 0) {
-                              field = Transform.translate(
-                                  offset: Offset(0, baselineShift),
-                                  child: field);
-                            }
+                            // always wrapped, even at 0: toggling the wrapper
+                            // as the shift crosses zero (a run resized
+                            // mid-edit) would rebuild the field and drop its
+                            // editing state
+                            field = Transform.translate(
+                                offset: Offset(0, math.min(0.0, baselineShift)),
+                                child: field);
                             // the page ignores the OS text size; so must the
                             // preview of what it will draw
                             return MediaQuery.withNoTextScaling(
