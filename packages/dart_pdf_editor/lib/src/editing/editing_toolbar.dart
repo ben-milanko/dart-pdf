@@ -2495,9 +2495,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     BuildContext context,
     _StyleFields fields, {
     bool compactTrigger = false,
+    bool toolColor = false,
     Axis axis = Axis.horizontal,
   }) {
-    if (!widget.showStyle || fields.isEmpty) return const [];
+    if (!widget.showStyle || (fields.isEmpty && !toolColor)) return const [];
     return [
       if (fields.font) _MiniDivider(axis: axis),
       _StyleMenu(
@@ -2505,6 +2506,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         palette: widget.palette,
         showColor: widget.showColor,
         fields: fields,
+        toolColor: toolColor,
         fontChipTrigger: fields.font && !compactTrigger,
         fontPicker: widget.fontPicker,
       ),
@@ -2827,9 +2829,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
     final tune = _mobileTuneTrailing(context);
     if (widget.showColor && controller.toolUsesColor) {
-      // The tune popup carries the full palette, so a couple of quick swatches
-      // beside it are enough - and dropping the third keeps the whole cluster
-      // (swatches + tune) inside the narrow dock without overflowing.
+      // The tune popup carries the full palette (see [_mobileTuneTrailing]),
+      // so a couple of quick swatches beside it are enough - and dropping the
+      // third keeps the whole cluster (swatches + tune) inside the narrow dock
+      // without overflowing.
       return [
         ..._mobileSwatches(context, count: tune.isEmpty ? 3 : 2),
         ...tune
@@ -2841,7 +2844,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// The tune popup trigger for the mobile dock's armed tool, or empty when
   /// no tool is armed or its controls carry nothing to tune. Mirrors the
   /// desktop strip's [_tuneTrailing] so the same stroke/opacity/font sliders
-  /// are one tap away on a phone.
+  /// are one tap away on a phone. Unlike the desktop strip, the dock has room
+  /// for only a couple of swatches, so the popup also carries the tool's full
+  /// colour row (palette + custom picker) - otherwise a pen or highlighter
+  /// could only reach the rest of the palette from the tool sheet.
   List<Widget> _mobileTuneTrailing(BuildContext context) {
     final group = controller.markupTool != null
         ? _groupForMarkup(controller.markupTool!)
@@ -2851,6 +2857,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context,
       _groupStyleFields(group),
       compactTrigger: true,
+      toolColor: controller.toolUsesColor,
     );
   }
 
@@ -4031,12 +4038,18 @@ class _StyleMenu extends StatefulWidget {
     required this.palette,
     required this.fields,
     this.showColor = true,
+    this.toolColor = false,
     this.fontChipTrigger = false,
     this.fontPicker,
   });
 
   /// Which controls to show - see [_StyleFields].
   final _StyleFields fields;
+
+  /// Show a colour row for the armed tool's creation colour when [fields]
+  /// doesn't already carry one (an outline or text-colour row). The mobile
+  /// dock sets it, having room for only a couple of inline swatches.
+  final bool toolColor;
 
   /// How the font menu's "Load font…" entry loads a custom font.
   final PdfFontPicker? fontPicker;
@@ -4502,6 +4515,19 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
+                  if (widget.toolColor &&
+                      widget.showColor &&
+                      !fields.strokeColor &&
+                      !fields.boxColors)
+                    _boxColorRow(
+                      context: context,
+                      label: pdfL10n(context).tbColorLabel,
+                      keyPrefix: 'pdf-tool-color',
+                      value: controller.displayColor,
+                      // the same path as the dock swatches
+                      onChanged: _setTextColor,
+                      allowNone: false,
+                    ),
                   if (fields.strokeColor && widget.showColor)
                     _boxColorRow(
                       context: context,
