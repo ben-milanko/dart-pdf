@@ -172,7 +172,9 @@ jobs:
 
   linux:
     needs: setup
-    runs-on: ubuntu-latest
+    # Build against the oldest supported libc, not the moving latest runner.
+    # A 24.04 build required GLIBC_2.38 and could not launch on Ubuntu 22.04.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -189,6 +191,8 @@ jobs:
         run: |
           flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
           build/linux/x64/release/bundle/dartpdf-cli --version
+      - name: Check Linux libc baseline (including bundled plugins)
+        run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Tar bundle (portable folder)
         working-directory: app
         # The bundle now carries the desktop-integration files under share/

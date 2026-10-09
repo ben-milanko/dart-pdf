@@ -834,7 +834,8 @@ jobs:
   # toolchain) and adds desktop-file/AppStream validation plus a headless
   # smoke launch under Xvfb. Kept green so `flutter build linux` can't rot.
   linux:
-    runs-on: ubuntu-latest
+    # Match the release builder so a plugin cannot silently raise the libc floor.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux desktop build + validation deps
@@ -862,6 +863,10 @@ jobs:
       - name: Build Linux (release)
         working-directory: app
         run: flutter build linux --release
+      - name: Test the Linux libc baseline checker
+        run: python3 -m unittest discover -s tool -p 'test_linux_glibc.py' -v
+      - name: Check Linux libc baseline (including bundled plugins)
+        run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Validate .desktop entry
         run: |
           desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
