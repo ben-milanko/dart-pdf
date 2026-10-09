@@ -31,6 +31,7 @@ import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
 import 'form_tab_navigation.dart';
 import 'handle_layout.dart';
+import 'soft_keyboard_primer.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 import '../design/editor_presenter.dart';
@@ -745,6 +746,11 @@ class _PointerInteractionSession {
     gestureBailed = false;
   }
 }
+
+/// Raises the iOS soft keyboard when an inline text editor opens
+/// ([pdfPrimeSoftKeyboard]); tests swap it to observe the call.
+@visibleForTesting
+void Function() debugPdfPrimeSoftKeyboard = pdfPrimeSoftKeyboard;
 
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
@@ -3368,6 +3374,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// [existing]. The editor renders with the same font, size, and color
   /// the committed annotation will use.
   void _openTextEditor(Rect viewRect, {required bool existing}) {
+    // the field takes focus a frame from now (below), after the opening tap
+    // has been handled - too late for iOS web to raise the keyboard, so catch
+    // it now, inside the gesture (a no-op off the web)
+    if (PdfEditorScope.platformOf(context) == TargetPlatform.iOS) {
+      debugPdfPrimeSoftKeyboard();
+    }
     final style = existing ? _controller.selectedTextStyle : null;
     // /DA carries the text color; /C is the box background for free text
     final annotation = existing ? _controller.selectedAnnotation : null;
