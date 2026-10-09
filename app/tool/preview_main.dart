@@ -32,6 +32,7 @@ import 'dart:math' as math;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -156,8 +157,27 @@ class _Tour {
   }
 
   void _caption(String id) => _mark('caption $id');
-  void _sfx(String type, [double? seconds]) => _mark(
-      'sfx $type${seconds == null ? '' : ' ${seconds.toStringAsFixed(2)}'}');
+
+  /// A sound cue, [delayMs] ahead of now when the gesture it belongs to
+  /// lands after a hold.
+  void _sfx(String type, [double? seconds, int delayMs = 0]) {
+    if (!_clock.isRunning) return;
+    final at = _clock.elapsedMilliseconds + delayMs;
+    debugPrint('@@PREVIEW@@ sfx $type'
+        '${seconds == null ? '' : ' ${seconds.toStringAsFixed(2)}'} @$at');
+  }
+
+  /// Asks the composer to punch in [zoom]x on [center] (global logical
+  /// coordinates), easing there unless [now].
+  void _focus(Offset center, double zoom, {bool now = false}) {
+    final screen = _screenSize;
+    _mark('focus ${(center.dx / screen.width).toStringAsFixed(4)} '
+        '${(center.dy / screen.height).toStringAsFixed(4)} '
+        '${zoom.toStringAsFixed(2)}${now ? ' now' : ''}');
+  }
+
+  /// Eases the punch-in back out to the whole screen.
+  void _unfocus() => _mark('focus off');
 
   /// Page [page]'s on-screen rect. The page is drawn by whichever of these
   /// is current (the editing layer collapses while a tool arms), so take the
@@ -238,11 +258,15 @@ class _Tour {
     _clock.start();
     _mark('start');
 
-    // 1. Highlight a sentence.
+    // 1. Highlight a sentence - the clip opens punched in on it.
     _caption('highlight');
     final y = PreviewLayout.highlightBaseline + 4;
-    await _pause(250);
-    _sfx('highlight', 0.8);
+    _focus(
+        _at((PreviewLayout.highlightFrom + PreviewLayout.highlightTo) / 2, y),
+        1.75,
+        now: true);
+    await _pause(200);
+    _sfx('highlight', 0.7, 560);
     await _edit(
         'the highlight',
         // On touch a drag scrolls; text selection is a long press on a word
@@ -251,54 +275,71 @@ class _Tour {
         () => hand.longPressDrag(
               _at(PreviewLayout.highlightFrom + 6, y),
               _at(PreviewLayout.highlightTo, y),
-              const Duration(milliseconds: 800),
+              const Duration(milliseconds: 650),
             ));
-    await _pause(600);
+    await _pause(450);
+    _unfocus();
 
     // 2. Fill the form field.
     _caption('fill');
     await _chooseTool('select', 'pdf-tool-select');
     final field = PreviewLayout.clientField;
-    await hand.tap(
-        _at((field.left + field.right) / 2, (field.bottom + field.top) / 2));
+    final fieldCenter =
+        _at((field.left + field.right) / 2, (field.bottom + field.top) / 2);
+    _focus(fieldCenter + const Offset(-40, 0), 1.85);
+    await hand.tap(fieldCenter);
     _sfx('click');
-    await _pause(300);
+    // Typing is scripted, so the soft keyboard would only cover the shot.
+    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
+    await _pause(250);
     _probeKeys('form field');
     await _type(PreviewLayout.clientName);
-    await _pause(200);
+    await _pause(150);
     await _edit('the form fill', () => hand.tap(_at(540, 260)));
-    await _pause(400);
+    _unfocus();
+    await _pause(300);
 
-    // 3. Organize: the page grid, then drag the appendix ahead of the budget.
+    // 3. Organize: the page grid, then fling the appendix ahead of the budget.
     _caption('organize');
     await hand.tap(await _waitFor('pdf-shell-controls'));
     _sfx('click');
     await hand.tap(await _waitFor('pdf-shell-page-grid-toggle'));
     _sfx('swoosh', 0.6);
-    await _pause(600);
+    await _pause(450);
     _probeKeys('page grid');
     await _edit('the page move', () => _reorder(from: 2, before: 1));
-    await _pause(700);
+    await _pause(550);
+    _unfocus();
     await hand.tap(await _waitFor('pdf-shell-controls'));
     _sfx('click');
     await hand.tap(await _waitFor('pdf-shell-view-mode-pages'));
     _sfx('swoosh', 0.5);
-    await _pause(500);
+    await _pause(400);
 
     // 4. Sign with a finger on the signature line.
     _caption('sign');
     await _chooseTool('draw', 'pdf-tool-ink', color: _signatureInk);
     _probeKeys('ink tool');
-    _sfx('pen', 1.2);
-    await _edit('the signature',
-        () => hand.drag(_signature(), const Duration(milliseconds: 1300)));
+    _focus(
+        _at((PreviewLayout.signatureFrom + PreviewLayout.signatureTo) / 2 - 20,
+            PreviewLayout.signatureLineY + 14),
+        1.8);
+    await _pause(250);
+    _sfx('pen', 1.15, 200);
+    await _edit(
+        'the signature',
+        () => hand.drag(_signature(), const Duration(milliseconds: 1150),
+            curve: Curves.easeInOutSine));
     hand.hide();
-    await _pause(400);
+    await _pause(250);
+    // Pull back so the closing (poster) frame shows every edit on the page.
+    _unfocus();
+    await _pause(250);
 
     // The end frame: every edit on one page (also the poster frame).
     _caption('done');
     _sfx('ding');
-    await _pause(2100);
+    await _pause(1900);
     _mark('end');
   }
 
@@ -352,16 +393,16 @@ class _Tour {
     }
   }
 
-  /// Long-presses grid cell [from] and drops it just ahead of [before].
+  /// Long-presses grid cell [from] and flings it just ahead of [before],
+  /// punched in on the two cells.
   Future<void> _reorder({required int from, required int before}) async {
     final source = _rectsOf('pdf-thumbnail-grid-cell-$from').first;
     final target = _rectsOf('pdf-thumbnail-grid-cell-$before').first;
-    _sfx('lift');
-    await hand.longPressDrag(
-      source.center,
-      Offset(target.left + 6, target.center.dy),
-      const Duration(milliseconds: 800),
-    );
+    final drop = Offset(target.left + 6, target.center.dy);
+    _focus(Offset.lerp(source.center, drop, 0.5)!, 1.3);
+    _sfx('lift', null, 560);
+    _sfx('swoosh', 0.4, 600);
+    await hand.fling(source.center, drop);
     _sfx('thunk');
   }
 
@@ -453,6 +494,11 @@ class _Tour {
   }
 }
 
+Size get _screenSize {
+  final view = WidgetsBinding.instance.platformDispatcher.views.first;
+  return view.physicalSize / view.devicePixelRatio;
+}
+
 /// The toolbar palette's blue, for the signature.
 const _signatureInk = Color(0xFF1E88E5);
 
@@ -488,14 +534,24 @@ List<Rect> _rectsWhere(bool Function(Key key) test,
   return out;
 }
 
-/// The on-screen fingertip.
+/// The on-screen fingertip, plus the ripple a tap leaves behind.
 class _Finger extends ChangeNotifier {
   Offset? position;
   bool down = false;
 
+  /// Where the last tap landed and how far its ripple has spread (0..1).
+  Offset? rippleAt;
+  double ripple = 1;
+
   void update(Offset? p, {required bool down}) {
     position = p;
     this.down = down;
+    notifyListeners();
+  }
+
+  void setRipple(Offset at, double t) {
+    rippleAt = at;
+    ripple = t;
     notifyListeners();
   }
 }
@@ -506,9 +562,20 @@ class _FingerPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final at = finger.rippleAt;
+    if (at != null && finger.ripple < 1) {
+      final t = Curves.easeOutCubic.transform(finger.ripple);
+      canvas.drawCircle(
+          at,
+          20 + 26 * t,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3 * (1 - t) + 0.5
+            ..color = Color.fromRGBO(255, 255, 255, 0.85 * (1 - t)));
+    }
     final p = finger.position;
     if (p == null) return;
-    final r = finger.down ? 19.0 : 22.0;
+    final r = finger.down ? 17.0 : 22.0;
     canvas
       ..drawCircle(
           p,
@@ -520,7 +587,7 @@ class _FingerPainter extends CustomPainter {
           p,
           r,
           Paint()
-            ..color = Color.fromRGBO(255, 255, 255, finger.down ? 0.75 : 0.55))
+            ..color = Color.fromRGBO(255, 255, 255, finger.down ? 0.8 : 0.55))
       ..drawCircle(
           p,
           r,
@@ -532,6 +599,32 @@ class _FingerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FingerPainter old) => false;
+}
+
+/// Runs [step] with eased progress 0..1 over [duration] of wall-clock time.
+///
+/// Motion is timed by the clock, not by counting frames: a debug build on the
+/// simulator draws slowly, and frame-counted motion stretched to match.
+Future<void> _animate(Duration duration, void Function(double t) step,
+    {Curve curve = Curves.easeInOutCubic}) async {
+  final clock = Stopwatch()..start();
+  final total = duration.inMicroseconds;
+  while (true) {
+    final u = total == 0 ? 1.0 : clock.elapsedMicroseconds / total;
+    step(curve.transform(u.clamp(0.0, 1.0)));
+    if (u >= 1) return;
+    await _pause(8);
+  }
+}
+
+/// A quadratic Bézier from [a] to [b] that bows sideways by [bow] of its
+/// length - a hand moves in arcs, not rulers.
+Offset _arc(Offset a, Offset b, double t, {double bow = 0.16}) {
+  final d = b - a;
+  final normal = Offset(-d.dy, d.dx);
+  final control = Offset.lerp(a, b, 0.5)! + normal * bow;
+  final u = 1 - t;
+  return a * (u * u) + control * (2 * u * t) + b * (t * t);
 }
 
 /// Delivers real touch events through the gesture pipeline.
@@ -549,69 +642,74 @@ class _Hand {
   void _send(PointerEvent event) =>
       GestureBinding.instance.handlePointerEvent(event);
 
-  /// Glides the (lifted) fingertip to [to] so taps don't teleport.
+  /// Swings the (lifted) fingertip to [to] on an arc, quicker for short hops.
   Future<void> _approach(Offset to) async {
     if (!_shown) {
-      _rest = to + const Offset(40, 90);
+      _rest = to + const Offset(60, 140);
       _shown = true;
     }
-    const steps = 9;
     final from = _rest;
-    for (var i = 1; i <= steps; i++) {
-      final t = Curves.easeInOut.transform(i / steps);
-      finger.update(Offset.lerp(from, to, t), down: false);
-      await _pause(16);
-    }
+    final ms = (140 + (to - from).distance * 0.45).clamp(140, 360).round();
+    await _animate(Duration(milliseconds: ms),
+        (t) => finger.update(_arc(from, to, t), down: false));
     _rest = to;
   }
 
-  /// Lifts the fingertip off screen; the next touch glides in again.
+  /// Lifts the fingertip off screen; the next touch swings in again.
   void hide() {
     finger.update(null, down: false);
     _shown = false;
   }
 
+  void _rippleAt(Offset at) => unawaited(_animate(
+      const Duration(milliseconds: 420), (t) => finger.setRipple(at, t),
+      curve: Curves.linear));
+
   Future<void> tap(Offset at) async {
     await _approach(at);
     final pointer = ++_pointer;
     finger.update(at, down: true);
+    _rippleAt(at);
     _send(PointerDownEvent(
         pointer: pointer,
         position: at,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
-    await _pause(90);
+    await _pause(70);
     _send(PointerUpEvent(
         pointer: pointer,
         position: at,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
     finger.update(at, down: false);
-    await _pause(120);
+    await _pause(90);
   }
 
+  /// Presses at [path]'s start, optionally holds, then traces [path] over
+  /// [duration] (by arc length, eased by [curve]) and lifts.
   Future<void> drag(List<Offset> path, Duration duration,
-      {Duration hold = Duration.zero}) async {
+      {Duration hold = Duration.zero,
+      Duration settle = const Duration(milliseconds: 50),
+      Curve curve = Curves.easeInOutCubic}) async {
     await _approach(path.first);
     final pointer = ++_pointer;
     var last = path.first;
     finger.update(last, down: true);
+    _rippleAt(last);
     _send(PointerDownEvent(
         pointer: pointer,
         position: last,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
     if (hold > Duration.zero) await Future<void>.delayed(hold);
-    // Resample the polyline by arc length at ~60 Hz.
     final lengths = <double>[0];
     for (var i = 1; i < path.length; i++) {
       lengths.add(lengths.last + (path[i] - path[i - 1]).distance);
     }
     final total = lengths.last;
-    final frames = math.max(2, duration.inMilliseconds ~/ 16);
     var segment = 1;
-    for (var f = 1; f <= frames; f++) {
-      final s = Curves.easeInOut.transform(f / frames) * total;
+    await _animate(duration, (t) {
+      final s = t * total;
       while (segment < path.length - 1 && lengths[segment] < s) {
         segment++;
       }
@@ -619,6 +717,7 @@ class _Hand {
       final span = lengths[segment] - lengths[segment - 1];
       final local = span == 0 ? 1.0 : (s - lengths[segment - 1]) / span;
       final p = Offset.lerp(a, b, local.clamp(0.0, 1.0))!;
+      if (p == last) return;
       _send(PointerMoveEvent(
           pointer: pointer,
           position: p,
@@ -627,9 +726,8 @@ class _Hand {
           timeStamp: _now));
       finger.update(p, down: true);
       last = p;
-      await _pause(16);
-    }
-    await _pause(60);
+    }, curve: curve);
+    await Future<void>.delayed(settle);
     _send(PointerUpEvent(
         pointer: pointer,
         position: last,
@@ -639,7 +737,24 @@ class _Hand {
     _rest = last;
   }
 
-  /// Press, hold past the long-press threshold, then drag.
+  /// Press, hold past the long-press threshold (500 ms), then sweep.
   Future<void> longPressDrag(Offset from, Offset to, Duration duration) =>
-      drag([from, to], duration, hold: const Duration(milliseconds: 650));
+      drag([from, to], duration, hold: const Duration(milliseconds: 560));
+
+  /// Picks something up and throws it to [to]: hold past the long-press
+  /// threshold, a quick arcing flick that overshoots a little, then a settle
+  /// back onto the target before letting go.
+  Future<void> fling(Offset from, Offset to) {
+    final dir = to - from;
+    final unit = dir / math.max(dir.distance, 1);
+    final overshoot = to + unit * 14;
+    final path = <Offset>[
+      for (var i = 0; i <= 24; i++) _arc(from, overshoot, i / 24, bow: 0.22),
+      to,
+    ];
+    return drag(path, const Duration(milliseconds: 520),
+        hold: const Duration(milliseconds: 560),
+        settle: const Duration(milliseconds: 90),
+        curve: Curves.easeOutCubic);
+  }
 }

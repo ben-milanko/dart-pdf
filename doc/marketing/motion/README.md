@@ -136,7 +136,11 @@ a recording of the real app, operated by a script:
   `simctl io recordVideo` (1320×2868) and writes `tour.log`, the markers
   timestamped against the recording.
 - `app/tool/preview/compose_preview.py` cuts the clip from `start` to `end` and
-  frames it under captions on the store screenshots' gradient. It adds this
+  frames it under captions on the store screenshots' gradient. The tour's
+  `focus` markers drive punch-ins: eased zooms of up to about 1.85× inside the
+  phone frame on the sentence, the field, the page drag and the signature.
+  Each frame is cropped from the 1320×2868 capture and downscaled, so a
+  close-up stays at or above native resolution and is never upscaled. It adds this
   sting's music bed, offset so the chord hit lands on the closing caption,
   plus a sound per touch. The encode follows
   [Apple's preview spec](https://developer.apple.com/help/app-store-connect/reference/app-preview-specifications):

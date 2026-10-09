@@ -77,6 +77,9 @@ fs.mkdirSync(frames, { recursive: true });
   await Promise.race([finished, new Promise((r) => setTimeout(r, 240000))]);
   await page.waitForTimeout(500);
   await cdp.send('Page.stopScreencast');
+  // The screencast only sends a frame when the page changes, so a static end
+  // would otherwise be missing: hold the last frame until recording stopped.
+  const stopped = Date.now() / 1000 - (t0 ?? 0);
   await browser.close();
 
   // Screencast timestamps are wall-clock seconds, like the console times, so
@@ -87,7 +90,7 @@ fs.mkdirSync(frames, { recursive: true });
   // Variable-rate frames -> constant 30 fps via the concat demuxer.
   const list = shots
     .map((s, i) => {
-      const next = shots[i + 1] ? shots[i + 1].t : s.t + 1 / 30;
+      const next = shots[i + 1] ? shots[i + 1].t : Math.max(stopped, s.t + 1 / 30);
       return `file '${s.file}'\nduration ${(next - s.t).toFixed(4)}`;
     })
     .join('\n');

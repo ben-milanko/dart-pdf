@@ -62,6 +62,27 @@ preview).
 - The simulator only runs debug builds. The tour starts after the warm-up, so
   JIT jank stays off the clip.
 
+## Motion and punch-ins
+
+- `_Hand` motion is timed by the clock (`_animate`), not by counting frames.
+  A debug build on the simulator draws slowly, and frame-counted motion
+  stretched to match. That was most of why the page drag looked slow and
+  stiff. Fingertip moves follow eased Bézier arcs (`_arc`), a tap leaves a
+  ripple, and the page move is a `fling`: hold past the long-press threshold,
+  a quick arcing flick that overshoots 14 px, then a settle onto the target.
+- The tour prints `focus cx cy zoom [now]` and `focus off` (normalised screen
+  coordinates). `compose_preview.py` eases between them (`camera_keys`,
+  `camera_at`) and renders the screen track in Python: each frame is cropped
+  at a fractional window and resized with Lanczos. An ffmpeg
+  `scale=eval=frame` + `crop` chain doesn't work for this, because `crop`
+  keeps the input size it was configured with while the frame size changes.
+- A headless-Chromium screencast only sends a frame when the page changes,
+  so a static end went missing from drafts. `record_web.cjs` now holds the
+  last frame until recording stopped, and the composer pads a short capture
+  with its last frame.
+- The soft keyboard is hidden while the scripted typing runs, so it doesn't
+  cover the field close-up.
+
 ## Audio
 
 `compose_preview.py` reuses `doc/marketing/motion/soundtrack.py` unchanged. It

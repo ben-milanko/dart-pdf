@@ -58,6 +58,7 @@ GRADIENT = [(0.0, (0x0A, 0x1B, 0x3D)), (0.5, (0x12, 0x3E, 0x92)), (1.0, (0x1A, 0
 
 FPS = 30
 CAPTION_FADE = 0.3
+CAPTION_RISE = 28  # px a caption rises as it fades in
 END_FADE = 0.5
 
 # The sting's music map (dartpdf-sting.html). Its chord hit is at 18.55s on that
@@ -155,6 +156,101 @@ def caption(w, band, head, sub):
     return img
 
 
+# ------------------------------------------------------------------ camera
+PUNCH_EASE = 0.5  # seconds to ease into or out of a punch-in
+
+
+def camera_keys(events, duration):
+    """Keyframes (t, zoom, cx, cy) from the tour's focus markers.
+
+    `focus cx cy z` eases to a zoom of z on the normalised screen point
+    (cx, cy) over PUNCH_EASE; `... now` cuts straight to it; `focus off`
+    eases back to the whole screen. Times are on the output clip.
+    """
+    keys = [(0.0, 1.0, 0.5, 0.5)]
+    for e in events:
+        if e["kind"] != "focus":
+            continue
+        t = max(0.0, min(e["t"], duration))
+        if e["args"][0] == "off":
+            target = (1.0, 0.5, 0.5)
+            ease = PUNCH_EASE
+        else:
+            cx, cy, z = (float(v) for v in e["args"][:3])
+            target = (z, cx, cy)
+            ease = 0.0 if "now" in e["args"][3:] else PUNCH_EASE
+        t = max(t, keys[-1][0])
+        if t > keys[-1][0]:
+            keys.append((t, *keys[-1][1:]))
+        if ease == 0:
+            keys.append((t, *target))  # a zero-length segment: a cut
+        else:
+            keys.append((t + ease, *target))
+    return keys
+
+
+def camera_at(keys, t):
+    """(zoom, cx, cy) at time t: smoothstep between the bracketing keys."""
+    for (t0, *v0), (t1, *v1) in zip(keys, keys[1:]):
+        if t < t1:
+            if t1 <= t0:
+                return tuple(v1)
+            u = (t - t0) / (t1 - t0)
+            u = u * u * (3 - 2 * u)
+            return tuple(a + (b - a) * u for a, b in zip(v0, v1))
+    return tuple(keys[-1][1:])
+
+
+def render_screen(video, start, length, speed, size, keys, out):
+    """Writes the screen track: the capture through the punch-in camera.
+
+    Every frame is cropped at a fractional window around the focus point and
+    resized straight to the screen box with Lanczos - sub-pixel smooth, and
+    never upscaled (the capture is far larger than the box at these zooms).
+    """
+    cw, ch = probe_size(video)
+    sw, sh = size
+    decode = subprocess.Popen(
+        ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
+         "-i", video, "-vf", f"setpts=(PTS-STARTPTS)/{speed},fps={FPS}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE)
+    encode = subprocess.Popen(
+        ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+         "-s", f"{sw}x{sh}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
+         "-preset", "fast", "-crf", "8", "-pix_fmt", "yuv444p", out],
+        stdin=subprocess.PIPE)
+    frame_bytes = cw * ch * 3
+    frames = round(length / speed * FPS)
+    n = 0
+    last = None
+    while n < frames:
+        raw = decode.stdout.read(frame_bytes)
+        if len(raw) < frame_bytes:
+            # A capture that stops early (a screencast only sends changed
+            # frames) holds its last frame; the camera keeps moving over it.
+            if last is None:
+                break
+            raw = last
+        last = raw
+        zoom, cx, cy = camera_at(keys, n / FPS)
+        win_w, win_h = cw / zoom, ch / zoom
+        x0 = min(max(cx * cw - win_w / 2, 0), cw - win_w)
+        y0 = min(max(cy * ch - win_h / 2, 0), ch - win_h)
+        frame = Image.frombuffer("RGB", (cw, ch), raw)
+        frame = frame.resize((sw, sh), Image.LANCZOS,
+                             box=(x0, y0, x0 + win_w, y0 + win_h))
+        encode.stdin.write(frame.tobytes())
+        n += 1
+    encode.stdin.close()
+    decode.stdout.close()
+    decode.kill()
+    decode.wait()
+    if encode.wait() or n == 0:
+        sys.exit("rendering the screen track failed")
+    return n
+
+
 # ------------------------------------------------------------------ audio
 def soundtrack(events, duration, out_wav):
     """Renders the music bed + effects; event times are on the output clip."""
@@ -249,7 +345,7 @@ def main():
     soundtrack([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events],
                duration, wav)
 
-    inputs = ["-ss", f"{clip_in:.3f}", "-t", f"{clip_out - clip_in:.3f}", "-i", args.video,
+    inputs = ["-i", os.path.join(work, "screen.mp4"),
               "-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i",
               os.path.join(work, "bg.png"),
               "-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i",
@@ -259,8 +355,13 @@ def main():
     inputs += ["-i", wav]
     audio_index = 3 + len(spans)
 
-    f = [f"[0:v]setpts=(PTS-STARTPTS)/{speed},fps={FPS},scale={sw}:{sh}:flags=lanczos,"
-         f"format=rgba[scr]",
+    # The camera: the tour's focus markers become eased punch-ins.
+    keys = camera_keys([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events],
+                       duration)
+    screen = os.path.join(work, "screen.mp4")
+    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen)
+
+    f = ["[0:v]format=rgba[scr]",
          "[2:v]format=gray[mask]",
          "[scr][mask]alphamerge[screen]",
          "[1:v]format=rgba[bg]",
@@ -271,7 +372,11 @@ def main():
         fade_out = (f"fade=t=out:st={b - CAPTION_FADE:.3f}:d={CAPTION_FADE}:alpha=1"
                     if b < duration else "null")
         f.append(f"[{3 + i}:v]format=rgba,{fade_in}{fade_out}[c{i}]")
-        f.append(f"[{last}][c{i}]overlay=0:0:enable='between(t,{a:.3f},{b:.3f})'[v{i + 1}]")
+        # Each caption rises into place as it fades in.
+        u = f"min(max((t-{a:.3f})/{CAPTION_FADE},0),1)"
+        rise = "0" if a == 0 else f"{CAPTION_RISE}*(1-{u})*(1-{u})"
+        f.append(f"[{last}][c{i}]overlay=x=0:y='{rise}':"
+                 f"enable='between(t,{a:.3f},{b:.3f})'[v{i + 1}]")
         last = f"v{i + 1}"
     f.append(f"[{last}]fade=t=out:st={duration - END_FADE:.3f}:d={END_FADE},"
              f"format=yuv420p[out]")
