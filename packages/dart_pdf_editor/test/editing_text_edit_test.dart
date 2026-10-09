@@ -6,6 +6,7 @@ import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoTextSelectionToolbar, CupertinoTextSelectionToolbarButton;
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart' show RenderBox, RenderEditable;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -24,6 +25,10 @@ dynamic overlayPainter(WidgetTester tester) => tester
             matching: find.byType(CustomPaint))
         .first)
     .painter;
+
+/// The family the inline editor previews Times in: the bundled clone the page
+/// renderer draws it with, not the host's "Times New Roman".
+final kTermes = PdfBundledSubstitute.termes.packageFamily;
 
 void main() {
   const editorKey = ValueKey('pdf-freetext-editor');
@@ -170,8 +175,8 @@ void main() {
         ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
       expect(single.selectAnnotation(0, 0), isTrue);
       single.autosizeSelectedTextBox();
-      expect(single.document.page(0).annotations.single.rect.width,
-          lessThan(60));
+      expect(
+          single.document.page(0).annotations.single.rect.width, lessThan(60));
     });
 
     test('textAlign preference flows into new free text', () {
@@ -852,6 +857,50 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets(
+        'opening a box to edit keeps its face and first baseline in place',
+        (tester) async {
+      // the page ignores the OS text size; the editor previewing it must too
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final (editing, _) = await pumpEditor(tester);
+      editing.lineSpacing = 1.6;
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), 'Original');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // select
+      await tap(tester, view(200, 630)); // edit
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      // the face the page renders Helvetica with, not the host's Helvetica
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.style?.fontFamily, PdfBundledSubstitute.heros.packageFamily);
+
+      // the appearance writes the first baseline one ascent (Helvetica 718)
+      // below the 3pt inset from the box top
+      final editable =
+          tester.allRenderObjects.whereType<RenderEditable>().single;
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_overriding_member
+      final baseline =
+          editable.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+      final viewBaseline = editable.localToGlobal(Offset(0, baseline)).dy;
+      final expected = view(200, 660).dy + (3 + 14 * 0.718) * scale;
+      expect(viewBaseline, closeTo(expected, 0.5));
+
+      // committing hands over to the afterimage on the same baseline
+      await tester.enterText(find.byKey(editorKey), 'Edited');
+      await tap(tester, view(450, 400));
+      expect(find.byKey(editorKey), findsNothing);
+      final paragraph = tester.renderObject<RenderBox>(find.text('Edited'));
+      final afterOffset =
+          // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_overriding_member
+          paragraph.computeDistanceToActualBaseline(TextBaseline.alphabetic)!;
+      final afterBaseline = paragraph.localToGlobal(Offset(0, afterOffset)).dy;
+      expect(afterBaseline, closeTo(expected, 0.5));
+      await settle(tester);
+    });
+
     testWidgets('Escape while editing existing free text keeps the annotation',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -941,7 +990,7 @@ void main() {
       final styled = span.children!.whereType<TextSpan>().singleWhere(
             (child) => child.text == 'world',
           );
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
@@ -983,7 +1032,7 @@ void main() {
             (child) => child.text == 'world',
           );
       expect(styled.style?.color, const Color(0xFFFF0000));
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;
@@ -1092,7 +1141,7 @@ void main() {
       final styled = span.children!.whereType<TextSpan>().singleWhere(
             (child) => child.text == 'world',
           );
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;
