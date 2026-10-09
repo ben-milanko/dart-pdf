@@ -119,11 +119,13 @@ Windows-specific short description:
 - **Keywords:** `PDF editor`, `PDF annotation`, `fill PDF forms`,
   `sign PDF digitally`, `redact PDF content`, `OCR`, `merge PDF`
   (seven phrases, sixteen words).
-- **What's new:** [`release-notes/7.0.0-stores.txt`](release-notes/7.0.0-stores.txt).
+- **What's new:** [`release-notes/8.0.0-stores.txt`](release-notes/8.0.0-stores.txt).
 
-The English fields above match the published Microsoft Store listing. The
-existing sting trailer is retained. Keep Windows listing copy separate from
-Google Play's shorter description when preparing an update.
+The English listing uses the fields above. Release notes are reviewed separately
+in Partner Center; publishing an MSIX does not update the saved listing copy.
+Check the current published fields before preparing an update. The existing
+sting trailer is retained. Keep Windows listing copy separate from Google Play's
+shorter description.
 
 Use the native Windows captures under `doc/marketing/app/windows/` for this
 store, as described in [`doc/screenshots/README.md`](../doc/screenshots/README.md).
