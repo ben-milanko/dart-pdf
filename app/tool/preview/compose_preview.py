@@ -27,6 +27,7 @@ Requires ffmpeg, numpy and Pillow.
 """
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -156,6 +157,42 @@ def caption(w, band, head, sub):
     return img
 
 
+# ------------------------------------------------------------------ sync
+SYNC_FPS = 60
+
+
+def find_sync(video):
+    """Seconds into [video] where the tour's magenta sync flash ends.
+
+    The tour flashes the whole screen #FF00FF just before its clock starts,
+    so the first frame after the flash is the `start` marker. Scanning the
+    picture keeps the cut exact however late log lines reached the host.
+    Returns None when there is no flash (an older recording).
+    """
+    decode = subprocess.Popen(
+        ["ffmpeg", "-v", "error", "-i", video, "-vf", f"fps={SYNC_FPS},scale=8:16",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE)
+    size = 8 * 16 * 3
+    seen, last = False, None
+    n = 0
+    while True:
+        raw = decode.stdout.read(size)
+        if len(raw) < size:
+            break
+        px = [raw[i:i + 3] for i in range(0, size, 3)]
+        magenta = sum(1 for r, g, b in px if r > 200 and g < 70 and b > 200) > 0.8 * len(px)
+        if magenta:
+            seen, last = True, n
+        elif seen:
+            break  # the first frame after the flash
+        n += 1
+    decode.stdout.close()
+    decode.kill()
+    decode.wait()
+    return None if last is None else (last + 1) / SYNC_FPS
+
+
 # ------------------------------------------------------------------ camera
 PUNCH_EASE = 0.5  # seconds to ease into or out of a punch-in
 
@@ -201,7 +238,40 @@ def camera_at(keys, t):
     return tuple(keys[-1][1:])
 
 
-def render_screen(video, start, length, speed, size, keys, out):
+FOLLOW = 0.7          # how far a punch-in leans from the action toward the finger
+FOLLOW_LEAD = 0.12    # seconds of lookahead, hiding the smoothing's lag
+FOLLOW_SMOOTH = 0.22  # seconds: the follow's smoothing time constant
+
+
+def hand_samples(events):
+    """[(t, (x, y) or None)] from the tour's `hand` markers (output clip time)."""
+    out = []
+    for e in events:
+        if e["kind"] != "hand":
+            continue
+        if e["args"][0] == "off":
+            out.append((e["t"], None))
+        else:
+            out.append((e["t"], (float(e["args"][0]), float(e["args"][1]))))
+    return out
+
+
+def hand_at(samples, t):
+    """The fingertip at t, interpolated between samples; None when lifted."""
+    prev = None
+    for i, (ts, p) in enumerate(samples):
+        if ts > t:
+            if prev is None or prev[1] is None or p is None:
+                return None if prev is None else prev[1]
+            u = (t - prev[0]) / max(ts - prev[0], 1e-6)
+            if ts - prev[0] > 0.4:  # a gap: hold the last point
+                return prev[1]
+            return tuple(a + (b - a) * u for a, b in zip(prev[1], p))
+        prev = (ts, p)
+    return None if prev is None else prev[1]
+
+
+def render_screen(video, start, length, speed, size, keys, out, hands=()):
     """Writes the screen track: the capture through the punch-in camera.
 
     Every frame is cropped at a fractional window around the focus point and
@@ -224,6 +294,7 @@ def render_screen(video, start, length, speed, size, keys, out):
     frames = round(length / speed * FPS)
     n = 0
     last = None
+    follow = None
     while n < frames:
         raw = decode.stdout.read(frame_bytes)
         if len(raw) < frame_bytes:
@@ -233,7 +304,22 @@ def render_screen(video, start, length, speed, size, keys, out):
                 break
             raw = last
         last = raw
-        zoom, cx, cy = camera_at(keys, n / FPS)
+        t = n / FPS
+        zoom, cx, cy = camera_at(keys, t)
+        # While punched in, the camera leans toward the fingertip (faded in
+        # with the zoom) and glides there: smoothed, with a little lookahead.
+        hand = hand_at(hands, t + FOLLOW_LEAD)
+        lean = FOLLOW * min(max((zoom - 1) / 0.3, 0), 1)
+        if hand is not None and lean > 0:
+            cx += (hand[0] - cx) * lean
+            cy += (hand[1] - cy) * lean
+        if follow is None:
+            follow = (cx, cy)
+        else:
+            k = 1 - math.exp(-1 / FPS / FOLLOW_SMOOTH)
+            follow = (follow[0] + (cx - follow[0]) * k,
+                      follow[1] + (cy - follow[1]) * k)
+        cx, cy = follow
         win_w, win_h = cw / zoom, ch / zoom
         x0 = min(max(cx * cw - win_w / 2, 0), cw - win_w)
         y0 = min(max(cy * ch - win_h / 2, 0), ch - win_h)
@@ -294,6 +380,8 @@ def main():
     ap.add_argument("--out", required=True, help="output .mp4")
     ap.add_argument("--speed", type=float, default=1.0,
                     help="playback speed-up, for drafts recorded on slow hosts")
+    ap.add_argument("--no-sync", action="store_true",
+                    help="anchor on log arrival times if the recording has no sync flash")
     ap.add_argument("--any-length", action="store_true",
                     help="allow a clip outside Apple's 15-30 s (drafts only)")
     ap.add_argument("--lead", type=float, default=0.0,
@@ -303,9 +391,19 @@ def main():
     events = parse_log(args.log)
     start_ev = next(e for e in events if e["kind"] == "start")
     end_ev = next(e for e in events if e["kind"] == "end")
-    # Video time of app-clock time t: the start marker's host time anchors it.
+    # Video time of app-clock time t. The sync flash anchors it exactly; the
+    # start marker's host arrival time is only a fallback (log lines can
+    # reach the host seconds late).
+    anchor = find_sync(args.video)
+    if anchor is None:
+        if not args.no_sync:
+            sys.exit(f"{args.video}: no sync flash found (pass --no-sync to "
+                     "anchor on log arrival times instead)")
+        anchor = start_ev["host"]
+    print(f"clip starts at {anchor:.3f}s into the recording")
+
     def vt(t):
-        return start_ev["host"] + (t - start_ev["t"])
+        return anchor + (t - start_ev["t"])
 
     clip_in = vt(start_ev["t"]) - args.lead
     clip_out = vt(end_ev["t"])
@@ -359,7 +457,9 @@ def main():
     keys = camera_keys([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events],
                        duration)
     screen = os.path.join(work, "screen.mp4")
-    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen)
+    hands = hand_samples([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events])
+    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen,
+                  hands)
 
     f = ["[0:v]format=rgba[scr]",
          "[2:v]format=gray[mask]",

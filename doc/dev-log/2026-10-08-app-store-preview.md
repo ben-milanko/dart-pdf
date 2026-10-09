@@ -76,6 +76,18 @@ preview).
   at a fractional window and resized with Lanczos. An ffmpeg
   `scale=eval=frame` + `crop` chain doesn't work for this, because `crop`
   keeps the input size it was configured with while the frame size changes.
+- Punch-ins follow the finger. The tour logs `hand x y` (about 20 Hz) and
+  `hand off`. While zoomed, the composer leans the camera 70% of the way from
+  the action's centre toward the fingertip, with 0.12 s of lookahead and a
+  0.22 s smoothing constant, faded in with the zoom.
+- Alignment comes from the picture, not the logs. One simulator take was cut
+  9.5 s late: `simctl` printed "Recording started" 10 s after launch, just past
+  the recorder's timeout, and `flutter run` also holds back log lines while it
+  syncs files. The tour now flashes the screen magenta for 0.5 s, off-clip,
+  and starts its clock on the first frame after the flash. `find_sync` locates
+  that frame (60 fps scan) and anchors every marker to it. A recording without
+  the flash fails unless `--no-sync` is passed. The warm-up is now 20 s, and
+  the recorder waits up to 30 s for simctl.
 - A headless-Chromium screencast only sends a frame when the page changes,
   so a static end went missing from drafts. `record_web.cjs` now holds the
   last frame until recording stopped, and the composer pads a short capture

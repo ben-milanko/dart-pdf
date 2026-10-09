@@ -139,6 +139,8 @@ a recording of the real app, operated by a script:
   frames it under captions on the store screenshots' gradient. The tour's
   `focus` markers drive punch-ins: eased zooms of up to about 1.85× inside the
   phone frame on the sentence, the field, the page drag and the signature.
+  The camera follows the fingertip while it is punched in. A magenta sync
+  flash just before the clip anchors the cut to the exact frame.
   Each frame is cropped from the 1320×2868 capture and downscaled, so a
   close-up stays at or above native resolution and is never upscaled. It adds this
   sting's music bed, offset so the chord hit lands on the closing caption,

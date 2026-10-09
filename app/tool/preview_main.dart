@@ -47,7 +47,7 @@ import 'preview_document.dart';
 
 /// Milliseconds to wait for the document to open, render and extract its text
 /// (the highlighter snaps to it) before the tour starts.
-const _warmupMs = int.fromEnvironment('PREVIEW_WARMUP_MS', defaultValue: 12000);
+const _warmupMs = int.fromEnvironment('PREVIEW_WARMUP_MS', defaultValue: 20000);
 
 /// Prints the keyed controls on screen at each step, for adapting the tour to
 /// a new layout: `--dart-define=PREVIEW_PROBE=true`.
@@ -72,6 +72,7 @@ class AppPreviewTour extends StatefulWidget {
 class _AppPreviewTourState extends State<AppPreviewTour> {
   final _prefs = PdfEditingPreferences();
   final _finger = _Finger();
+  final _syncFlash = ValueNotifier<bool>(false);
   late final _doc = (bytes: buildPreviewPdf(), title: 'Website proposal.pdf');
 
   @override
@@ -87,6 +88,7 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
   void dispose() {
     _prefs.dispose();
     _finger.dispose();
+    _syncFlash.dispose();
     super.dispose();
   }
 
@@ -96,7 +98,7 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
     await Future<void>.delayed(const Duration(milliseconds: _warmupMs));
     final hand = _Hand(_finger);
     try {
-      await _Tour(hand).play();
+      await _Tour(hand, _syncFlash).play();
     } catch (error, stack) {
       debugPrint('@@PREVIEW@@ error $error');
       debugPrint('$stack');
@@ -138,6 +140,17 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
             child: CustomPaint(painter: _FingerPainter(_finger)),
           ),
         ),
+        // The sync flash (see _Tour._syncAndStart): solid magenta, off-clip.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _syncFlash,
+              builder: (context, on, _) => on
+                  ? const ColoredBox(color: _syncColor)
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
       ]),
     );
   }
@@ -145,8 +158,45 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
 
 /// The storyboard. Each chapter announces its caption, then works the app.
 class _Tour {
-  _Tour(this.hand);
+  _Tour(this.hand, this.syncFlash) {
+    hand.onMove = _trackHand;
+  }
   final _Hand hand;
+  final ValueNotifier<bool> syncFlash;
+
+  int _lastHandMs = -1000;
+  bool _handShown = false;
+
+  /// Logs the fingertip (normalised, ~20 Hz) so the composer's punch-ins
+  /// can follow it; `hand off` when it lifts away.
+  void _trackHand(Offset? p) {
+    if (!_clock.isRunning) return;
+    if (p == null) {
+      if (_handShown) _mark('hand off');
+      _handShown = false;
+      return;
+    }
+    final now = _clock.elapsedMilliseconds;
+    if (_handShown && now - _lastHandMs < 50) return;
+    _lastHandMs = now;
+    _handShown = true;
+    final screen = _screenSize;
+    _mark('hand ${(p.dx / screen.width).toStringAsFixed(4)} '
+        '${(p.dy / screen.height).toStringAsFixed(4)}');
+  }
+
+  /// Flashes the screen magenta just before the clip, then starts the clock
+  /// the frame the flash is gone. The composer finds that frame in the
+  /// recording and anchors every marker to it, so alignment never depends
+  /// on when log lines happen to reach the host (flutter run delays them).
+  Future<void> _syncAndStart() async {
+    syncFlash.value = true;
+    await _pause(500);
+    syncFlash.value = false;
+    await WidgetsBinding.instance.endOfFrame;
+    _clock.start();
+    _mark('start');
+  }
 
   final _clock = Stopwatch();
 
@@ -255,8 +305,7 @@ class _Tour {
     hand.hide();
     await _pause(600);
 
-    _clock.start();
-    _mark('start');
+    await _syncAndStart();
 
     // 1. Highlight a sentence - the clip opens punched in on it.
     _caption('highlight');
@@ -499,6 +548,9 @@ Size get _screenSize {
   return view.physicalSize / view.devicePixelRatio;
 }
 
+/// The sync flash colour, matched by compose_preview.py's `find_sync`.
+const _syncColor = Color(0xFFFF00FF);
+
 /// The toolbar palette's blue, for the signature.
 const _signatureInk = Color(0xFF1E88E5);
 
@@ -639,6 +691,15 @@ class _Hand {
 
   Duration get _now => _clock.elapsed;
 
+  /// Told where the fingertip is (null when lifted away), so the camera can
+  /// follow it in the punch-ins.
+  void Function(Offset? position)? onMove;
+
+  void _move(Offset? p, {required bool down}) {
+    finger.update(p, down: down);
+    onMove?.call(p);
+  }
+
   void _send(PointerEvent event) =>
       GestureBinding.instance.handlePointerEvent(event);
 
@@ -651,13 +712,13 @@ class _Hand {
     final from = _rest;
     final ms = (140 + (to - from).distance * 0.45).clamp(140, 360).round();
     await _animate(Duration(milliseconds: ms),
-        (t) => finger.update(_arc(from, to, t), down: false));
+        (t) => _move(_arc(from, to, t), down: false));
     _rest = to;
   }
 
   /// Lifts the fingertip off screen; the next touch swings in again.
   void hide() {
-    finger.update(null, down: false);
+    _move(null, down: false);
     _shown = false;
   }
 
@@ -668,7 +729,7 @@ class _Hand {
   Future<void> tap(Offset at) async {
     await _approach(at);
     final pointer = ++_pointer;
-    finger.update(at, down: true);
+    _move(at, down: true);
     _rippleAt(at);
     _send(PointerDownEvent(
         pointer: pointer,
@@ -681,7 +742,7 @@ class _Hand {
         position: at,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
-    finger.update(at, down: false);
+    _move(at, down: false);
     await _pause(90);
   }
 
@@ -694,7 +755,7 @@ class _Hand {
     await _approach(path.first);
     final pointer = ++_pointer;
     var last = path.first;
-    finger.update(last, down: true);
+    _move(last, down: true);
     _rippleAt(last);
     _send(PointerDownEvent(
         pointer: pointer,
@@ -724,7 +785,7 @@ class _Hand {
           delta: p - last,
           kind: PointerDeviceKind.touch,
           timeStamp: _now));
-      finger.update(p, down: true);
+      _move(p, down: true);
       last = p;
     }, curve: curve);
     await Future<void>.delayed(settle);
@@ -733,7 +794,7 @@ class _Hand {
         position: last,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
-    finger.update(last, down: false);
+    _move(last, down: false);
     _rest = last;
   }
 

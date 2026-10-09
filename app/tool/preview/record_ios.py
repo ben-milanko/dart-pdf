@@ -110,7 +110,7 @@ def main():
                             started.set()
 
                 threading.Thread(target=drain, daemon=True).start()
-                if started.wait(timeout=10):
+                if started.wait(timeout=30):
                     t0 = time.monotonic()
                 else:
                     # simctl starts writing about half a second after launch.
