@@ -119,17 +119,17 @@ class PdfSelectedFormFieldTypeMenu extends StatelessWidget {
   }
 }
 
-/// A reusable column of controls that style the selected form text fields'
-/// text - font family, bold/italic, alignment, auto-size, size, multiline,
-/// and colour - all routed through
-/// [PdfEditingController.setSelectedFormFieldStyle], so with several text
-/// fields selected each edit applies to all of them. The controls reflect
-/// the primary (most recently selected) field.
+/// A reusable column of controls that style the selected form text and
+/// choice (dropdown / list box) fields' text - font family, bold/italic,
+/// alignment, auto-size, size, multiline (text fields only), and colour -
+/// all routed through [PdfEditingController.setSelectedFormFieldStyle], so
+/// with several fields selected each edit applies to all of them. The
+/// controls reflect the primary (most recently selected) field.
 ///
 /// Shared by the field context-menu sheet and the toolbar style popup so
 /// the surfaces stay in lock-step; the properties panel renders its own
 /// panel-styled rows over the same controller calls. Renders nothing when
-/// no text field is selected.
+/// no text or choice field is selected.
 class PdfFormFieldStyleControls extends StatefulWidget {
   const PdfFormFieldStyleControls({
     super.key,
@@ -245,15 +245,16 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                   },
                 ),
               ]),
-            SwitchListTile(
-              key: const ValueKey('pdf-form-style-multiline'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(pdfL10n(context).propMultiline),
-              value: style.multiline,
-              onChanged: (v) =>
-                  _controller.setSelectedFormFieldStyle(multiline: v),
-            ),
+            if (style.supportsMultiline)
+              SwitchListTile(
+                key: const ValueKey('pdf-form-style-multiline'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(pdfL10n(context).propMultiline),
+                value: style.multiline,
+                onChanged: (v) =>
+                    _controller.setSelectedFormFieldStyle(multiline: v),
+              ),
             Row(children: [
               Expanded(child: Text(pdfL10n(context).propColour)),
               InkWell(
