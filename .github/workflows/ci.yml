@@ -863,8 +863,8 @@ jobs:
       - name: Build Linux (release)
         working-directory: app
         run: flutter build linux --release
-      - name: Test the Linux libc baseline checker
-        run: python3 -m unittest discover -s tool -p 'test_linux_glibc.py' -v
+      - name: Test the Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
       - name: Check Linux libc baseline (including bundled plugins)
         run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Validate .desktop entry

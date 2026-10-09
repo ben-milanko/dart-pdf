@@ -186,6 +186,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Test Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
       - name: Build Linux
         working-directory: app
         run: |
@@ -205,26 +207,8 @@ jobs:
         run: |
           set -euo pipefail
           APPDIR=DartPDF.AppDir
-          rm -rf "$APPDIR"
-          mkdir -p "$APPDIR/usr/bin"
-          cp -r build/linux/x64/release/bundle/* "$APPDIR/usr/bin/"
-          cp ../doc/logo.png "$APPDIR/dartpdf.png"
-          cat > "$APPDIR/dartpdf.desktop" <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=DartPDF
-          Exec=dart_pdf_editor_app
-          Icon=dartpdf
-          Categories=Office;Utility;
-          MimeType=application/pdf;
-          EOF
-          cat > "$APPDIR/AppRun" <<'EOF'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
-          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
-          EOF
-          chmod +x "$APPDIR/AppRun"
+          python3 ../tool/stage_linux_appdir.py \
+            --bundle build/linux/x64/release/bundle --appdir "$APPDIR"
           curl -fsSL -o appimagetool-x86_64.AppImage \
             "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -

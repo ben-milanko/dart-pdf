@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Test Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
       - name: Download and verify the released Linux bundle
         run: |
           set -euo pipefail
@@ -40,21 +42,10 @@ jobs:
         run: |
           set -euo pipefail
           APPDIR=DartPDF.AppDir
-          mkdir -p "$APPDIR/usr/bin"
-          tar xzf dartpdf-linux-x64.tar.gz -C "$APPDIR/usr/bin"
-          cp "$APPDIR/usr/bin/share/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png" "$APPDIR/dartpdf.png"
-          cp "$APPDIR/usr/bin/share/applications/dev.milanko.dartpdf.desktop" "$APPDIR/dartpdf.desktop"
-          # The desktop file's installed executable path is different inside
-          # this portable container; AppRun resolves the bundled executable.
-          sed -i 's|^Exec=.*|Exec=dart_pdf_editor_app %F|' "$APPDIR/dartpdf.desktop"
-          sed -i 's|^Icon=.*|Icon=dartpdf|' "$APPDIR/dartpdf.desktop"
-          cat > "$APPDIR/AppRun" <<'EOF'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "$0")")"
-          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"
-          exec "$HERE/usr/bin/dart_pdf_editor_app" "$@"
-          EOF
-          chmod +x "$APPDIR/AppRun"
+          mkdir released-bundle
+          tar xzf dartpdf-linux-x64.tar.gz -C released-bundle
+          python3 tool/stage_linux_appdir.py \
+            --bundle released-bundle --appdir "$APPDIR"
           curl -fsSL -o appimagetool-x86_64.AppImage \
             "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
