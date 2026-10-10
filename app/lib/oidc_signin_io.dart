@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -36,12 +37,12 @@ Future<OidcTokens?> runSigstoreSignIn({
     final authorizationUrl =
         buildAuthorizationUrl(redirectUri: redirectUri, session: session);
 
-    final opened = await (launch ?? _defaultLaunch)(authorizationUrl);
+    final opened = await (launch ?? launchSigstoreBrowser)(authorizationUrl);
     if (!opened) return null;
 
     final code = await _awaitAuthorizationCode(server, session.state)
         .timeout(timeout, onTimeout: () => null);
-    await (closeBrowser ?? _defaultCloseBrowser)();
+    await (closeBrowser ?? closeSigstoreBrowser)();
     if (code == null) return null;
 
     final owned = client == null;
@@ -100,15 +101,30 @@ Future<OidcTokens?> refreshSigstoreTokens(
   }
 }
 
-Future<bool> _defaultLaunch(Uri url) => launchUrl(url,
-    mode: Platform.isIOS
-        ? LaunchMode.inAppBrowserView
-        : LaunchMode.externalApplication);
+/// Opens the broker's sign-in page: an in-app Safari view on iOS (see
+/// [runSigstoreSignIn] for why), the external browser everywhere else. [ios]
+/// and [open] are injectable for tests.
+@visibleForTesting
+Future<bool> launchSigstoreBrowser(
+  Uri url, {
+  bool? ios,
+  Future<bool> Function(Uri url, {LaunchMode mode}) open = launchUrl,
+}) =>
+    open(url,
+        mode: (ios ?? Platform.isIOS)
+            ? LaunchMode.inAppBrowserView
+            : LaunchMode.externalApplication);
 
-Future<void> _defaultCloseBrowser() async {
-  if (!Platform.isIOS) return;
+/// Dismisses the in-app Safari view [launchSigstoreBrowser] opened on iOS; a
+/// no-op elsewhere, where the external browser is not ours to close.
+@visibleForTesting
+Future<void> closeSigstoreBrowser({
+  bool? ios,
+  Future<void> Function() close = closeInAppWebView,
+}) async {
+  if (!(ios ?? Platform.isIOS)) return;
   try {
-    await closeInAppWebView();
+    await close();
   } on Exception {
     // Already dismissed by the user; nothing to close.
   }
