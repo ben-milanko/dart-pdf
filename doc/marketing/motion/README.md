@@ -175,6 +175,20 @@ python3 tool/preview/compose_preview.py --device iphone \
   --log build/preview-ios/tour.log --out build/preview-ios/dartpdf-preview-iphone.mp4
 ```
 
+Or on a plugged-in iPhone with Developer Mode on. The tour runs in profile
+mode and writes its frames into the app's tmp directory, and `devicectl`
+copies them back to the Mac. A device take has no iOS status bar, so compose
+it without `--chrome`:
+
+```sh
+cd app
+python3 tool/preview/record_ios.py --physical <UDID> --flutter "fvm flutter" \
+  --out build/preview-device
+python3 tool/preview/compose_preview.py --device iphone \
+  --frames build/preview-device/frames --log build/preview-device/tour.log \
+  --out build/preview-device/dartpdf-preview-iphone.mp4
+```
+
 To draft without a Mac, run the tour in headless Chromium. Software GL draws
 far slower than a device, which only makes the recording take longer, because
 the tour runs on frame time. The web build needs the real render worker

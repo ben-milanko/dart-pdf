@@ -18,6 +18,11 @@ as the tour starts, which the composer lays over every frame.
 
 Writes <out>/frames/NNNNNN.png, <out>/chrome.png and <out>/tour.log (the
 tour's markers, each prefixed with the host seconds since launch).
+
+With `--physical <udid>` it runs on a connected iPhone instead, in profile mode
+(much smoother than the simulator's debug build), and copies the frames back
+off the device with `devicectl`. iOS draws a real device's status bar, so it is
+not in the frames and there is no chrome.png; compose without --chrome.
 """
 import argparse
 import json
@@ -54,10 +59,16 @@ def main():
     ap.add_argument("--out", default="build/preview-ios")
     ap.add_argument("--flutter", default=os.environ.get("FLUTTER", "flutter"))
     ap.add_argument("--timeout", type=float, default=2400)
+    ap.add_argument("--physical", metavar="UDID",
+                    help="record on this connected device instead of a simulator")
+    ap.add_argument("--bundle", default="dev.milanko.dartpdf",
+                    help="the app's bundle id (to copy frames off --physical)")
     args = ap.parse_args()
 
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
+    if args.physical:
+        return record_physical(args, out)
     udid, name = find_device(args.device)
     print(f"==> {name} ({udid})")
     subprocess.run(["xcrun", "simctl", "boot", udid], capture_output=True)
@@ -126,6 +137,58 @@ def main():
     if not ok:
         sys.exit("the tour did not finish cleanly; see the output above")
     print(f"==> wrote {out}/frames, {out}/chrome.png and {out}/tour.log")
+
+
+def record_physical(args, out):
+    """The tour on a connected device, in profile mode; frames copied back."""
+    run = subprocess.Popen(
+        [*args.flutter.split(), "run", "--profile", "-d", args.physical,
+         "-t", "tool/preview_main.dart", "--dart-define=PREVIEW_CAPTURE=true"],
+        cwd=APP, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1)
+    t0 = time.monotonic()
+    markers = []
+    frames_dir = None
+    ok = False
+    deadline = t0 + args.timeout
+    try:
+        for line in run.stdout:
+            line = line.rstrip("\n")
+            print(line, flush=True)
+            if "@@PREVIEW_FRAMES@@" in line:
+                frames_dir = line.split("@@PREVIEW_FRAMES@@", 1)[1].strip()
+            elif "@@PREVIEW@@" in line:
+                markers.append((time.monotonic(), line))
+                if "@@PREVIEW@@ error" in line:
+                    break
+            elif "@@PREVIEW_DONE@@" in line:
+                ok = frames_dir is not None
+                break
+            if time.monotonic() > deadline:
+                break
+    finally:
+        with open(os.path.join(out, "tour.log"), "w") as log:
+            for now, line in markers:
+                log.write(f"{now - t0:.3f} {line}\n")
+    if ok:
+        # The app's tmp directory, relative to its data container.
+        source = "tmp/" + os.path.basename(frames_dir.rstrip("/"))
+        dest = os.path.join(out, "frames")
+        shutil.rmtree(dest, ignore_errors=True)
+        subprocess.run(
+            ["xcrun", "devicectl", "device", "copy", "from", "--device", args.physical,
+             "--domain-type", "appDataContainer", "--domain-identifier", args.bundle,
+             "--source", source, "--destination", dest], check=True)
+        print(f"==> copied {len(os.listdir(dest))} frames to {dest}")
+    try:
+        run.stdin.write("q")
+        run.stdin.flush()
+        run.wait(timeout=30)
+    except Exception:
+        run.kill()
+    if not ok:
+        sys.exit("the tour did not finish cleanly; see the output above")
+    print(f"==> wrote {out}/frames and {out}/tour.log (no chrome on a device)")
 
 
 if __name__ == "__main__":
