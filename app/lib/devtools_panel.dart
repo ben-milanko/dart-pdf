@@ -331,6 +331,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'stats': _tools.flutterGpuTileRasterBackend.stats.toJson(),
       },
       'tileRasterPages': PdfTileRasterDiagnostics.instance.snapshot(),
+      'pageViews': PdfPageViewDiagnostics.instance.snapshot(),
       if (store != null)
         'tileStore': {
           'tiles': store.tileCount,

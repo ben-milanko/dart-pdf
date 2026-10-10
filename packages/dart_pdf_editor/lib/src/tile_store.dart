@@ -590,6 +590,46 @@ class PdfTileStore extends ChangeNotifier {
     );
   }
 
+  /// Diagnostic coverage of one view's exact-rung tiles: how many of the
+  /// visible grid cells are retained or in flight, and the page-point regions
+  /// of the ones that are neither. A pure peek - no LRU touch, no scheduling -
+  /// so a support export can call it without changing what it measures.
+  ({int rung, int visible, int retained, int inFlight, List<Rect> missing})?
+      debugExactCoverage({
+    required PdfTilePageIdentity id,
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
+  }) {
+    final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
+    if (grid == null) return null;
+    var retained = 0;
+    var inFlight = 0;
+    final missing = <Rect>[];
+    for (var ty = grid.ty0; ty <= grid.ty1; ty++) {
+      for (var tx = grid.tx0; tx <= grid.tx1; tx++) {
+        final key = PdfTileKey(id, grid.rung, tx, ty);
+        if (_cache.containsKey(key)) {
+          retained++;
+        } else if (_inFlight.contains(key)) {
+          inFlight++;
+        } else {
+          missing.add(_clampToPage(
+            Rect.fromLTWH(tx * grid.span, ty * grid.span, grid.span, grid.span),
+            pageSize,
+          ));
+        }
+      }
+    }
+    return (
+      rung: grid.rung,
+      visible: (grid.tx1 - grid.tx0 + 1) * (grid.ty1 - grid.ty0 + 1),
+      retained: retained,
+      inFlight: inFlight,
+      missing: missing,
+    );
+  }
+
   /// The best-available composite for [id] over [visiblePageRect] (page points)
   /// at [desiredRatio], scheduling the missing exact-bucket tiles (center-out)
   /// plus a one-tile prefetch ring. Missing tiles fall back per-tile to the
