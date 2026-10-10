@@ -65,4 +65,15 @@ void main() {
     final store = SessionStore();
     expect(await store.load(), isEmpty);
   });
+
+  test('load re-anchors snapshots an app update moved', () async {
+    await SessionStore().save(const [
+      SessionDocument(
+          title: 'm.pdf', path: '', cachePath: '/old/recent_pdfs/m.pdf'),
+    ]);
+    final store =
+        SessionStore(resolveCacheKey: (key) async => '/new/recent_pdfs/m.pdf');
+    final docs = await store.load();
+    expect(docs.single.cachePath, '/new/recent_pdfs/m.pdf');
+  });
 }

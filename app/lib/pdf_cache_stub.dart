@@ -14,3 +14,5 @@ Future<String?> cacheOpenedPdf(Uint8List bytes) async => null;
 Future<Uint8List?> readCachedPdf(String cacheKey) async => null;
 
 Future<Set<String>?> pruneCachedPdfs(Set<String> keep) async => null;
+
+Future<String?> resolveCachedPdfKey(String cacheKey) async => null;
