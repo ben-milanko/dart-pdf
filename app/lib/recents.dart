@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'devtools.dart';
+import 'pdf_cache.dart';
 
 /// One entry in the "recent documents" list shown on the welcome screen.
 @immutable
@@ -82,9 +83,13 @@ class RecentFile {
 /// tests) it degrades to an in-memory list so the UI stays deterministic with
 /// no mocking, mirroring how [PdfEditingPreferences] handles the same case.
 class RecentsStore extends ChangeNotifier {
+  RecentsStore({CachedPdfKeyResolver? resolveCacheKey})
+      : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
+
   static const _key = 'dart_pdf_editor_app.recents';
   static const _cap = 20;
 
+  final CachedPdfKeyResolver _resolveCacheKey;
   final List<RecentFile> _items = [];
   bool _loaded = false;
   bool _disposed = false;
@@ -109,13 +114,36 @@ class RecentsStore extends ChangeNotifier {
       if (raw == null) return;
       final decoded = jsonDecode(raw);
       if (decoded is! List) return;
+      final loaded = [
+        for (final m in decoded.whereType<Map>())
+          RecentFile.fromJson(m.cast<String, dynamic>()),
+      ];
+      // An app update can move the private snapshot store (iOS changes the
+      // data container path), so re-anchor each snapshot before trusting it.
+      var rebased = false;
+      for (var i = 0; i < loaded.length; i++) {
+        final entry = loaded[i];
+        final cachePath = entry.cachePath;
+        if (cachePath == null) continue;
+        final live = await _resolveCacheKey(cachePath);
+        if (live == null || (live == cachePath && entry.cacheAvailable)) {
+          continue;
+        }
+        loaded[i] = RecentFile(
+          title: entry.title,
+          path: entry.path,
+          cachePath: live,
+          bookmark: entry.bookmark,
+          openedAt: entry.openedAt,
+        );
+        rebased = true;
+      }
       _items
         ..clear()
-        ..addAll(decoded
-            .whereType<Map>()
-            .map((m) => RecentFile.fromJson(m.cast<String, dynamic>())));
+        ..addAll(loaded);
       _sort();
       notifyListeners();
+      if (rebased) await _persist();
     } catch (e) {
       // No storage (tests) - keep the in-memory list.
       AppDevTools.instance

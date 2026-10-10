@@ -854,13 +854,17 @@ class _EditorScreenState extends State<EditorScreen>
     if (!mounted) return;
     for (final doc in recovered) {
       final record = doc.record;
+      final cachePath = record.cachePath;
+      final liveCachePath =
+          cachePath == null ? null : await resolveCachedPdfKey(cachePath);
+      if (!mounted) return;
       final tab = DocumentTab.document(
         title: record.title,
         bytes: doc.bytes,
         preferences: _prefs,
         originPath: record.originPath.isEmpty ? null : record.originPath,
         originBookmark: record.originBookmark,
-        cachePath: record.cachePath,
+        cachePath: liveCachePath ?? cachePath,
         // Comes back dirty exactly as it was: the baseline is what had been
         // written to the real destination, not the revision we recovered.
         savedLength: record.savedLength,

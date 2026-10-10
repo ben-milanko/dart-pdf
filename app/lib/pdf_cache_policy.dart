@@ -18,3 +18,7 @@ bool pdfCacheFitsQuota(int addedBytes, {num? usage, num? quota}) {
   }
   return usage >= 0 && quota > 0 && usage + addedBytes <= quota * 0.9;
 }
+
+/// Maps a stored snapshot key to where that snapshot lives now, or null when
+/// it can't be found there (see `resolveCachedPdfKey`).
+typedef CachedPdfKeyResolver = Future<String?> Function(String cacheKey);

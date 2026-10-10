@@ -99,4 +99,28 @@ void main() {
     expect(store.items.length, 3);
     expect(store.items.first.isReopenable, isTrue);
   });
+
+  test('load re-anchors snapshots an app update moved', () async {
+    final before = RecentsStore();
+    await before.add(title: 'moved.pdf', cachePath: '/old/recent_pdfs/m.pdf');
+    await before.updateCachedAvailability({'/old/recent_pdfs/m.pdf'}, {});
+    await before.add(title: 'gone.pdf', cachePath: '/old/recent_pdfs/g.pdf');
+
+    final after = RecentsStore(
+        resolveCacheKey: (key) async =>
+            key.endsWith('/m.pdf') ? '/new/recent_pdfs/m.pdf' : null);
+    await after.load();
+
+    final moved = after.items.firstWhere((e) => e.title == 'moved.pdf');
+    expect(moved.cachePath, '/new/recent_pdfs/m.pdf');
+    expect(moved.isReopenable, isTrue); // previously marked missing
+    final gone = after.items.firstWhere((e) => e.title == 'gone.pdf');
+    expect(gone.cachePath, '/old/recent_pdfs/g.pdf'); // left for a re-pick
+
+    // The re-anchored path is what persists.
+    final reloaded = RecentsStore(resolveCacheKey: (_) async => null);
+    await reloaded.load();
+    expect(reloaded.items.map((e) => e.cachePath),
+        contains('/new/recent_pdfs/m.pdf'));
+  });
 }
