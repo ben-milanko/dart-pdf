@@ -1738,5 +1738,62 @@ void main() {
       expect(
           pdfDocumentImageContentKey(a, dangling), isNot(CosReference(99, 0)));
     });
+
+    test('document-scoped keys hash consistently and keep the mask flag', () {
+      final a = docWithImageAt5(red);
+      final b = docWithImageAt5(blue);
+      PdfImageRequest dangling() => PdfImageRequest(
+          stream: CosStream(CosDictionary(), Uint8List(0)),
+          transform: PdfMatrix.identity,
+          sourceReference: CosReference(99, 0));
+      // Usable as hash keys: equal keys collapse, other documents' don't.
+      final keys = {
+        pdfDocumentImageContentKey(a, dangling()),
+        pdfDocumentImageContentKey(a, dangling()),
+        pdfDocumentImageContentKey(b, dangling()),
+      };
+      expect(keys, hasLength(2));
+
+      // A luminosity-mask draw of a referenced image is a different picture
+      // of the same stream, so it keeps its own key.
+      final mask = PdfImageRequest(
+          stream: CosStream(CosDictionary(), Uint8List(0)),
+          transform: PdfMatrix.identity,
+          isLuminosityMask: true,
+          sourceReference: ref);
+      expect(pdfDocumentImageContentKey(a, mask), (a.resolve(ref), true));
+      expect(pdfDocumentImageContentKey(a, mask),
+          isNot(pdfDocumentImageContentKey(a, wire())));
+    });
+
+    testWidgets('an unresolvable reference stays scoped to its document',
+        (tester) async {
+      await tester.runAsync(() async {
+        final a = docWithImageAt5(red);
+        final b = docWithImageAt5(blue);
+        final missing = CosReference(99, 0);
+        PdfImageRequest dangling({PdfDecodedPixels? decoded}) =>
+            PdfImageRequest(
+              stream: CosStream(CosDictionary(), Uint8List(0)),
+              transform: PdfMatrix.identity,
+              decoded: decoded,
+              sourceReference: missing,
+            );
+        final cache = PdfImageCache();
+
+        // Without pixels there is nothing to decode: no entry, no crash.
+        expect(await decodeImages(a, [dangling()], cache: cache), isEmpty);
+        expect(cache.debugLength, 0);
+
+        // With worker pixels it caches, but only for its own document.
+        await decodeImages(a, [dangling(decoded: solid(red))], cache: cache);
+        cache.debugResetCounters();
+        final fromB = await decodeImages(b, [dangling(decoded: solid(blue))],
+            cache: cache);
+        expect((await pixelsOf(fromB[missing]!)).sublist(0, 3), blue);
+        expect(cache.debugHits, 0);
+        expect(cache.debugLength, 2);
+      });
+    });
   });
 }
