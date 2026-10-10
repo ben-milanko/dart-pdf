@@ -33,6 +33,7 @@ class PdfFontInfo {
     Type1Font? type1,
     Uint8List? cidToGid,
     bool symbolic = false,
+    this.isSerif = false,
     bool legacyGbk = false,
     CjkCmap? cjkCmap,
     Map<int, String> encodingNames = const {},
@@ -93,6 +94,11 @@ class PdfFontInfo {
   final Uint8List? _cidToGid;
   final bool _symbolic;
   final bool _legacyGbk;
+
+  /// The font descriptor's Serif flag (§9.8.2, bit 2). Only a hint for a
+  /// device that has to substitute a face for an unembedded font; a font with
+  /// outlines draws them whatever this says.
+  final bool isSerif;
 
   /// Decoder for a predefined CJK CMap on a non-embedded Type0 font; null for
   /// Identity-H and all embedded composites.
@@ -202,6 +208,7 @@ class PdfFontInfo {
     Type1Font? type1;
     Uint8List? cidToGid;
     var symbolic = false;
+    var serif = false;
     CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
     var differenceNames = const <int, String>{};
@@ -241,6 +248,7 @@ class PdfFontInfo {
           trueType = _loadTrueType(cos, descriptor);
           if (trueType == null) cff = _loadCff(cos, descriptor);
           symbolic = _isSymbolic(cos, descriptor);
+          serif = _isSerif(cos, descriptor);
         }
         final gidMap = cos.resolve(descendant['CIDToGIDMap']);
         if (gidMap is CosStream) {
@@ -284,6 +292,7 @@ class PdfFontInfo {
           type1 = _loadType1(cos, descriptor);
         }
         symbolic = _isSymbolic(cos, descriptor);
+        serif = _isSerif(cos, descriptor);
       }
       // base-14 fonts may omit /Widths entirely (§9.6.2.2) - the viewer
       // must supply the built-in metrics. Without this, every glyph fell
@@ -310,6 +319,7 @@ class PdfFontInfo {
       type1: type1,
       cidToGid: cidToGid,
       symbolic: symbolic,
+      isSerif: serif,
       legacyGbk: !isCid && toUnicode.isEmpty && _isLegacyGbkFont(baseFont),
       cjkCmap: cjkCmap,
       encodingNames: encodingNames,
@@ -503,6 +513,11 @@ class PdfFontInfo {
   static bool _isSymbolic(CosDocument cos, CosDictionary descriptor) {
     final flags = cos.resolve(descriptor['Flags']);
     return flags is CosInteger && (flags.value & 4) != 0;
+  }
+
+  static bool _isSerif(CosDocument cos, CosDictionary descriptor) {
+    final flags = cos.resolve(descriptor['Flags']);
+    return flags is CosInteger && (flags.value & 2) != 0;
   }
 
   /// CFF outlines: FontFile3 (/Type1C, /CIDFontType0C, CFF-flavored

@@ -107,7 +107,8 @@ class _TranscriptDevice implements PdfDevice {
   @override
   void drawText(PdfTextRun run) => log.add('text "${run.text}" '
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
-      'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
+      'font=${run.fontName} serif=${run.serif} size=${run.fontSize} '
+      'fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
       'ls=${run.letterSpacing} ws=${run.wordSpacing} '
       'ld=${run.leadingSpace} vw=${run.visibleWidth} '
@@ -220,6 +221,28 @@ void main() {
       expect(restored.run.fillAlpha, 0.25);
       expect(restored.run.strokeAlpha, 0.6);
     });
+  });
+
+  test("a substituted run keeps its descriptor's Serif flag across the wire",
+      () {
+    // The worker-side painter picks the substitute face from it: losing it
+    // would draw an unembedded serif in Helvetica's shapes off-thread only.
+    for (final serif in [false, true]) {
+      final restored = (deserializeCommands(serializeCommands([
+        PdfDrawTextCommand(PdfTextRun(
+          text: 'biased',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 2.5,
+          fontName: 'Unknown-Regular',
+          serif: serif,
+        )),
+      ])!)
+              .single as PdfDrawTextCommand)
+          .run;
+      expect(restored.serif, serif);
+      expect(restored.fontName, 'Unknown-Regular');
+    }
   });
 
   test('typed and boxed char offsets write the same bytes and read unboxed',

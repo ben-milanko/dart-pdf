@@ -93,6 +93,7 @@ class TranslatingPdfDevice implements PdfDevice {
         width: run.width,
         gradient: run.gradient == null ? null : _gradient(run.gradient!),
         fontName: run.fontName,
+        serif: run.serif,
         fontSize: run.fontSize,
         glyphs: run.glyphs,
         invisible: run.invisible,

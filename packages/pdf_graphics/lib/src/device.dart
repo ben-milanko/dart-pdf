@@ -65,6 +65,7 @@ class PdfTextRun {
     required this.width,
     this.gradient,
     this.fontName,
+    this.serif = false,
     this.fontSize = 0,
     this.glyphs,
     this.charOffsets,
@@ -170,6 +171,10 @@ class PdfTextRun {
 
   /// The /BaseFont name, e.g. `ABCDEF+Helvetica-Bold`.
   final String? fontName;
+
+  /// Whether the font descriptor sets its Serif flag (§9.8.2) - a hint, beside
+  /// [fontName], for the face a device substitutes when there are no [glyphs].
+  final bool serif;
 
   /// Nominal font size before transformation, for font selection heuristics.
   final double fontSize;

@@ -84,24 +84,35 @@ void main() {
       ['B', 'O', 'O', 'K', '1', 'B'],
       reason: 'mismatched words must not keep fallback-font distribution',
     );
-    final origins = layout.parts
-        .map((part) => part.x / layout.unitsPerEm)
-        .toList(growable: false);
-    const expected = [
-      0.0,
-      0.5800416666666666,
-      1.4200833333333331,
-      2.260125,
-      3.160208333333333,
-      3.720249999999999,
+    // Each glyph is painted inside the slot its PDF offsets give it: centred
+    // when Helvetica draws it narrower than Century Gothic's width, squeezed
+    // from the slot's start when wider - never flush left with the
+    // difference left as a gap or an overlap inside the word.
+    const slots = [
+      (0.0, 0.5800416666666666),
+      (0.5800416666666666, 1.4200833333333331),
+      (1.4200833333333331, 2.260125),
+      (2.260125, 2.8801666666666663),
+      (3.160208333333333, 3.720249999999999),
+      (3.720249999999999, 4.3002916666666655),
     ];
-    for (var i = 0; i < expected.length; i++) {
-      expect(
-        origins[i],
-        closeTo(expected[i], 1e-12),
-        reason: 'painted glyph $i must recover its PDF offset',
-      );
+    for (var i = 0; i < slots.length; i++) {
+      final part = layout.parts[i];
+      final (start, end) = slots[i];
+      final left = part.x / layout.unitsPerEm;
+      final right =
+          left + natural[part.text]! * part.scaleX / layout.unitsPerEm;
+      if (part.scaleX < 1) {
+        expect(left, closeTo(start, 1e-12), reason: 'squeezed glyph $i');
+        expect(right, closeTo(end, 1e-12), reason: 'squeezed glyph $i');
+      } else {
+        expect(left, greaterThanOrEqualTo(start), reason: 'glyph $i');
+        expect(left - start, closeTo(end - right, 1e-12),
+            reason: 'glyph $i must be centred in its slot');
+      }
     }
+    expect(layout.parts.where((part) => part.scaleX < 1), isNotEmpty,
+        reason: "Helvetica's B is wider than Century Gothic's");
   });
 
   test('Canvas2D keeps a word whole when its interior advances agree', () {
@@ -315,6 +326,104 @@ void main() {
       '"TeX Gyre Cursor", "Courier New", Courier, "Liberation Mono", '
       '"Nimbus Mono PS", monospace',
     );
+  });
+
+  test('unembedded serif text routes to Termes by name or descriptor flag', () {
+    // Adobe's MinionPro arrives unembedded with /Flags 32 - Nonsymbolic, the
+    // Serif bit clear - so only its name says it is a serif.
+    expect(pdfBundledSubstituteFor('MinionPro-Regular'),
+        PdfBundledSubstitute.termes);
+    expect(pdfBundledSubstituteFor('ABCDEF+Garamond,Bold'),
+        PdfBundledSubstitute.termes);
+    expect(
+        pdfBundledSubstituteFor('Georgia-Italic'), PdfBundledSubstitute.termes);
+    expect(pdfBundledSubstituteFor('BookAntiqua'), PdfBundledSubstitute.termes);
+    expect(pdfBundledSubstituteFor('Cambria'), PdfBundledSubstitute.termes);
+    // A descriptor that does set the Serif flag (§9.8.2) settles an unknown
+    // name.
+    expect(pdfBundledSubstituteFor('Whatever-Regular', serif: true),
+        PdfBundledSubstitute.termes);
+    expect(pdfCanvas2dSubstituteFamily('Whatever-Regular', serif: true),
+        pdfCanvas2dSubstituteFamily('Times-Roman'));
+    // A name we recognise wins over the flag.
+    expect(pdfBundledSubstituteFor('Calibri', serif: true),
+        PdfBundledSubstitute.carlito);
+    expect(pdfBundledSubstituteFor('CourierNewPSMT', serif: true),
+        PdfBundledSubstitute.cursor);
+    expect(pdfBundledSubstituteFor('Arial-BoldMT'), PdfBundledSubstitute.heros);
+    // "Sans" beats "Serif" in a name that carries both.
+    expect(pdfBundledSubstituteFor('MicrosoftSansSerif'),
+        PdfBundledSubstitute.heros);
+    expect(pdfBundledSubstituteFor('PTSans-Serif', serif: true),
+        PdfBundledSubstitute.heros);
+    expect(pdfBundledSubstituteFor('MyriadPro-Regular'),
+        PdfBundledSubstitute.heros);
+  });
+
+  test('a substituted piece is centred in a wider slot, squeezed in a narrower',
+      () {
+    // Within the cut tolerance: untouched, so a metric-compatible clone is
+    // drawn exactly as before.
+    expect(pdfFitSubstitutedPiece(slot: 0.5, drawn: 0.51),
+        (shift: 0.0, scaleX: 1.0));
+    // Helvetica's i (0.222) in Minion's slot (0.268), at a 0.86 run scale.
+    final narrow = pdfFitSubstitutedPiece(slot: 0.268, drawn: 0.19);
+    expect(narrow.scaleX, 1);
+    expect(narrow.shift, closeTo(0.039, 1e-12));
+    // Helvetica's e (0.556) in Minion's 0.425 slot at the same scale.
+    final wide = pdfFitSubstitutedPiece(slot: 0.425, drawn: 0.478);
+    expect(wide.shift, 0);
+    expect(wide.scaleX, closeTo(0.425 / 0.478, 1e-12));
+    // Degenerate measures never move anything.
+    expect(
+        pdfFitSubstitutedPiece(slot: 0, drawn: 0.5), (shift: 0.0, scaleX: 1.0));
+    expect(
+        pdfFitSubstitutedPiece(slot: 0.5, drawn: 0), (shift: 0.0, scaleX: 1.0));
+  });
+
+  test('Helvetica standing in for MinionPro leaves no gap inside a word', () {
+    // "biased" from the heading of an unembedded-MinionPro relay datasheet:
+    // `[(b)15(ia)6(s)-6(e)-7(d)]TJ` at 16.08pt, Minion /Widths, painted in
+    // Helvetica's advances. Flush-left placement put 0.08 em of air after the
+    // i - "bi ased".
+    const minion = {'b': 508, 'i': 268, 'a': 439, 's': 367, 'e': 425, 'd': 528};
+    const tj = {1: 15, 3: 6, 4: -6, 5: -7}; // kern before index, thousandths
+    const helvetica = <String, double>{
+      'b': 55.6, 'i': 22.2, 'a': 55.6, 's': 50, 'e': 55.6, 'd': 55.6, //
+    };
+    const text = 'biased';
+    final offsets = <double>[0];
+    for (var i = 0; i < text.length; i++) {
+      offsets.add(offsets.last + (minion[text[i]]! - (tj[i + 1] ?? 0)) / 1000);
+    }
+    final layout = pdfCanvas2dTextLayout(
+      _run(text: text, width: offsets.last, charOffsets: offsets),
+      (piece) =>
+          piece.split('').fold(0.0, (sum, char) => sum + helvetica[char]!),
+    );
+    expect(layout, isNotNull);
+    var index = 0;
+    for (final part in layout!.parts) {
+      final last = index + part.text.length - 1;
+      final start = offsets[index];
+      final end = offsets[last] + (offsets[last + 1] - offsets[last]);
+      final drawn =
+          part.text.split('').fold(0.0, (sum, char) => sum + helvetica[char]!) *
+              part.scaleX /
+              layout.unitsPerEm;
+      final left = part.x / layout.unitsPerEm - start;
+      final right = end - (part.x / layout.unitsPerEm + drawn);
+      expect(left, greaterThanOrEqualTo(-1e-12),
+          reason: '"${part.text}" must not start before its slot');
+      expect(right, greaterThanOrEqualTo(-1e-12),
+          reason: '"${part.text}" must not run into the next letter');
+      expect(left, closeTo(right, 1e-12),
+          reason: '"${part.text}" must not sit flush left with a gap after it');
+      index = last + 1;
+    }
+    expect(layout.parts.map((part) => part.text).join(), text);
+    expect(layout.parts.any((part) => part.scaleX < 1), isTrue,
+        reason: "Helvetica's a, s and e are wider than Minion's");
   });
 
   test('the weight and slant of a run come from its /BaseFont name', () {
