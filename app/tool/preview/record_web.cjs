@@ -59,6 +59,7 @@ fs.mkdirSync(frames, { recursive: true });
   });
   page.on('console', (m) => {
     const text = m.text();
+    if (text.startsWith('PREVIEW frame')) console.log(text);
     if (!text.includes('@@PREVIEW')) return;
     const now = Date.now() / 1000;
     log.push({ now, text });

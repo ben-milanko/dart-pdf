@@ -391,6 +391,8 @@ class _Tour {
     _sfx('ding');
     await _pause(1900);
     _mark('end');
+    debugPrint('PREVIEW frame clock: ${_time.timeouts} frames counted '
+        'without a raster report');
   }
 
   /// A slanted cursive signature over the signature line, in global
@@ -575,29 +577,42 @@ final _time = _FrameClock();
 /// frame paints its number ([stamp]) along the bottom edge, and the composer
 /// places every captured frame by it.
 ///
-/// Frames are at least [minInterval] of wall-clock apart before they count,
-/// so tour time never runs ahead of the real timers the gesture recognisers
-/// use (a long press is 500 ms of real time), and so the screen recorder
-/// catches every one: `simctl io recordVideo` keeps up with about 16 fps on a
-/// CI runner, so record_ios.py sets `PREVIEW_FRAME_MS=100`. A frame that
-/// comes sooner redraws the same instant and keeps its number.
+/// A frame counts only once the last counted one has been rasterised (the
+/// engine's [FrameTiming] report names its frame number) and then on screen
+/// for [minInterval] of wall-clock time. The UI thread can run well ahead of
+/// a debug build's raster thread, and the engine then never shows the frames
+/// in between; and `simctl io recordVideo` keeps up with about 16 fps on a CI
+/// runner, so record_ios.py sets `PREVIEW_FRAME_MS=100`. This also keeps tour
+/// time from running ahead of the real timers the gesture recognisers use (a
+/// long press is 500 ms of real time). A frame that comes sooner redraws the
+/// same instant and keeps its number.
 class _FrameClock {
   static const fps = 30;
   static const period = Duration(microseconds: 1000000 ~/ fps);
   static const minInterval = Duration(
       milliseconds: int.fromEnvironment('PREVIEW_FRAME_MS', defaultValue: 34));
 
+  /// How long to wait for the engine to report a counted frame rasterised
+  /// before counting the next one anyway.
+  static const rasterTimeout = Duration(seconds: 2);
+
   /// The number of the frame being drawn, null before the tour.
   final stamp = ValueNotifier<int?>(null);
 
   final _real = Stopwatch()..start();
   final _sinceCounted = Stopwatch();
+  final _onScreen = Stopwatch();
   final _waiting = <(int, Completer<void>)>[];
   bool _running = false;
   int _frame = 0;
   Duration _engineBase = Duration.zero;
   Duration _realBase = Duration.zero;
   Timer? _tick;
+
+  /// The engine frame number of the last counted frame until the engine
+  /// reports it (or a later frame) rasterised.
+  int? _awaitingRaster;
+  int _timeouts = 0;
 
   bool get running => _running;
 
@@ -608,6 +623,21 @@ class _FrameClock {
   /// [start] and frame time after.
   Duration get now => _running ? _realBase + elapsed : _real.elapsed;
 
+  /// Counted frames that went out without a raster report.
+  int get timeouts => _timeouts;
+
+  /// Whether the next frame may count: the last one has been on screen for
+  /// [minInterval] (rasterised, as the engine reports it), or the report is
+  /// overdue.
+  bool get _ready {
+    if (!_sinceCounted.isRunning) return true;
+    if (_sinceCounted.elapsed < minInterval) return false;
+    if (_awaitingRaster == null) return _onScreen.elapsed >= minInterval;
+    if (_sinceCounted.elapsed < rasterTimeout) return false;
+    _timeouts++;
+    return true;
+  }
+
   void start() {
     final binding = SchedulerBinding.instance;
     final dispatcher = binding.platformDispatcher;
@@ -616,15 +646,24 @@ class _FrameClock {
     _engineBase = binding.currentSystemFrameTimeStamp;
     _realBase = _real.elapsed;
     _running = true;
+    binding.addTimingsCallback(_onTimings);
     dispatcher.onBeginFrame = (_) {
-      // A frame inside the minimum interval redraws the current instant.
-      if (_sinceCounted.isRunning && _sinceCounted.elapsed < minInterval) {
+      // A frame that may not count yet redraws the current instant.
+      if (!_ready) {
         begin(_engineBase + period * _frame);
         return;
       }
       _sinceCounted
         ..reset()
         ..start();
+      final number = dispatcher.frameData.frameNumber;
+      // Without frame numbers (the web), only the interval paces frames.
+      _awaitingRaster = number < 0 ? null : number;
+      if (_awaitingRaster == null) {
+        _onScreen
+          ..reset()
+          ..start();
+      }
       stamp.value = _frame;
       begin(_engineBase + period * (_frame + 1));
       _counted = true;
@@ -647,11 +686,27 @@ class _FrameClock {
   /// Whether the frame in flight is a counted one.
   bool _counted = false;
 
-  /// Asks for the next frame once [minInterval] has passed, so the clock
-  /// ticks even while nothing on screen moves.
+  void _onTimings(List<FrameTiming> timings) {
+    final awaiting = _awaitingRaster;
+    if (awaiting == null) return;
+    // The counted frame, or a later redraw of the same instant, is on screen.
+    if (timings.any((t) => t.frameNumber >= awaiting)) {
+      _awaitingRaster = null;
+      _onScreen
+        ..reset()
+        ..start();
+      _keepDrawing();
+    }
+  }
+
+  /// Asks for the next frame once the last counted one has been on screen
+  /// for [minInterval], so the clock ticks even while nothing moves. While
+  /// a raster report is pending, it only checks back at the timeout.
   void _keepDrawing() {
     _tick?.cancel();
-    final due = minInterval - _sinceCounted.elapsed;
+    final due = _awaitingRaster != null
+        ? rasterTimeout - _sinceCounted.elapsed
+        : minInterval - _onScreen.elapsed;
     _tick = Timer(due.isNegative ? Duration.zero : due,
         SchedulerBinding.instance.scheduleFrame);
   }

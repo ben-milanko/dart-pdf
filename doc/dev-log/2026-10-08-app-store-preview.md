@@ -130,8 +130,17 @@ preview).
   keyboard, so web drafts never showed this.
 - `simctl io recordVideo` keeps up with about 16 fps on a CI runner. With
   34 ms frames it missed 338 of 657 tour frames, so record_ios.py passes
-  `--dart-define=PREVIEW_FRAME_MS=100`. The composer warns when more than 1%
-  of tour frames repeat the one before.
+  `--dart-define=PREVIEW_FRAME_MS=100`. That alone still missed 163: opening
+  the page grid and dragging a thumbnail kept the debug raster thread busy
+  for seconds while the UI thread kept counting frames, and the engine never
+  shows the frames it skips (one stretch drew 19 tour frames in 3.2 s with
+  nothing on screen). So a frame now counts only after the engine has
+  reported the previous counted frame rasterised (`addTimingsCallback`, about
+  every 100 ms in debug builds, matched on `frameData.frameNumber`), and then
+  shown it for `PREVIEW_FRAME_MS`. After 2 s without a report it counts
+  anyway, and the tour prints how often that happened. In Chromium every
+  frame was captured (38 timeouts, which only cost recording time). The
+  composer warns when more than 1% of tour frames repeat the one before.
 - iPad (1200×1600): the tablet toolbar has different keys, so the tour needs a
   tablet path.
 - Localised captions (`CAPTIONS` is English only).
