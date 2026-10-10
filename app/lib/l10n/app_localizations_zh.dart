@@ -1257,6 +1257,30 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get incomingFilesCombineMessage => '拖动文件可设置合并顺序。';
+
+  @override
+  String get appMenuNew => '新建';
+
+  @override
+  String get appMenuOpen => '打开';
+
+  @override
+  String get appMenuPrint => '打印';
+
+  @override
+  String get appMenuSign => '签名';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '导出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2513,4 +2537,28 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get incomingFilesCombineMessage => '拖曳檔案即可設定合併順序。';
+
+  @override
+  String get appMenuNew => '新增';
+
+  @override
+  String get appMenuOpen => '開啟';
+
+  @override
+  String get appMenuPrint => '列印';
+
+  @override
+  String get appMenuSign => '簽署';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '匯出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
 }

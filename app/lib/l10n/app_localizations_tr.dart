@@ -1293,4 +1293,28 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Birleştirme sırasını belirlemek için dosyaları sürükleyin.';
+
+  @override
+  String get appMenuNew => 'Yeni';
+
+  @override
+  String get appMenuOpen => 'Aç';
+
+  @override
+  String get appMenuPrint => 'Yazdır';
+
+  @override
+  String get appMenuSign => 'İmzala';
+
+  @override
+  String get appMenuRecent => 'Son kullanılanlar';
+
+  @override
+  String get appMenuSeeAll => 'Tümünü gör';
+
+  @override
+  String get appMenuExport => 'Dışa aktar';
+
+  @override
+  String get appMenuMoreTools => 'Diğer araçlar';
 }

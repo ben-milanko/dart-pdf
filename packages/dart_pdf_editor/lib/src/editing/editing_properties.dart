@@ -943,8 +943,9 @@ class _PdfAnnotationPropertiesPanelState
     ];
   }
 
-  /// Text styling for the selected form text fields (font, style,
-  /// alignment, auto-size, size, multiline, colour) - regenerated through
+  /// Text styling for the selected form text and choice fields (font,
+  /// style, alignment, auto-size, size, colour; multiline when a text field
+  /// is among them) - regenerated through
   /// [PdfEditingController.setSelectedFormFieldStyle]. With several fields
   /// selected every edit applies to all of them and mixed values read
   /// "Varies"; the toggles reflect the primary field.
@@ -958,7 +959,14 @@ class _PdfAnnotationPropertiesPanelState
     final colors = _common<Color>([for (final s in styles) s.color]);
     final aligns = _common<PdfTextAlign>([for (final s in styles) s.align]);
     final autoSizes = _common<bool>([for (final s in styles) s.autoSize]);
-    final multilines = _common<bool>([for (final s in styles) s.multiline]);
+    // multiline is a text-field flag; choice fields in the selection don't
+    // count toward it
+    final multilineStyles = [
+      for (final s in styles)
+        if (s.supportsMultiline) s.multiline,
+    ];
+    final multilines =
+        multilineStyles.isEmpty ? null : _common<bool>(multilineStyles);
     final fonts = _common<PdfStandardFont>([for (final s in styles) s.font]);
     // a size row whenever any selected field has a fixed size, so a mixed
     // selection can be pinned to one size in a single edit
@@ -1039,15 +1047,16 @@ class _PdfAnnotationPropertiesPanelState
             setState(() => _draggingFontSize = null);
           },
         ),
-      SwitchListTile(
-        key: const ValueKey('pdf-prop-form-multiline'),
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Text(l.propMultiline),
-        subtitle: multilines.varies ? Text(l.propVaries) : null,
-        value: style.multiline,
-        onChanged: (v) => _controller.setSelectedFormFieldStyle(multiline: v),
-      ),
+      if (multilines != null)
+        SwitchListTile(
+          key: const ValueKey('pdf-prop-form-multiline'),
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          title: Text(l.propMultiline),
+          subtitle: multilines.varies ? Text(l.propVaries) : null,
+          value: multilines.value,
+          onChanged: (v) => _controller.setSelectedFormFieldStyle(multiline: v),
+        ),
       _swatchRow(l.propColor, style.color,
           key: const ValueKey('pdf-prop-form-color'),
           varies: colors.varies,

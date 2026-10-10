@@ -1,3 +1,7 @@
+## 0.5.1
+
+- Update dependency constraints for the compatible dart-pdf 8.1.0 suite. No public API changes.
+
 ## 0.5.0
 
 - Align dependency constraints with the dart-pdf 8.0.0 suite.

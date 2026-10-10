@@ -1294,4 +1294,28 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।';
+
+  @override
+  String get appMenuNew => 'नया';
+
+  @override
+  String get appMenuOpen => 'खोलें';
+
+  @override
+  String get appMenuPrint => 'प्रिंट करें';
+
+  @override
+  String get appMenuSign => 'हस्ताक्षर करें';
+
+  @override
+  String get appMenuRecent => 'हाल के';
+
+  @override
+  String get appMenuSeeAll => 'सभी देखें';
+
+  @override
+  String get appMenuExport => 'निर्यात करें';
+
+  @override
+  String get appMenuMoreTools => 'और टूल';
 }

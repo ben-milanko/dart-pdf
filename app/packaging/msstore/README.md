@@ -5,17 +5,19 @@
 [`listing/en-US.json`](listing/en-US.json) is the reviewable English listing
 copy for Partner Center: product name, short/full descriptions, product
 features, search keywords, and the current release notes. It follows the
-live App Store/Google Play wording with Windows-specific file-opening details.
+shared App Store/Google Play feature descriptions, with Windows-specific short
+copy and file-opening details.
 See [`../../store-listing.md`](../../store-listing.md) for the shared source and
 the title-reservation step. This JSON is source material for the listing editor;
 it is not a Partner Center CSV import file.
 
-Applied on 8 October 2026 in Partner Center submission **17**
-(`1152921505702072175`). The aligned product name is reserved and selected,
-with the descriptions, eleven features, seven search phrases, and 7.0.0 release
-notes saved. Partner Center confirmed **In certification**, with automatic
-publishing after approval. The trailer, poster, captions, hero artwork, and
-top-of-listing playback selection are retained from published submission 16.
+The English listing uses the reserved product name, descriptions, eleven
+features, seven search phrases, and per-release notes. Update `releaseNotes`
+from the matching `app/release-notes/<version>-stores.txt` before preparing a
+listing submission. The trailer, poster, captions, hero artwork, and
+top-of-listing playback selection are unchanged. Check the current published
+fields before preparing an update; MSIX package publishing does not apply this
+JSON automatically.
 
 The sting trailer and upload artwork are in
 [`doc/marketing/motion/`](../../../doc/marketing/motion/README.md).

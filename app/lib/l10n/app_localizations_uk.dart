@@ -1315,4 +1315,28 @@ class AppLocalizationsUk extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Перетягніть файли, щоб задати порядок об\'єднання.';
+
+  @override
+  String get appMenuNew => 'Створити';
+
+  @override
+  String get appMenuOpen => 'Відкрити';
+
+  @override
+  String get appMenuPrint => 'Друк';
+
+  @override
+  String get appMenuSign => 'Підписати';
+
+  @override
+  String get appMenuRecent => 'Нещодавні';
+
+  @override
+  String get appMenuSeeAll => 'Показати всі';
+
+  @override
+  String get appMenuExport => 'Експорт';
+
+  @override
+  String get appMenuMoreTools => 'Інші інструменти';
 }

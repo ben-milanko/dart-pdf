@@ -332,5 +332,13 @@
   "incomingFilesMessage": "각 파일을 별도의 탭에서 열까요, 아니면 하나의 새 문서로 합칠까요? 파일을 끌어 합칠 순서를 정하세요.",
   "incomingFilesCombine": "합치기",
   "incomingFilesCombineTitle": "{count, plural, other{PDF {count}개 합치기}}",
-  "incomingFilesCombineMessage": "파일을 끌어 합칠 순서를 정하세요."
+  "incomingFilesCombineMessage": "파일을 끌어 합칠 순서를 정하세요.",
+  "appMenuNew": "새로 만들기",
+  "appMenuOpen": "열기",
+  "appMenuPrint": "인쇄",
+  "appMenuSign": "서명",
+  "appMenuRecent": "최근 항목",
+  "appMenuSeeAll": "모두 보기",
+  "appMenuExport": "내보내기",
+  "appMenuMoreTools": "기타 도구"
 }

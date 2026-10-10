@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Відкрити кожен файл в окремій вкладці чи об'єднати їх в один новий документ? Перетягніть файли, щоб задати порядок.",
   "incomingFilesCombine": "Об'єднати",
   "incomingFilesCombineTitle": "{count, plural, other{Об'єднати PDF-файли: {count}}}",
-  "incomingFilesCombineMessage": "Перетягніть файли, щоб задати порядок об'єднання."
+  "incomingFilesCombineMessage": "Перетягніть файли, щоб задати порядок об'єднання.",
+  "appMenuNew": "Створити",
+  "appMenuOpen": "Відкрити",
+  "appMenuPrint": "Друк",
+  "appMenuSign": "Підписати",
+  "appMenuRecent": "Нещодавні",
+  "appMenuSeeAll": "Показати всі",
+  "appMenuExport": "Експорт",
+  "appMenuMoreTools": "Інші інструменти"
 }

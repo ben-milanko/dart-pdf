@@ -1307,4 +1307,28 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Arraste os arquivos para definir a ordem da combinação.';
+
+  @override
+  String get appMenuNew => 'Novo';
+
+  @override
+  String get appMenuOpen => 'Abrir';
+
+  @override
+  String get appMenuPrint => 'Imprimir';
+
+  @override
+  String get appMenuSign => 'Assinar';
+
+  @override
+  String get appMenuRecent => 'Recentes';
+
+  @override
+  String get appMenuSeeAll => 'Ver tudo';
+
+  @override
+  String get appMenuExport => 'Exportar';
+
+  @override
+  String get appMenuMoreTools => 'Mais ferramentas';
 }

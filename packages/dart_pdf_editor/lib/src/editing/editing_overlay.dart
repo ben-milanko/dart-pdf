@@ -13,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../annotation_display_filter.dart';
 import '../debug_overlays.dart';
+import '../font_substitution.dart';
 import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
@@ -31,6 +32,7 @@ import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
 import 'form_tab_navigation.dart';
 import 'handle_layout.dart';
+import 'soft_keyboard_primer.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 import '../design/editor_presenter.dart';
@@ -44,13 +46,18 @@ TextAlign _flutterTextAlign(PdfTextAlign align) => switch (align) {
       PdfTextAlign.right => TextAlign.right,
     };
 
+/// The Flutter family the inline editor previews [font] in.
+///
+/// A base-14 face asks for the bundled metric-compatible clone the page
+/// renderer draws that font with (`CanvasPdfDevice._styleFor` via
+/// [pdfBundledSubstituteFor]) - not the host's "Helvetica", which most
+/// Windows/Linux/Android hosts don't have: the fallback face they pick is
+/// wider than Helvetica's AFM advances, so a box the appearance fits on one
+/// line wrapped (and changed face) the moment it was opened for editing.
+/// [_textEditUiFallback] carries the host faces behind it.
 String? _textEditUiFamily(PdfTextFont font) {
   if (font is PdfStandardFont) {
-    return switch (font.family) {
-      PdfStandardFontFamily.sans => 'Helvetica',
-      PdfStandardFontFamily.serif => 'Times New Roman',
-      PdfStandardFontFamily.mono => 'Courier',
-    };
+    return pdfBundledSubstituteFor(font.baseFont).packageFamily;
   }
   // An embedded/bundled font has no platform family the way base-14 does;
   // the editor registers its outline bytes (see _ensureEmbeddedFontPreview)
@@ -61,6 +68,54 @@ String? _textEditUiFamily(PdfTextFont font) {
   }
   return null;
 }
+
+/// What stands behind [_textEditUiFamily] for a base-14 face when the
+/// bundled asset isn't registered: the bare family (a host-installed copy),
+/// then the host faces sharing its metrics - the renderer's own chain.
+List<String>? _textEditUiFallback(PdfTextFont font) {
+  if (font is! PdfStandardFont) return null;
+  final substitute = pdfBundledSubstituteFor(font.baseFont);
+  return [substitute.family, ...substitute.systemFallbacks];
+}
+
+/// How far a text preview's first line has to move down so its baseline
+/// lands where a free-text appearance writes it: [pdfBaseline] below the top
+/// of the text area (the 3pt inset plus the font's own ascent - see
+/// `writePdfTextBox`).
+///
+/// Flutter puts the first baseline wherever the face's ascent - and, under a
+/// forced strut, the strut's leading split - happens to put it, which differs
+/// per face and per line-height multiplier, so it is measured rather than
+/// assumed: a painter laid out exactly like the preview. Negative when Flutter
+/// sits the line *lower* than the appearance (a tight inset at a tall line
+/// height).
+double _firstBaselineShift({
+  required TextStyle style,
+  StrutStyle? strut,
+  TextHeightBehavior? heightBehavior,
+  required double pdfBaseline,
+}) {
+  final key = (style, strut, heightBehavior);
+  var baseline = _firstBaselines[key];
+  if (baseline == null) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'H', style: style),
+      strutStyle: strut,
+      textHeightBehavior: heightBehavior,
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.noScaling,
+    )..layout();
+    baseline = painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    painter.dispose();
+    // every keystroke rebuilds the editor; the styles in play are few
+    if (_firstBaselines.length >= 32) _firstBaselines.clear();
+    _firstBaselines[key] = baseline;
+  }
+  return pdfBaseline - baseline;
+}
+
+final Map<(TextStyle, StrutStyle?, TextHeightBehavior?), double>
+    _firstBaselines = {};
 
 /// Synthetic Flutter font families an embedded font's bytes have been
 /// registered under (via `ui.loadFontFromList`), keyed by
@@ -113,6 +168,7 @@ class _TextEditStyle {
         height: height,
         letterSpacing: letterSpacing,
         fontFamily: _textEditUiFamily(font),
+        fontFamilyFallback: _textEditUiFallback(font),
         fontWeight: _textEditWeight(font),
         fontStyle: _textEditSlant(font),
         decoration: underline ? TextDecoration.underline : null,
@@ -258,6 +314,19 @@ class _RichTextEditingController extends TextEditingController {
     return largest;
   }
 
+  /// The tallest ascent (in points) across the default style and every run -
+  /// how far below the text area's top the appearance writes the first
+  /// baseline.
+  double get maxStyleAscent {
+    double ascentOf(_TextEditStyle style) =>
+        style.size * style.font.ascent / 1000;
+    var largest = ascentOf(defaultStyle);
+    for (final range in _ranges) {
+      largest = math.max(largest, ascentOf(range.style));
+    }
+    return largest;
+  }
+
   void applyStyle(TextSelection selection,
       {PdfTextFont? font, double? size, int? color, bool? underline}) {
     if (!selection.isValid || selection.isCollapsed) return;
@@ -366,6 +435,9 @@ class _RichTextEditingController extends TextEditingController {
     if (value.isEmpty || _ranges.isEmpty) {
       return TextSpan(text: value, style: style);
     }
+    // the root style is sized to [maxStyleSize] (see the editor's
+    // `style:`), so unstyled gaps carry the typing default's size themselves
+    final gapStyle = TextStyle(fontSize: defaultStyle.size * scale);
     final children = <InlineSpan>[];
     var offset = 0;
     for (final range in _mergeRanges(List.of(_ranges))) {
@@ -373,7 +445,8 @@ class _RichTextEditingController extends TextEditingController {
       final start = range.start.clamp(0, value.length);
       final end = range.end.clamp(0, value.length);
       if (offset < start) {
-        children.add(TextSpan(text: value.substring(offset, start)));
+        children.add(
+            TextSpan(text: value.substring(offset, start), style: gapStyle));
       }
       children.add(TextSpan(
           text: value.substring(start, end),
@@ -382,7 +455,7 @@ class _RichTextEditingController extends TextEditingController {
       offset = end;
     }
     if (offset < value.length) {
-      children.add(TextSpan(text: value.substring(offset)));
+      children.add(TextSpan(text: value.substring(offset), style: gapStyle));
     }
     return TextSpan(style: style, children: children);
   }
@@ -741,6 +814,11 @@ class _PointerInteractionSession {
     gestureBailed = false;
   }
 }
+
+/// Raises the iOS soft keyboard when an inline text editor opens
+/// ([pdfPrimeSoftKeyboard]); tests swap it to observe the call.
+@visibleForTesting
+void Function() debugPdfPrimeSoftKeyboard = pdfPrimeSoftKeyboard;
 
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
@@ -3364,6 +3442,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// [existing]. The editor renders with the same font, size, and color
   /// the committed annotation will use.
   void _openTextEditor(Rect viewRect, {required bool existing}) {
+    // the field takes focus a frame from now (below), after the opening tap
+    // has been handled - too late for iOS web to raise the keyboard, so catch
+    // it now, inside the gesture (a no-op off the web)
+    if (PdfEditorScope.platformOf(context) == TargetPlatform.iOS) {
+      debugPdfPrimeSoftKeyboard();
+    }
     final style = existing ? _controller.selectedTextStyle : null;
     // /DA carries the text color; /C is the box background for free text
     final annotation = existing ? _controller.selectedAnnotation : null;
@@ -3382,9 +3466,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         rotation = chrome.$2;
       }
     }
+    // an existing box's real face: its embedded font recovered from the
+    // appearance when it has one, else the base-14 face its /DA names
     final defaultFont = existing
-        ? (style?.font ?? _controller.fontFamily)
+        ? (_controller.selectedTextFont ??
+            style?.font ??
+            _controller.fontFamily)
         : (_controller.activeFont ?? _controller.fontFamily);
+    if (defaultFont is PdfEmbeddedFont) _ensureEmbeddedFontPreview(defaultFont);
     final defaultSize = style?.size ?? _controller.preferences.fontSize;
     final defaultColor = annotationColor != null
         ? Color(0xFF000000 | annotationColor)
@@ -3598,7 +3687,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final existing = _textEditExisting;
     final richRuns =
         _textEditText.hasRichStyles ? _textEditText.toPdfRuns() : null;
-    final font = _textEditFont;
+    final font = _textEditText.defaultStyle.font;
     final size = _textEditSize;
     final color = _textEditColor;
     final fill = _textEditFill;
@@ -5790,6 +5879,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (picked != null && mounted) _applyInlineTextStyle(color: picked);
   }
 
+  /// The inline style chip's global bounds, which the free-text editor's
+  /// selection toolbar steers clear of; null while it isn't laid out.
+  Rect? _inlineTextStyleChipRect() {
+    final box = _inlineTextStyleChipKey.currentContext?.findRenderObject()
+        as RenderBox?;
+    if (box == null || !box.attached || !box.hasSize) return null;
+    return MatrixUtils.transformRect(
+        box.getTransformTo(null), Offset.zero & box.size);
+  }
+
+  final _inlineTextStyleChipKey = GlobalKey();
+
   Widget _buildInlineTextStyleChip(Rect editorRect) {
     final s = _chromeScale;
     final current = _currentInlineTextStyle();
@@ -5818,6 +5919,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // the tap otherwise blurs the field and the focus-loss listener
           // commits/deselects the box before the button's action runs
           child: Listener(
+            key: _inlineTextStyleChipKey,
             behavior: HitTestBehavior.deferToChild,
             onPointerDown: (_) => _holdChipFocus(),
             onPointerUp: (_) => _releaseChipFocus(),
@@ -6071,31 +6173,43 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       PdfTextAlign.center => Alignment.topCenter,
       PdfTextAlign.right => Alignment.topRight,
     };
+    final style = TextStyle(
+      color: color,
+      fontSize: size * _geometry.scale,
+      height: lineSpacing,
+      fontFamily: _textEditUiFamily(font),
+      fontFamilyFallback: _textEditUiFallback(font),
+      fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+      fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
+      decoration: underline ? TextDecoration.underline : null,
+      decorationColor: underline ? color : null,
+      // the inline editor's leading split, so the handover doesn't move
+      leadingDistribution: TextLeadingDistribution.even,
+    );
+    const heightBehavior = TextHeightBehavior(applyHeightToFirstAscent: false);
+    final pad = 3 * _geometry.scale;
+    // the same first baseline the inline editor and the appearance use, so
+    // closing the editor onto this afterimage doesn't move the text
+    final baselineShift = _firstBaselineShift(
+      style: style,
+      heightBehavior: heightBehavior,
+      pdfBaseline: pad + size * font.ascent / 1000 * _geometry.scale,
+    );
+    Widget label = Text(
+      text,
+      textAlign: align == null ? TextAlign.start : _flutterTextAlign(align),
+      textHeightBehavior: heightBehavior,
+      textScaler: TextScaler.noScaling,
+      style: style,
+    );
+    label = Transform.translate(
+        offset: Offset(0, math.min(0.0, baselineShift)), child: label);
     final content = Container(
       key: key,
       color: background,
-      padding: EdgeInsets.all(3 * _geometry.scale),
+      padding: EdgeInsets.fromLTRB(pad, math.max(0.0, baselineShift), pad, pad),
       alignment: columnAlign,
-      child: Directionality(
-        textDirection: direction,
-        child: Text(
-          text,
-          textAlign: align == null ? TextAlign.start : _flutterTextAlign(align),
-          textHeightBehavior: const TextHeightBehavior(
-            applyHeightToFirstAscent: false,
-          ),
-          style: TextStyle(
-            color: color,
-            fontSize: size * _geometry.scale,
-            height: lineSpacing,
-            fontFamily: _textEditUiFamily(font),
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
-            decoration: underline ? TextDecoration.underline : null,
-            decorationColor: underline ? color : null,
-          ),
-        ),
-      ),
+      child: Directionality(textDirection: direction, child: label),
     );
     final faded = opacity >= 1
         ? content
@@ -6733,112 +6847,146 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                           valueListenable: _textEditText,
                           builder: (context, value, _) {
                             final direction = _flutterTextDirection(value.text);
-                            return Directionality(
-                              textDirection: direction,
-                              child: _zoomAwareCursor(
-                                  context,
-                                  TextField(
-                                    key: const ValueKey('pdf-freetext-editor'),
-                                    controller: _textEditText,
-                                    focusNode: _textEditFocus,
-                                    autofocus: true,
-                                    maxLines: null,
-                                    expands: true,
-                                    onSubmitted: (_) => _commitTextEdit(),
-                                    textDirection: direction,
-                                    // free text follows the box's /Q alignment so
-                                    // the live text sits where it commits; a box
-                                    // with no explicit /Q stays direction-aware
-                                    // start-aligned
-                                    textAlign: _textEditAlign != null
-                                        ? _flutterTextAlign(_textEditAlign!)
-                                        : TextAlign.start,
-                                    textAlignVertical: TextAlignVertical.top,
-                                    // pin line height to the box's leading so the
-                                    // preview spacing is font-independent, matching
-                                    // the committed appearance - changing a run's
-                                    // font no longer nudges the lines until commit
-                                    strutStyle: StrutStyle(
-                                      fontSize: _textEditText.maxStyleSize *
-                                          _geometry.scale,
-                                      height: _textEditLineSpacing,
-                                      forceStrutHeight: true,
-                                    ),
-                                    cursorColor: _textEditColor,
-                                    cursorWidth: 2 * _chromeScale,
-                                    cursorHeight: pdfZoomAwareCursorHeight(
-                                      context,
-                                      lineHeight: _textEditText.maxStyleSize *
-                                          _geometry.scale *
-                                          _textEditLineSpacing,
-                                      chromeScale: _chromeScale,
-                                    ),
-                                    selectionControls:
-                                        _ScaledTextSelectionControls(
-                                            _chromeScale,
-                                            _inlineTextHandleColor(context)),
-                                    // the zoom transform would otherwise scale
-                                    // AND displace the menu off-screen
-                                    contextMenuBuilder:
-                                        (context, editableTextState) =>
-                                            pdfStockTextContextMenu(
-                                      context,
-                                      editableTextState,
-                                      systemMenu: false,
-                                      place: pdfPlacedTextSelectionMenu,
-                                    ),
-                                    // mirrors the committed appearance: same size
-                                    // in view pixels, same leading/spacing,
-                                    // matching family, color and underline
-                                    style: TextStyle(
-                                      color: _textEditColor.withValues(
-                                          alpha:
-                                              _textEditOpacity.clamp(0.0, 1.0)),
-                                      fontSize: _textEditSize * _geometry.scale,
-                                      height: _textEditLineSpacing,
-                                      letterSpacing: _textEditCharSpacing *
-                                          _geometry.scale,
-                                      fontFamily:
-                                          _textEditUiFamily(_textEditFont),
-                                      fontWeight: _textEditFont.isBold
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                      fontStyle: _textEditFont.isItalic
-                                          ? FontStyle.italic
-                                          : FontStyle.normal,
-                                      decoration:
-                                          _textEditText.defaultStyle.underline
-                                              ? TextDecoration.underline
-                                              : null,
-                                    ),
-                                    decoration: InputDecoration(
-                                      isCollapsed: true,
-                                      border: InputBorder.none,
-                                      // PDF free-text appearances put the first
-                                      // baseline exactly one ascent below the top
-                                      // padding. Flutter splits the extra 1.2
-                                      // line-height leading above and below
-                                      // editable text, so trim that half-leading
-                                      // from the top padding to avoid a small
-                                      // edit-time layout jump.
-                                      contentPadding: EdgeInsets.fromLTRB(
-                                        _textEditPad,
-                                        math.max(
-                                          0,
-                                          _textEditPad -
-                                              0.1 *
-                                                  _textEditSize *
-                                                  _geometry.scale,
-                                        ),
-                                        // the caret gutter, handed back so
-                                        // centred and right-aligned glyphs land
-                                        // on the appearance's text area
-                                        _textEditRightPad,
-                                        _textEditPad,
-                                      ),
-                                    ),
-                                  )),
+                            // the face the page draws this box in - an
+                            // embedded font included, not just a /DA base-14
+                            final baseFont = _textEditText.defaultStyle.font;
+                            // mirrors the committed appearance: same size in
+                            // view pixels, same leading/spacing, matching
+                            // family, color and underline. Sized like the
+                            // strut, not the typing default (unstyled runs
+                            // size themselves, see buildTextSpan): Flutter
+                            // positions an end-of-text caret off a one-line
+                            // layout template it rebuilds only when this root
+                            // style changes - a strut change alone leaves it
+                            // stale, and the caret floats a line fragment
+                            // above the text after a run's size changes.
+                            final fieldStyle = TextStyle(
+                              color: _textEditColor.withValues(
+                                  alpha: _textEditOpacity.clamp(0.0, 1.0)),
+                              fontSize:
+                                  _textEditText.maxStyleSize * _geometry.scale,
+                              height: _textEditLineSpacing,
+                              letterSpacing:
+                                  _textEditCharSpacing * _geometry.scale,
+                              fontFamily: _textEditUiFamily(baseFont),
+                              fontFamilyFallback: _textEditUiFallback(baseFont),
+                              fontWeight: _textEditWeight(baseFont),
+                              fontStyle: _textEditSlant(baseFont),
+                              decoration: _textEditText.defaultStyle.underline
+                                  ? TextDecoration.underline
+                                  : null,
+                              // pinned to the theme's own even split: the
+                              // field merges the theme's body style, the
+                              // measuring painter never sees it, and the two
+                              // must lay the line out alike
+                              leadingDistribution: TextLeadingDistribution.even,
                             );
+                            // pin line height to the box's leading so the
+                            // preview spacing is font-independent, matching
+                            // the committed appearance - changing a run's
+                            // font no longer nudges the lines until commit
+                            final strut = StrutStyle(
+                              fontFamily: fieldStyle.fontFamily,
+                              fontFamilyFallback: fieldStyle.fontFamilyFallback,
+                              fontSize:
+                                  _textEditText.maxStyleSize * _geometry.scale,
+                              height: _textEditLineSpacing,
+                              leadingDistribution: TextLeadingDistribution.even,
+                              forceStrutHeight: true,
+                            );
+                            // the appearance writes the first baseline one
+                            // ascent below the 3pt inset; put Flutter's there
+                            final baselineShift = _firstBaselineShift(
+                              style: fieldStyle,
+                              strut: strut,
+                              heightBehavior:
+                                  DefaultTextHeightBehavior.maybeOf(context),
+                              pdfBaseline: _textEditPad +
+                                  _textEditText.maxStyleAscent *
+                                      _geometry.scale,
+                            );
+                            Widget field = _zoomAwareCursor(
+                                context,
+                                // the page ignores the OS text size; so must
+                                // the preview of what it will draw. Inside the
+                                // caret wrapper, which rebuilds MediaQuery from
+                                // the outer context on Apple platforms
+                                MediaQuery.withNoTextScaling(
+                                    child: TextField(
+                                  key: const ValueKey('pdf-freetext-editor'),
+                                  controller: _textEditText,
+                                  focusNode: _textEditFocus,
+                                  autofocus: true,
+                                  maxLines: null,
+                                  expands: true,
+                                  onSubmitted: (_) => _commitTextEdit(),
+                                  textDirection: direction,
+                                  // free text follows the box's /Q alignment so
+                                  // the live text sits where it commits; a box
+                                  // with no explicit /Q stays direction-aware
+                                  // start-aligned
+                                  textAlign: _textEditAlign != null
+                                      ? _flutterTextAlign(_textEditAlign!)
+                                      : TextAlign.start,
+                                  textAlignVertical: TextAlignVertical.top,
+                                  strutStyle: strut,
+                                  cursorColor: _textEditColor,
+                                  cursorWidth: 2 * _chromeScale,
+                                  cursorHeight: pdfZoomAwareCursorHeight(
+                                    context,
+                                    lineHeight: _textEditText.maxStyleSize *
+                                        _geometry.scale *
+                                        _textEditLineSpacing,
+                                    chromeScale: _chromeScale,
+                                  ),
+                                  selectionControls:
+                                      _ScaledTextSelectionControls(_chromeScale,
+                                          _inlineTextHandleColor(context)),
+                                  // the zoom transform would otherwise scale
+                                  // AND displace the menu off-screen
+                                  contextMenuBuilder:
+                                      (context, editableTextState) =>
+                                          pdfStockTextContextMenu(
+                                    context,
+                                    editableTextState,
+                                    systemMenu: false,
+                                    place: pdfPlacedTextSelectionMenu,
+                                    // keep "Paste" off the style chip
+                                    anchors: pdfTextMenuAnchorsClearOf(
+                                        editableTextState.contextMenuAnchors,
+                                        _inlineTextStyleChipRect()),
+                                  ),
+                                  style: fieldStyle,
+                                  decoration: InputDecoration(
+                                    isCollapsed: true,
+                                    border: InputBorder.none,
+                                    // the decorator's layout tightens with the
+                                    // theme's density (compact on desktop and
+                                    // web), lifting the text off the measured
+                                    // baseline; pin it platform-independent
+                                    visualDensity: VisualDensity.standard,
+                                    // the measured first-baseline shift
+                                    // (a negative one is a translate below)
+                                    contentPadding: EdgeInsets.fromLTRB(
+                                      _textEditPad,
+                                      math.max(0.0, baselineShift),
+                                      // the caret gutter, handed back so
+                                      // centred and right-aligned glyphs land
+                                      // on the appearance's text area
+                                      _textEditRightPad,
+                                      _textEditPad,
+                                    ),
+                                  ),
+                                )));
+                            // always wrapped, even at 0: toggling the wrapper
+                            // as the shift crosses zero (a run resized
+                            // mid-edit) would rebuild the field and drop its
+                            // editing state
+                            field = Transform.translate(
+                                offset: Offset(0, math.min(0.0, baselineShift)),
+                                child: field);
+                            return Directionality(
+                                textDirection: direction, child: field);
                           },
                         ),
                       ),

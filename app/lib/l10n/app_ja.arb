@@ -332,5 +332,13 @@
   "incomingFilesMessage": "各ファイルを別々のタブで開くか、1 つの新しいドキュメントに結合しますか?ドラッグして結合する順序を指定できます。",
   "incomingFilesCombine": "結合",
   "incomingFilesCombineTitle": "{count, plural, other{{count} 個の PDF を結合}}",
-  "incomingFilesCombineMessage": "ドラッグして結合する順序を指定できます。"
+  "incomingFilesCombineMessage": "ドラッグして結合する順序を指定できます。",
+  "appMenuNew": "新規",
+  "appMenuOpen": "開く",
+  "appMenuPrint": "印刷",
+  "appMenuSign": "署名",
+  "appMenuRecent": "最近",
+  "appMenuSeeAll": "すべて表示",
+  "appMenuExport": "書き出し",
+  "appMenuMoreTools": "その他のツール"
 }

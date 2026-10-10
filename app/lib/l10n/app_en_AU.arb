@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Open each file in its own tab, or combine them into one new document? Drag to set the order they're combined in.",
   "incomingFilesCombine": "Combine",
   "incomingFilesCombineTitle": "{count, plural, other{Combine {count} PDFs}}",
-  "incomingFilesCombineMessage": "Drag the files to set the order they're combined in."
+  "incomingFilesCombineMessage": "Drag the files to set the order they're combined in.",
+  "appMenuNew": "New",
+  "appMenuOpen": "Open",
+  "appMenuPrint": "Print",
+  "appMenuSign": "Sign",
+  "appMenuRecent": "Recent",
+  "appMenuSeeAll": "See all",
+  "appMenuExport": "Export",
+  "appMenuMoreTools": "More tools"
 }

@@ -5,6 +5,14 @@ on:
     branches: [main, deploy]
   pull_request:
 
+# A new push to a PR supersedes its previous run. Without this every superseded
+# commit kept its macOS jobs (flutter-gpu-smoke, Print plugin / macos) in the
+# shared macOS runner queue, which is what backed PR checks up for hours.
+# Pushes to main/deploy group per commit, so they are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -302,6 +310,48 @@ jobs:
           flutter test --enable-impeller --enable-flutter-gpu
           test/gpu_corpus_test.dart --reporter expanded
 
+      # The warm-up/first-tile A/B below is ~25 minutes of a macOS runner
+      # (17 scenarios x 6 repetitions x 2 cohorts, plus priming). Only spend it
+      # when the PR can move the render path; editor UI, localisation, app and
+      # docs changes skip it. Pushes to main/deploy always measure.
+      - name: Decide whether the Flutter GPU performance A/B is in scope
+        id: gpu-scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != 'pull_request' ]]; then
+            echo "perf=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          relevant="$(printf '%s\n' "$changed" | grep -E \
+            -e '^packages/(pdf_cos|pdf_document|pdf_graphics)/lib/' \
+            -e '^packages/dart_pdf_editor_flutter_gpu/' \
+            -e '^packages/dart_pdf_editor/lib/' \
+            -e '^test_corpora/' \
+            -e '^pubspec\.(yaml|lock)$' \
+            -e '^tool/patrol_perf_summary\.dart$' \
+            -e '^\.github/workflows/ci\.yml$' \
+            | grep -vE '^packages/dart_pdf_editor/lib/(l10n|src/(editing|l10n|design|legacy))/' \
+            || true)"
+          if [[ -n "$relevant" ]]; then
+            echo "perf=true" >> "$GITHUB_OUTPUT"
+            echo "Render-path changes found:"
+            printf '%s\n' "$relevant"
+          else
+            echo "perf=false" >> "$GITHUB_OUTPUT"
+            mkdir -p packages/dart_pdf_editor_flutter_gpu/test-results/gpu
+            note='Skipped the warm-up/first-tile A/B: this PR changes no render-path code (see the "Decide whether the Flutter GPU performance A/B is in scope" step).'
+            printf '%s\n' "$note" \
+              > packages/dart_pdf_editor_flutter_gpu/test-results/gpu/patrol-perf-headline.md
+            printf '%s\n' "$note" \
+              > packages/dart_pdf_editor_flutter_gpu/test-results/gpu/patrol-perf.md
+            echo "$note"
+          fi
+
       - name: Prepare same-host main Flutter GPU baseline
         id: gpu-baseline
         if: github.event_name == 'pull_request'
@@ -350,6 +400,7 @@ jobs:
 
       - name: Measure Flutter GPU warm-up and first-tile performance
         id: gpu-performance
+        if: steps.gpu-scope.outputs.perf == 'true'
         working-directory: packages/dart_pdf_editor_flutter_gpu
         shell: bash
         env:
@@ -519,7 +570,7 @@ jobs:
           fi
 
       - name: Summarize Flutter GPU performance
-        if: always()
+        if: always() && steps.gpu-scope.outputs.perf == 'true'
         working-directory: packages/dart_pdf_editor_flutter_gpu
         shell: bash
         run: |
@@ -783,7 +834,8 @@ jobs:
   # toolchain) and adds desktop-file/AppStream validation plus a headless
   # smoke launch under Xvfb. Kept green so `flutter build linux` can't rot.
   linux:
-    runs-on: ubuntu-latest
+    # Match the release builder so a plugin cannot silently raise the libc floor.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux desktop build + validation deps
@@ -791,7 +843,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
-            desktop-file-utils appstream xvfb x11-utils
+            desktop-file-utils xvfb x11-utils python3-venv \
+            libcurl4-openssl-dev libxml2-dev libyaml-dev libstemmer-dev \
+            libsystemd-dev liblzma-dev libzstd-dev gperf gettext xsltproc docbook-xsl itstool
       - name: Test Windows clipboard DIB decode (host-portable C++)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
@@ -811,6 +865,10 @@ jobs:
       - name: Build Linux (release)
         working-directory: app
         run: flutter build linux --release
+      - name: Test the Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
+      - name: Check Linux libc baseline (including bundled plugins)
+        run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Validate .desktop entry
         run: |
           desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
@@ -820,6 +878,8 @@ jobs:
             echo "::error::Flatpak desktop assets are stale; run app/packaging/flatpak/sync-desktop-assets.sh"
             exit 1
           }
+      - name: Build schema-aware AppStream validator
+        run: bash tool/build_appstream_validator.sh
       - name: Validate AppStream metainfo
         run: |
           set -euo pipefail

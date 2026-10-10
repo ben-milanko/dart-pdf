@@ -332,5 +332,13 @@
   "incomingFilesMessage": "Открыть каждый файл в отдельной вкладке или объединить их в один новый документ? Перетащите файлы, чтобы задать порядок.",
   "incomingFilesCombine": "Объединить",
   "incomingFilesCombineTitle": "{count, plural, other{Объединить PDF-файлы: {count}}}",
-  "incomingFilesCombineMessage": "Перетащите файлы, чтобы задать порядок объединения."
+  "incomingFilesCombineMessage": "Перетащите файлы, чтобы задать порядок объединения.",
+  "appMenuNew": "Создать",
+  "appMenuOpen": "Открыть",
+  "appMenuPrint": "Печать",
+  "appMenuSign": "Подписать",
+  "appMenuRecent": "Недавние",
+  "appMenuSeeAll": "Показать все",
+  "appMenuExport": "Экспорт",
+  "appMenuMoreTools": "Другие инструменты"
 }

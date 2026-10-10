@@ -1290,6 +1290,30 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Drag the files to set the order they\'re combined in.';
+
+  @override
+  String get appMenuNew => 'New';
+
+  @override
+  String get appMenuOpen => 'Open';
+
+  @override
+  String get appMenuPrint => 'Print';
+
+  @override
+  String get appMenuSign => 'Sign';
+
+  @override
+  String get appMenuRecent => 'Recent';
+
+  @override
+  String get appMenuSeeAll => 'See all';
+
+  @override
+  String get appMenuExport => 'Export';
+
+  @override
+  String get appMenuMoreTools => 'More tools';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2578,6 +2602,30 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get incomingFilesCombineMessage =>
       'Drag the files to set the order they\'re combined in.';
+
+  @override
+  String get appMenuNew => 'New';
+
+  @override
+  String get appMenuOpen => 'Open';
+
+  @override
+  String get appMenuPrint => 'Print';
+
+  @override
+  String get appMenuSign => 'Sign';
+
+  @override
+  String get appMenuRecent => 'Recent';
+
+  @override
+  String get appMenuSeeAll => 'See all';
+
+  @override
+  String get appMenuExport => 'Export';
+
+  @override
+  String get appMenuMoreTools => 'More tools';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -3866,4 +3914,28 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get incomingFilesCombineMessage =>
       'Drag the files to set the order they\'re combined in.';
+
+  @override
+  String get appMenuNew => 'New';
+
+  @override
+  String get appMenuOpen => 'Open';
+
+  @override
+  String get appMenuPrint => 'Print';
+
+  @override
+  String get appMenuSign => 'Sign';
+
+  @override
+  String get appMenuRecent => 'Recent';
+
+  @override
+  String get appMenuSeeAll => 'See all';
+
+  @override
+  String get appMenuExport => 'Export';
+
+  @override
+  String get appMenuMoreTools => 'More tools';
 }

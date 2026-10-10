@@ -6,6 +6,7 @@ import 'package:cupertino_ui/cupertino_ui.dart'
     show CupertinoTextSelectionToolbar, CupertinoTextSelectionToolbarButton;
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart' show RenderBox, RenderEditable;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -24,6 +25,10 @@ dynamic overlayPainter(WidgetTester tester) => tester
             matching: find.byType(CustomPaint))
         .first)
     .painter;
+
+/// The family the inline editor previews Times in: the bundled clone the page
+/// renderer draws it with, not the host's "Times New Roman".
+final kTermes = PdfBundledSubstitute.termes.packageFamily;
 
 void main() {
   const editorKey = ValueKey('pdf-freetext-editor');
@@ -170,8 +175,8 @@ void main() {
         ..addFreeText(0, const PdfRect(100, 300, 500, 700), 'Short');
       expect(single.selectAnnotation(0, 0), isTrue);
       single.autosizeSelectedTextBox();
-      expect(single.document.page(0).annotations.single.rect.width,
-          lessThan(60));
+      expect(
+          single.document.page(0).annotations.single.rect.width, lessThan(60));
     });
 
     test('textAlign preference flows into new free text', () {
@@ -479,6 +484,42 @@ void main() {
 
       expect(editing.selectedTextStyle!.size, closeTo(35.9, 0.01));
       await settle(tester);
+    });
+
+    testWidgets('opening a text box primes the iOS keyboard inside the tap',
+        (tester) async {
+      // iOS web only raises the keyboard for a focus made during a gesture,
+      // and the field focuses a frame later - the primer has to run while
+      // the opening tap is still being handled, before the field exists
+      var primes = 0;
+      var primedBeforeField = true;
+      final original = debugPdfPrimeSoftKeyboard;
+      debugPdfPrimeSoftKeyboard = () {
+        primes++;
+        primedBeforeField &= find.byKey(editorKey).evaluate().isEmpty;
+      };
+      addTearDown(() => debugPdfPrimeSoftKeyboard = original);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(300, 640));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      expect(primedBeforeField, isTrue);
+      await tap(tester, view(450, 400)); // commit
+      await settle(tester);
+
+      // off iOS the framework's own focus raises the keyboard
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      await tester.pump();
+      await drag(tester, view(100, 500), view(300, 440));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primes, 1);
+      await tap(tester, view(450, 300));
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('dragging out a text box opens an inline editor that commits',
@@ -852,6 +893,57 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets(
+        'opening a box to edit keeps its face and first baseline in place',
+        (tester) async {
+      // the page ignores the OS text size; the editor previewing it must too
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final (editing, _) = await pumpEditor(tester);
+      editing.lineSpacing = 1.6;
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), 'Original');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // select
+      await tap(tester, view(200, 630)); // edit
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      // the face the page renders Helvetica with, not the host's Helvetica
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      expect(field.style?.fontFamily, PdfBundledSubstitute.heros.packageFamily);
+
+      // the appearance writes the first baseline one ascent (Helvetica 718)
+      // below the 3pt inset from the box top
+      final editable =
+          tester.allRenderObjects.whereType<RenderEditable>().single;
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_overriding_member
+      final baseline =
+          editable.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+      final viewBaseline = editable.localToGlobal(Offset(0, baseline)).dy;
+      final expected = view(200, 660).dy + (3 + 14 * 0.718) * scale;
+      expect(viewBaseline, closeTo(expected, 0.5));
+
+      // committing hands over to the afterimage on the same baseline
+      await tester.enterText(find.byKey(editorKey), 'Edited');
+      await tap(tester, view(450, 400));
+      expect(find.byKey(editorKey), findsNothing);
+      final paragraph = tester.renderObject<RenderBox>(find.text('Edited'));
+      final afterOffset =
+          // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_overriding_member
+          paragraph.computeDistanceToActualBaseline(TextBaseline.alphabetic)!;
+      final afterBaseline = paragraph.localToGlobal(Offset(0, afterOffset)).dy;
+      expect(afterBaseline, closeTo(expected, 0.5));
+      await settle(tester);
+    },
+        // Apple's caret wrapper rebuilds MediaQuery (and so the OS text
+        // scale); desktop platforms take Material's compact density
+        variant: TargetPlatformVariant(const {
+          TargetPlatform.android,
+          TargetPlatform.macOS,
+          TargetPlatform.linux,
+        }));
+
     testWidgets('Escape while editing existing free text keeps the annotation',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -941,7 +1033,7 @@ void main() {
       final styled = span.children!.whereType<TextSpan>().singleWhere(
             (child) => child.text == 'world',
           );
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
@@ -983,7 +1075,7 @@ void main() {
             (child) => child.text == 'world',
           );
       expect(styled.style?.color, const Color(0xFFFF0000));
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;
@@ -995,6 +1087,59 @@ void main() {
       expect(content, contains('/TimesBold 24 Tf'));
       expect(content, contains('1 0 0 rg'));
       expect(content, contains('(world) Tj'));
+      await settle(tester);
+    });
+
+    testWidgets(
+        'the end-of-text caret stays on its line after a run is resized back',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      const text = '60kg Rail: 25mm rubber pads\n53kg Rail: ';
+      editing.addFreeText(0, const PdfRect(100, 600, 300, 660), text);
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(200, 630)); // first tap selects
+      await tap(tester, view(200, 630)); // second tap edits
+      expect(find.byKey(editorKey), findsOneWidget);
+
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      final render = tester
+          .state<EditableTextState>(find.descendant(
+              of: find.byKey(editorKey), matching: find.byType(EditableText)))
+          .renderEditable;
+      Future<void> select(int base, [int? extent]) async {
+        field.controller!.selection =
+            TextSelection(baseOffset: base, extentOffset: extent ?? base);
+        await tester.pump();
+      }
+
+      // a run grows the strut; a whole-box recolour then rebuilds Flutter's
+      // one-line caret template at that size...
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 24);
+      await tester.pump();
+      await select(text.length);
+      editing.restyleEditingTextSelection(color: 0x0000FF);
+      await tester.pump();
+      // ...and shrinking the run back must not leave the caret on it
+      await select(28, 32);
+      editing.restyleEditingTextSelection(size: 14);
+      await tester.pump();
+      await select(text.length);
+
+      final line = render
+          .getBoxesForSelection(
+              const TextSelection(baseOffset: 28, extentOffset: text.length))
+          .single;
+      final caret =
+          render.getLocalRectForCaret(const TextPosition(offset: text.length));
+      expect(caret.top, closeTo(line.top, 1.5),
+          reason: 'the caret floated above the last line');
+      expect(caret.bottom, closeTo(line.bottom, 1.5));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
       await settle(tester);
     });
 
@@ -1053,6 +1198,61 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets("the iOS selection menu doesn't cover the inline style chip",
+        (tester) async {
+      // Both float just above the box, so on a phone the caret tap's
+      // "Paste" bubble landed on the chip and hid its font/size buttons.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasteable'};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return <String, dynamic>{'value': true};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, _) = await pumpEditor(tester);
+      editing.addFreeText(0, const PdfRect(200, 550, 380, 600), 'Hello');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(290, 575)); // select
+      await tap(tester, view(290, 575)); // edit
+
+      final chip = find.byKey(const ValueKey('pdf-inline-text-style-chip'));
+      expect(chip, findsOneWidget);
+      final gesture = await tester.startGesture(
+          tester.getRect(find.byKey(editorKey)).center,
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final buttons = find.descendant(
+          of: find.byType(CupertinoTextSelectionToolbar),
+          matching: find.byType(CupertinoTextSelectionToolbarButton));
+      expect(buttons, findsWidgets);
+      final menu = List.generate(buttons.evaluate().length, (i) => i)
+          .map((i) => tester.getRect(buttons.at(i)))
+          .reduce((a, b) => a.expandToInclude(b));
+      final chipRect = tester.getRect(chip);
+      expect(menu.overlaps(chipRect), isFalse,
+          reason: 'menu $menu vs chip $chipRect');
+      // still beside the box, stacked beyond the chip
+      expect(menu.bottom, lessThanOrEqualTo(chipRect.top + 1));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets('touch inline style chip changes selected text font',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -1092,7 +1292,7 @@ void main() {
       final styled = span.children!.whereType<TextSpan>().singleWhere(
             (child) => child.text == 'world',
           );
-      expect(styled.style?.fontFamily, 'Times New Roman');
+      expect(styled.style?.fontFamily, kTermes);
 
       await tap(tester, view(450, 400)); // outside: commit
       final annotation = editing.document.page(0).annotations.single;

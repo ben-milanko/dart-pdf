@@ -1,5 +1,12 @@
 # Changelog
 
+## 8.1.0
+
+- Style dropdown and list-box form fields, including mixed selections with text fields. Add `selectedFormStyleFieldNames` and retain `selectedFormTextFieldNames` as a deprecated alias.
+- Preserve free-text fonts, wrapping and baselines when editing, and keep the caret aligned after resizing text.
+- Keep the iOS text-selection menu clear of the style chip and open the keyboard reliably for inline text in iOS browsers.
+- Show the full colour palette in the mobile pen and highlighter tune menu.
+
 ## 8.0.0
 
 - **BREAKING:** custom `PdfRenderWorker` and `PdfPageSurfaceSession` implementations must accept and forward `hiddenAnnotationSubtypes` on the affected rendering methods. See `doc/MIGRATING-8.0.0.md`.

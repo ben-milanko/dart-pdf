@@ -1332,4 +1332,28 @@ class AppLocalizationsPl extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Przeciągnij pliki, aby ustalić kolejność łączenia.';
+
+  @override
+  String get appMenuNew => 'Nowy';
+
+  @override
+  String get appMenuOpen => 'Otwórz';
+
+  @override
+  String get appMenuPrint => 'Drukuj';
+
+  @override
+  String get appMenuSign => 'Podpisz';
+
+  @override
+  String get appMenuRecent => 'Ostatnie';
+
+  @override
+  String get appMenuSeeAll => 'Pokaż wszystkie';
+
+  @override
+  String get appMenuExport => 'Eksportuj';
+
+  @override
+  String get appMenuMoreTools => 'Więcej narzędzi';
 }

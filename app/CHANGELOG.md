@@ -1,5 +1,15 @@
 # Changelog
 
+## 8.1.0
+
+- Change dropdown and list-box form fonts, size, colour and alignment.
+- Open New, Open, Print and Sign actions from a phone-friendly bottom sheet.
+- Preserve text fonts, wrapping, baselines and caret position when editing.
+- Improve iOS inline keyboards, text-selection menus and share-sheet filenames.
+- Show the full colour palette for mobile pens and highlighters.
+- Restore Linux AppImage compatibility with Ubuntu 22.04 and correct desktop metadata and website download links.
+- Update to the 8.1.0 package suite and app build 45.
+
 ## 8.0.0
 
 - Combine PDFs opened together and insert pages from several documents, with

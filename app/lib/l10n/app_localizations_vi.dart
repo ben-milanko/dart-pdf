@@ -1295,4 +1295,28 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get incomingFilesCombineMessage =>
       'Kéo các tệp để sắp xếp thứ tự kết hợp.';
+
+  @override
+  String get appMenuNew => 'Mới';
+
+  @override
+  String get appMenuOpen => 'Mở';
+
+  @override
+  String get appMenuPrint => 'In';
+
+  @override
+  String get appMenuSign => 'Ký';
+
+  @override
+  String get appMenuRecent => 'Gần đây';
+
+  @override
+  String get appMenuSeeAll => 'Xem tất cả';
+
+  @override
+  String get appMenuExport => 'Xuất';
+
+  @override
+  String get appMenuMoreTools => 'Công cụ khác';
 }

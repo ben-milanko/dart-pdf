@@ -1,8 +1,8 @@
 {
   "productName": "DartPDF: Edit PDF Documents",
-  "shortDescription": "Easily annotate documents, fill forms, and redact text privately offline.",
+  "shortDescription": "Fill and sign PDF forms. Edit, annotate and redact on your Windows PC, without uploading your files.",
   "description": "DartPDF is a PDF editor that runs entirely on your device.\n\nOpen any PDF to mark it up, fill in forms, sign it, redact content, rearrange pages, or edit the text and images on the page. Changes save back to the original file.\n\nNothing is uploaded. There's no account, no sync, and no ads.\n\nFeatures:\n\n• Highlight, underline, strikethrough, and freehand ink\n• Shapes, arrows, text boxes, notes, and stamps\n• Edit existing text and add images\n• Redaction that removes the covered text and images from the file, not just from view\n• Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own\n• Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures\n• OCR scanned PDFs so text can be selected and searched\n• Reorder, delete, and export pages to a new file\n• Full-text search, text selection, and links\n• Compare two versions side by side\n• Open password-protected files\n\nRuns on Windows 10 and Windows 11. Opens PDFs from File Explorer, or drag-and-drop. Light and dark themes.",
-  "releaseNotes": "New in 7.0.0\n\n- More accurate, faster OCR for small print and drawings, with clearer progress.\n- Follow links and long-press to select text in Select mode.\n- Search matches stay visible when zoomed in.\n- Ink previews keep your chosen opacity; vector exports include annotations.",
+  "releaseNotes": "New in 8.1.0\n\n- Change dropdown and list-box form fonts and styling.\n- Use a phone-friendly menu for New, Open, Print and Sign.\n- Edit text without changing its font, wrapping or caret position.\n- Improved iOS keyboards, selection menus and share-sheet filenames.\n- Full mobile pen and highlighter colour palette.\n- Linux AppImage compatibility and download-link fixes.",
   "features": [
     "Highlight, underline, strikethrough, and freehand ink",
     "Shapes, arrows, text boxes, notes, and stamps",
