@@ -26,7 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      build_number: ${{ steps.v.outputs.build_number }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: v
         run: |
           REF="${GITHUB_REF_NAME}"
@@ -35,7 +39,16 @@ jobs:
           else
             V="${{ github.event.inputs.version }}"
           fi
-          echo "version=${V:-0.1.0}" >> "$GITHUB_OUTPUT"
+          full_version="$(ruby -ryaml -e 'puts YAML.load_file("app/pubspec.yaml").fetch("version")')"
+          source_version="${full_version%%+*}"
+          build_number="${full_version#*+}"
+          if [[ -n "$V" && "$V" != "$source_version" ]]; then
+            echo "::error::Release version $V does not match app/pubspec.yaml $source_version"
+            exit 1
+          fi
+          [[ "$build_number" =~ ^[0-9]+$ ]] || { echo "Invalid app build number" >&2; exit 1; }
+          echo "version=$source_version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
 
   android:
     needs: setup
@@ -123,9 +136,9 @@ jobs:
         working-directory: app
         run: |
           flutter build apk --release \
-            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }}
           flutter build appbundle --release \
-            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+            --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }}
       - name: Verify scanner survives release shrinking
         run: python3 tool/check_android_scanner.py app/build/app/outputs/flutter-apk/app-release.apk
       - uses: actions/upload-artifact@v7
@@ -195,7 +208,7 @@ jobs:
       - name: Build Linux
         working-directory: app
         run: |
-          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
           build/linux/x64/release/bundle/dartpdf-cli --version
       - name: Check Linux libc baseline (including bundled plugins)
         run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
@@ -258,7 +271,7 @@ jobs:
         working-directory: app
         shell: pwsh
         run: |
-          flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+          flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
           if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
           & build/windows/x64/runner/Release/dartpdf.exe --version
           if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
@@ -469,7 +482,7 @@ jobs:
             macos/Runner.xcodeproj/project.pbxproj
       - name: Build macOS
         working-directory: app
-        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
       - uses: actions/download-artifact@v8
         with:
           pattern: macos-cli-*
@@ -541,7 +554,7 @@ jobs:
       - run: flutter pub get
       - name: Build iOS (unsigned)
         working-directory: app
-        run: flutter build ios --release --no-codesign --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+        run: flutter build ios --release --no-codesign --build-name=${{ needs.setup.outputs.version }} --build-number=${{ needs.setup.outputs.build_number }}
       - name: Zip unsigned .app
         working-directory: app
         run: ditto -c -k --keepParent "build/ios/iphoneos/Runner.app" dartpdf-ios-unsigned.zip
