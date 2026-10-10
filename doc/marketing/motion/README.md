@@ -132,15 +132,17 @@ a recording of the real app, operated by a script:
   checked to have committed, so a missed highlight fails the take instead of
   reaching the store. The tour prints caption and sound markers on stdout.
 - `app/tool/preview/record_ios.py` boots the iPhone 17 Pro Max simulator with
-  the 9:41 status bar and runs the tour. It records the screen with
-  `simctl io recordVideo` (1320×2868) and writes `tour.log`, the tour's
-  markers. The tour runs on frame time: each frame it draws is exactly 1/30 s
-  after the last and carries its number in a thin strip along the bottom
-  edge. A simulator that stalls makes the recording take longer, but never
-  makes the cut stutter.
-- `app/tool/preview/compose_preview.py` places every captured frame by its
-  number, crops the number strip off, cuts the clip from `start` to `end` and
-  frames it under captions on the store screenshots' gradient. The tour's
+  the 9:41 status bar and runs the tour, which runs on frame time: each frame
+  it draws is exactly 1/30 s after the last. The tour saves every frame as a
+  1320×2868 PNG (the app's own pixels), so a simulator that stalls makes the
+  recording take longer but never costs the cut a frame. One
+  `simctl io screenshot` supplies what iOS draws on top (the status bar,
+  Dynamic Island and home indicator). It also writes `tour.log`, the tour's
+  markers.
+- `app/tool/preview/compose_preview.py` places every frame by the number it
+  carries in a thin strip along the bottom edge (then crops the strip), lays
+  the system chrome over it, cuts the clip from `start` to `end` and frames
+  it under captions on the store screenshots' gradient. The tour's
   `focus` markers drive punch-ins: eased zooms of up to about 1.85× inside the
   phone frame on the sentence, the field, the page drag and the signature.
   Each punch-in is a still shot framed around everything the finger does
@@ -169,8 +171,8 @@ to the time the composer prints, about 0.6 s before the end. Locally on a Mac:
 cd app
 python3 tool/preview/record_ios.py --out build/preview-ios
 python3 tool/preview/compose_preview.py --device iphone \
-  --video build/preview-ios/raw.mov --log build/preview-ios/tour.log \
-  --out build/preview-ios/dartpdf-preview-iphone.mp4
+  --frames build/preview-ios/frames --chrome build/preview-ios/chrome.png \
+  --log build/preview-ios/tour.log --out build/preview-ios/dartpdf-preview-iphone.mp4
 ```
 
 To draft without a Mac, run the tour in headless Chromium. Software GL draws

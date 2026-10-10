@@ -293,77 +293,130 @@ def camera_at(keys, t):
     return tuple(keys[-1][1:])
 
 
-def render_screen(video, frames, scale, size, keys, out):
-    """Writes the screen track: [frames] tour frames (0 .. frames-1) through
-    the punch-in camera.
-
-    Every captured frame is placed by its stamp. A stamp seen more than once
-    (a frame redrawn inside the minimum interval) keeps its latest capture;
-    a stamp the capture missed repeats the frame before it. Each frame is then
-    cropped at a fractional window around the focus point and resized straight
-    to the screen box with Lanczos - sub-pixel smooth, and never upscaled.
-    """
+def video_frames(video, cw, ch):
+    """Every decoded frame of [video], in order, as an HxWx3 uint8 array."""
     import numpy as np
-
-    cw, ch = probe_size(video)
-    strip = round(STAMP_LP * scale)
-    src_h = ch - math.ceil(STAMP_CROP_LP * scale)
-    sw, sh = size
     decode = subprocess.Popen(
         # Every decoded frame, in order (renumbered: only the stamps count).
         ["ffmpeg", "-v", "error", *SOURCE, "-i", video, "-fps_mode", "passthrough",
          "-vf", "setpts=N", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE)
+    size = cw * ch * 3
+    try:
+        while True:
+            raw = decode.stdout.read(size)
+            if len(raw) < size:
+                return
+            yield np.frombuffer(raw, np.uint8).reshape(ch, cw, 3)
+    finally:
+        decode.stdout.close()
+        decode.kill()
+        decode.wait()
+
+
+def png_frames(directory):
+    """The tour's own captures (NNNNNN.png), in order."""
+    import numpy as np
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(".png"):
+            yield np.asarray(Image.open(os.path.join(directory, name)).convert("RGB"))
+
+
+def chrome_overlay(chrome, first, scale, pad):
+    """What the system draws over the app, as a signed delta to add to each
+    frame: the screenshot [chrome] minus the app's own frame [first] (taken
+    moments apart, with the app's top and bottom edges unchanged), kept only
+    where the status bar and the home indicator are."""
+    import numpy as np
+    ch, cw, _ = first.shape
+    shot = np.asarray(Image.open(chrome).convert("RGB").resize((cw, ch)), np.int16)
+    delta = shot - first.astype(np.int16)
+    keep = np.zeros((ch, cw), bool)
+    top, bottom = pad
+    keep[:round(top * scale)] = True
+    # The home indicator: the middle of the bottom inset, above the stamp.
+    y0 = ch - round(bottom * scale)
+    y1 = ch - math.ceil(STAMP_CROP_LP * scale)
+    keep[y0:y1, round(cw * 0.3):round(cw * 0.7)] = True
+    keep &= np.abs(delta).max(axis=2) > 8
+    delta[~keep] = 0
+    rows = np.flatnonzero(keep.any(axis=1))
+    return delta, rows
+
+
+def render_screen(source, frames, scale, size, keys, out, chrome=None, pad=None):
+    """Writes the screen track: tour frames 0 .. frames-1 through the punch-in
+    camera.
+
+    [source] yields captured frames in order. Each is placed by its stamp: a
+    stamp seen more than once (a frame redrawn inside the minimum interval)
+    keeps its latest capture, and a stamp the capture missed repeats the
+    frame before it. [chrome] (a screenshot) lays the system's status bar and
+    home indicator over the tour's own captures. Each frame is then cropped at
+    a fractional window around the focus point and resized straight to the
+    screen box with Lanczos - sub-pixel smooth, and never upscaled.
+    """
+    import numpy as np
+
+    sw, sh = size
     encode = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{sw}x{sh}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
          "-preset", "fast", "-crf", "8", "-pix_fmt", "yuv444p", out],
         stdin=subprocess.PIPE)
+    overlay = None
 
-    def emit(raw, k):
+    def emit(frame, k):
+        nonlocal overlay
+        ch, cw, _ = frame.shape
+        if chrome and overlay is None:
+            overlay = chrome_overlay(chrome, frame, scale, pad)
+        if overlay is not None:
+            delta, rows = overlay
+            frame = frame.copy()
+            frame[rows] = np.clip(frame[rows].astype(np.int16) + delta[rows], 0, 255)
+        src_h = ch - math.ceil(STAMP_CROP_LP * scale)
         zoom, cx, cy = camera_at(keys, k / FPS)
         win_w, win_h = cw / zoom, src_h / zoom
         x0 = min(max(cx * cw - win_w / 2, 0), cw - win_w)
         y0 = min(max(cy * ch - win_h / 2, 0), src_h - win_h)
-        frame = Image.frombuffer("RGB", (cw, ch), raw)
-        frame = frame.resize((sw, sh), Image.LANCZOS,
-                             box=(x0, y0, x0 + win_w, y0 + win_h))
-        encode.stdin.write(frame.tobytes())
+        img = Image.fromarray(np.ascontiguousarray(frame))
+        img = img.resize((sw, sh), Image.LANCZOS, box=(x0, y0, x0 + win_w, y0 + win_h))
+        encode.stdin.write(img.tobytes())
 
-    frame_bytes = cw * ch * 3
     k = 0          # the next tour frame to write
     held = None    # the latest capture of tour frame <= k
     held_n = 0     # its stamp
     seen = missed = 0
-    while k < frames:
-        raw = decode.stdout.read(frame_bytes)
-        if len(raw) < frame_bytes:
+    strip = None
+    for frame in source:
+        if k >= frames:
             break
-        n = read_stamp(np.frombuffer(raw, np.uint8).reshape(ch, cw, 3), cw, ch, strip)
+        ch, cw, _ = frame.shape
+        strip = strip or round(STAMP_LP * scale)
+        n = read_stamp(frame, cw, ch, strip)
         if n is None or n < k:
             continue  # before the tour, or a stale redraw
         seen += 1
         if held is None:
-            held = raw
+            held = frame
         while k < n and k < frames:
             emit(held, k)
             missed += held_n < k  # a tour frame the capture never saw
             k += 1
-        held, held_n = raw, n
+        held, held_n = frame, n
     while held is not None and k < frames:  # the end, after the capture stopped
         emit(held, k)
+        missed += held_n < k
         k += 1
     encode.stdin.close()
-    decode.stdout.close()
-    decode.kill()
-    decode.wait()
     if encode.wait() or held is None:
-        sys.exit(f"{video}: no frame stamps found (record with tool/preview_main.dart)")
+        sys.exit("no frame stamps found (record with tool/preview_main.dart)")
     print(f"placed {seen} captured frames; {missed} of {frames} tour frames "
           "repeat the one before")
     if missed > frames * 0.01:
         print(f"WARNING: the capture missed {missed} tour frames; motion will "
-              "stutter. Record with a longer PREVIEW_FRAME_MS.")
+              "stutter.")
     return frames
 
 
@@ -404,7 +457,11 @@ def probe_size(video):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--video", required=True, help="screen recording of the tour")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--frames", help="the tour's own frame captures (record_ios.py)")
+    src.add_argument("--video", help="a screen recording of the tour (record_web.cjs)")
+    ap.add_argument("--chrome", help="a screenshot whose status bar and home "
+                    "indicator are laid over --frames")
     ap.add_argument("--log", required=True, help="host-timestamped tour markers")
     ap.add_argument("--device", choices=sorted(DEVICES), default="iphone")
     ap.add_argument("--out", required=True, help="output .mp4")
@@ -424,7 +481,19 @@ def main():
         sys.exit(f"{duration:.1f}s is outside Apple's 15-30s app preview length "
                  "(retime the tour, or pass --any-length for a draft)")
 
-    cw, ch = probe_size(args.video)
+    if args.frames:
+        first = next(png_frames(args.frames), None)
+        if first is None:
+            sys.exit(f"{args.frames}: no frames")
+        ch, cw = first.shape[:2]
+    else:
+        cw, ch = probe_size(args.video)
+    pad = None
+    if "pad" in start_ev["args"]:
+        top, bottom = start_ev["args"][start_ev["args"].index("pad") + 1].split(",")
+        pad = (float(top), float(bottom))
+    if args.chrome and pad is None:
+        sys.exit("--chrome needs the tour's safe-area insets (a newer tour.log)")
     scale = cw / int(m[1]) if m else 3.0
     w, h, band, box = layout(args.device, (cw, ch - math.ceil(STAMP_CROP_LP * scale)))
     x, y, sw, sh = box
@@ -470,7 +539,8 @@ def main():
     for k in keys:
         print("camera %6.2fs zoom %.2f at (%.3f, %.3f)" % k)
     screen = os.path.join(work, "screen.mp4")
-    render_screen(args.video, frames, scale, (sw, sh), keys, screen)
+    source = png_frames(args.frames) if args.frames else video_frames(args.video, cw, ch)
+    render_screen(source, frames, scale, (sw, sh), keys, screen, args.chrome, pad)
 
     f = ["[0:v]format=rgba[scr]",
          "[2:v]format=gray[mask]",

@@ -34,10 +34,12 @@
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -50,6 +52,7 @@ import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 import 'package:dart_pdf_editor_app/window_support.dart';
 
+import 'preview_capture.dart';
 import 'preview_document.dart';
 
 /// Milliseconds to wait for the document to open, render and extract its text
@@ -59,6 +62,10 @@ const _warmupMs = int.fromEnvironment('PREVIEW_WARMUP_MS', defaultValue: 20000);
 /// Prints the keyed controls on screen at each step, for adapting the tour to
 /// a new layout: `--dart-define=PREVIEW_PROBE=true`.
 const _probe = bool.fromEnvironment('PREVIEW_PROBE');
+
+/// Saves every tour frame as a PNG (record_ios.py turns this on):
+/// `--dart-define=PREVIEW_CAPTURE=true`.
+const _capture = bool.fromEnvironment('PREVIEW_CAPTURE');
 
 Future<void> main() async {
   enableDartPdfWindowing();
@@ -79,6 +86,7 @@ class AppPreviewTour extends StatefulWidget {
 class _AppPreviewTourState extends State<AppPreviewTour> {
   final _prefs = PdfEditingPreferences();
   final _finger = _Finger();
+  final _screen = GlobalKey();
   late final _doc = (bytes: buildPreviewPdf(), title: 'Website proposal.pdf');
 
   @override
@@ -101,6 +109,13 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
     // The host starts recording here, so the warm-up is already on tape.
     debugPrint('@@PREVIEW_READY@@');
     await Future<void>.delayed(const Duration(milliseconds: _warmupMs));
+    if (_capture) {
+      final dir = await prepareFrameDirectory();
+      if (dir != null) {
+        debugPrint('@@PREVIEW_FRAMES@@ $dir');
+        _time.capture = (frame) => _captureFrame(dir, frame);
+      }
+    }
     final hand = _Hand(_finger);
     try {
       await _Tour(hand).play();
@@ -111,8 +126,28 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
     debugPrint('@@PREVIEW_DONE@@');
   }
 
+  /// Writes the frame just drawn - the app, the fingertip and the frame
+  /// stamp, pixel for pixel what the screen shows below the system's status
+  /// bar and home indicator - as a PNG.
+  Future<void> _captureFrame(String dir, int frame) async {
+    final boundary =
+        _screen.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final image = await boundary.toImage(pixelRatio: view.devicePixelRatio);
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    await writeFrame(dir, frame, png!.buffer.asUint8List());
+  }
+
   @override
   Widget build(BuildContext context) {
+    return RepaintBoundary(
+      key: _screen,
+      child: _shell(context),
+    );
+  }
+
+  Widget _shell(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Stack(children: [
@@ -193,8 +228,9 @@ class _Tour {
     _time.start();
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final size = _screenSize;
-    _mark('start ${size.width.round()}x${size.height.round()}'
-        '@${view.devicePixelRatio}');
+    final dpr = view.devicePixelRatio;
+    _mark('start ${size.width.round()}x${size.height.round()}@$dpr pad '
+        '${(view.padding.top / dpr).round()},${(view.padding.bottom / dpr).round()}');
   }
 
   void _mark(String line) {
@@ -636,10 +672,15 @@ class _FrameClock {
   /// Counted frames that went out without a raster report.
   int get timeouts => _timeouts;
 
+  /// Saves a counted frame once it is drawn; the next frame waits for it.
+  Future<void> Function(int frame)? capture;
+  bool _capturing = false;
+
   /// Whether the next frame may count: the last one has been on screen for
   /// [minInterval] (rasterised, as the engine reports it), or the report is
   /// overdue.
   bool get _ready {
+    if (_capturing) return false;
     if (!_sinceCounted.isRunning) return true;
     if (_sinceCounted.elapsed < minInterval) return false;
     if (_awaitingRaster == null) return _onScreen.elapsed >= minInterval;
@@ -682,6 +723,14 @@ class _FrameClock {
       draw();
       if (!_counted) return _keepDrawing();
       _counted = false;
+      final save = capture;
+      if (save != null) {
+        _capturing = true;
+        save(_frame).whenComplete(() {
+          _capturing = false;
+          _keepDrawing();
+        });
+      }
       _frame++;
       _waiting.removeWhere((w) {
         if (w.$1 > _frame) return false;

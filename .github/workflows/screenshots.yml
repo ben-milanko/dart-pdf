@@ -111,7 +111,7 @@ jobs:
   app-preview:
     if: ${{ inputs.app_preview_only }}
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -131,7 +131,8 @@ jobs:
         working-directory: app
         run: |
           python3 tool/preview/compose_preview.py --device iphone \
-            --video build/preview-ios/raw.mov --log build/preview-ios/tour.log \
+            --frames build/preview-ios/frames --chrome build/preview-ios/chrome.png \
+            --log build/preview-ios/tour.log \
             --out build/preview-ios/dartpdf-preview-iphone.mp4
       - uses: actions/upload-artifact@v7
         if: always()
@@ -140,7 +141,6 @@ jobs:
           path: |
             app/build/preview-ios/*.mp4
             app/build/preview-ios/*.png
-            app/build/preview-ios/raw.mov
             app/build/preview-ios/tour.log
           if-no-files-found: warn
 

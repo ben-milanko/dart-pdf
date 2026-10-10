@@ -119,6 +119,22 @@ preview).
 - A headless-Chromium screencast only sends a frame when the page changes.
   Every counted frame changes the stamp, so each one arrives;
   `record_web.cjs` keeps them all (`-fps_mode passthrough`).
+- Even then `simctl io recordVideo` missed 46 of 606 frames: during the
+  zoomed highlight sweep it recorded nothing for 1.3 s while the engine
+  reported four new frames rasterised. A screen recorder is not a reliable
+  witness under that load. So the simulator take no longer records the screen
+  at all. With `PREVIEW_CAPTURE` (record_ios.py sets it), the frame clock
+  saves each counted frame before the next may count:
+  `RenderRepaintBoundary.toImage` around the whole shell (app, fingertip,
+  stamp) at the device pixel ratio, written as a PNG through
+  `preview_capture.dart` (a `dart:io` file writer, with a stub for the web).
+  The PNGs are the app's own pixels. The status bar, Dynamic Island and home
+  indicator are drawn by iOS, not the app, so record_ios.py takes one
+  `simctl io screenshot` as the tour starts. The composer adds the
+  screenshot-minus-first-frame difference inside the top and bottom safe-area
+  insets (the `start` marker now carries them as `pad top,bottom`), which
+  keeps the glyphs' own colours. The web draft still records the page
+  (`--video`); the composer takes either source.
 - Tour time is slower than real time on the simulator (one tour second took
   about 5.4 s on CI), and the gesture recognisers time presses by the wall
   clock. A tap held for 70 ms of tour time lasted almost a second there and
