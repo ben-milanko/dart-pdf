@@ -64,7 +64,10 @@ jobs:
         if: always()
         with:
           name: storeflight-ledger-microsoft_store-${{ github.run_id }}
-          path: app/.storeflight/releases/*.json
+          path: |
+            app/.storeflight/plans/
+            app/.storeflight/releases/
+            app/.storeflight/receipts/
       - uses: actions/upload-artifact@v7
         if: always()
         with:
