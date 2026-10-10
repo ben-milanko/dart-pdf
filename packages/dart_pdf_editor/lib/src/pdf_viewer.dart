@@ -3585,7 +3585,8 @@ class _PdfViewerState extends State<PdfViewer>
           // and readback would otherwise add 50-80 ms directly in front
           // of the page the user requested. Command-limited vector
           // previews retain their scroll-specific gate because supplying
-          // those pixels while a list scrolls is their purpose.
+          // those pixels while a list scrolls is their purpose - but only
+          // once per burst, for a blank page ([_motionPreviewSpent]).
           final inListMotion = vectorOnly &&
               !motionGranted &&
               (_scrollSettleTimer?.isActive ?? false);
