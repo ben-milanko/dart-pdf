@@ -119,6 +119,14 @@ preview).
 - A headless-Chromium screencast only sends a frame when the page changes.
   Every counted frame changes the stamp, so each one arrives;
   `record_web.cjs` keeps them all (`-fps_mode passthrough`).
+- Tour time is slower than real time on the simulator (one tour second took
+  about 5.4 s on CI), and the gesture recognisers time presses by the wall
+  clock. A tap held for 70 ms of tour time lasted almost a second there and
+  read as a long press, so the form field never opened. `_Hand.tap` holds for
+  70 ms of real time; long presses and drags are safe because tour time never
+  runs ahead of real time. The tour also finds the form editor by its key
+  (`pdf-form-text-editor`) and waits for it, rather than looking for the
+  focused field.
 - `_type` checks after the last character that the field shows the whole
   name, so a take where the text never made it into the field fails.
 - The system keyboard is switched off for the scripted typing:

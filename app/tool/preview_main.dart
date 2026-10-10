@@ -948,7 +948,10 @@ class _Hand {
         position: at,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
-    await _pause(70);
+    // Real time, not tour time: the recognisers time a press by the wall
+    // clock, and on the simulator 70 ms of tour time can take most of a
+    // second - long enough to read as a long press.
+    await Future<void>.delayed(const Duration(milliseconds: 70));
     _send(PointerUpEvent(
         pointer: pointer,
         position: at,
