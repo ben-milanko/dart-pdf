@@ -1024,6 +1024,7 @@ class _PdfPageViewState extends State<PdfPageView>
   void initState() {
     super.initState();
     PdfLivePageRegistry.instance.add(widget.previewIndex);
+    PdfPageViewDiagnostics.instance.register(this, _diagnosticsSnapshot);
     PdfLiveRasterBudget.instance.register(this);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
@@ -1544,6 +1545,7 @@ class _PdfPageViewState extends State<PdfPageView>
   @override
   void dispose() {
     PdfLivePageRegistry.instance.remove(widget.previewIndex);
+    PdfPageViewDiagnostics.instance.unregister(this);
     PdfLiveRasterBudget.instance.unregister(this);
     PdfDebugDetailRegions.instance.report(widget.previewIndex, null);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
@@ -4236,7 +4238,10 @@ class _PdfPageViewState extends State<PdfPageView>
     _DetailGeometry? detailGeometry,
     VoidCallback? onPaint,
   }) async {
-    if (_renderPaused) return false;
+    if (_renderPaused) {
+      _noteDetail('paused');
+      return false;
+    }
     // The viewer's global transform reaches cache-window neighbours too. They
     // keep a bounded fit-resolution base, but a detail raster is useful only
     // where the page actually intersects the viewport. Building one here made
@@ -4244,12 +4249,16 @@ class _PdfPageViewState extends State<PdfPageView>
     // cost despite none of those pixels being visible.
     if (!widget.onScreen) {
       _dropDetail();
+      _noteDetail('offscreen');
       return true;
     }
     // A narrow edge sliver may keep presenting an already-painted exact patch,
     // just as the tile layer keeps retained tiles, but it must not schedule a
     // fresh region record/raster until it becomes foreground-quality again.
-    if (!widget.qualityVisible) return true;
+    if (!widget.qualityVisible) {
+      _noteDetail('not-quality-visible');
+      return true;
+    }
 
     // A retained/direct picture keeps vector and text commands live under the
     // viewer transform. When its decoded images already have at least one
@@ -4260,6 +4269,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if ((_directPicture != null || _slugPicture != null) &&
         _pictureImagesAreSharpAtZoom()) {
       _dropDetail();
+      _noteDetail('picture-sharp');
       return true;
     }
 
@@ -4274,7 +4284,10 @@ class _PdfPageViewState extends State<PdfPageView>
     // true until the very warm-up this call starts has completed.
     final tightDetail = _awaitingExactDetailPaint;
     if (PdfPageView.tileStoreDetail && !tightDetail) {
-      if (_refreshTileGeometry()) return true;
+      if (_refreshTileGeometry()) {
+        _noteDetail('tiles');
+        return true;
+      }
       // A worker-built grid takes a few hundred milliseconds on the dense CAD
       // pages that need it. Keep the already-visible capped base raster during
       // that one warm-up instead of launching a competing full-viewport detail
@@ -4283,6 +4296,7 @@ class _PdfPageViewState extends State<PdfPageView>
         PdfPerfLog.log(
           'detail waits for region-index page=${widget.previewIndex}',
         );
+        _noteDetail('index-warming');
         return true;
       }
     } else if (tightDetail && _tileFraction != null) {
@@ -4304,6 +4318,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // images, so retain the normal path whenever the scene draws an image.
     if (_slugPicture != null && !_sceneHasImageDraws) {
       _dropDetail();
+      _noteDetail('slug-no-images');
       return true;
     }
     detailGeometry ??= _detailGeometryAt(
@@ -4312,6 +4327,7 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (detailGeometry == null) {
       _dropDetail();
+      _noteDetail('no-geometry');
       return true;
     }
     final fraction = detailGeometry.fraction;
@@ -4341,6 +4357,7 @@ class _PdfPageViewState extends State<PdfPageView>
         'detail reuse page=${widget.previewIndex} '
         'source=visible ratio=${existingRatio.toStringAsFixed(2)}',
       );
+      _noteDetail('reuse');
       return true;
     }
 
@@ -4352,6 +4369,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // was ready in ~1.5 s, but was discarded immediately before rasterization;
     // the user then waited for an 8-9 s, ~70 MB tile-prefetch decode instead.
     final generation = _renderSession.beginDetail();
+    _noteDetail('requested', 'generation=$generation');
 
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
@@ -4424,6 +4442,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (retainedCoversRegion) {
       final cachedPicture = await _picture;
       if (!_acceptsForegroundDetail(generation)) {
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       final retainedImage = await PdfRasterProbe.measure(
@@ -4437,6 +4456,7 @@ class _PdfPageViewState extends State<PdfPageView>
       );
       if (!_acceptsForegroundDetail(generation)) {
         retainedImage.dispose();
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       setState(() {
@@ -4452,6 +4472,7 @@ class _PdfPageViewState extends State<PdfPageView>
         'detail retained page=${widget.previewIndex} complete '
         'elapsed=${detailClock.elapsedMilliseconds}ms',
       );
+      _noteDetail('adopted-retained');
       return true;
     }
 
@@ -4465,6 +4486,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!_acceptsForegroundDetail(generation)) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     if (workerStripImage != null) {
@@ -4477,6 +4499,7 @@ class _PdfPageViewState extends State<PdfPageView>
         detailClock,
         source: 'worker-strip',
       );
+      _noteDetail('adopted-worker-strip');
       return true;
     }
     if (workerPicture != null) {
@@ -4491,6 +4514,7 @@ class _PdfPageViewState extends State<PdfPageView>
       workerPicture.dispose();
       if (!_acceptsForegroundDetail(generation)) {
         image.dispose();
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       setState(() {
@@ -4502,6 +4526,7 @@ class _PdfPageViewState extends State<PdfPageView>
         detailClock,
         source: 'worker-picture',
       );
+      _noteDetail('adopted-worker-picture');
       return true;
     }
 
@@ -4512,6 +4537,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // full record instead of painting a vector-only patch as if it were
     // complete.
     if (_sceneIsVectorOnly) {
+      _noteDetail('worker-declined');
       return _releaseExactDetailToTiles('worker-declined');
     }
 
@@ -4527,9 +4553,13 @@ class _PdfPageViewState extends State<PdfPageView>
           _renderNow,
           motion: _pageAllowsMotionRender(),
         );
+        _noteDetail('awaiting-picture');
         return false;
       }
-      if (widget.renderHold?.value ?? false) return false;
+      if (widget.renderHold?.value ?? false) {
+        _noteDetail('render-hold');
+        return false;
+      }
     }
     final picture =
         await (_picture ??= PdfPageRenderer.renderPictureRecordedWithPlan(
@@ -4537,6 +4567,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _renderPlan,
     ));
     if (!_acceptsForegroundDetail(generation)) {
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
@@ -4558,6 +4589,7 @@ class _PdfPageViewState extends State<PdfPageView>
         region: region,
       );
       if (!_acceptsForegroundDetail(generation)) {
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       rasterize = () => scene.rasterizeRegionStrips(
@@ -4585,6 +4617,7 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (!_acceptsForegroundDetail(generation)) {
       image.dispose();
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     setState(() {
@@ -4592,6 +4625,7 @@ class _PdfPageViewState extends State<PdfPageView>
     });
     onPaint?.call();
     _observeDetailPaintAfterFrame(generation, detailClock, source: 'local');
+    _noteDetail('adopted-local');
     return true;
   }
 
@@ -4613,6 +4647,164 @@ class _PdfPageViewState extends State<PdfPageView>
       // post-frame callback (which can otherwise stall while the app is idle).
       _activateTilePanAhead();
     });
+  }
+
+  /// The most recent [_updateDetail] decision, for [_diagnosticsSnapshot]:
+  /// which branch it took ('tiles', 'reuse', 'superseded', 'requested' while
+  /// a request is still awaiting its result, ...), an optional detail, when,
+  /// and how many decisions this state has made.
+  String? _lastDetailOutcome;
+  String? _lastDetailOutcomeDetail;
+  DateTime? _lastDetailOutcomeAt;
+  int _detailOutcomes = 0;
+
+  void _noteDetail(String outcome, [String? detail]) {
+    _lastDetailOutcome = outcome;
+    _lastDetailOutcomeDetail = detail;
+    _lastDetailOutcomeAt = DateTime.now();
+    _detailOutcomes++;
+  }
+
+  /// Which [_acceptsForegroundDetail] condition rejected [generation].
+  String _detailRejection(int generation) => [
+        if (!mounted) 'unmounted',
+        if (!widget.onScreen) 'offscreen',
+        if (!widget.qualityVisible) 'not-quality-visible',
+        if (_renderPaused) 'paused',
+        if (!_renderSession.acceptsDetail(generation)) 'stale-generation',
+      ].join(',');
+
+  static List<double>? _rectJson(Rect? r) => r == null
+      ? null
+      : [
+          for (final v in [r.left, r.top, r.right, r.bottom])
+            double.parse(v.toStringAsFixed(4)),
+        ];
+
+  static double? _ratioJson(double? v) =>
+      v == null ? null : double.parse(v.toStringAsFixed(3));
+
+  /// Support-export view of this page's render state (see
+  /// [PdfPageViewDiagnostics]). Read-only: it neither schedules work nor
+  /// touches cache recency. Rects are page fractions unless named `...Pt`.
+  Map<String, Object?> _diagnosticsSnapshot() {
+    final scene = _scene;
+    final store =
+        PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull;
+    final size = _renderPlan.pageSize(widget.page);
+    final live = mounted && size.width > 0 && size.height > 0
+        ? _detailGeometryAt(widget.scale, inflation: _tileInflation)
+        : null;
+    Map<String, Object?>? coverage;
+    final desired = _tileDesiredRatio;
+    final tileFraction = _tileFraction;
+    if (store != null && desired != null && tileFraction != null) {
+      Map<String, Object?>? cover(Rect fraction) {
+        final c = store.debugExactCoverage(
+          id: _tilePageIdentity,
+          pageSize: size,
+          desiredRatio: desired,
+          visiblePageRect: Rect.fromLTRB(
+            fraction.left * size.width,
+            fraction.top * size.height,
+            fraction.right * size.width,
+            fraction.bottom * size.height,
+          ),
+        );
+        if (c == null) return null;
+        final vetoed = c.missing.where((r) => !_tileRegionRasterizable(r));
+        return {
+          'rung': c.rung,
+          'visible': c.visible,
+          'retained': c.retained,
+          'inFlight': c.inFlight,
+          'missing': c.missing.length,
+          'missingVetoed': vetoed.length,
+          'missingPt': [for (final r in c.missing.take(24)) _rectJson(r)],
+        };
+      }
+
+      coverage = {
+        'tileFraction': cover(tileFraction),
+        // The same tiles over where the page actually is on screen now - a
+        // stale [_tileFraction] shows up as a difference between the two.
+        if (live != null) 'liveViewport': cover(live.visibleFraction),
+      };
+    }
+    return {
+      'pageIndex': widget.previewIndex,
+      'stateIdentity': identityHashCode(this),
+      'tileCacheNamespace': identityHashCode(_effectiveTileCacheNamespace),
+      'widget': {
+        'onScreen': widget.onScreen,
+        'qualityVisible': widget.qualityVisible,
+        'qualityPageCount': widget.qualityPageCount,
+        'focusDistance': widget.focusDistance,
+        'scale': _ratioJson(widget.scale),
+        'transformScale': _ratioJson(widget.transformScale?.value),
+        'settleGeneration': widget.settleGeneration,
+        'renderHold': widget.renderHold?.value,
+        'schedulerBusy': widget.renderScheduler?.busy,
+        'schedulerParked': widget.renderScheduler?.parked,
+        'workerActive': widget.renderWorker?.isActive,
+      },
+      'renderPaused': _renderPaused,
+      'layoutWidth': _ratioJson(_layoutWidth),
+      'pixelRatio': _ratioJson(_pixelRatio),
+      'desiredRatio': _ratioJson(_desiredRatioAt(widget.scale)),
+      'effectiveRatio': _ratioJson(_effectiveRatioAt(widget.scale)),
+      'base': {
+        'image': _image == null ? null : '${_image!.width}x${_image!.height}',
+        'rasteredRatio': _ratioJson(_rasteredRatio),
+        'picture': _picture != null,
+        'directPicture': _directPicture != null,
+        'slugPicture': _slugPicture != null,
+        'pictureImageRatio': _ratioJson(_pictureImageRatio),
+      },
+      'scene': scene == null
+          ? null
+          : {
+              'commands': scene.commands.length,
+              'vectorOnly': _sceneIsVectorOnly,
+              'fromWorker': _sceneFromWorker,
+              'hasImageDraws': _sceneHasImageDraws,
+              'imagesAtNativeResolution': scene.imagesAtNativeResolution,
+              'imageVeto': _tileCanRasterize != null,
+            },
+      'detail': {
+        'image': _detailImage == null
+            ? null
+            : '${_detailImage!.width}x${_detailImage!.height}',
+        'fraction': _rectJson(_detailFraction),
+        'ratio': _ratioJson(_detailPixelRatio),
+        'contentCurrent':
+            _detailImage == null ? null : _detailContentIsCurrent(),
+        'awaitingExactPaint': _awaitingExactDetailPaint,
+        'lastOutcome': _lastDetailOutcome,
+        'lastOutcomeDetail': _lastDetailOutcomeDetail,
+        'lastOutcomeAt': _lastDetailOutcomeAt?.toIso8601String(),
+        'outcomes': _detailOutcomes,
+      },
+      'liveViewportFraction': _rectJson(live?.visibleFraction),
+      'tiles': {
+        'pathStatus': _tilePathStatus,
+        'layerMounted': !_awaitingExactDetailPaint &&
+            _useTilePath &&
+            scene != null &&
+            tileFraction != null &&
+            desired != null,
+        'fraction': _rectJson(tileFraction),
+        'desiredRatio': _ratioJson(desired),
+        'panAheadActive': _tilePanAheadActive,
+        'panAheadScheduled': _tilePanAheadScheduled,
+        'foreground': _tileForeground != null,
+        'imageDetailWanted': _tileDetailWanted,
+        'imageDetailPending': _tileDetailPending != null,
+        'imageDetailRegionPt': _rectJson(_tileDetailRegion),
+        'imageDetailRatio': _ratioJson(_tileDetailRatio),
+        'coverage': coverage,
+      },
+    };
   }
 
   bool _acceptsForegroundDetail(int generation) =>
@@ -5297,14 +5489,7 @@ class _PdfPageViewState extends State<PdfPageView>
       key: foreground ? const ValueKey('pdf-page-sharp-tile-foreground') : null,
       child: PdfTileLayer(
         store: store,
-        identity: PdfTilePageIdentity(
-          cacheNamespace: _effectiveTileCacheNamespace,
-          pageIndex: widget.previewIndex,
-          pageEpoch: widget.pageEpoch,
-          contentStamp: widget.contentStamp,
-          destructiveStamp: widget.destructiveStamp,
-          plan: _renderPlan,
-        ),
+        identity: _tilePageIdentity,
         pageSize: size,
         desiredRatio: desired,
         visibleFraction: fraction,
@@ -5363,6 +5548,16 @@ class _PdfPageViewState extends State<PdfPageView>
       ),
     );
   }
+
+  /// The tile-store identity of this page's current pixels.
+  PdfTilePageIdentity get _tilePageIdentity => PdfTilePageIdentity(
+        cacheNamespace: _effectiveTileCacheNamespace,
+        pageIndex: widget.previewIndex,
+        pageEpoch: widget.pageEpoch,
+        contentStamp: widget.contentStamp,
+        destructiveStamp: widget.destructiveStamp,
+        plan: _renderPlan,
+      );
 
   /// Promotes a completed tile view only when it is a genuine quality upgrade
   /// over the quick exact patch.
