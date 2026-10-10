@@ -426,10 +426,16 @@ class _Tour {
   }
 
   Future<void> _type(String text) async {
-    final editable = _editableText();
-    if (editable == null) {
-      _mark('error no text field');
-      return;
+    // The inline editor opens a beat after the tap; wait for it.
+    EditableTextState? editable;
+    for (var i = 0; i < 50 && editable == null; i++) {
+      editable = _editableText();
+      if (editable == null) await _pause(60);
+    }
+    if (editable == null) throw StateError('the form editor never opened');
+    if (!editable.widget.focusNode.hasFocus) {
+      editable.widget.focusNode.requestFocus();
+      await _pause(60);
     }
     _sfx('typing', text.length * 0.06);
     for (var i = 1; i <= text.length; i++) {
@@ -519,18 +525,22 @@ class _Tour {
       d.shape == BoxShape.circle &&
       d.color?.toARGB32() == color.toARGB32();
 
+  /// The form field's inline editor (keyed `pdf-form-text-editor`).
   EditableTextState? _editableText() {
     EditableTextState? found;
-    void visit(Element e) {
+    void visit(Element e, bool inside) {
       if (found != null) return;
-      if (e is StatefulElement && e.state is EditableTextState) {
-        final state = e.state as EditableTextState;
-        if (state.widget.focusNode.hasFocus) found = state;
+      final k = e.widget.key;
+      inside = inside ||
+          (k is ValueKey<String> && k.value == 'pdf-form-text-editor');
+      if (inside && e is StatefulElement && e.state is EditableTextState) {
+        found = e.state as EditableTextState;
+        return;
       }
-      e.visitChildren(visit);
+      e.visitChildren((c) => visit(c, inside));
     }
 
-    WidgetsBinding.instance.rootElement?.visitChildren(visit);
+    WidgetsBinding.instance.rootElement?.visitChildren((c) => visit(c, false));
     return found;
   }
 
