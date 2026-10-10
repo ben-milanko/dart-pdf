@@ -1,81 +1,100 @@
-name: Reconcile Windows store submission
+name: Storeflight release
 on:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
+  actions: write
 jobs:
-  reconcile:
-    runs-on: windows-latest
+  flatpak:
+    name: Complete Flatpak release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     environment: storeflight-production
     env:
-      MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
-      MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
-      MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
-      MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
-      MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dart-lang/setup-dart@v1
         with:
-          sdk: 3.13.4
-      - uses: microsoft/microsoft-store-apppublisher@v1.4
+          ref: app-v8.1.0
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
       - uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
           ref: main
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
-      - uses: actions/download-artifact@v8
-        with:
-          name: storeflight-state-microsoft_store-38015303678
-          path: .
-          run-id: 38015303678
-          github-token: ${{ github.token }}
-      - name: Verify exact Windows package and correct native version lookup
-        shell: bash
+      - name: Install release tools
         run: |
-          python - <<'PY'
-          import hashlib, pathlib
-          p=pathlib.Path('app/.storeflight/artifacts/3c89aa9518f745171aef201e/windows/dartpdf-windows-store.msix')
-          assert hashlib.sha256(p.read_bytes()).hexdigest()=='254b592c1859f331282b454ace4706e85f75bea237d4e8f7f1093f216f30e774'
-          # This app maps its declared 8.1.0+45 to MSIX Identity 8.1.0.0.
-          # Compare the actual store package version, not the unrelated build 45.
-          p=pathlib.Path('.storeflight-cli/lib/src/stores/microsoft_store.dart')
-          s=p.read_text();old="!version.split('.').contains(build)"
-          assert s.count(old)==1
-          p.write_text(s.replace(old,"version != '${context.project.version.name}.0'"))
-          PY
+          sudo apt-get update -qq
+          sudo apt-get install -y flatpak jq
           echo '.storeflight-cli/' >> .git/info/exclude
           dart pub global activate --source path .storeflight-cli
-      - name: Adopt the existing portal certification from Microsoft
-        shell: bash
+      - name: Verify the existing GitHub prerequisite and exact Linux input
         run: |
-          dart pub global run storeflight:storeflight adopt --release 3c89aa9518f745171aef201e --json > windows-adoption.json
-          cat windows-adoption.json
-          python - <<'PY'
-          import json,pathlib
-          p=pathlib.Path('app/.storeflight/releases/3c89aa9518f745171aef201e.json')
-          d=json.loads(p.read_text())
-          assert d['steps']['submit.microsoft_store']['status']=='succeeded', 'Microsoft has not confirmed certification acceptance'
-          assert d['destinations']['submit.microsoft_store']['accepted_for_review']
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == 570dd6df336b921f967cf3e0d61e09585ea9e46c ]]
+          mkdir -p app/.storeflight/inputs
+          gh release view app-v8.1.0 --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish > "$RUNNER_TEMP/release.json"
+          [[ "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" == false ]]
+          gh release download app-v8.1.0 --repo "$GITHUB_REPOSITORY" --pattern app-linux.tar.gz --dir app/.storeflight/inputs
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/app-v8.1.0" --jq '.assets[]|select(.name=="app-linux.tar.gz")|.digest')"
+          actual="sha256:$(sha256sum app/.storeflight/inputs/app-linux.tar.gz|cut -d' ' -f1)"
+          [[ "$actual" == "$expected" ]]
+      - name: Configure this independent continuation
+        run: |
+          cat > "$RUNNER_TEMP/publish-flatpak-and-wait.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          previous="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow publish-flatpak.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+          gh workflow run publish-flatpak.yml --repo "$GITHUB_REPOSITORY" --ref app-v8.1.0 -f version=8.1.0
+          for attempt in $(seq 1 30); do
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow publish-flatpak.yml --branch app-v8.1.0 --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+            if [[ "$run_id" != 0 && "$run_id" != "$previous" ]]; then break; fi
+            sleep 2
+          done
+          [[ "$run_id" != 0 && "$run_id" != "$previous" ]]
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+          [[ "$(curl -fsSL https://dartpdf-flatpak.web.app/version.json | jq -r .version)" == 8.1.0 ]]
+          SH
+          chmod +x "$RUNNER_TEMP/publish-flatpak-and-wait.sh"
+          python3 - <<'PY'
+          import os,pathlib,re,json
+          s=pathlib.Path('storeflight.yaml').read_text()
+          s=s.replace('  root: app\n','  root: '+str(pathlib.Path('app').resolve())+'\n',1).replace('  isolate_worktree: true\n','  isolate_worktree: false\n',1)
+          s=re.sub(r'  worktree_include:\n(?:    - .*\n)+','  worktree_include: []\n',s)
+          # The prerequisite release is already published and was verified above.
+          s=s.replace('        depends_on: [github_release]','        depends_on: []',1)
+          start=s.index('        publish_command:',s.index('      flatpak:\n',s.index('    deliveries:')))
+          end=s.index('        idempotency_check:',start)
+          command=['bash',os.path.join(os.environ['RUNNER_TEMP'],'publish-flatpak-and-wait.sh')]
+          s=s[:start]+'        publish_command: '+json.dumps(command)+'\n'+s[end:]
+          pathlib.Path(os.environ['RUNNER_TEMP'],'flatpak-storeflight.yaml').write_text(s)
           PY
+      - name: Publish, sign and verify through Storeflight
+        run: |
+          dart pub global run storeflight:storeflight submit \
+            --config "$RUNNER_TEMP/flatpak-storeflight.yaml" \
+            --delivery flatpak --platform flatpak \
+            --artifact "flatpak=$GITHUB_WORKSPACE/app/.storeflight/inputs/app-linux.tar.gz" \
+            --until review --wait --yes --progress plain
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: storeflight-ledger-microsoft_store-${{ github.run_id }}
+          name: storeflight-ledger-flatpak-${{ github.run_id }}
           path: |
-            app/.storeflight/plans/
-            app/.storeflight/releases/
-            app/.storeflight/receipts/
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: storeflight-state-microsoft_store-${{ github.run_id }}
-          path: "**/.storeflight/**"
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/certifications/**
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: windows-adoption-${{ github.run_id }}
-          path: windows-adoption.json
+          name: storeflight-state-flatpak-${{ github.run_id }}
+          path: "**/.storeflight/**"
+          include-hidden-files: true
