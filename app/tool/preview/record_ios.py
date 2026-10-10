@@ -69,7 +69,10 @@ def main():
            "--cellularBars", "4", "--batteryState", "charged", "--batteryLevel", "100")
 
     run = subprocess.Popen(
-        [*args.flutter.split(), "run", "-d", udid, "-t", "tool/preview_main.dart"],
+        # 100 ms of real time per tour frame: simctl's recorder keeps up with
+        # about 16 fps on a CI runner and must catch every frame.
+        [*args.flutter.split(), "run", "-d", udid, "-t", "tool/preview_main.dart",
+         "--dart-define=PREVIEW_FRAME_MS=100"],
         cwd=APP, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1)
     lines = queue.Queue()

@@ -333,10 +333,11 @@ class _Tour {
     final fieldCenter =
         _at((field.left + field.right) / 2, (field.bottom + field.top) / 2);
     _focus(fieldCenter + const Offset(-40, 0), 1.85);
+    // Typing is scripted, so take the system keyboard out of the loop: on
+    // the phone it would slide up over the field (and the frame stamps).
+    TextInput.setInputControl(null);
     await hand.tap(fieldCenter);
     _sfx('click');
-    // Typing is scripted, so the soft keyboard would only cover the shot.
-    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
     await _pause(250);
     _probeKeys('form field');
     await _type(PreviewLayout.clientName);
@@ -345,6 +346,7 @@ class _Tour {
     // shot is framed around what the finger does while it is up.
     _unfocus();
     await _edit('the form fill', () => hand.tap(_at(540, 260)));
+    TextInput.restorePlatformInputControl();
     await _pause(300);
 
     // 3. Organize: the page grid, then fling the appendix ahead of the budget.
@@ -575,12 +577,15 @@ final _time = _FrameClock();
 ///
 /// Frames are at least [minInterval] of wall-clock apart before they count,
 /// so tour time never runs ahead of the real timers the gesture recognisers
-/// use (a long press is 500 ms of real time). A frame that comes sooner
-/// redraws the same instant and keeps its number.
+/// use (a long press is 500 ms of real time), and so the screen recorder
+/// catches every one: `simctl io recordVideo` keeps up with about 16 fps on a
+/// CI runner, so record_ios.py sets `PREVIEW_FRAME_MS=100`. A frame that
+/// comes sooner redraws the same instant and keeps its number.
 class _FrameClock {
   static const fps = 30;
   static const period = Duration(microseconds: 1000000 ~/ fps);
-  static const minInterval = Duration(milliseconds: 34);
+  static const minInterval = Duration(
+      milliseconds: int.fromEnvironment('PREVIEW_FRAME_MS', defaultValue: 34));
 
   /// The number of the frame being drawn, null before the tour.
   final stamp = ValueNotifier<int?>(null);

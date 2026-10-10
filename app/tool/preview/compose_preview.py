@@ -361,6 +361,9 @@ def render_screen(video, frames, scale, size, keys, out):
         sys.exit(f"{video}: no frame stamps found (record with tool/preview_main.dart)")
     print(f"placed {seen} captured frames; {missed} of {frames} tour frames "
           "repeat the one before")
+    if missed > frames * 0.01:
+        print(f"WARNING: the capture missed {missed} tour frames; motion will "
+              "stutter. Record with a longer PREVIEW_FRAME_MS.")
     return frames
 
 

@@ -121,18 +121,17 @@ preview).
   `record_web.cjs` keeps them all (`-fps_mode passthrough`).
 - `_type` checks after the last character that the field shows the whole
   name, so a take where the text never made it into the field fails.
-- The soft keyboard is hidden while the scripted typing runs, so it doesn't
-  cover the field close-up.
-
-## Audio
-
-`compose_preview.py` reuses `doc/marketing/motion/soundtrack.py` unchanged. It
-plays the sting's music map from an offset chosen so the 18.55 s chord hit
-lands on the closing caption, and turns every `sfx` marker into a soundtrack
-cue (`typing` gets a key count from its duration).
-
-## Not yet
-
+- The system keyboard is switched off for the scripted typing:
+  `TextInput.setInputControl(null)` before the tap on the field, then
+  `restorePlatformInputControl()` after the commit. Calling `TextInput.hide`
+  once was not enough on the simulator: the keyboard came back up during
+  typing, covered the frame stamps (so the composer dropped those frames) and
+  shrank the viewer until the field sat behind it. Chromium has no on-screen
+  keyboard, so web drafts never showed this.
+- `simctl io recordVideo` keeps up with about 16 fps on a CI runner. With
+  34 ms frames it missed 338 of 657 tour frames, so record_ios.py passes
+  `--dart-define=PREVIEW_FRAME_MS=100`. The composer warns when more than 1%
+  of tour frames repeat the one before.
 - iPad (1200×1600): the tablet toolbar has different keys, so the tour needs a
   tablet path.
 - Localised captions (`CAPTIONS` is English only).
