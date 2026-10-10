@@ -28,6 +28,10 @@ void main() {
 
     test('a slot names the same gap in either direction', () {
       final editing = editingOf(4);
+      // the order a drop would produce, for a panel to animate
+      expect(editing.pageSlotOrder(0, 3), [1, 2, 0, 3]);
+      expect(editing.pageSlotOrder(3, 0), [3, 0, 1, 2]);
+      expect(editing.pageSlotOrder(1, 2), isNull);
       // forward: into the gap before page 4
       expect(editing.movePageToSlot(0, 3), isTrue);
       expect(
@@ -324,8 +328,9 @@ void main() {
       await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
       await gesture.moveTo(to);
       await tester.pump();
-      // the insertion bar marks the gap the page will land in
-      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-2-right')),
+      // the insertion bar marks the gap the page will land in (painted from
+      // the page after it)
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-3-left')),
           findsOneWidget);
       await gesture.up();
       await tester.pump();
@@ -333,7 +338,7 @@ void main() {
       // page 1 lands in the gap after page 3
       expect(labelsOf(refs.editing.document),
           ['Page 2', 'Page 3', 'Page 1', 'Page 4']);
-      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-2-right')),
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-3-left')),
           findsNothing);
       await drain(tester);
     });
@@ -364,23 +369,142 @@ void main() {
       await tester.pump();
       expect(markers, findsNothing);
 
-      // the empty gap between pages 1 and 2: the bar sits on the edge
-      // nearer the pointer
+      // anywhere around the gap between pages 1 and 2 - page 1's trailing
+      // half, the gap itself, page 2's leading half - is the same single
+      // drop point, painted in the middle of the gap
       final gap = Offset((cell[0].right + cell[1].left) / 2, cell[0].center.dy);
-      await gesture.moveTo(gap - const Offset(2, 0));
-      await tester.pump();
-      expect(marker(0, 'right'), findsOneWidget);
-      expect(markers, findsOneWidget);
-      await gesture.moveTo(gap + const Offset(2, 0));
-      await tester.pump();
-      expect(marker(1, 'left'), findsOneWidget);
-      expect(markers, findsOneWidget);
+      for (final at in [
+        cell[0].center + Offset(cell[0].width / 4, 0),
+        gap - const Offset(2, 0),
+        gap + const Offset(2, 0),
+        cell[1].center - Offset(cell[1].width / 4, 0),
+      ]) {
+        await gesture.moveTo(at);
+        await tester.pump();
+        expect(marker(1, 'left'), findsOneWidget);
+        expect(markers, findsOneWidget);
+        expect(tester.getRect(marker(1, 'left')).center.dx,
+            moreOrLessEquals(gap.dx, epsilon: 0.5));
+      }
 
       await gesture.up();
       await tester.pump();
       expect(labelsOf(refs.editing.document),
           ['Page 1', 'Page 4', 'Page 2', 'Page 3']);
       expect(markers, findsNothing);
+      await drain(tester);
+    });
+
+    testWidgets('where a row wraps, the bar goes on the nearer end',
+        (tester) async {
+      wideScreen(tester);
+      await pumpGrid(tester, pages: 12);
+      final cell = [
+        for (var i = 0; i < 12; i++)
+          tester.getRect(find.byKey(ValueKey('pdf-thumbnail-grid-cell-$i'))),
+      ];
+      final wrapAt = cell.indexWhere((r) => r.top > cell[0].top);
+      expect(wrapAt, greaterThan(1), reason: 'the grid needs two rows');
+      Finder marker(int page, String edge) =>
+          find.byKey(ValueKey('pdf-thumbnail-drop-indicator-$page-$edge'));
+
+      final gesture = await tester.startGesture(cell[0].center);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      // past the end of the first row: the bar trails its last page
+      await gesture.moveTo(cell[wrapAt - 1].centerRight + const Offset(8, 0));
+      await tester.pump();
+      expect(marker(wrapAt - 1, 'right'), findsOneWidget);
+      // the start of the next row: the same gap, marked before its first page
+      await gesture.moveTo(cell[wrapAt].centerLeft + const Offset(4, 0));
+      await tester.pump();
+      expect(marker(wrapAt, 'left'), findsOneWidget);
+      expect(marker(wrapAt - 1, 'right'), findsNothing);
+      await gesture.up();
+      await drain(tester);
+    });
+
+    testWidgets('a reorder drop slides each page from where it was',
+        (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 12);
+      Rect cellRect(int i) =>
+          tester.getRect(find.byKey(ValueKey('pdf-thumbnail-grid-cell-$i')));
+      final before = [for (var i = 0; i < 12; i++) cellRect(i)];
+      final wrapAt = before.indexWhere((r) => r.top > before[0].top);
+      expect(wrapAt, greaterThan(1), reason: 'the grid needs two rows');
+
+      // carry page 1 into the second row, before its second page
+      final slot = wrapAt + 1;
+      final drop = before[slot].centerLeft + const Offset(4, 0);
+      final gesture = await tester.startGesture(before[0].center);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await gesture.moveTo(drop);
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      final order = [
+        for (var i = 1; i < slot; i++) i,
+        0,
+        for (var i = slot; i < 12; i++) i,
+      ];
+      expect(labelsOf(refs.editing.document),
+          [for (final o in order) 'Page ${o + 1}']);
+      // the first frame of the new order paints every page where it was -
+      // across the row wrap too - and the carried one at the drop point
+      for (var i = 0; i < 12; i++) {
+        final at = cellRect(i);
+        final from = order[i] == 0
+            ? drop - before[0].size.center(Offset.zero)
+            : before[order[i]].topLeft;
+        expect(at.left, moreOrLessEquals(from.dx, epsilon: 0.5),
+            reason: 'cell $i');
+        expect(at.top, moreOrLessEquals(from.dy, epsilon: 0.5),
+            reason: 'cell $i');
+      }
+      // ...then every cell settles into its own place
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 12; i++) {
+        expect(cellRect(i).topLeft, before[i].topLeft, reason: 'cell $i');
+      }
+      await drain(tester);
+    });
+
+    testWidgets('a reorder drag near the bottom edge scrolls the grid',
+        (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 40);
+      final viewport = tester.getRect(find.descendant(
+          of: find.byType(PdfThumbnailView),
+          matching: find.byType(SingleChildScrollView)));
+      final first = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-0')));
+
+      final gesture = await tester.startGesture(first.center);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await gesture.moveTo(Offset(first.center.dx, viewport.bottom - 8));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      final scrolled = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-0')));
+      expect(scrolled.top, lessThan(first.top - 100));
+
+      // moving away from the edge stops it
+      await gesture.moveTo(viewport.center);
+      await tester.pump(const Duration(milliseconds: 50));
+      final held = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-0')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+          tester
+              .getRect(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-0')))
+              .top,
+          held.top);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      // the drop still lands - page 1 left the first slot
+      expect(labelOf(refs.editing.document, 0), isNot('Page 1'));
       await drain(tester);
     });
 

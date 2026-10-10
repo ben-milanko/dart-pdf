@@ -4690,7 +4690,7 @@ class PdfEditingController extends ChangeNotifier {
   /// what a drop indicator painted between two tiles means. Returns whether
   /// the order changed - a slot touching the moving pages is a no-op.
   bool movePageToSlot(int from, int slot) {
-    final moving = _pagesMovingWith(from);
+    final moving = pagesMovingWith(from);
     final start = _slotStart(moving, slot);
     if (start == null) return false;
     if (moving.length == 1) {
@@ -4706,11 +4706,25 @@ class PdfEditingController extends ChangeNotifier {
   /// order - lets a drag indicator stay hidden over the gaps that would not
   /// move anything.
   bool pageSlotMoves(int from, int slot) =>
-      _slotStart(_pagesMovingWith(from), slot) != null;
+      _slotStart(pagesMovingWith(from), slot) != null;
 
-  /// The pages a drag of [from] carries: the whole selection when [from] is
-  /// part of a multi-page one, else [from] alone.
-  List<int> _pagesMovingWith(int from) {
+  /// The page order [movePageToSlot] would produce - entry `i` is the current
+  /// index of the page that would end up at index `i` - or null when it would
+  /// change nothing. Lets a page panel animate each tile from where it was to
+  /// where it lands.
+  List<int>? pageSlotOrder(int from, int slot) {
+    final moving = pagesMovingWith(from);
+    final start = _slotStart(moving, slot);
+    if (start == null) return null;
+    return [
+      for (var i = 0; i < _document.pageCount; i++)
+        if (!moving.contains(i)) i,
+    ]..insertAll(start, moving);
+  }
+
+  /// The pages (sorted) a drag of [from] carries: the whole selection when
+  /// [from] is part of a multi-page one, else [from] alone.
+  List<int> pagesMovingWith(int from) {
     final selection = selectedPages;
     return selection.length > 1 && selection.contains(from)
         ? selection
