@@ -76,10 +76,17 @@ preview).
   at a fractional window and resized with Lanczos. An ffmpeg
   `scale=eval=frame` + `crop` chain doesn't work for this, because `crop`
   keeps the input size it was configured with while the frame size changes.
-- Punch-ins follow the finger. The tour logs `hand x y` (about 20 Hz) and
-  `hand off`. While zoomed, the composer leans the camera 70% of the way from
-  the action's centre toward the fingertip, with 0.12 s of lookahead and a
-  0.22 s smoothing constant, faded in with the zoom.
+- Punch-ins are locked shots, not a follow camera. The first version leaned
+  the camera toward the fingertip the whole time it was zoomed in (smoothed,
+  with lookahead), and on a phone in the hand that continuous panning read as
+  motion sickness. Now the tour logs `hand x y` (about 20 Hz, with a trailing
+  `d` while touching) and `hand off`, and `frame_shot` picks one still frame
+  per punch-in: the tour's centre, moved the least it can, and widened down
+  to a floor of 1.15x if it has to be, so that every point the finger touches
+  before the next focus marker sits inside with a 5% margin. The camera only
+  moves on the way in and out: 0.6 s of smootherstep, with the zoom eased in
+  log space. A tap that should not widen the shot, like the form commit tap,
+  goes after `focus off`.
 - Alignment comes from the picture, not the logs. One simulator take was cut
   9.5 s late: `simctl` printed "Recording started" 10 s after launch, just past
   the recorder's timeout, and `flutter run` also holds back log lines while it

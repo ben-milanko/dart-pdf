@@ -166,10 +166,12 @@ class _Tour {
 
   int _lastHandMs = -1000;
   bool _handShown = false;
+  bool _handDown = false;
 
-  /// Logs the fingertip (normalised, ~20 Hz) so the composer's punch-ins
-  /// can follow it; `hand off` when it lifts away.
-  void _trackHand(Offset? p) {
+  /// Logs the fingertip (normalised, ~20 Hz; a trailing `d` while it
+  /// touches) so the composer can frame each punch-in around what the finger
+  /// does; `hand off` when it lifts away.
+  void _trackHand(Offset? p, bool down) {
     if (!_clock.isRunning) return;
     if (p == null) {
       if (_handShown) _mark('hand off');
@@ -177,12 +179,13 @@ class _Tour {
       return;
     }
     final now = _clock.elapsedMilliseconds;
-    if (_handShown && now - _lastHandMs < 50) return;
+    if (_handShown && down == _handDown && now - _lastHandMs < 50) return;
     _lastHandMs = now;
     _handShown = true;
+    _handDown = down;
     final screen = _screenSize;
     _mark('hand ${(p.dx / screen.width).toStringAsFixed(4)} '
-        '${(p.dy / screen.height).toStringAsFixed(4)}');
+        '${(p.dy / screen.height).toStringAsFixed(4)}${down ? ' d' : ''}');
   }
 
   /// Flashes the screen magenta just before the clip, then starts the clock
@@ -344,8 +347,10 @@ class _Tour {
     _probeKeys('form field');
     await _type(PreviewLayout.clientName);
     await _pause(150);
-    await _edit('the form fill', () => hand.tap(_at(540, 260)));
+    // Pull back first: the commit tap lands off to the side, and the locked
+    // shot is framed around what the finger does while it is up.
     _unfocus();
+    await _edit('the form fill', () => hand.tap(_at(540, 260)));
     await _pause(300);
 
     // 3. Organize: the page grid, then fling the appendix ahead of the budget.
@@ -691,13 +696,13 @@ class _Hand {
 
   Duration get _now => _clock.elapsed;
 
-  /// Told where the fingertip is (null when lifted away), so the camera can
-  /// follow it in the punch-ins.
-  void Function(Offset? position)? onMove;
+  /// Told where the fingertip is (null when lifted away) and whether it
+  /// touches, so the composer can frame the punch-ins around it.
+  void Function(Offset? position, bool down)? onMove;
 
   void _move(Offset? p, {required bool down}) {
     finger.update(p, down: down);
-    onMove?.call(p);
+    onMove?.call(p, down);
   }
 
   void _send(PointerEvent event) =>

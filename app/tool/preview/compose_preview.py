@@ -194,28 +194,77 @@ def find_sync(video):
 
 
 # ------------------------------------------------------------------ camera
-PUNCH_EASE = 0.5  # seconds to ease into or out of a punch-in
+PUNCH_EASE = 0.6    # seconds to ease into or out of a punch-in
+FRAME_MARGIN = 0.05  # normalised room kept around the finger's path in a shot
+MIN_ZOOM = 1.15      # a shot that cannot fit the action wider than this drops it
 
 
-def camera_keys(events, duration):
+def hand_samples(events):
+    """[(t, (x, y) or None, down)] from the tour's `hand` markers."""
+    out = []
+    for e in events:
+        if e["kind"] != "hand":
+            continue
+        if e["args"][0] == "off":
+            out.append((e["t"], None, False))
+        else:
+            out.append((e["t"], (float(e["args"][0]), float(e["args"][1])),
+                        "d" in e["args"][2:]))
+    return out
+
+
+def frame_shot(cx, cy, z, points):
+    """A still framing for a punch-in: the tour's (cx, cy, z), moved and if
+    need be widened just enough that every point the finger touches during
+    the shot stays inside it with FRAME_MARGIN to spare.
+
+    The camera never moves while punched in. A frame that chases the finger
+    pans continuously and reads as seasickness on a phone held in the hand;
+    a locked shot that already holds the whole gesture shows the same detail
+    without moving under the viewer.
+    """
+    if points:
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        x0, x1 = min(xs) - FRAME_MARGIN, max(xs) + FRAME_MARGIN
+        y0, y1 = min(ys) - FRAME_MARGIN, max(ys) + FRAME_MARGIN
+        z = min(z, 1 / max(x1 - x0, 1e-6), 1 / max(y1 - y0, 1e-6))
+        if z < MIN_ZOOM:
+            return (1.0, 0.5, 0.5)
+        half = 0.5 / z
+        # The least move that brings the path inside the window.
+        cx = min(max(cx, x1 - half), x0 + half)
+        cy = min(max(cy, y1 - half), y0 + half)
+    half = 0.5 / z
+    return (z, min(max(cx, half), 1 - half), min(max(cy, half), 1 - half))
+
+
+def camera_keys(events, duration, hands=()):
     """Keyframes (t, zoom, cx, cy) from the tour's focus markers.
 
-    `focus cx cy z` eases to a zoom of z on the normalised screen point
-    (cx, cy) over PUNCH_EASE; `... now` cuts straight to it; `focus off`
-    eases back to the whole screen. Times are on the output clip.
+    `focus cx cy z` eases (over PUNCH_EASE) into a still shot of z on the
+    normalised screen point (cx, cy), adjusted by frame_shot to hold what the
+    finger does until the next focus marker; `... now` cuts straight to it;
+    `focus off` eases back to the whole screen. Times are on the output clip.
     """
+    focus = [e for e in events if e["kind"] == "focus"]
+    # Logs from before the tour flagged touches (`hand x y d`) frame every
+    # point after the ease-in instead, which skips most of the approach.
+    flagged = any(d for _, _, d in hands)
     keys = [(0.0, 1.0, 0.5, 0.5)]
-    for e in events:
-        if e["kind"] != "focus":
-            continue
+    for i, e in enumerate(focus):
         t = max(0.0, min(e["t"], duration))
         if e["args"][0] == "off":
             target = (1.0, 0.5, 0.5)
             ease = PUNCH_EASE
         else:
             cx, cy, z = (float(v) for v in e["args"][:3])
-            target = (z, cx, cy)
             ease = 0.0 if "now" in e["args"][3:] else PUNCH_EASE
+            until = focus[i + 1]["t"] if i + 1 < len(focus) else duration
+            since = e["t"] if flagged else e["t"] + ease
+            points = [p for ts, p, d in hands
+                      if p is not None and since <= ts <= until and (d or not flagged)]
+            target = frame_shot(cx, cy, z, points)
         t = max(t, keys[-1][0])
         if t > keys[-1][0]:
             keys.append((t, *keys[-1][1:]))
@@ -227,51 +276,23 @@ def camera_keys(events, duration):
 
 
 def camera_at(keys, t):
-    """(zoom, cx, cy) at time t: smoothstep between the bracketing keys."""
+    """(zoom, cx, cy) at time t, eased between the bracketing keys.
+
+    Smootherstep (zero velocity and acceleration at both ends), with the
+    zoom interpolated in log space so the push feels even all the way in.
+    """
     for (t0, *v0), (t1, *v1) in zip(keys, keys[1:]):
         if t < t1:
             if t1 <= t0:
                 return tuple(v1)
             u = (t - t0) / (t1 - t0)
-            u = u * u * (3 - 2 * u)
-            return tuple(a + (b - a) * u for a, b in zip(v0, v1))
+            u = u * u * u * (u * (u * 6 - 15) + 10)
+            z = math.exp(math.log(v0[0]) + (math.log(v1[0]) - math.log(v0[0])) * u)
+            return (z, *(a + (b - a) * u for a, b in zip(v0[1:], v1[1:])))
     return tuple(keys[-1][1:])
 
 
-FOLLOW = 0.7          # how far a punch-in leans from the action toward the finger
-FOLLOW_LEAD = 0.12    # seconds of lookahead, hiding the smoothing's lag
-FOLLOW_SMOOTH = 0.22  # seconds: the follow's smoothing time constant
-
-
-def hand_samples(events):
-    """[(t, (x, y) or None)] from the tour's `hand` markers (output clip time)."""
-    out = []
-    for e in events:
-        if e["kind"] != "hand":
-            continue
-        if e["args"][0] == "off":
-            out.append((e["t"], None))
-        else:
-            out.append((e["t"], (float(e["args"][0]), float(e["args"][1]))))
-    return out
-
-
-def hand_at(samples, t):
-    """The fingertip at t, interpolated between samples; None when lifted."""
-    prev = None
-    for i, (ts, p) in enumerate(samples):
-        if ts > t:
-            if prev is None or prev[1] is None or p is None:
-                return None if prev is None else prev[1]
-            u = (t - prev[0]) / max(ts - prev[0], 1e-6)
-            if ts - prev[0] > 0.4:  # a gap: hold the last point
-                return prev[1]
-            return tuple(a + (b - a) * u for a, b in zip(prev[1], p))
-        prev = (ts, p)
-    return None if prev is None else prev[1]
-
-
-def render_screen(video, start, length, speed, size, keys, out, hands=()):
+def render_screen(video, start, length, speed, size, keys, out):
     """Writes the screen track: the capture through the punch-in camera.
 
     Every frame is cropped at a fractional window around the focus point and
@@ -294,7 +315,6 @@ def render_screen(video, start, length, speed, size, keys, out, hands=()):
     frames = round(length / speed * FPS)
     n = 0
     last = None
-    follow = None
     while n < frames:
         raw = decode.stdout.read(frame_bytes)
         if len(raw) < frame_bytes:
@@ -306,20 +326,6 @@ def render_screen(video, start, length, speed, size, keys, out, hands=()):
         last = raw
         t = n / FPS
         zoom, cx, cy = camera_at(keys, t)
-        # While punched in, the camera leans toward the fingertip (faded in
-        # with the zoom) and glides there: smoothed, with a little lookahead.
-        hand = hand_at(hands, t + FOLLOW_LEAD)
-        lean = FOLLOW * min(max((zoom - 1) / 0.3, 0), 1)
-        if hand is not None and lean > 0:
-            cx += (hand[0] - cx) * lean
-            cy += (hand[1] - cy) * lean
-        if follow is None:
-            follow = (cx, cy)
-        else:
-            k = 1 - math.exp(-1 / FPS / FOLLOW_SMOOTH)
-            follow = (follow[0] + (cx - follow[0]) * k,
-                      follow[1] + (cy - follow[1]) * k)
-        cx, cy = follow
         win_w, win_h = cw / zoom, ch / zoom
         x0 = min(max(cx * cw - win_w / 2, 0), cw - win_w)
         y0 = min(max(cy * ch - win_h / 2, 0), ch - win_h)
@@ -453,13 +459,14 @@ def main():
     inputs += ["-i", wav]
     audio_index = 3 + len(spans)
 
-    # The camera: the tour's focus markers become eased punch-ins.
-    keys = camera_keys([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events],
-                       duration)
+    # The camera: the tour's focus markers become eased, locked punch-ins
+    # framed around what the finger does in each.
+    clip_events = [dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events]
+    keys = camera_keys(clip_events, duration, hand_samples(clip_events))
+    for k in keys:
+        print("camera %6.2fs zoom %.2f at (%.3f, %.3f)" % k)
     screen = os.path.join(work, "screen.mp4")
-    hands = hand_samples([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events])
-    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen,
-                  hands)
+    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen)
 
     f = ["[0:v]format=rgba[scr]",
          "[2:v]format=gray[mask]",
