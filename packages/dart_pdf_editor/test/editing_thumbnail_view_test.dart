@@ -19,6 +19,70 @@ List<String> labelsOf(PdfDocument doc) =>
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  group('movePageToSlot', () {
+    PdfEditingController editingOf(int pages) {
+      final editing = PdfEditingController(buildMultiPagePdf(pages));
+      addTearDown(editing.dispose);
+      return editing;
+    }
+
+    test('a slot names the same gap in either direction', () {
+      final editing = editingOf(4);
+      // forward: into the gap before page 4
+      expect(editing.movePageToSlot(0, 3), isTrue);
+      expect(
+          labelsOf(editing.document), ['Page 2', 'Page 3', 'Page 1', 'Page 4']);
+      // backward: into the gap before the first page
+      expect(editing.movePageToSlot(3, 0), isTrue);
+      expect(
+          labelsOf(editing.document), ['Page 4', 'Page 2', 'Page 3', 'Page 1']);
+      // past the end
+      expect(editing.movePageToSlot(0, 4), isTrue);
+      expect(
+          labelsOf(editing.document), ['Page 2', 'Page 3', 'Page 1', 'Page 4']);
+    });
+
+    test('the gaps beside the moving page are no-ops', () {
+      final editing = editingOf(4);
+      final before = editing.document;
+      expect(editing.pageSlotMoves(1, 1), isFalse);
+      expect(editing.pageSlotMoves(1, 2), isFalse);
+      expect(editing.pageSlotMoves(1, 0), isTrue);
+      expect(editing.movePageToSlot(1, 2), isFalse);
+      expect(identical(editing.document, before), isTrue);
+    });
+
+    test('a selection moves as a block into the gap', () {
+      final editing = editingOf(5);
+      editing
+        ..selectPage(1)
+        ..selectPageRange(2);
+      expect(editing.selectedPages, [1, 2]);
+      // the gap before page 5 - a destination index movePage would refuse
+      // because it falls inside the selection
+      expect(editing.movePageToSlot(1, 4), isTrue);
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 4', 'Page 2', 'Page 3', 'Page 5']);
+      expect(editing.selectedPages, [2, 3]);
+      // a contiguous selection's own gaps change nothing
+      expect(editing.pageSlotMoves(2, 2), isFalse);
+      expect(editing.pageSlotMoves(3, 4), isFalse);
+      expect(editing.pageSlotMoves(3, 3), isFalse);
+    });
+
+    test('a scattered selection gathers even beside itself', () {
+      final editing = editingOf(5);
+      editing
+        ..selectPage(0)
+        ..togglePageSelection(2);
+      expect(editing.selectedPages, [0, 2]);
+      expect(editing.pageSlotMoves(0, 0), isTrue);
+      expect(editing.movePageToSlot(0, 0), isTrue);
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 3', 'Page 2', 'Page 4', 'Page 5']);
+    });
+  });
+
   // a roomy surface so every grid cell lays out and is hit-testable (the
   // grid builds every child eagerly, but they still need to fit to tap)
   void wideScreen(WidgetTester tester) {
@@ -249,21 +313,74 @@ void main() {
           ['Page 1', 'Page 2', 'Page 3', 'Page 4']);
 
       // touch is the default test pointer, so the cell waits for a long
-      // press before dragging - pick up page 1, drop it on page 3's cell
+      // press before dragging - pick up page 1, drop it on the trailing
+      // half of page 3's cell (the gap after it)
       final from = tester
           .getCenter(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-0')));
-      final to = tester
-          .getCenter(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-2')));
+      final cell2 = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-2')));
+      final to = cell2.center + Offset(cell2.width / 4, 0);
       final gesture = await tester.startGesture(from);
       await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
       await gesture.moveTo(to);
       await tester.pump();
+      // the insertion bar marks the gap the page will land in
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-2-right')),
+          findsOneWidget);
       await gesture.up();
       await tester.pump();
 
-      // movePage(0, 2): page 1 lands at index 2
+      // page 1 lands in the gap after page 3
       expect(labelsOf(refs.editing.document),
           ['Page 2', 'Page 3', 'Page 1', 'Page 4']);
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-2-right')),
+          findsNothing);
+      await drain(tester);
+    });
+
+    testWidgets('a reorder drag marks the gap and drops into it',
+        (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 4);
+      final cell = [
+        for (var i = 0; i < 4; i++)
+          tester.getRect(find.byKey(ValueKey('pdf-thumbnail-grid-cell-$i'))),
+      ];
+      // the cells share a row on the wide screen
+      expect(cell[3].top, cell[0].top);
+      Finder marker(int page, String edge) =>
+          find.byKey(ValueKey('pdf-thumbnail-drop-indicator-$page-$edge'));
+      final markers = find.byWidgetPredicate((w) =>
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>)
+              .value
+              .startsWith('pdf-thumbnail-drop-indicator-'));
+
+      final gesture = await tester.startGesture(cell[3].center);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+
+      // hovering the dragged page's own gaps would move nothing - no bar
+      await gesture.moveTo(cell[3].center + const Offset(1, 0));
+      await tester.pump();
+      expect(markers, findsNothing);
+
+      // the empty gap between pages 1 and 2: the bar sits on the edge
+      // nearer the pointer
+      final gap = Offset((cell[0].right + cell[1].left) / 2, cell[0].center.dy);
+      await gesture.moveTo(gap - const Offset(2, 0));
+      await tester.pump();
+      expect(marker(0, 'right'), findsOneWidget);
+      expect(markers, findsOneWidget);
+      await gesture.moveTo(gap + const Offset(2, 0));
+      await tester.pump();
+      expect(marker(1, 'left'), findsOneWidget);
+      expect(markers, findsOneWidget);
+
+      await gesture.up();
+      await tester.pump();
+      expect(labelsOf(refs.editing.document),
+          ['Page 1', 'Page 4', 'Page 2', 'Page 3']);
+      expect(markers, findsNothing);
       await drain(tester);
     });
 

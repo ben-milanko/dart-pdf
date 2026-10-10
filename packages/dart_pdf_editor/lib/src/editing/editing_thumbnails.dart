@@ -1677,6 +1677,15 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   int? _keyboardPage;
   int? _dragPage;
 
+  /// Where the page being dragged inside the grid would land: the cell and
+  /// edge carrying the insertion bar, plus the slot the drop moves it into.
+  /// Null while no reorder drag hovers a gap that would change the order.
+  ({int page, PdfThumbnailDropEdge edge, int slot})? _reorderMark;
+
+  /// The scrolling area the reorder drag target covers - bounds the slot
+  /// hit-test so a drag over the header or footer marks nothing.
+  final GlobalKey _gridAreaKey = GlobalKey();
+
   /// This grid's hit-test, registered with
   /// [PdfThumbnailView.fileDropController] - a stable closure so attach and
   /// detach agree on identity (see the strip's copy).
@@ -1760,6 +1769,93 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       axis: Axis.horizontal,
       globalPosition: globalPosition,
       reversed: Directionality.of(context) == TextDirection.rtl,
+    );
+  }
+
+  /// The insertion bar for a reorder drag of page [from] with the pointer at
+  /// [globalPosition], or null when it misses the grid or the gap under it
+  /// would leave the order unchanged (next to the dragged pages).
+  ///
+  /// A slot is one gap, but where a row wraps it has two ends: the trailing
+  /// edge of the last cell in one row and the leading edge of the first in
+  /// the next. The bar goes on whichever of the two the pointer is nearer,
+  /// so it always sits right beside the cursor.
+  ({int page, PdfThumbnailDropEdge edge, int slot})? _reorderMarkAt(
+      int from, Offset globalPosition) {
+    final controller = widget.controller;
+    final pageCount = controller.document.pageCount;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final slot = pdfThumbnailDropIndexAt(
+      panelContext: _gridAreaKey.currentContext,
+      tileKeys: _tileKeys,
+      pageCount: pageCount,
+      axis: Axis.horizontal,
+      globalPosition: globalPosition,
+      reversed: rtl,
+    );
+    if (slot == null || !controller.pageSlotMoves(from, slot)) return null;
+    final leading =
+        rtl ? PdfThumbnailDropEdge.right : PdfThumbnailDropEdge.left;
+    final trailing =
+        rtl ? PdfThumbnailDropEdge.left : PdfThumbnailDropEdge.right;
+    if (slot >= pageCount) {
+      return (page: pageCount - 1, edge: trailing, slot: slot);
+    }
+    if (slot == 0) return (page: 0, edge: leading, slot: slot);
+    double distanceTo(int page) {
+      final box = _tileKeys[page]?.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) {
+        return double.infinity;
+      }
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      final dx = math.max(
+          0.0,
+          math.max(
+              rect.left - globalPosition.dx, globalPosition.dx - rect.right));
+      final dy = math.max(
+          0.0,
+          math.max(
+              rect.top - globalPosition.dy, globalPosition.dy - rect.bottom));
+      return dx * dx + dy * dy;
+    }
+
+    return distanceTo(slot - 1) < distanceTo(slot)
+        ? (page: slot - 1, edge: trailing, slot: slot)
+        : (page: slot, edge: leading, slot: slot);
+  }
+
+  void _updateReorderMark(int from, Offset globalPosition) {
+    final mark = _reorderMarkAt(from, globalPosition);
+    if (mark != _reorderMark) setState(() => _reorderMark = mark);
+  }
+
+  void _clearReorderMark() {
+    if (_reorderMark != null && mounted) setState(() => _reorderMark = null);
+  }
+
+  /// Wraps the grid's scrolling area in the reorder drop target: the whole
+  /// area accepts a dragged cell - gaps between cells included - and the
+  /// insertion bar ([_reorderMark]) shows where it will land.
+  Widget _reorderTarget(Widget child) {
+    if (!widget.allowPageEditing) return child;
+    return DragTarget<int>(
+      key: _gridAreaKey,
+      onWillAcceptWithDetails: (details) {
+        _updateReorderMark(details.data, details.offset);
+        return true;
+      },
+      // the drag feedback is anchored on the pointer, so its offset is
+      // where the pointer is
+      onMove: (details) => _updateReorderMark(details.data, details.offset),
+      onLeave: (_) => _clearReorderMark(),
+      onAcceptWithDetails: (details) {
+        final mark = _reorderMarkAt(details.data, details.offset);
+        _clearReorderMark();
+        if (mark != null) {
+          widget.controller.movePageToSlot(details.data, mark.slot);
+        }
+      },
+      builder: (context, candidate, rejected) => child,
     );
   }
 
@@ -2077,7 +2173,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                       Expanded(
                         child: Stack(children: [
                           Positioned.fill(
-                            child: ScrollConfiguration(
+                            child: _reorderTarget(ScrollConfiguration(
                               // replaced by the viewer-style bar below
                               behavior: ScrollConfiguration.of(context)
                                   .copyWith(scrollbars: false),
@@ -2121,13 +2217,18 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             showPasteIndicator:
                                                 pasteInsertionPage == i,
                                             reversed: rtl,
-                                            dropEdge: _tileDropEdge(
-                                              dropIndex,
-                                              i,
-                                              controller.document.pageCount,
-                                              Axis.horizontal,
-                                              reversed: rtl,
-                                            ),
+                                            dropEdge: _reorderMark != null
+                                                ? (_reorderMark!.page == i
+                                                    ? _reorderMark!.edge
+                                                    : null)
+                                                : _tileDropEdge(
+                                                    dropIndex,
+                                                    i,
+                                                    controller
+                                                        .document.pageCount,
+                                                    Axis.horizontal,
+                                                    reversed: rtl,
+                                                  ),
                                             showPageActions:
                                                 !pdfPanelControlsRevealOnHover() ||
                                                     _hoverPage == i,
@@ -2143,8 +2244,10 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                                 setState(() => _dragPage = i),
                                             onDragEnded: () {
                                               if (mounted) {
-                                                setState(
-                                                    () => _dragPage = null);
+                                                setState(() {
+                                                  _dragPage = null;
+                                                  _reorderMark = null;
+                                                });
                                               }
                                             },
                                           ),
@@ -2153,7 +2256,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                   ],
                                 ),
                               ),
-                            ),
+                            )),
                           ),
                           Positioned(
                             top: 0,
@@ -2249,9 +2352,10 @@ class _ThumbnailSizeControl extends StatelessWidget {
 /// One cell of the thumbnail grid: a [_PageTile] wrapped for drag-to-
 /// reorder. A mouse picks a tile up immediately (it hovers first, so the
 /// cell knows a pointer is present); touch and stylus need a long press,
-/// so a finger drag still scrolls the grid. Dropping onto another cell
-/// moves the page there ([PdfEditingController.movePage]); if that page is
-/// part of a multi-page selection, the entire selection moves together.
+/// so a finger drag still scrolls the grid. The grid is the drop target:
+/// an insertion bar marks the gap nearest the pointer and the drop moves
+/// the page into it ([PdfEditingController.movePageToSlot]); if that page
+/// is part of a multi-page selection, the entire selection moves together.
 /// With [allowPageEditing] off the cell is the bare tile - read-only grids
 /// only navigate.
 class _GridPageCell extends StatefulWidget {
@@ -2368,32 +2472,10 @@ class _GridPageCellState extends State<_GridPageCell> {
         child: _draggable(tile),
       ),
     );
-    return DragTarget<int>(
-      // a page never drops onto itself
-      onWillAcceptWithDetails: (details) => details.data != widget.pageIndex,
-      // movePage lands the dragged page at this cell's index (§ moves the
-      // page so it ends up at [to])
-      onAcceptWithDetails: (details) =>
-          widget.controller.movePage(details.data, widget.pageIndex),
-      builder: (context, candidate, rejected) {
-        final scheme = Theme.of(context).colorScheme;
-        final active = candidate.isNotEmpty;
-        // a 2px frame, always laid out (transparent when idle), marks the
-        // cell a drop would land on - DecoratedBox paints it over the tile
-        // edge without reserving space, so the tile never shifts
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active ? scheme.primary : Colors.transparent,
-              width: 2,
-            ),
-            color: active ? scheme.primary.withValues(alpha: 0.08) : null,
-          ),
-          child: draggable,
-        );
-      },
-    );
+    // the drop target is the whole grid (see
+    // _PdfThumbnailViewState._reorderTarget), so a cell dropped into the gap
+    // between two others lands there, marked by an insertion bar
+    return draggable;
   }
 
   Widget _draggable(Widget tile) {

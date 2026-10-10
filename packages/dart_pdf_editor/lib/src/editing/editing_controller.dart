@@ -4671,27 +4671,87 @@ class PdfEditingController extends ChangeNotifier {
       // one of its own tiles is used as the drop target.
       if (moving.contains(to)) return;
       final draggedOffset = moving.indexOf(from);
-      final remaining = [
-        for (var i = 0; i < _document.pageCount; i++)
-          if (!moving.contains(i)) i,
-      ];
-      final start = (to - draggedOffset).clamp(0, remaining.length);
-      final order = List<int>.of(remaining)..insertAll(start, moving);
-
-      _selected.clear();
-      final changed = apply((e) => e.reorderPages(order));
-      if (!changed) return;
-      _selectedPages.addAll([
-        for (var i = 0; i < moving.length; i++) start + i,
-      ]);
-      _pageSelectionAnchor = start + draggedOffset;
-      notifyListeners();
+      final remaining = _document.pageCount - moving.length;
+      _moveSelectionTo(
+          moving, (to - draggedOffset).clamp(0, remaining), draggedOffset);
       return;
     }
     _selected.clear();
     _selectedPages.clear();
     _pageSelectionAnchor = null;
     apply((e) => e.movePage(from, to));
+  }
+
+  /// Moves the page at [from] into insertion slot [slot] (0..pageCount):
+  /// the gap before page [slot] in the current order, or past the end. When
+  /// [from] is part of a multi-page selection, the whole selection lands in
+  /// that gap, in document order. Unlike [movePage]'s destination index, a
+  /// slot names the same gap whichever direction the pages travel, which is
+  /// what a drop indicator painted between two tiles means. Returns whether
+  /// the order changed - a slot touching the moving pages is a no-op.
+  bool movePageToSlot(int from, int slot) {
+    final moving = _pagesMovingWith(from);
+    final start = _slotStart(moving, slot);
+    if (start == null) return false;
+    if (moving.length == 1) {
+      _selected.clear();
+      _selectedPages.clear();
+      _pageSelectionAnchor = null;
+      return apply((e) => e.movePage(from, start));
+    }
+    return _moveSelectionTo(moving, start, moving.indexOf(from));
+  }
+
+  /// Whether [movePageToSlot] with these arguments would change the page
+  /// order - lets a drag indicator stay hidden over the gaps that would not
+  /// move anything.
+  bool pageSlotMoves(int from, int slot) =>
+      _slotStart(_pagesMovingWith(from), slot) != null;
+
+  /// The pages a drag of [from] carries: the whole selection when [from] is
+  /// part of a multi-page one, else [from] alone.
+  List<int> _pagesMovingWith(int from) {
+    final selection = selectedPages;
+    return selection.length > 1 && selection.contains(from)
+        ? selection
+        : [from];
+  }
+
+  /// Where in the remaining (unmoved) pages a block of [moving] pages
+  /// dropped into [slot] starts, or null when that leaves the order as is.
+  int? _slotStart(List<int> moving, int slot) {
+    final count = _document.pageCount;
+    if (moving.isEmpty || moving.first < 0 || moving.last >= count) {
+      return null;
+    }
+    final clamped = slot.clamp(0, count);
+    final start = clamped - moving.where((p) => p < clamped).length;
+    // the order is unchanged exactly when the block is already contiguous
+    // and sits at [start]
+    final contiguous = moving.last - moving.first == moving.length - 1;
+    if (contiguous && moving.first == start) return null;
+    return start;
+  }
+
+  /// Reorders so the selected [moving] pages (sorted) sit contiguously from
+  /// index [start] among the rest, then re-selects them there with the
+  /// anchor on the dragged page ([draggedOffset] into [moving]).
+  bool _moveSelectionTo(List<int> moving, int start, int draggedOffset) {
+    final remaining = [
+      for (var i = 0; i < _document.pageCount; i++)
+        if (!moving.contains(i)) i,
+    ];
+    final order = List<int>.of(remaining)..insertAll(start, moving);
+
+    _selected.clear();
+    final changed = apply((e) => e.reorderPages(order));
+    if (!changed) return false;
+    _selectedPages.addAll([
+      for (var i = 0; i < moving.length; i++) start + i,
+    ]);
+    _pageSelectionAnchor = start + draggedOffset;
+    notifyListeners();
+    return true;
   }
 
   /// Removes the page at [index]. Refused (a no-op) on the last page -
