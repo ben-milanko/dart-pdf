@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,12 +13,22 @@ import 'oidc_pkce.dart';
 ///
 /// It binds a throwaway loopback HTTP server, opens the system browser at
 /// Sigstore's broker, waits for the browser to redirect back with the
-/// authorization code, and exchanges it for tokens. [client] and [launch] are
-/// injectable for tests; production uses a fresh [http.Client] and
-/// `url_launcher`.
+/// authorization code, and exchanges it for tokens. [client], [launch] and
+/// [closeBrowser] are injectable for tests; production uses a fresh
+/// [http.Client] and `url_launcher`.
+///
+/// On iOS the browser is an in-app Safari view, not the external browser:
+/// handing off to another app suspends DartPDF within seconds, and a suspended
+/// app's loopback server never answers, so the broker's redirect back to
+/// `localhost` hangs forever. An in-app view keeps the app in the foreground
+/// (and its server alive); it is dismissed once the code arrives. A sign-in
+/// that never comes back (the view was closed, the tab abandoned) gives up
+/// after [timeout] rather than leaving the caller waiting.
 Future<OidcTokens?> runSigstoreSignIn({
   http.Client? client,
   Future<bool> Function(Uri url)? launch,
+  Future<void> Function()? closeBrowser,
+  Duration timeout = const Duration(minutes: 10),
 }) async {
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   try {
@@ -26,10 +37,12 @@ Future<OidcTokens?> runSigstoreSignIn({
     final authorizationUrl =
         buildAuthorizationUrl(redirectUri: redirectUri, session: session);
 
-    final opened = await (launch ?? _defaultLaunch)(authorizationUrl);
+    final opened = await (launch ?? launchSigstoreBrowser)(authorizationUrl);
     if (!opened) return null;
 
-    final code = await _awaitAuthorizationCode(server, session.state);
+    final code = await _awaitAuthorizationCode(server, session.state)
+        .timeout(timeout, onTimeout: () => null);
+    await (closeBrowser ?? closeSigstoreBrowser)();
     if (code == null) return null;
 
     final owned = client == null;
@@ -88,8 +101,34 @@ Future<OidcTokens?> refreshSigstoreTokens(
   }
 }
 
-Future<bool> _defaultLaunch(Uri url) =>
-    launchUrl(url, mode: LaunchMode.externalApplication);
+/// Opens the broker's sign-in page: an in-app Safari view on iOS (see
+/// [runSigstoreSignIn] for why), the external browser everywhere else. [ios]
+/// and [open] are injectable for tests.
+@visibleForTesting
+Future<bool> launchSigstoreBrowser(
+  Uri url, {
+  bool? ios,
+  Future<bool> Function(Uri url, {LaunchMode mode}) open = launchUrl,
+}) =>
+    open(url,
+        mode: (ios ?? Platform.isIOS)
+            ? LaunchMode.inAppBrowserView
+            : LaunchMode.externalApplication);
+
+/// Dismisses the in-app Safari view [launchSigstoreBrowser] opened on iOS; a
+/// no-op elsewhere, where the external browser is not ours to close.
+@visibleForTesting
+Future<void> closeSigstoreBrowser({
+  bool? ios,
+  Future<void> Function() close = closeInAppWebView,
+}) async {
+  if (!(ios ?? Platform.isIOS)) return;
+  try {
+    await close();
+  } on Exception {
+    // Already dismissed by the user; nothing to close.
+  }
+}
 
 /// Waits for the browser to hit the loopback redirect and returns the
 /// authorization `code` when its `state` matches [expectedState]. Answers each
@@ -116,10 +155,12 @@ Future<String?> _awaitAuthorizationCode(
   return null;
 }
 
-const _successPage = '<!doctype html><meta charset="utf-8"><title>DartPDF</title>'
+const _successPage =
+    '<!doctype html><meta charset="utf-8"><title>DartPDF</title>'
     '<body style="font-family:sans-serif;text-align:center;padding-top:3rem">'
     '<h2>Signed in</h2><p>You can close this tab and return to DartPDF.</p>';
 
-const _failurePage = '<!doctype html><meta charset="utf-8"><title>DartPDF</title>'
+const _failurePage =
+    '<!doctype html><meta charset="utf-8"><title>DartPDF</title>'
     '<body style="font-family:sans-serif;text-align:center;padding-top:3rem">'
     '<h2>Sign-in failed</h2><p>Please return to DartPDF and try again.</p>';

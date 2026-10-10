@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 import 'package:dart_pdf_editor_app/oidc_pkce.dart';
 import 'package:dart_pdf_editor_app/oidc_signin.dart';
@@ -17,8 +19,8 @@ String _jwt(Map<String, Object?> claims) {
   return '${seg({'alg': 'RS256'})}.${seg(claims)}.';
 }
 
-String _token(DateTime exp) =>
-    _jwt({'email': 'dev@example.com', 'exp': exp.millisecondsSinceEpoch ~/ 1000});
+String _token(DateTime exp) => _jwt(
+    {'email': 'dev@example.com', 'exp': exp.millisecondsSinceEpoch ~/ 1000});
 
 void main() {
   group('PKCE session', () {
@@ -40,8 +42,7 @@ void main() {
       final session =
           PkceSession(verifier: 'v', state: 'st4te', nonce: 'n0nce');
       final url = buildAuthorizationUrl(
-          redirectUri: 'http://localhost:1234/auth/callback',
-          session: session);
+          redirectUri: 'http://localhost:1234/auth/callback', session: session);
       expect(url.origin + url.path, SigstoreOidc.authorizationEndpoint);
       final q = url.queryParameters;
       expect(q['response_type'], 'code');
@@ -82,7 +83,8 @@ void main() {
       expect(tokens.idToken, 'a.b.c');
       expect(tokens.refreshToken, 'r3fr3sh');
       // absent refresh token -> null (broker didn't grant offline access)
-      expect(oidcTokensFromResponse('{"id_token":"a.b.c"}').refreshToken, isNull);
+      expect(
+          oidcTokensFromResponse('{"id_token":"a.b.c"}').refreshToken, isNull);
     });
 
     test('buildRefreshTokenRequestBody carries the refresh grant', () {
@@ -97,8 +99,8 @@ void main() {
   group('refreshSigstoreTokens', () {
     test('swaps a refresh token for a fresh id_token', () async {
       final client = MockClient((request) async {
-        expect(Uri.splitQueryString(request.body)['grant_type'],
-            'refresh_token');
+        expect(
+            Uri.splitQueryString(request.body)['grant_type'], 'refresh_token');
         return http.Response('{"id_token":"new.id.tok"}', 200);
       });
       final tokens = await refreshSigstoreTokens('r3fr3sh', client: client);
@@ -191,6 +193,50 @@ void main() {
     });
   });
 
+  group('sign-in browser', () {
+    test('opens in-app on iOS so the loopback server stays alive', () async {
+      final modes = <LaunchMode>[];
+      Future<bool> open(Uri url,
+          {LaunchMode mode = LaunchMode.platformDefault}) async {
+        modes.add(mode);
+        return true;
+      }
+
+      final url = Uri.parse('https://oauth2.sigstore.dev/auth/auth');
+      expect(await launchSigstoreBrowser(url, ios: true, open: open), isTrue);
+      expect(await launchSigstoreBrowser(url, ios: false, open: open), isTrue);
+      expect(
+          modes, [LaunchMode.inAppBrowserView, LaunchMode.externalApplication]);
+    });
+
+    test('closes the in-app view on iOS only', () async {
+      var closed = 0;
+      Future<void> close() async => closed++;
+      await closeSigstoreBrowser(ios: false, close: close);
+      expect(closed, 0);
+      await closeSigstoreBrowser(ios: true, close: close);
+      expect(closed, 1);
+    });
+
+    test('defaults to the host platform (external browser off iOS)', () async {
+      LaunchMode? opened;
+      await launchSigstoreBrowser(Uri.parse('https://example.com'),
+          open: (url, {mode = LaunchMode.platformDefault}) async {
+        opened = mode;
+        return true;
+      });
+      var closed = 0;
+      await closeSigstoreBrowser(close: () async => closed++);
+      expect(closed, 0); // tests run on the VM host, never iOS
+      expect(opened, LaunchMode.externalApplication);
+    });
+
+    test('tolerates a view the user already dismissed', () async {
+      await closeSigstoreBrowser(
+          ios: true, close: () async => throw PlatformException(code: 'x'));
+    });
+  });
+
   group('interactive loopback flow (runSigstoreSignIn)', () {
     // Drives the real loopback server: the injected launch fires the browser
     // redirect back at the callback, and a mock token endpoint returns tokens.
@@ -199,12 +245,14 @@ void main() {
       String? oauthError,
       bool launchOpens = true,
       http.Response Function(http.Request)? token,
+      void Function()? onClose,
     }) {
       final client = MockClient((request) async =>
           token?.call(request) ??
           http.Response('{"id_token":"header.payload.sig"}', 200));
       return runSigstoreSignIn(
         client: client,
+        closeBrowser: () async => onClose?.call(),
         launch: (authUrl) async {
           if (!launchOpens) return false;
           final redirect = Uri.parse(authUrl.queryParameters['redirect_uri']!);
@@ -224,7 +272,23 @@ void main() {
     }
 
     test('exchanges the code for an id_token', () async {
-      expect((await run(returnedState: 'match'))?.idToken, 'header.payload.sig');
+      expect(
+          (await run(returnedState: 'match'))?.idToken, 'header.payload.sig');
+    });
+
+    test('dismisses the in-app browser once the redirect lands', () async {
+      var closed = 0;
+      await run(returnedState: 'match', onClose: () => closed++);
+      expect(closed, 1);
+    });
+
+    test('gives up when the redirect never comes back', () async {
+      final tokens = await runSigstoreSignIn(
+        launch: (_) async => true, // the browser opens, but nobody returns
+        closeBrowser: () async {},
+        timeout: const Duration(milliseconds: 50),
+      );
+      expect(tokens, isNull);
     });
 
     test('returns null when the user does not complete sign-in', () async {
