@@ -9,10 +9,10 @@
 //       --url http://localhost:8765/ --out build/preview-web
 //
 // Writes <out>/raw.mp4 (the screen, 1320x2868 like a 6.9" iPhone) and
-// <out>/tour.log (the tour's markers, each prefixed with the seconds since the
-// recording began) for compose_preview.py. A software-GL headless browser runs
-// the tour slower than a device; compose with --speed to bring it back to
-// pace (the log reports the factor).
+// <out>/tour.log (the tour's markers) for compose_preview.py. A software-GL
+// headless browser draws far slower than a device, which costs only time: the
+// tour runs on frame time and the composer places every frame by the number
+// it carries, so every frame the page sends is kept as it came.
 const { chromium } = require('playwright');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -87,7 +87,8 @@ fs.mkdirSync(frames, { recursive: true });
   const lines = log.map(({ now, text }) => `${(now - t0).toFixed(3)} ${text}`);
   fs.writeFileSync(path.join(out, 'tour.log'), lines.join('\n') + '\n');
 
-  // Variable-rate frames -> constant 30 fps via the concat demuxer.
+  // Every frame, in order, at its own duration (the composer places frames by
+  // their stamps, so none may be dropped or merged).
   const list = shots
     .map((s, i) => {
       const next = shots[i + 1] ? shots[i + 1].t : Math.max(stopped, s.t + 1 / 30);
@@ -97,13 +98,9 @@ fs.mkdirSync(frames, { recursive: true });
   fs.writeFileSync(path.join(out, 'frames.txt'), list + `\nfile '${shots.at(-1).file}'\n`);
   execFileSync('ffmpeg', [
     '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', path.join(out, 'frames.txt'),
-    '-vf', 'fps=30,scale=1320:2868:flags=lanczos,format=yuv420p',
-    '-c:v', 'libx264', '-crf', '14', '-preset', 'fast', path.join(out, 'raw.mp4'),
+    '-fps_mode', 'passthrough', '-vf', 'scale=1320:2868:flags=lanczos,format=yuv420p',
+    '-video_track_timescale', '90000', '-c:v', 'libx264', '-crf', '14', '-preset', 'fast',
+    path.join(out, 'raw.mp4'),
   ]);
-  const tour = log.filter((l) => / (start|end) @/.test(l.text));
-  const span = tour.length === 2 ? tour[1].now - tour[0].now : NaN;
   console.log(`wrote ${out}/raw.mp4 (${shots.length} frames) and tour.log`);
-  if (!Number.isNaN(span)) {
-    console.log(`tour ran ${span.toFixed(1)}s; for a ~19s preview compose with --speed ${(span / 19).toFixed(2)}`);
-  }
 })();

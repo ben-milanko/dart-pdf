@@ -15,9 +15,10 @@ written to tour.log prefixed with the seconds since recording began
 @@PREVIEW_DONE@@ it stops the recorder (SIGINT, so the file is finalised) and
 quits the app.
 
-The simulator only runs debug builds. That is fine for the recording: the tour
-starts after a warm-up, so JIT compilation of the first frames happens off the
-clip.
+The simulator only runs debug builds, which stall now and then. That costs
+only time: the tour runs on frame time and stamps each frame with its number,
+and compose_preview.py places frames by those numbers (the host times in
+tour.log are for reading along, not for the cut).
 """
 import argparse
 import json

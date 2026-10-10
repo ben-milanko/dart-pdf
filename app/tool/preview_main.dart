@@ -11,12 +11,18 @@
 // it what is happening:
 //
 //   @@PREVIEW_READY@@            the app is up (start recording)
-//   @@PREVIEW@@ start            the tour is about to begin (start the clip)
+//   @@PREVIEW@@ start WxH@dpr    the tour is about to begin (start the clip)
 //   @@PREVIEW@@ caption <id>     a chapter begins (tool/preview/compose_preview.py
 //                                titles it)
 //   @@PREVIEW@@ sfx <type> [s]   a sound cue (soundtrack.py voice, duration)
 //   @@PREVIEW@@ end              the tour is over (end the clip)
 //   @@PREVIEW_DONE@@             the host can stop recording and quit
+//
+// Each marker ends in `@<ms>` of tour time, which is frame time: once the tour
+// starts, every frame the app draws is exactly 1/30 s later than the last
+// (_FrameClock), and carries its number in a strip along the bottom edge. The
+// composer places each captured frame by that number, so however slowly the
+// simulator draws, the cut is smooth and every marker lands on its frame.
 //
 // tool/preview/record_ios.py drives it on the iOS simulator (and
 // tool/preview/record_web.cjs in headless Chromium, for drafts); or by hand:
@@ -32,6 +38,7 @@ import 'dart:math' as math;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -72,7 +79,6 @@ class AppPreviewTour extends StatefulWidget {
 class _AppPreviewTourState extends State<AppPreviewTour> {
   final _prefs = PdfEditingPreferences();
   final _finger = _Finger();
-  final _syncFlash = ValueNotifier<bool>(false);
   late final _doc = (bytes: buildPreviewPdf(), title: 'Website proposal.pdf');
 
   @override
@@ -88,7 +94,6 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
   void dispose() {
     _prefs.dispose();
     _finger.dispose();
-    _syncFlash.dispose();
     super.dispose();
   }
 
@@ -98,7 +103,7 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
     await Future<void>.delayed(const Duration(milliseconds: _warmupMs));
     final hand = _Hand(_finger);
     try {
-      await _Tour(hand, _syncFlash).play();
+      await _Tour(hand).play();
     } catch (error, stack) {
       debugPrint('@@PREVIEW@@ error $error');
       debugPrint('$stack');
@@ -140,15 +145,10 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
             child: CustomPaint(painter: _FingerPainter(_finger)),
           ),
         ),
-        // The sync flash (see _Tour._syncAndStart): solid magenta, off-clip.
+        // The frame number, cropped off by the composer.
         Positioned.fill(
           child: IgnorePointer(
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _syncFlash,
-              builder: (context, on, _) => on
-                  ? const ColoredBox(color: _syncColor)
-                  : const SizedBox.shrink(),
-            ),
+            child: CustomPaint(painter: _StampPainter(_time.stamp)),
           ),
         ),
       ]),
@@ -158,11 +158,10 @@ class _AppPreviewTourState extends State<AppPreviewTour> {
 
 /// The storyboard. Each chapter announces its caption, then works the app.
 class _Tour {
-  _Tour(this.hand, this.syncFlash) {
+  _Tour(this.hand) {
     hand.onMove = _trackHand;
   }
   final _Hand hand;
-  final ValueNotifier<bool> syncFlash;
 
   int _lastHandMs = -1000;
   bool _handShown = false;
@@ -172,13 +171,13 @@ class _Tour {
   /// touches) so the composer can frame each punch-in around what the finger
   /// does; `hand off` when it lifts away.
   void _trackHand(Offset? p, bool down) {
-    if (!_clock.isRunning) return;
+    if (!_time.running) return;
     if (p == null) {
       if (_handShown) _mark('hand off');
       _handShown = false;
       return;
     }
-    final now = _clock.elapsedMilliseconds;
+    final now = _time.elapsed.inMilliseconds;
     if (_handShown && down == _handDown && now - _lastHandMs < 50) return;
     _lastHandMs = now;
     _handShown = true;
@@ -188,25 +187,20 @@ class _Tour {
         '${(p.dy / screen.height).toStringAsFixed(4)}${down ? ' d' : ''}');
   }
 
-  /// Flashes the screen magenta just before the clip, then starts the clock
-  /// the frame the flash is gone. The composer finds that frame in the
-  /// recording and anchors every marker to it, so alignment never depends
-  /// on when log lines happen to reach the host (flutter run delays them).
-  Future<void> _syncAndStart() async {
-    syncFlash.value = true;
-    await _pause(500);
-    syncFlash.value = false;
-    await WidgetsBinding.instance.endOfFrame;
-    _clock.start();
-    _mark('start');
+  /// Switches to frame time and opens the clip. From here every frame is
+  /// exactly one frame period of tour time (see [_FrameClock]).
+  void _start() {
+    _time.start();
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final size = _screenSize;
+    _mark('start ${size.width.round()}x${size.height.round()}'
+        '@${view.devicePixelRatio}');
   }
-
-  final _clock = Stopwatch();
 
   void _mark(String line) {
     // Nothing before the clip starts is heard or titled.
-    if (!_clock.isRunning) return;
-    debugPrint('@@PREVIEW@@ $line @${_clock.elapsedMilliseconds}');
+    if (!_time.running) return;
+    debugPrint('@@PREVIEW@@ $line @${_time.elapsed.inMilliseconds}');
   }
 
   void _caption(String id) => _mark('caption $id');
@@ -214,8 +208,8 @@ class _Tour {
   /// A sound cue, [delayMs] ahead of now when the gesture it belongs to
   /// lands after a hold.
   void _sfx(String type, [double? seconds, int delayMs = 0]) {
-    if (!_clock.isRunning) return;
-    final at = _clock.elapsedMilliseconds + delayMs;
+    if (!_time.running) return;
+    final at = _time.elapsed.inMilliseconds + delayMs;
     debugPrint('@@PREVIEW@@ sfx $type'
         '${seconds == null ? '' : ' ${seconds.toStringAsFixed(2)}'} @$at');
   }
@@ -308,7 +302,7 @@ class _Tour {
     hand.hide();
     await _pause(600);
 
-    await _syncAndStart();
+    _start();
 
     // 1. Highlight a sentence - the clip opens punched in on it.
     _caption('highlight');
@@ -445,6 +439,12 @@ class _Tour {
       );
       await _pause(60);
     }
+    // The field must show what was typed before it is committed.
+    await _pause(60);
+    if (editable.textEditingValue.text != text) {
+      throw StateError('the form field shows '
+          '"${editable.textEditingValue.text}", not "$text"');
+    }
   }
 
   /// Long-presses grid cell [from] and flings it just ahead of [before],
@@ -553,13 +553,153 @@ Size get _screenSize {
   return view.physicalSize / view.devicePixelRatio;
 }
 
-/// The sync flash colour, matched by compose_preview.py's `find_sync`.
-const _syncColor = Color(0xFFFF00FF);
-
 /// The toolbar palette's blue, for the signature.
 const _signatureInk = Color(0xFF1E88E5);
 
-Future<void> _pause(int ms) => Future<void>.delayed(Duration(milliseconds: ms));
+Future<void> _pause(int ms) => _time.wait(Duration(milliseconds: ms));
+
+/// The tour's clock.
+final _time = _FrameClock();
+
+/// Frame time: once [start]ed, every frame the app draws is stamped exactly
+/// one [period] after the last, for the app's animations (the engine's frame
+/// timestamp is replaced) and for the tour's own pauses and motion alike.
+///
+/// The simulator only runs debug builds, and on a CI runner those stall:
+/// typing into a field or picking up a page thumbnail can hold the UI thread
+/// for a second or two. Timed by the wall clock, a stall is a freeze and a
+/// jump in the recording. Timed by frames, the app's world stands still while
+/// it catches up, so the recording loses nothing - it just takes longer. Each
+/// frame paints its number ([stamp]) along the bottom edge, and the composer
+/// places every captured frame by it.
+///
+/// Frames are at least [minInterval] of wall-clock apart before they count,
+/// so tour time never runs ahead of the real timers the gesture recognisers
+/// use (a long press is 500 ms of real time). A frame that comes sooner
+/// redraws the same instant and keeps its number.
+class _FrameClock {
+  static const fps = 30;
+  static const period = Duration(microseconds: 1000000 ~/ fps);
+  static const minInterval = Duration(milliseconds: 34);
+
+  /// The number of the frame being drawn, null before the tour.
+  final stamp = ValueNotifier<int?>(null);
+
+  final _real = Stopwatch()..start();
+  final _sinceCounted = Stopwatch();
+  final _waiting = <(int, Completer<void>)>[];
+  bool _running = false;
+  int _frame = 0;
+  Duration _engineBase = Duration.zero;
+  Duration _realBase = Duration.zero;
+  Timer? _tick;
+
+  bool get running => _running;
+
+  /// Tour time: frames drawn since [start], times [period].
+  Duration get elapsed => period * _frame;
+
+  /// A monotonic timestamp for pointer events and motion, wall-clock until
+  /// [start] and frame time after.
+  Duration get now => _running ? _realBase + elapsed : _real.elapsed;
+
+  void start() {
+    final binding = SchedulerBinding.instance;
+    final dispatcher = binding.platformDispatcher;
+    final FrameCallback begin = dispatcher.onBeginFrame!;
+    final VoidCallback draw = dispatcher.onDrawFrame!;
+    _engineBase = binding.currentSystemFrameTimeStamp;
+    _realBase = _real.elapsed;
+    _running = true;
+    dispatcher.onBeginFrame = (_) {
+      // A frame inside the minimum interval redraws the current instant.
+      if (_sinceCounted.isRunning && _sinceCounted.elapsed < minInterval) {
+        begin(_engineBase + period * _frame);
+        return;
+      }
+      _sinceCounted
+        ..reset()
+        ..start();
+      stamp.value = _frame;
+      begin(_engineBase + period * (_frame + 1));
+      _counted = true;
+    };
+    dispatcher.onDrawFrame = () {
+      draw();
+      if (!_counted) return _keepDrawing();
+      _counted = false;
+      _frame++;
+      _waiting.removeWhere((w) {
+        if (w.$1 > _frame) return false;
+        w.$2.complete();
+        return true;
+      });
+      _keepDrawing();
+    };
+    binding.scheduleFrame();
+  }
+
+  /// Whether the frame in flight is a counted one.
+  bool _counted = false;
+
+  /// Asks for the next frame once [minInterval] has passed, so the clock
+  /// ticks even while nothing on screen moves.
+  void _keepDrawing() {
+    _tick?.cancel();
+    final due = minInterval - _sinceCounted.elapsed;
+    _tick = Timer(due.isNegative ? Duration.zero : due,
+        SchedulerBinding.instance.scheduleFrame);
+  }
+
+  /// Completes after [d] of tour time (wall-clock time before [start]).
+  Future<void> wait(Duration d) {
+    if (!_running) return Future<void>.delayed(d);
+    final frames =
+        math.max(1, (d.inMicroseconds / period.inMicroseconds).ceil());
+    final done = Completer<void>();
+    _waiting.add((_frame + frames, done));
+    return done.future;
+  }
+
+  /// Completes when the next frame has been drawn.
+  Future<void> nextFrame() => wait(period);
+}
+
+/// Paints [stamp] along the bottom edge: 16 cells across the screen, 4
+/// logical pixels tall - white, black (the composer's references), 13 bits of
+/// frame number (least significant first) and their parity.
+class _StampPainter extends CustomPainter {
+  _StampPainter(this.stamp) : super(repaint: stamp);
+  final ValueNotifier<int?> stamp;
+
+  static const height = 4.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final n = stamp.value;
+    if (n == null) return;
+    var parity = 0;
+    final cells = <bool>[true, false];
+    for (var i = 0; i < 13; i++) {
+      final bit = (n >> i) & 1 == 1;
+      if (bit) parity ^= 1;
+      cells.add(bit);
+    }
+    cells.add(parity == 1);
+    final w = size.width / cells.length;
+    final top = size.height - height;
+    for (var i = 0; i < cells.length; i++) {
+      canvas.drawRect(
+          Rect.fromLTWH(i * w, top, w + 0.5, height),
+          Paint()
+            ..color =
+                cells[i] ? const Color(0xFFFFFFFF) : const Color(0xFF000000));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StampPainter old) => false;
+}
 
 List<Rect> _rectsOf(String key) =>
     _rectsWhere((k) => k is ValueKey<String> && k.value == key);
@@ -658,19 +798,17 @@ class _FingerPainter extends CustomPainter {
   bool shouldRepaint(_FingerPainter old) => false;
 }
 
-/// Runs [step] with eased progress 0..1 over [duration] of wall-clock time.
-///
-/// Motion is timed by the clock, not by counting frames: a debug build on the
-/// simulator draws slowly, and frame-counted motion stretched to match.
+/// Runs [step] once a frame with eased progress 0..1 over [duration] of tour
+/// time (frame time, see [_FrameClock]).
 Future<void> _animate(Duration duration, void Function(double t) step,
     {Curve curve = Curves.easeInOutCubic}) async {
-  final clock = Stopwatch()..start();
+  final start = _time.now;
   final total = duration.inMicroseconds;
   while (true) {
-    final u = total == 0 ? 1.0 : clock.elapsedMicroseconds / total;
+    final u = total == 0 ? 1.0 : (_time.now - start).inMicroseconds / total;
     step(curve.transform(u.clamp(0.0, 1.0)));
     if (u >= 1) return;
-    await _pause(8);
+    await _time.nextFrame();
   }
 }
 
@@ -690,11 +828,10 @@ class _Hand {
   final _Finger finger;
 
   int _pointer = 1000;
-  final _clock = Stopwatch()..start();
   Offset _rest = Offset.zero;
   bool _shown = false;
 
-  Duration get _now => _clock.elapsed;
+  Duration get _now => _time.now;
 
   /// Told where the fingertip is (null when lifted away) and whether it
   /// touches, so the composer can frame the punch-ins around it.
@@ -767,7 +904,7 @@ class _Hand {
         position: last,
         kind: PointerDeviceKind.touch,
         timeStamp: _now));
-    if (hold > Duration.zero) await Future<void>.delayed(hold);
+    if (hold > Duration.zero) await _time.wait(hold);
     final lengths = <double>[0];
     for (var i = 1; i < path.length; i++) {
       lengths.add(lengths.last + (path[i] - path[i - 1]).distance);
@@ -793,7 +930,7 @@ class _Hand {
       _move(p, down: true);
       last = p;
     }, curve: curve);
-    await Future<void>.delayed(settle);
+    await _time.wait(settle);
     _send(PointerUpEvent(
         pointer: pointer,
         position: last,

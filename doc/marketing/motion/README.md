@@ -133,14 +133,18 @@ a recording of the real app, operated by a script:
   reaching the store. The tour prints caption and sound markers on stdout.
 - `app/tool/preview/record_ios.py` boots the iPhone 17 Pro Max simulator with
   the 9:41 status bar and runs the tour. It records the screen with
-  `simctl io recordVideo` (1320×2868) and writes `tour.log`, the markers
-  timestamped against the recording.
-- `app/tool/preview/compose_preview.py` cuts the clip from `start` to `end` and
+  `simctl io recordVideo` (1320×2868) and writes `tour.log`, the tour's
+  markers. The tour runs on frame time: each frame it draws is exactly 1/30 s
+  after the last and carries its number in a thin strip along the bottom
+  edge. A simulator that stalls makes the recording take longer, but never
+  makes the cut stutter.
+- `app/tool/preview/compose_preview.py` places every captured frame by its
+  number, crops the number strip off, cuts the clip from `start` to `end` and
   frames it under captions on the store screenshots' gradient. The tour's
   `focus` markers drive punch-ins: eased zooms of up to about 1.85× inside the
   phone frame on the sentence, the field, the page drag and the signature.
-  The camera follows the fingertip while it is punched in. A magenta sync
-  flash just before the clip anchors the cut to the exact frame.
+  Each punch-in is a still shot framed around everything the finger does
+  in it; the camera only moves to ease in and out.
   Each frame is cropped from the 1320×2868 capture and downscaled, so a
   close-up stays at or above native resolution and is never upscaled. It adds this
   sting's music bed, offset so the chord hit lands on the closing caption,
@@ -169,9 +173,13 @@ python3 tool/preview/compose_preview.py --device iphone \
   --out build/preview-ios/dartpdf-preview-iphone.mp4
 ```
 
-To draft without a Mac, run the tour in headless Chromium. Software GL runs it
-about 3× slower than a device, so compose with the `--speed` value the
-recorder prints. This draft is for review only, not for upload:
+To draft without a Mac, run the tour in headless Chromium. Software GL draws
+far slower than a device, which only makes the recording take longer, because
+the tour runs on frame time. The web build needs the real render worker
+(`fvm dart run dart_pdf_editor:build_web_worker --out
+../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`, then
+restore that file with `git checkout`). This draft has no iOS status bar and
+is for review only, not for upload:
 
 ```sh
 cd app
@@ -179,7 +187,7 @@ fvm flutter build web -t tool/preview_main.dart --no-tree-shake-icons
 npx http-server build/web -p 8765 &
 NODE_PATH=$(npm root -g) node tool/preview/record_web.cjs --out build/preview-web
 python3 tool/preview/compose_preview.py --video build/preview-web/raw.mp4 \
-  --log build/preview-web/tour.log --speed 3.1 --out build/preview-web/draft.mp4
+  --log build/preview-web/tour.log --out build/preview-web/draft.mp4
 ```
 
 The tour targets the phone layout, with its bottom tool dock and Tools sheet.

@@ -6,12 +6,15 @@
 
 The recording is the real app running tool/preview_main.dart (a screen capture,
 as App Review Guideline 2.3.4 requires). `tour.log` is what the recorder saw on
-the app's stdout, one line per marker, prefixed with the host clock:
+the app's stdout, one line per marker:
 
-    <seconds since the recording began> @@PREVIEW@@ caption highlight @250
+    <host seconds> @@PREVIEW@@ caption highlight @250
 
-The app's own `@<ms>` clock times the cues against each other; the host time of
-the `start` marker anchors that clock in the video.
+`@<ms>` is tour time, which is frame time: during the tour every frame the app
+draws is 1/30 s after the last and carries its number in a strip along the
+bottom edge. Each captured frame is placed by that number, never by when it
+was captured, so a debug build stalling on the simulator costs the recording
+time but never shows in the cut. The strip is cropped off.
 
 The output follows Apple's app preview spec: the device's accepted resolution
 (iPhone 886x1920, iPad 1200x1600), H.264 High@4.0 at 30 fps and ~11 Mbps, and
@@ -157,47 +160,38 @@ def caption(w, band, head, sub):
     return img
 
 
-# ------------------------------------------------------------------ sync
-SYNC_FPS = 60
+# ------------------------------------------------------------------ frames
+STAMP_LP = 4      # logical px: the frame-number strip's height (_StampPainter)
+STAMP_CROP_LP = 5  # logical px cropped off the bottom, strip plus a margin
+STAMP_CELLS = 16
+STAMP_BITS = 13
 # simctl writes B-frames whose decode timestamps run up to seconds behind
-# their presentation timestamps. ffmpeg times frames by presentation unless
-# it sees one out of order (a duplicate is enough), and then silently falls
-# back to the decode clock for the whole file, which squeezes every pause and
-# lands the cut seconds off. Always read the presentation clock.
+# their presentation timestamps, and ffmpeg falls back to the decode clock for
+# the whole file when one frame comes out of order. Frames are placed by their
+# stamps, not timestamps, but keep them in presentation order regardless.
 SOURCE = ["-fflags", "+igndts"]
 
 
-def find_sync(video):
-    """Seconds into [video] where the tour's magenta sync flash ends.
-
-    The tour flashes the whole screen #FF00FF just before its clock starts,
-    so the first frame after the flash is the `start` marker. Scanning the
-    picture keeps the cut exact however late log lines reached the host.
-    Returns None when there is no flash (an older recording).
-    """
-    decode = subprocess.Popen(
-        ["ffmpeg", "-v", "error", *SOURCE, "-i", video,
-         "-vf", f"fps={SYNC_FPS},scale=8:16",
-         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-        stdout=subprocess.PIPE)
-    size = 8 * 16 * 3
-    seen, last = False, None
-    n = 0
-    while True:
-        raw = decode.stdout.read(size)
-        if len(raw) < size:
-            break
-        px = [raw[i:i + 3] for i in range(0, size, 3)]
-        magenta = sum(1 for r, g, b in px if r > 200 and g < 70 and b > 200) > 0.8 * len(px)
-        if magenta:
-            seen, last = True, n
-        elif seen:
-            break  # the first frame after the flash
-        n += 1
-    decode.stdout.close()
-    decode.kill()
-    decode.wait()
-    return None if last is None else (last + 1) / SYNC_FPS
+def read_stamp(frame, cw, ch, strip):
+    """The frame number painted along the bottom of [frame] (an HxWx3 uint8
+    array), or None when there is no valid strip (before the tour starts)."""
+    rows = frame[ch - strip + strip // 4: ch - strip // 4]
+    cell = cw / STAMP_CELLS
+    lum = []
+    for i in range(STAMP_CELLS):
+        x0 = int((i + 0.3) * cell)
+        x1 = int((i + 0.7) * cell)
+        px = rows[:, x0:x1].reshape(-1, 3)
+        lum.append(float((px[:, 0] * 0.299 + px[:, 1] * 0.587 + px[:, 2] * 0.114).mean()))
+    white, black = lum[0], lum[1]
+    if white < 170 or black > 85:
+        return None
+    mid = (white + black) / 2
+    bits = [v > mid for v in lum[2:]]
+    data, parity = bits[:STAMP_BITS], bits[STAMP_BITS]
+    if sum(data) % 2 != int(parity):
+        return None
+    return sum(1 << i for i, b in enumerate(data) if b)
 
 
 # ------------------------------------------------------------------ camera
@@ -299,55 +293,75 @@ def camera_at(keys, t):
     return tuple(keys[-1][1:])
 
 
-def render_screen(video, start, length, speed, size, keys, out):
-    """Writes the screen track: the capture through the punch-in camera.
+def render_screen(video, frames, scale, size, keys, out):
+    """Writes the screen track: [frames] tour frames (0 .. frames-1) through
+    the punch-in camera.
 
-    Every frame is cropped at a fractional window around the focus point and
-    resized straight to the screen box with Lanczos - sub-pixel smooth, and
-    never upscaled (the capture is far larger than the box at these zooms).
+    Every captured frame is placed by its stamp. A stamp seen more than once
+    (a frame redrawn inside the minimum interval) keeps its latest capture;
+    a stamp the capture missed repeats the frame before it. Each frame is then
+    cropped at a fractional window around the focus point and resized straight
+    to the screen box with Lanczos - sub-pixel smooth, and never upscaled.
     """
+    import numpy as np
+
     cw, ch = probe_size(video)
+    strip = round(STAMP_LP * scale)
+    src_h = ch - math.ceil(STAMP_CROP_LP * scale)
     sw, sh = size
     decode = subprocess.Popen(
-        ["ffmpeg", "-v", "error", *SOURCE, "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
-         "-i", video, "-vf", f"setpts=(PTS-STARTPTS)/{speed},fps={FPS}",
-         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        # Every decoded frame, in order (renumbered: only the stamps count).
+        ["ffmpeg", "-v", "error", *SOURCE, "-i", video, "-fps_mode", "passthrough",
+         "-vf", "setpts=N", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE)
     encode = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{sw}x{sh}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
          "-preset", "fast", "-crf", "8", "-pix_fmt", "yuv444p", out],
         stdin=subprocess.PIPE)
-    frame_bytes = cw * ch * 3
-    frames = round(length / speed * FPS)
-    n = 0
-    last = None
-    while n < frames:
-        raw = decode.stdout.read(frame_bytes)
-        if len(raw) < frame_bytes:
-            # A capture that stops early (a screencast only sends changed
-            # frames) holds its last frame; the camera keeps moving over it.
-            if last is None:
-                break
-            raw = last
-        last = raw
-        t = n / FPS
-        zoom, cx, cy = camera_at(keys, t)
-        win_w, win_h = cw / zoom, ch / zoom
+
+    def emit(raw, k):
+        zoom, cx, cy = camera_at(keys, k / FPS)
+        win_w, win_h = cw / zoom, src_h / zoom
         x0 = min(max(cx * cw - win_w / 2, 0), cw - win_w)
-        y0 = min(max(cy * ch - win_h / 2, 0), ch - win_h)
+        y0 = min(max(cy * ch - win_h / 2, 0), src_h - win_h)
         frame = Image.frombuffer("RGB", (cw, ch), raw)
         frame = frame.resize((sw, sh), Image.LANCZOS,
                              box=(x0, y0, x0 + win_w, y0 + win_h))
         encode.stdin.write(frame.tobytes())
-        n += 1
+
+    frame_bytes = cw * ch * 3
+    k = 0          # the next tour frame to write
+    held = None    # the latest capture of tour frame <= k
+    held_n = 0     # its stamp
+    seen = missed = 0
+    while k < frames:
+        raw = decode.stdout.read(frame_bytes)
+        if len(raw) < frame_bytes:
+            break
+        n = read_stamp(np.frombuffer(raw, np.uint8).reshape(ch, cw, 3), cw, ch, strip)
+        if n is None or n < k:
+            continue  # before the tour, or a stale redraw
+        seen += 1
+        if held is None:
+            held = raw
+        while k < n and k < frames:
+            emit(held, k)
+            missed += held_n < k  # a tour frame the capture never saw
+            k += 1
+        held, held_n = raw, n
+    while held is not None and k < frames:  # the end, after the capture stopped
+        emit(held, k)
+        k += 1
     encode.stdin.close()
     decode.stdout.close()
     decode.kill()
     decode.wait()
-    if encode.wait() or n == 0:
-        sys.exit("rendering the screen track failed")
-    return n
+    if encode.wait() or held is None:
+        sys.exit(f"{video}: no frame stamps found (record with tool/preview_main.dart)")
+    print(f"placed {seen} captured frames; {missed} of {frames} tour frames "
+          "repeat the one before")
+    return frames
 
 
 # ------------------------------------------------------------------ audio
@@ -391,43 +405,25 @@ def main():
     ap.add_argument("--log", required=True, help="host-timestamped tour markers")
     ap.add_argument("--device", choices=sorted(DEVICES), default="iphone")
     ap.add_argument("--out", required=True, help="output .mp4")
-    ap.add_argument("--speed", type=float, default=1.0,
-                    help="playback speed-up, for drafts recorded on slow hosts")
-    ap.add_argument("--no-sync", action="store_true",
-                    help="anchor on log arrival times if the recording has no sync flash")
     ap.add_argument("--any-length", action="store_true",
                     help="allow a clip outside Apple's 15-30 s (drafts only)")
-    ap.add_argument("--lead", type=float, default=0.0,
-                    help="seconds of recording to keep before the start marker")
     args = ap.parse_args()
 
     events = parse_log(args.log)
     start_ev = next(e for e in events if e["kind"] == "start")
     end_ev = next(e for e in events if e["kind"] == "end")
-    # Video time of app-clock time t. The sync flash anchors it exactly; the
-    # start marker's host arrival time is only a fallback (log lines can
-    # reach the host seconds late).
-    anchor = find_sync(args.video)
-    if anchor is None:
-        if not args.no_sync:
-            sys.exit(f"{args.video}: no sync flash found (pass --no-sync to "
-                     "anchor on log arrival times instead)")
-        anchor = start_ev["host"]
-    print(f"clip starts at {anchor:.3f}s into the recording")
-
-    def vt(t):
-        return anchor + (t - start_ev["t"])
-
-    clip_in = vt(start_ev["t"]) - args.lead
-    clip_out = vt(end_ev["t"])
-    speed = args.speed
-    duration = (clip_out - clip_in) / speed
+    # The tour reports its logical screen size; the capture's scale to it
+    # sizes the frame-number strip.
+    m = re.match(r"(\d+)x(\d+)@", (start_ev["args"] or [""])[0])
+    frames = round((end_ev["t"] - start_ev["t"]) * FPS) + 1
+    duration = frames / FPS
     if not 15 <= duration <= 30 and not args.any_length:
         sys.exit(f"{duration:.1f}s is outside Apple's 15-30s app preview length "
                  "(retime the tour, or pass --any-length for a draft)")
 
-    capture = probe_size(args.video)
-    w, h, band, box = layout(args.device, capture)
+    cw, ch = probe_size(args.video)
+    scale = cw / int(m[1]) if m else 3.0
+    w, h, band, box = layout(args.device, (cw, ch - math.ceil(STAMP_CROP_LP * scale)))
     x, y, sw, sh = box
     radius = round(sw * 0.075)
 
@@ -441,8 +437,8 @@ def main():
     chapters = [e for e in events if e["kind"] == "caption"]
     spans = []
     for i, e in enumerate(chapters):
-        a = (vt(e["t"]) - clip_in) / speed
-        b = ((vt(chapters[i + 1]["t"]) - clip_in) / speed) if i + 1 < len(chapters) else duration
+        a = e["t"]
+        b = chapters[i + 1]["t"] if i + 1 < len(chapters) else duration
         head, sub = CAPTIONS[e["args"][0]]
         path = os.path.join(work, f"caption{i}.png")
         caption(w, band, head, sub).save(path)
@@ -451,10 +447,9 @@ def main():
     if spans:
         spans[0] = (0.0, spans[0][1], spans[0][2])
 
-    # Sound cues on the output timeline (a sped-up draft scales them with it).
+    # Sound cues on the output timeline.
     wav = os.path.join(work, "soundtrack.wav")
-    soundtrack([dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events],
-               duration, wav)
+    soundtrack(events, duration, wav)
 
     inputs = ["-i", os.path.join(work, "screen.mp4"),
               "-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i",
@@ -468,12 +463,11 @@ def main():
 
     # The camera: the tour's focus markers become eased, locked punch-ins
     # framed around what the finger does in each.
-    clip_events = [dict(e, t=(vt(e["t"]) - clip_in) / speed) for e in events]
-    keys = camera_keys(clip_events, duration, hand_samples(clip_events))
+    keys = camera_keys(events, duration, hand_samples(events))
     for k in keys:
         print("camera %6.2fs zoom %.2f at (%.3f, %.3f)" % k)
     screen = os.path.join(work, "screen.mp4")
-    render_screen(args.video, clip_in, clip_out - clip_in, speed, (sw, sh), keys, screen)
+    render_screen(args.video, frames, scale, (sw, sh), keys, screen)
 
     f = ["[0:v]format=rgba[scr]",
          "[2:v]format=gray[mask]",

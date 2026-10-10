@@ -57,19 +57,16 @@ preview).
 - The tool sheet's palette circles have no keys. They are found by their
   `BoxDecoration` colour (`_isSwatch`).
 - Headless Chromium needs `locale: 'en-US'`, or the app throws "Incorrect locale
-  information provided". With software GL the tour runs about 3× slower, so the
-  composer takes `--speed`.
+  information provided". Software GL draws several times slower than a
+  device, which frame time (below) absorbs.
 - The simulator only runs debug builds. The tour starts after the warm-up, so
   JIT jank stays off the clip.
 
 ## Motion and punch-ins
 
-- `_Hand` motion is timed by the clock (`_animate`), not by counting frames.
-  A debug build on the simulator draws slowly, and frame-counted motion
-  stretched to match. That was most of why the page drag looked slow and
-  stiff. Fingertip moves follow eased Bézier arcs (`_arc`), a tap leaves a
-  ripple, and the page move is a `fling`: hold past the long-press threshold,
-  a quick arcing flick that overshoots 14 px, then a settle onto the target.
+- `_Hand` motion follows eased Bézier arcs (`_arc`), a tap leaves a ripple,
+  and the page move is a `fling`: hold past the long-press threshold, a quick
+  arcing flick that overshoots 14 px, then a settle onto the target.
 - The tour prints `focus cx cy zoom [now]` and `focus off` (normalised screen
   coordinates). `compose_preview.py` eases between them (`camera_keys`,
   `camera_at`) and renders the screen track in Python: each frame is cropped
@@ -87,24 +84,43 @@ preview).
   moves on the way in and out: 0.6 s of smootherstep, with the zoom eased in
   log space. A tap that should not widen the shot, like the form commit tap,
   goes after `focus off`.
-- Alignment comes from the picture, not the logs. One simulator take was cut
-  9.5 s late: `simctl` printed "Recording started" 10 s after launch, just past
-  the recorder's timeout, and `flutter run` also holds back log lines while it
-  syncs files. The tour now flashes the screen magenta for 0.5 s, off-clip,
-  and starts its clock on the first frame after the flash. `find_sync` locates
-  that frame (60 fps scan) and anchors every marker to it. A recording without
-  the flash fails unless `--no-sync` is passed. The warm-up is now 20 s, and
-  the recorder waits up to 30 s for simctl.
+- The tour runs on frame time (`_FrameClock`). The simulator only runs debug
+  builds, and on a CI runner they stall: typing into the form field and
+  picking up a page thumbnail each held the UI thread for 1.4-2.4 s, so the
+  recording had no frames there. The typed name never appeared and the page
+  move jumped. Timing the tour by the wall clock, or slowing it with
+  `timeDilation`, can only shrink such a stall. So once the tour starts, the
+  clock wraps `PlatformDispatcher.onBeginFrame`/`onDrawFrame`: every counted
+  frame gets an engine timestamp exactly 1/30 s after the last, which the app's
+  animations see, and the tour's own pauses and motion (`_pause`, `_animate`,
+  pointer timestamps) count the same frames. While the app is stalled, its
+  world stands still. A frame that comes less than 34 ms of wall-clock time
+  after the last counted one redraws the same instant, so tour time never runs
+  ahead of the real-time timers that recognisers use (a long press is 500 ms
+  of real time). The clock keeps requesting frames, so it ticks even when
+  nothing moves.
+- Each counted frame paints its number in a 4-logical-pixel strip along the
+  bottom edge (`_StampPainter`): white and black reference cells, 13 bits,
+  and a parity bit. The composer decodes every captured frame in order, reads
+  the strip (`read_stamp`), and writes tour frame k from the latest capture
+  stamped k, repeating the previous frame for any number the capture missed
+  (none in the Chromium test). It crops 5 logical pixels off the bottom. This
+  also replaces the magenta sync flash and the host timestamps: markers are in
+  tour milliseconds, which are frame times. The `start` marker carries the
+  logical screen size (`start 440x956@3`), which sizes the strip.
 - simctl's H.264 has B-frames whose decode timestamps run seconds behind
   their presentation timestamps. ffmpeg uses the presentation clock unless
   one frame arrives out of order (a duplicate timestamp is enough), and then
-  quietly switches to the decode clock for the whole file. One take came out
-  with the magenta flash on screen and every step about 2 s early. The
-  composer now decodes the capture with `-fflags +igndts` (`SOURCE`).
-- A headless-Chromium screencast only sends a frame when the page changes,
-  so a static end went missing from drafts. `record_web.cjs` now holds the
-  last frame until recording stopped, and the composer pads a short capture
-  with its last frame.
+  quietly switches to the decode clock for the whole file. Before frame time,
+  one take came out with the sync flash on screen and every step about 2 s
+  early. Frames are now placed by their stamps, but the composer still
+  decodes with `-fflags +igndts` (`SOURCE`) to keep them in presentation
+  order.
+- A headless-Chromium screencast only sends a frame when the page changes.
+  Every counted frame changes the stamp, so each one arrives;
+  `record_web.cjs` keeps them all (`-fps_mode passthrough`).
+- `_type` checks after the last character that the field shows the whole
+  name, so a take where the text never made it into the field fails.
 - The soft keyboard is hidden while the scripted typing runs, so it doesn't
   cover the field close-up.
 
