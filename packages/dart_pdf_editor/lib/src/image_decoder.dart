@@ -41,19 +41,64 @@ Object pdfImageKey(PdfImageRequest request) {
 /// decoded it at: stream identity for an XObject, a value key for an inline
 /// image (whose stream is synthesized fresh on every interpretation pass).
 ///
-/// This is the base the shared cache's key is built on - see [decodeImages],
-/// which qualifies it with the size the image actually ends up at so every
-/// path addressing the same pixels agrees on one entry.
+/// A worker-wire request ([PdfImageRequest.sourceReference]) keys by its bare
+/// object reference here, which carries **no document identity**: `5 0 R` in
+/// one file equals `5 0 R` in any other. That is fine for the per-render maps
+/// keyed through [pdfImageKey] (each belongs to one page of one document), but
+/// a cache that outlives a document must key by
+/// [pdfDocumentImageContentKey] instead.
 Object pdfImageContentKey(PdfImageRequest request) {
   final content = request.sourceReference ??
       (request.isInline ? PdfInlineImageKey(request.stream) : request.stream);
   return request.isLuminosityMask ? (content, true) : content;
 }
 
+/// [pdfImageContentKey] made safe to share across documents: what the shared
+/// [PdfImageCache] (and any other cache that outlives one document) builds on.
+///
+/// A worker-wire request's [PdfImageRequest.sourceReference] is resolved
+/// against [cos] and the image keys by the resolved [CosStream]'s identity -
+/// the xref cache hands back the same instance on every pass of one document,
+/// and the same instance a local interpretation draws, so worker-decoded
+/// pixels and a local decode of the same image still share one entry (#451),
+/// while the same object number in another document (a fresh [CosDocument]
+/// with its own streams) can never collide with it. A reference that does not
+/// resolve to a stream keys by the reference *within [cos]*
+/// ([PdfDocumentImageReference]), never by the bare reference.
+Object pdfDocumentImageContentKey(CosDocument cos, PdfImageRequest request) {
+  final reference = request.sourceReference;
+  if (reference == null) return pdfImageContentKey(request);
+  final resolved = cos.resolve(reference);
+  final Object content = resolved is CosStream
+      ? resolved
+      : PdfDocumentImageReference(cos, reference);
+  return request.isLuminosityMask ? (content, true) : content;
+}
+
+/// An indirect image reference scoped to the [CosDocument] it belongs to: the
+/// fallback [pdfDocumentImageContentKey] uses when the reference does not
+/// resolve to a stream. Equal only for the identical document.
+class PdfDocumentImageReference {
+  PdfDocumentImageReference(this.document, this.reference);
+
+  final CosDocument document;
+  final CosReference reference;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfDocumentImageReference &&
+      identical(other.document, document) &&
+      other.reference == reference;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(document), reference);
+}
+
 /// A content key qualified by a decoded resolution - see [pdfImageKey].
 ///
 /// The wrapped [content] is an inline image's value key ([PdfInlineImageKey])
-/// or an XObject's stream identity ([CosStream]). Two renders that decode the
+/// or an XObject's stream identity ([CosStream]) - in the shared cache always
+/// the document-scoped [pdfDocumentImageContentKey]. Two renders that decode the
 /// same source image to different sizes - a sharp on-screen page and a tiny
 /// preview, or two zoom levels capped to different display resolutions - must
 /// not evict or stand in for each other in the shared [PdfImageCache]; folding
@@ -148,11 +193,16 @@ int pdfDecodedImageBytes(ui.Image image) {
 /// eviction dropping the master) can never pull pixels out from under a
 /// recorded picture that is still painting.
 ///
-/// Keys are image identity: an XObject keys by its [CosStream] (the xref
-/// cache returns the same instance across passes and renders of one
-/// document), an inline image by its content ([PdfInlineImageKey]). A new
-/// document revision opens fresh streams, so its images miss and re-decode;
-/// the dead entries age out under the byte budget. Decoded pixels vary
+/// Keys are image identity ([pdfDocumentImageContentKey]): an XObject keys by
+/// its [CosStream] (the xref cache returns the same instance across passes and
+/// renders of one document), an inline image by its content
+/// ([PdfInlineImageKey]). A worker-wire request, which carries only an object
+/// reference, is resolved against its document first and keys by that stream
+/// too - never by the bare [CosReference], which is the same `5 0 R` in every
+/// file and once let one scan stand in for another from the same scanner.
+/// Another document, or a revision that redefines an image, has fresh
+/// streams, so its images miss and re-decode; the dead entries age out under
+/// the byte budget. Decoded pixels vary
 /// enormously in size (a thumbnail icon vs. a full-page scan), so eviction
 /// is by total decoded bytes ([maxBytes]), oldest-touched first, not by a
 /// flat entry count.
@@ -378,14 +428,17 @@ Future<Map<Object, ui.Image>> decodeImages(
     // cached twice under different keys - and a record whose pixels were
     // dropped would miss the entry its own decode had populated. They happened
     // to coincide whenever the cap was a no-op, which hid it.
+    //
+    // The content key is the *resolved* stream ([pdfDocumentImageContentKey]),
+    // not the request's source reference: a reference has no document
+    // identity, so keying by it let document B's `5 0 R` hit document A's
+    // pixels. The local path draws that same xref-cached stream instance, so
+    // the two paths still meet on one entry.
+    final content = pdfDocumentImageContentKey(cos, sourceRequest);
     final size = _decodedSize(cos, sourceRequest, target);
     final cacheKey = size == null
-        ? key
-        : PdfSizedImageKey(
-            pdfImageContentKey(sourceRequest),
-            size.$1,
-            size.$2,
-          );
+        ? (request.sourceReference == null ? key : content)
+        : PdfSizedImageKey(content, size.$1, size.$2);
     final hit = cache?.take(cacheKey);
     if (hit != null) {
       cacheHits++;

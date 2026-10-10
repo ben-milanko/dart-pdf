@@ -92,7 +92,12 @@ export 'src/l10n/editor_localizations.dart';
 export 'src/legacy/legacy_host_bridge.dart' show kPdfLegacyMaterialBridge;
 export 'src/l10n/pdf_l10n.dart';
 export 'src/image_decoder.dart'
-    show PdfImageCache, pdfImageContentKey, pdfGpuSoftMaskOf;
+    show
+        PdfDocumentImageReference,
+        PdfImageCache,
+        pdfDocumentImageContentKey,
+        pdfImageContentKey,
+        pdfGpuSoftMaskOf;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
