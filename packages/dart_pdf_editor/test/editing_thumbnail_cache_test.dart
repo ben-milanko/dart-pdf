@@ -1235,6 +1235,7 @@ class _ImmediateWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async =>
       [PdfSaveCommand(), PdfRestoreCommand()];
 
@@ -1269,6 +1270,7 @@ class _HeldFirstWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     calls++;
     if (calls == 1) {
@@ -1305,6 +1307,7 @@ class _DecliningWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async =>
       null;
 

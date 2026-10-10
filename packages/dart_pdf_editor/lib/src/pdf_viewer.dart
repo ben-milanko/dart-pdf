@@ -2130,6 +2130,18 @@ class _PdfViewerState extends State<PdfViewer>
   /// warming should record vector/text only and skip image decodes.
   bool _vectorFirstPrefetch = false;
 
+  /// This scroll burst has already rasterized its one in-motion vector
+  /// preview (#998).
+  ///
+  /// The worker records a motion preview off-thread, but its replay and
+  /// CanvasKit readback are UI-thread work - 67-175 ms on a plan sheet, landing
+  /// inside the wheel frames they were meant to protect. Pages entering the
+  /// viewport render through the scroll on their own (motion-safe renders), so
+  /// a motion preview only earns its frame for a page that would otherwise
+  /// arrive with nothing to paint, and only once per burst; everything else
+  /// waits for the settle. Reset when a burst starts and when it settles.
+  bool _motionPreviewSpent = false;
+
   /// The editing controller's [PdfEditingController.pageRenderStamp] for
   /// each page as of the displayed revision - the content the cached
   /// previews (and on-screen rasters) reflect. A same-geometry edit swap
@@ -3160,6 +3172,7 @@ class _PdfViewerState extends State<PdfViewer>
     _scrollSettleTimer = null;
     _scrollSamples.clear();
     _vectorFirstPrefetch = false;
+    _motionPreviewSpent = false;
     _renderScheduler.slowMotion = false;
     _setSlowScrollRasterWarmDirection(0);
     // A programmatic jump may have reached its scroll offset before the
@@ -3473,6 +3486,12 @@ class _PdfViewerState extends State<PdfViewer>
                     targetLongestSide: null) !=
                 null;
         final vectorOnly = motionVector || policyVector;
+        // A list scroll in flight: its motion preview is budgeted (see
+        // [_motionPreviewSpent]). Each scroll event re-enters this loop and the
+        // settle restarts it, so returning here drops nothing.
+        final listMotion =
+            motionVector && (_scrollSettleTimer?.isActive ?? false);
+        if (listMotion && _motionPreviewSpent) return;
         if (!vectorOnly &&
             (_renderScheduler.holding ||
                 (_scrollSettleTimer?.isActive ?? false))) {
@@ -3503,7 +3522,9 @@ class _PdfViewerState extends State<PdfViewer>
           // readback (~60-80ms on web); doing that six pages ahead caused
           // visible 50ms scroll frames without helping the active viewport.
           maxDistance: motionVector ? 1 : null,
+          blankOnly: listMotion,
         );
+        if (listMotion && index == null) return;
         // Base coverage always wins: the 200px level is the only one cheap
         // enough to be the immediate fallback everywhere. Once it is covered,
         // promote the near working set one geometric level at a time. Never
@@ -3543,6 +3564,9 @@ class _PdfViewerState extends State<PdfViewer>
         final alsoFill =
             _ladderRungsFor(index, targetLongestSide, vectorOnly: vectorOnly);
         var deferredPreview = false;
+        // This preview has started its replay with the burst's budget.
+        var motionGranted = false;
+        final previewIndex = index;
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
@@ -3562,12 +3586,26 @@ class _PdfViewerState extends State<PdfViewer>
           // of the page the user requested. Command-limited vector
           // previews retain their scroll-specific gate because supplying
           // those pixels while a list scrolls is their purpose.
+          final inListMotion = vectorOnly &&
+              !motionGranted &&
+              (_scrollSettleTimer?.isActive ?? false);
           final defer = !mounted ||
               generation != _previewScheduleGeneration ||
               (vectorOnly
-                  ? _previewUiMustDefer
+                  ? _previewUiMustDefer ||
+                      // The burst's one preview went to another page, or this
+                      // one painted itself while the worker recorded.
+                      (inListMotion &&
+                          (_motionPreviewSpent || _previews.has(previewIndex)))
                   : _renderScheduler.busy || _motionRenderHoldActive);
           deferredPreview |= defer;
+          // The first undeferred check is where the replay starts: spend the
+          // burst's budget there, and let this preview's later checks through
+          // rather than abandon it half-way.
+          if (!defer && inListMotion) {
+            _motionPreviewSpent = true;
+            motionGranted = true;
+          }
           return defer;
         });
         if (targetLongestSide != null &&
@@ -3689,7 +3727,8 @@ class _PdfViewerState extends State<PdfViewer>
       {required bool requireImages,
       required bool allowNearViewport,
       int? maxDistance,
-      double? targetLongestSide}) {
+      double? targetLongestSide,
+      bool blankOnly = false}) {
     if (targetLongestSide != null &&
         (!widget.pagePreviewLodPolicy.enabled ||
             widget.pagePreviewLodPolicy.intermediateWindow == 0 ||
@@ -3746,6 +3785,8 @@ class _PdfViewerState extends State<PdfViewer>
       )) {
         continue;
       }
+      // Any preview, even a stale revision's, is something to paint.
+      if (blankOnly && _previews.has(i)) continue;
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
@@ -4139,6 +4180,7 @@ class _PdfViewerState extends State<PdfViewer>
       // hold (see the opening grace below).
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
+      _motionPreviewSpent = false;
       _beginMotionRenderHold();
       _vectorFirstPrefetch = _effectiveRenderWorker?.isActive ?? false;
       return;

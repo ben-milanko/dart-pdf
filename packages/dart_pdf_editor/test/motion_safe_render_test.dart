@@ -34,7 +34,8 @@ class _SyncWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     if (decline) return null;
     final page = _doc.page(pageIndex);
@@ -51,8 +52,19 @@ class _SyncWorker extends PdfRenderWorker {
         imagePlaceholders: !decodeImages,
         commandLimit: commandLimit,
         compactStateScopes: true);
-    return bytes == null ? null : deserializeCommands(bytes);
+    if (bytes == null) return null;
+    // Honour the decode gate the way the platform workers do (#998): the
+    // reply's size is read from its header, and the decode waits for it.
+    if (decodeGate != null) {
+      final count = serializedCommandCount(bytes);
+      if (count != null && !await decodeGate(count)) return null;
+    }
+    decodes++;
+    return deserializeCommands(bytes);
   }
+
+  /// Replies decoded on the test isolate so far.
+  int decodes = 0;
 
   @override
   void cancel(int pageIndex, {int priority = 0}) {}
@@ -84,9 +96,10 @@ void main() {
     required bool holding,
     bool activeGesture = false,
     bool workerDeclines = false,
+    _SyncWorker? worker,
   }) async {
     final document = PdfDocument.open(bytes);
-    final worker = _SyncWorker(bytes, decline: workerDeclines);
+    worker ??= _SyncWorker(bytes, decline: workerDeclines);
     addTearDown(worker.dispose);
     final scheduler = PdfPageRenderScheduler()
       ..holding = holding
@@ -319,6 +332,50 @@ void main() {
     }
     expect(painted(tester), isTrue);
     expect(scheduler.holding, isTrue);
+  });
+
+  testWidgets('a large worker reply is not even decoded during live input',
+      (tester) async {
+    // #998: the decode is UI-isolate work too - a plan sheet's ~70k ops. A
+    // reply whose header already says it is too big to replay mid-gesture
+    // waits for its UI turn *before* it is decoded, then spends that same turn
+    // on the replay instead of queueing for a second one.
+    final previous = PdfPageView.motionSafeMaxCommands;
+    PdfPageView.motionSafeMaxCommands = 0;
+    addTearDown(() => PdfPageView.motionSafeMaxCommands = previous);
+    final bytes = buildClassicPdf();
+    final worker = _SyncWorker(bytes);
+    addTearDown(worker.dispose);
+    final scheduler = await pumpPage(tester, bytes,
+        holding: true, activeGesture: true, worker: worker);
+    for (var i = 0; i < 6; i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isFalse);
+    expect(worker.decodes, 0,
+        reason: 'the reply arrived, but decoding it inside the gesture only '
+            'to hold its replay is the wasted frame');
+
+    scheduler.activeGesture = false;
+    for (var i = 0; i < 10 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue);
+    expect(worker.decodes, 1);
+  });
+
+  testWidgets('a small worker reply decodes on arrival', (tester) async {
+    final bytes = buildClassicPdf();
+    final worker = _SyncWorker(bytes);
+    addTearDown(worker.dispose);
+    await pumpPage(tester, bytes,
+        holding: true, activeGesture: true, worker: worker);
+    for (var i = 0; i < 20 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue,
+        reason: 'a few dozen commands still render through live input');
+    expect(worker.decodes, greaterThan(0));
   });
 
   testWidgets('with no worker a small page renders in the scroll-quiet window',

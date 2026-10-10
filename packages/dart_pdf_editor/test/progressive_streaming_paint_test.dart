@@ -207,7 +207,8 @@ class _StreamProbeWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (imageDecodeRegion == null) {
       baseRecordHadPartial.add(onPartial != null);
       baseDecodeImages.add(decodeImages);

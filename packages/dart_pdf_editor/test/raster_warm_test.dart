@@ -1115,6 +1115,7 @@ class _RecordingWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     recorded.add(pageIndex);
     priorities.add(priority);
@@ -1158,6 +1159,7 @@ class _MultiPageRecordingWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
       return null;
@@ -1192,6 +1194,7 @@ class _DecliningWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async =>
       null;
 
