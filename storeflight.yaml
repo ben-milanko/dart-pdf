@@ -1,5 +1,6 @@
 # DartPDF production release configuration. Shorebird is not enabled.
-schema: 1
+# Older clients must reject this configuration, not silently ignore its guards.
+schema: 2
 
 app:
   root: app
@@ -117,16 +118,21 @@ profiles:
     wait: true
     destinations:
       apple:
+        # Binary releases carry forward live platform-specific listing text.
+        # Deliberate copy updates use the separate `storeflight metadata` command.
+        release_listing_policy: preserve
+        protect_product_page_tests: true
         bundle_id_ios: dev.milanko.dartpdf
         bundle_id_macos: dev.milanko.dartpdf
         platforms: [ios, macos]
         submit_for_review: true
         release_after_approval: automatic
         credentials:
-          key_id: [keychain:trax-asc-key-id, env:ASC_API_KEY_ID]
-          issuer_id: [keychain:trax-asc-issuer-id, env:ASC_API_ISSUER_ID]
-          private_key: [file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8, env:ASC_API_KEY_P8]
+          key_id: ["keychain:trax-asc-key-id", "env:ASC_API_KEY_ID"]
+          issuer_id: ["keychain:trax-asc-issuer-id", "env:ASC_API_ISSUER_ID"]
+          private_key: ["file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8", "env:ASC_API_KEY_P8"]
       google_play:
+        release_listing_policy: preserve
         package: dev.milanko.dartpdf
         track: production
         release_status: completed
@@ -137,7 +143,7 @@ profiles:
         managed_publishing: false
         allow_standard_publishing: true
         credentials:
-          service_account: [file:app/.secrets/google-play-service-account.json, env:PLAY_STORE_SERVICE_ACCOUNT_JSON]
+          service_account: ["file:app/.secrets/google-play-service-account.json", "env:PLAY_STORE_SERVICE_ACCOUNT_JSON"]
       microsoft_store:
         product_id: 9N071VSV6RGK
         submit_for_review: true
@@ -202,13 +208,13 @@ profiles:
         idempotency_check: >-
           curl -fsSL https://dartpdf-flatpak.web.app/version.json |
           grep -F '"{version}"'
-        status_command: [curl, --fail, --silent, https://dartpdf-flatpak.web.app/version.json]
+        status_command: [curl, --fail, --silent, "https://dartpdf-flatpak.web.app/version.json"]
         verify:
           command: [../tool/storeflight/verify-flatpak-install.sh, "{version}"]
           contains: "{version}"
       web:
-        deploy_command: [firebase, deploy, --config, firebase.json, --only, hosting:dartpdf-app]
-        status_command: [curl, --fail, --silent, https://app.dart-pdf.com/version.json]
+        deploy_command: [firebase, deploy, --config, firebase.json, --only, "hosting:dartpdf-app"]
+        status_command: [curl, --fail, --silent, "https://app.dart-pdf.com/version.json"]
         verify:
           url: https://app.dart-pdf.com/version.json
           contains: "{version}"
