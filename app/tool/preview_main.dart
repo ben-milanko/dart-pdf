@@ -394,8 +394,8 @@ class _Tour {
     await _pause(450);
     _probeKeys('page grid');
     await _edit('the page move', () => _reorder(from: 2, before: 1));
-    // Hold on the new order: the grid swaps the pages in a single frame, so
-    // the result needs a beat on screen to read as a move.
+    // Hold on the new order: the grid slides every page to its new place,
+    // and the result needs a beat on screen after that to read as a move.
     hand.hide();
     await _pause(1200);
     _unfocus();
