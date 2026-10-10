@@ -1616,8 +1616,9 @@ void main() {
     }
 
     PdfDecodedPixels solid(List<int> rgb) => PdfDecodedPixels(
-          Uint8List.fromList(
-              [for (var i = 0; i < side * side; i++) ...rgb, 255]),
+          Uint8List.fromList([
+            for (var i = 0; i < side * side; i++) ...[...rgb, 255]
+          ]),
           side,
           side,
         );
