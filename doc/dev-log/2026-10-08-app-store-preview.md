@@ -95,6 +95,12 @@ preview).
   that frame (60 fps scan) and anchors every marker to it. A recording without
   the flash fails unless `--no-sync` is passed. The warm-up is now 20 s, and
   the recorder waits up to 30 s for simctl.
+- simctl's H.264 has B-frames whose decode timestamps run seconds behind
+  their presentation timestamps. ffmpeg uses the presentation clock unless
+  one frame arrives out of order (a duplicate timestamp is enough), and then
+  quietly switches to the decode clock for the whole file. One take came out
+  with the magenta flash on screen and every step about 2 s early. The
+  composer now decodes the capture with `-fflags +igndts` (`SOURCE`).
 - A headless-Chromium screencast only sends a frame when the page changes,
   so a static end went missing from drafts. `record_web.cjs` now holds the
   last frame until recording stopped, and the composer pads a short capture

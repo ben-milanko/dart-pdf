@@ -159,6 +159,12 @@ def caption(w, band, head, sub):
 
 # ------------------------------------------------------------------ sync
 SYNC_FPS = 60
+# simctl writes B-frames whose decode timestamps run up to seconds behind
+# their presentation timestamps. ffmpeg times frames by presentation unless
+# it sees one out of order (a duplicate is enough), and then silently falls
+# back to the decode clock for the whole file, which squeezes every pause and
+# lands the cut seconds off. Always read the presentation clock.
+SOURCE = ["-fflags", "+igndts"]
 
 
 def find_sync(video):
@@ -170,7 +176,8 @@ def find_sync(video):
     Returns None when there is no flash (an older recording).
     """
     decode = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-i", video, "-vf", f"fps={SYNC_FPS},scale=8:16",
+        ["ffmpeg", "-v", "error", *SOURCE, "-i", video,
+         "-vf", f"fps={SYNC_FPS},scale=8:16",
          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE)
     size = 8 * 16 * 3
@@ -302,7 +309,7 @@ def render_screen(video, start, length, speed, size, keys, out):
     cw, ch = probe_size(video)
     sw, sh = size
     decode = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
+        ["ffmpeg", "-v", "error", *SOURCE, "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
          "-i", video, "-vf", f"setpts=(PTS-STARTPTS)/{speed},fps={FPS}",
          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE)
