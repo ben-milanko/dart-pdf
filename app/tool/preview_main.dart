@@ -394,30 +394,51 @@ class _Tour {
     await _pause(450);
     _probeKeys('page grid');
     await _edit('the page move', () => _reorder(from: 2, before: 1));
-    await _pause(550);
+    // Hold on the new order: the grid swaps the pages in a single frame, so
+    // the result needs a beat on screen to read as a move.
+    hand.hide();
+    await _pause(1200);
     _unfocus();
+    await _pause(300);
     await hand.tap(await _waitFor('pdf-shell-controls'));
     _sfx('click');
     await hand.tap(await _waitFor('pdf-shell-view-mode-pages'));
     _sfx('swoosh', 0.5);
     await _pause(400);
 
-    // 4. Sign with a finger on the signature line.
+    // 4. Sign: draw a signature on the signature pad, then drop it on the
+    // signature line.
     _caption('sign');
-    await _chooseTool('draw', 'pdf-tool-ink', color: _signatureInk);
-    _probeKeys('ink tool');
-    _focus(
-        _at((PreviewLayout.signatureFrom + PreviewLayout.signatureTo) / 2 - 20,
-            PreviewLayout.signatureLineY + 14),
-        1.8);
+    final pad = await _openSignaturePad();
+    _focus(pad.center, 1.35);
     await _pause(250);
-    _sfx('pen', 1.15, 200);
-    await _edit(
-        'the signature',
-        () => hand.drag(_signature(), const Duration(milliseconds: 1150),
-            curve: Curves.easeInOutSine));
+    // The pad starts in the last tool colour (the highlighter's yellow).
+    await hand.tap(await _waitFor('pdf-signature-ink-1a3e8c'));
+    _sfx('tick');
+    await _pause(200);
+    final strokes = _signature(pad.deflate(pad.shortestSide * 0.14));
+    _sfx('pen', 1.0, 120);
+    await hand.drag(strokes.first, const Duration(milliseconds: 1000),
+        curve: Curves.easeInOutSine);
+    _sfx('pen', 0.35, 120);
+    await hand.drag(strokes.last, const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic);
+    await _pause(250);
+    await hand.tap(await _waitFor('pdf-signature-done'));
+    _sfx('click');
+    _unfocus();
+    await _closeToolSheet('insert');
+    await _pause(200);
+    // Placed centred on the tap, so aim a little above the line.
+    final line = _at(
+        (PreviewLayout.signatureFrom + PreviewLayout.signatureTo) / 2,
+        PreviewLayout.signatureLineY + 16);
+    _focus(line, 1.8);
+    await _pause(500);
+    await _edit('the signature', () => hand.tap(line));
+    _sfx('thunk');
     hand.hide();
-    await _pause(250);
+    await _pause(700);
     // Pull back so the closing (poster) frame shows every edit on the page.
     _unfocus();
     await _pause(250);
@@ -431,34 +452,85 @@ class _Tour {
         'without a raster report');
   }
 
-  /// A slanted cursive signature over the signature line, in global
-  /// coordinates: joined loops of uneven height and width (a capital, then
-  /// lower-case letters with two ascenders) and an underline flourish.
-  List<Offset> _signature() {
-    const base = PreviewLayout.signatureLineY + 4;
+  /// A slanted cursive signature fitted into [box] (global coordinates), as
+  /// two pen strokes: joined loops of uneven height and width (a capital,
+  /// then lower-case letters with two ascenders), then an underline flourish.
+  List<List<Offset>> _signature(Rect box) {
     const letters = [
       (34.0, 16.0), (11.0, 9.0), (8.0, 8.0), (20.0, 10.0), (8.0, 7.0), //
       (10.0, 9.0), (26.0, 11.0), (8.0, 8.0), (7.0, 10.0),
     ];
-    final points = <Offset>[];
-    var x = PreviewLayout.signatureFrom + 16;
+    // Drawn y-up, then fitted into [box] (y-down) keeping its proportions.
+    final name = <Offset>[];
+    var x = 16.0;
     for (final (height, width) in letters) {
       for (var k = 0; k <= 18; k++) {
         final t = k / 18 * 2 * math.pi;
         final y = height * (1 - math.cos(t)) / 2;
-        points.add(_at(
-            x + width * k / 18 - width * 0.45 * math.sin(t) + 0.3 * y,
-            base + y));
+        name.add(Offset(
+            x + width * k / 18 - width * 0.45 * math.sin(t) + 0.3 * y, y));
       }
       x += width;
     }
     final end = x;
-    for (var i = 1; i <= 26; i++) {
-      final t = i / 26;
-      points.add(_at(end + 6 - t * (end - PreviewLayout.signatureFrom - 4),
-          base - 5 - math.sin(t * math.pi) * 4));
+    final flourish = [
+      for (var i = 0; i <= 26; i++)
+        Offset(
+            end + 6 - i / 26 * (end - 4), -9 - math.sin(i / 26 * math.pi) * 4),
+    ];
+    final all = [...name, ...flourish];
+    final left = all.map((p) => p.dx).reduce(math.min);
+    final right = all.map((p) => p.dx).reduce(math.max);
+    final bottom = all.map((p) => p.dy).reduce(math.min);
+    final top = all.map((p) => p.dy).reduce(math.max);
+    final scale =
+        math.min(box.width / (right - left), box.height / (top - bottom));
+    final origin = box.center -
+        Offset((right - left) * scale / 2, -(top - bottom) * scale / 2);
+    Offset fit(Offset p) =>
+        origin + Offset((p.dx - left) * scale, -(p.dy - bottom) * scale);
+    return [name.map(fit).toList(), flourish.map(fit).toList()];
+  }
+
+  /// Opens Tools > Insert > Signature, which (with no signature saved yet)
+  /// opens the signature pad; returns the pad's rect.
+  Future<Rect> _openSignaturePad() async {
+    await hand.tap(await _waitFor('pdf-tools-handle'));
+    _sfx('click');
+    await _pause(350);
+    // The tab row scrolls sideways and Insert starts off the right edge:
+    // swipe it into view, as a person would.
+    await _waitFor('pdf-group-tab-markup');
+    if (_rectsOf('pdf-group-tab-insert').isEmpty) {
+      final row = _rectsOf('pdf-group-tab-markup').first;
+      final width = _screenSize.width;
+      await hand.drag([
+        Offset(width * 0.85, row.center.dy),
+        Offset(width * 0.3, row.center.dy),
+      ], const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+      await _pause(300);
     }
-    return points;
+    await hand.tap(await _waitFor('pdf-group-tab-insert'));
+    _sfx('tick');
+    await _pause(300);
+    _probeKeys('insert tools');
+    await hand.tap(await _waitFor('pdf-tool-signature'));
+    _sfx('tick');
+    await _waitFor('pdf-signature-pad');
+    return _rectsOf('pdf-signature-pad').first;
+  }
+
+  /// Dismisses the Tools sheet if a tool tile left it open (through the
+  /// scrim above it), once the pad dialog is gone.
+  Future<void> _closeToolSheet(String group) async {
+    for (var i = 0; i < 30 && _rectsOf('pdf-signature-pad').isNotEmpty; i++) {
+      await _pause(60);
+    }
+    await _pause(250);
+    if (_rectsOf('pdf-group-tab-$group').isNotEmpty) {
+      await hand.tap(const Offset(24, 140));
+      await _pause(350);
+    }
   }
 
   Future<void> _type(String text) async {
@@ -602,9 +674,6 @@ Size get _screenSize {
   final view = WidgetsBinding.instance.platformDispatcher.views.first;
   return view.physicalSize / view.devicePixelRatio;
 }
-
-/// The toolbar palette's blue, for the signature.
-const _signatureInk = Color(0xFF1E88E5);
 
 Future<void> _pause(int ms) => _time.wait(Duration(milliseconds: ms));
 

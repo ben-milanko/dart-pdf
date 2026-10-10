@@ -53,7 +53,7 @@ CAPTIONS = {
     "highlight": ("Highlight what matters", "Mark up any PDF with a swipe."),
     "fill": ("Fill in forms", "Type straight into the fields."),
     "organize": ("Rearrange pages", "Drag pages into the order you want."),
-    "sign": ("Sign with your finger", "Right on the signature line."),
+    "sign": ("Sign with your finger", "Draw it once, then place it anywhere."),
     "done": ("Private by design", "No account, no ads, no uploads."),
 }
 

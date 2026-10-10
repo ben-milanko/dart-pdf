@@ -143,6 +143,22 @@ preview).
   runs ahead of real time. The tour also finds the form editor by its key
   (`pdf-form-text-editor`) and waits for it, rather than looking for the
   focused field.
+- The sign chapter uses the signature pad: Tools, then the Insert tab, then
+  Signature. With no signature saved yet, that opens the pad dialog
+  (`pdf-signature-pad`). The tool sheet's tab row scrolls sideways and Insert
+  starts off the right edge, so the hand swipes the row first. The pad starts
+  in the last tool colour (the highlighter's yellow), so the tour picks the
+  navy preset (`pdf-signature-ink-1a3e8c`). It signs in two strokes (name,
+  then underline), taps Done, closes the sheet through its scrim, and taps the
+  signature line to place it. The placement is centred on the tap, so the tap
+  aims 16 pt above the line.
+- The page grid swaps pages in a single frame, so the tour holds on the new
+  order for 1.2 s before leaving the grid. With only half a second, the move
+  read as nothing having happened.
+- Web drafts: serve the build on 127.0.0.1 and bypass the proxy
+  (`NO_PROXY=localhost,127.0.0.1`). With the local server down, a
+  `localhost` URL went out through the session proxy and reached another
+  server's stale build.
 - `_type` checks after the last character that the field shows the whole
   name, so a take where the text never made it into the field fails.
 - The system keyboard is switched off for the scripted typing:
