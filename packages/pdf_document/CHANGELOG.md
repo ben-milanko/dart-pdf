@@ -1,5 +1,10 @@
 # Changelog
 
+## 8.1.0
+
+- Add `PdfEditor.setChoiceFieldStyle` to change dropdown and list-box fonts, size, colour and alignment while regenerating their appearances.
+- Align dependencies with the dart-pdf 8.1.0 suite.
+
 ## 8.0.0
 
 - Insert pages from multiple source documents, with interleaving, page choices and bookmarks.

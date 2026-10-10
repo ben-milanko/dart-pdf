@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="8.1.0" date="2026-10-10">
+      <description><p>Style dropdown form fields, edit text more reliably, and improve mobile menus and Linux compatibility.</p></description>
+    </release>
     <release version="8.0.0" date="2026-10-09">
       <description>
         <p>Combine and interleave documents, capture polygon snapshots, add multiple callout arrows and bulk-edit form fields. Faster scan decoding and clearer tab previews.</p>

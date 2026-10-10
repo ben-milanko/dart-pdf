@@ -1,5 +1,9 @@
 # Changelog
 
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
 ## 8.0.0
 
 - Optimize image-mask compositing and scan decoding without changing decoded pixels.

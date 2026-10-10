@@ -1,6 +1,6 @@
 name: pdf_viewer_example
 description: Example PDF viewer built on dart_pdf_editor.
-version: 8.0.0+44
+version: 8.1.0+45
 publish_to: none
 resolution: workspace
 
@@ -18,13 +18,13 @@ dependencies:
     sdk: flutter
   intl: ^0.20.2
   material_ui: ^1.4.0
-  pdf_document: ^8.0.0
-  pdf_graphics: ^8.0.0
-  dart_pdf_editor: ^8.0.0
-  dart_pdf_editor_flutter_gpu: ^0.7.0
+  pdf_document: ^8.1.0
+  pdf_graphics: ^8.1.0
+  dart_pdf_editor: ^8.1.0
+  dart_pdf_editor_flutter_gpu: ^0.7.1
   # Optional bundled editor fonts + web render worker (registered in main()).
-  dart_pdf_editor_assets: ^8.0.0
-  pdf_ocr_vlm: ^8.0.0
+  dart_pdf_editor_assets: ^8.1.0
+  pdf_ocr_vlm: ^8.1.0
   share_plus: ^13.3.1
   url_launcher: ^6.3.3
   web: ^1.1.0

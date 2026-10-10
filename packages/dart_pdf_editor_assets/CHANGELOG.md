@@ -1,5 +1,9 @@
 # Changelog
 
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
 ## 8.0.0
 
 - Align with dart_pdf_editor 8.0.0 and regenerate the bundled render worker with annotation subtype filtering.
