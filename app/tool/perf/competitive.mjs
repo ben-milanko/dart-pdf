@@ -92,6 +92,13 @@ const iterations = Number(opt('--iterations', '3'));
 const timeoutMs = Number(opt('--timeout', '300000'));
 const port = Number(opt('--port', process.env.PERF_PORT ?? '8100'));
 const browserCooldownMs = Number(process.env.PERF_BROWSER_COOLDOWN_MS ?? 0);
+// Which engines to run: both by default. `PERF_ENGINES=dart-pdf` runs DartPDF
+// alone - an A/B of two DartPDF builds (a bisect) needs no PDFium side, and
+// its ratios are then simply absent.
+const engines = (process.env.PERF_ENGINES ?? 'dart-pdf,pdfium')
+  .split(',')
+  .map((engine) => engine.trim())
+  .filter(Boolean);
 // The Chrome build both engines must run on (#999); see chromeVersionMismatch.
 const expectedChrome = process.env.PERF_EXPECT_CHROME?.trim() || null;
 const headless = !has('--headed') && process.env.PERF_HEADLESS !== 'false';
@@ -2256,9 +2263,9 @@ async function main() {
     // Alternate order each iteration to distribute temperature/background
     // drift rather than always handing one engine the cold machine.
     for (let index = 0; index < iterations; index++) {
-      const order = index % 2 === 0
+      const order = (index % 2 === 0
         ? ['dart-pdf', 'pdfium']
-        : ['pdfium', 'dart-pdf'];
+        : ['pdfium', 'dart-pdf']).filter((engine) => engines.includes(engine));
       for (const engine of order) {
         console.log(`\n── iteration ${index + 1}/${iterations}: ${engine}`);
         server.resetStats();
