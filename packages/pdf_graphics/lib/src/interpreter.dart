@@ -3181,6 +3181,7 @@ class PdfInterpreter {
           letterSpacing: size == 0 ? 0 : _state.charSpacing / size,
           wordSpacing: size == 0 || font.isCid ? 0 : _state.wordSpacing / size,
           fontName: font.baseFont,
+          serif: font.isSerif,
           fontSize: size,
           glyphs: glyphs,
           charOffsets: charOffsets,

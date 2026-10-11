@@ -773,11 +773,23 @@ class PdfPageView extends StatefulWidget {
 }
 
 class _PendingWorkerRecord {
-  const _PendingWorkerRecord(this.commands, this.imageRatio, this.waitClock);
+  const _PendingWorkerRecord(
+      this.commands, this.imageRatio, this.waitClock, this.turn);
 
   final Future<List<PdfRenderCommand>?> commands;
   final double imageRatio;
   final Stopwatch? waitClock;
+
+  /// The UI turn the record's decode gate may already have taken.
+  final _DecodeTurn turn;
+}
+
+/// One record reply's UI turn, taken early by a decode gate when the reply
+/// was too big to decode during motion (see
+/// `_PdfPageViewState._motionDecodeGate`) and spent by the replay that
+/// follows.
+class _DecodeTurn {
+  bool granted = false;
 }
 
 class _PdfPageViewState extends State<PdfPageView>
@@ -2785,20 +2797,37 @@ class _PdfPageViewState extends State<PdfPageView>
   Future<bool> _paceWorkerUiWork({
     bool replacePending = true,
     List<PdfRenderCommand>? commands,
+    _DecodeTurn? turn,
   }) async {
-    if (commands != null && !_recordAllowsMotionReplay(commands)) {
-      // The worker already paid the unknown walk/decode away from the UI
-      // isolate. A large replay still must not land in a fast wheel/drag
-      // frame, but it can sharpen during sustained slow motion; waiting the
-      // remaining 500 ms settle insurance after input has stopped is also pure
-      // visible latency.
-      _motionSafePass = PdfPageView.motionSafeRenders
-          ? PdfRenderMotionClass.slow
-          : PdfRenderMotionClass.held;
-      _recordKnownHeld = true;
+    // The decode gate already waited for this reply's turn - spend it rather
+    // than queue for a second one a frame later. A turn that was replaced or
+    // cancelled while it waited falls through to the ordinary wait.
+    if (turn != null && turn.granted) {
+      turn.granted = false;
+      return true;
     }
+    if (commands != null && !_recordAllowsMotionReplay(commands)) {
+      _markRecordMotionHeld();
+    }
+    return _requestUiTurn(replacePending: replacePending);
+  }
+
+  /// A record's buffer has come back too big to replay inside fast input.
+  void _markRecordMotionHeld() {
+    // The worker already paid the unknown walk/decode away from the UI
+    // isolate. A large replay still must not land in a fast wheel/drag
+    // frame, but it can sharpen during sustained slow motion; waiting the
+    // remaining 500 ms settle insurance after input has stopped is also pure
+    // visible latency.
+    _motionSafePass = PdfPageView.motionSafeRenders
+        ? PdfRenderMotionClass.slow
+        : PdfRenderMotionClass.held;
+    _recordKnownHeld = true;
+  }
+
+  Future<bool> _requestUiTurn({required bool replacePending}) {
     final scheduler = widget.renderScheduler;
-    if (scheduler == null) return true;
+    if (scheduler == null) return Future<bool>.value(true);
     // renderPriority includes large visibility boosts (for example -1000),
     // while PdfPageRenderScheduler.focus is a real page index. Comparing the
     // two made completion ordering effectively arbitrary. The state token
@@ -2810,6 +2839,30 @@ class _PdfPageViewState extends State<PdfPageView>
       replacePending: replacePending,
       motion: _motionSafePass,
     );
+  }
+
+  /// A [PdfRecordDecodeGate] for a page record whose buffer will be replayed
+  /// through [_paceWorkerUiWork] with [turn] (#998).
+  ///
+  /// A worker reply is decoded on this isolate before anything can weigh it,
+  /// and a plan sheet's ~70k ops is tens of milliseconds of decode - which
+  /// used to land inside the scroll only for [_recordAllowsMotionReplay] to
+  /// then send the replay to the settle anyway. The command count is in the
+  /// buffer header, so a reply already known to be too big takes its UI turn
+  /// first and decodes inside it. Smaller replies decode at once: their size
+  /// is not the answer yet (image pixels still decide), and their decode is
+  /// cheap. The gate never vetoes - the reply is shared through the caching
+  /// worker - it only moves the decode.
+  PdfRecordDecodeGate? _motionDecodeGate(_DecodeTurn turn) {
+    if (!PdfPageView.motionSafeRenders || widget.renderScheduler == null) {
+      return null;
+    }
+    return (count) async {
+      if (count <= PdfPageView.motionSafeMaxCommands || !mounted) return true;
+      _markRecordMotionHeld();
+      turn.granted = await _requestUiTurn(replacePending: true);
+      return true;
+    };
   }
 
   bool get _usesWebWorkerSurface {
@@ -2868,6 +2921,7 @@ class _PdfPageViewState extends State<PdfPageView>
       // visible region for sharper zoom).
       final imageRatio = pendingWorkerRecord?.imageRatio ?? _imageRatioTarget();
       _pictureImageRatio = imageRatio;
+      final turn = pendingWorkerRecord?.turn ?? _DecodeTurn();
       final commands = await (pendingWorkerRecord?.commands ??
           worker!.record(
             pageIndex,
@@ -2875,6 +2929,7 @@ class _PdfPageViewState extends State<PdfPageView>
             hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             priority: widget.renderPriority,
             imagePixelRatio: imageRatio,
+            decodeGate: _motionDecodeGate(turn),
           ));
       // The wait phase ends when the record reply lands; the build phase is
       // everything after - decoding images that shipped un-decoded and
@@ -2908,7 +2963,7 @@ class _PdfPageViewState extends State<PdfPageView>
         }
 
         if (deferOffscreenReplay()) return null;
-        if (!await _paceWorkerUiWork(commands: commands) ||
+        if (!await _paceWorkerUiWork(commands: commands, turn: turn) ||
             _abandoned(pageIndex)) {
           return null;
         }
@@ -3450,12 +3505,14 @@ class _PdfPageViewState extends State<PdfPageView>
       await _paintEarlyPrefix(generation, pageIndex, worker, priority);
       if (_superseded(generation, pageIndex) || _renderPaused) return null;
     }
+    final turn = _DecodeTurn();
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
       hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: priority,
       decodeImages: false,
+      decodeGate: _motionDecodeGate(turn),
       onPartial: !progressive
           ? null
           : (partial) {
@@ -3472,7 +3529,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // requesting the final UI turn so it cannot wait behind or race another
     // obsolete prefix from its own page.
     _finalizeProgressivePartials(generation);
-    if (!await _paceWorkerUiWork(commands: commands) ||
+    if (!await _paceWorkerUiWork(commands: commands, turn: turn) ||
         _superseded(generation, pageIndex) ||
         _renderPaused) {
       return null;
@@ -3650,6 +3707,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final imageRatio = _imageRatioTarget();
     _pictureImageRatio = imageRatio;
     final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final turn = _DecodeTurn();
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
@@ -3660,9 +3718,10 @@ class _PdfPageViewState extends State<PdfPageView>
         final seq = ++_progressiveSeqCounter;
         _queueProgressivePartial(generation, pageIndex, partial, seq);
       },
+      decodeGate: _motionDecodeGate(turn),
     );
     PdfPerfLog.log('progressive-fused page=$pageIndex');
-    return _PendingWorkerRecord(commands, imageRatio, waitClock);
+    return _PendingWorkerRecord(commands, imageRatio, waitClock, turn);
   }
 
   /// Starts the ordinary page's complete record immediately when the caller
@@ -3678,15 +3737,17 @@ class _PdfPageViewState extends State<PdfPageView>
     final imageRatio = _imageRatioTarget();
     _pictureImageRatio = imageRatio;
     final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final turn = _DecodeTurn();
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
       hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: widget.renderPriority,
       imagePixelRatio: imageRatio,
+      decodeGate: _motionDecodeGate(turn),
     );
     PdfPerfLog.log('bounded-final-fused page=$pageIndex');
-    return _PendingWorkerRecord(commands, imageRatio, waitClock);
+    return _PendingWorkerRecord(commands, imageRatio, waitClock, turn);
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries

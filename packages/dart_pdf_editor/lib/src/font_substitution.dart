@@ -201,9 +201,15 @@ enum PdfBundledSubstitute {
 /// Symbolic families (Symbol, ZapfDingbats) have no bundled clone and are not
 /// special-cased here: a caller that renders them from a symbol face must test
 /// for them before asking. Everything else resolves - an unembedded font we
-/// know nothing about is a sans-serif until proven otherwise, exactly as the
-/// substitution switch has always assumed.
-PdfBundledSubstitute pdfBundledSubstituteFor(String? fontName) {
+/// know nothing about is a sans-serif until its name or its descriptor says
+/// otherwise.
+///
+/// [serif] is the font descriptor's Serif flag (§9.8.2, bit 2) - what
+/// `PdfTextRun.serif` carries. A name this function recognises wins over it,
+/// so a Calibri or Courier descriptor flagged serif by a sloppy producer still
+/// gets its metric-compatible clone.
+PdfBundledSubstitute pdfBundledSubstituteFor(String? fontName,
+    {bool serif = false}) {
   final name = fontName ?? '';
   if (pdfUsesAdventorSubstitute(name)) return PdfBundledSubstitute.adventor;
   // Before the Mono test: Calibri is a humanist sans, and nothing about it
@@ -214,11 +220,68 @@ PdfBundledSubstitute pdfBundledSubstituteFor(String? fontName) {
   if (name.contains('Courier') || name.contains('Mono')) {
     return PdfBundledSubstitute.cursor;
   }
-  if (name.contains('Times') || name.contains('Serif')) {
+  final lower = name.toLowerCase();
+  // "Sans" settles it before any serif test: MicrosoftSansSerif and
+  // PTSans-Serif name a sans that merely mentions the word.
+  if (lower.contains('sans')) return PdfBundledSubstitute.heros;
+  if (serif ||
+      name.contains('Times') ||
+      name.contains('Serif') ||
+      _serifFamilies.any(lower.contains)) {
     return PdfBundledSubstitute.termes;
   }
   return PdfBundledSubstitute.heros;
 }
+
+/// Lower-cased fragments of common serif text families that Office, InDesign
+/// and print drivers emit unembedded, often with a descriptor whose Serif flag
+/// is left clear (Adobe's own MinionPro arrives with /Flags 32). Drawn in
+/// Helvetica's shapes, their narrow `i`/`l`/`t`/`r` and wide round letters put
+/// visible gaps and collisions inside every word; Termes is far closer in both
+/// look and advance (Minion `a e i` = 439 425 268 against Termes 444 444 278).
+const List<String> _serifFamilies = [
+  'minion',
+  'garamond',
+  'georgia',
+  'palatino',
+  'palladio',
+  'bookantiqua',
+  'book antiqua',
+  'cambria',
+  'constantia',
+  'caslon',
+  'baskerville',
+  'bodoni',
+  'didot',
+  'centuryschoolbook',
+  'century schoolbook',
+  'newcenturyschlbk',
+  'schoolbook',
+  'bookman',
+  'goudy',
+  'sabon',
+  'janson',
+  'plantin',
+  'perpetua',
+  'utopia',
+  'charter',
+  'cochin',
+  'jenson',
+  'stonesrf',
+  'stoneserif',
+  'mercury',
+  'merriweather',
+  'liberationserif',
+  'dejavuserif',
+  'notoserif',
+  'sourceserif',
+  'ptserif',
+  'droidserif',
+  'tinos',
+  'termes',
+  'nimbusrom',
+  'nimbus roman',
+];
 
 /// Whether [fontName] belongs to the Century Gothic / Avant Garde metric
 /// family.
@@ -252,5 +315,38 @@ bool pdfSubstituteIsItalic(String? fontName) {
 /// present (see `_loadWorkerSubstituteFonts`); a self-hosted worker without them
 /// falls through to the host faces that share the same metrics, then to the CSS
 /// generic.
-String pdfCanvas2dSubstituteFamily(String? fontName) =>
-    pdfBundledSubstituteFor(fontName).canvas2dFamilyList;
+String pdfCanvas2dSubstituteFamily(String? fontName, {bool serif = false}) =>
+    pdfBundledSubstituteFor(fontName, serif: serif).canvas2dFamilyList;
+
+/// How far, in em, a substituted piece's drawn width may differ from the
+/// width the PDF gives it before [pdfFitSubstitutedPiece] moves or squeezes
+/// it - the same 0.02 em the exact-placement planners cut words at, so a
+/// metric-compatible clone is drawn exactly as it was.
+const double pdfSubstituteFitToleranceEm = 0.02;
+
+/// Where a piece of substituted text sits inside the slot the PDF gives it.
+///
+/// Both measures are in em. [slot] is the PDF's width for the piece - from
+/// its first character's pen offset to the end of its last glyph, spacing
+/// after that glyph left out - and [drawn] is the width the substitute face
+/// draws the same characters at, after the run's uniform copy-fitting scale.
+///
+/// The exact-placement planners pin every piece to its PDF offset, which is
+/// right for selection and search but leaves a face with different
+/// proportions drawing each piece flush left in its slot: a Helvetica `i`
+/// standing in for Minion's leaves 0.08 em of air after it, *inside* the word,
+/// while its round `a`/`e`/`s` run into the next letter. So a piece narrower
+/// than its slot is centred in it ([shift] is the gap before it), and one
+/// wider is squeezed to fit ([scaleX] < 1, drawn from the slot's start) -
+/// PDF.js's rule for unembedded fonts. Within [pdfSubstituteFitToleranceEm]
+/// nothing changes.
+({double shift, double scaleX}) pdfFitSubstitutedPiece(
+    {required double slot, required double drawn}) {
+  if (!(slot > 0) ||
+      !(drawn > 0) ||
+      (drawn - slot).abs() <= pdfSubstituteFitToleranceEm) {
+    return (shift: 0, scaleX: 1);
+  }
+  if (drawn > slot) return (shift: 0, scaleX: slot / drawn);
+  return (shift: (slot - drawn) / 2, scaleX: 1);
+}

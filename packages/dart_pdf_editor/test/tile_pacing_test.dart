@@ -149,7 +149,8 @@ class _TranscriptWorker extends PdfRenderWorker {
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       commands;
 
   @override

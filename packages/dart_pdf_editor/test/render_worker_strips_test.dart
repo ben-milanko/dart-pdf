@@ -665,7 +665,8 @@ class _BinLogWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -734,7 +735,8 @@ class _DefaultWorker extends PdfRenderWorker {
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       null;
 
   @override

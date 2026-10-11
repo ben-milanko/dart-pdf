@@ -20,6 +20,23 @@ void main() {
     expect(PdfFontInfo.load(cos, font).widthOf(65), closeTo(0.722, 1e-9));
   });
 
+  test("the descriptor's Serif flag is read for substitution", () {
+    PdfFontInfo load(int flags) => PdfFontInfo.load(
+        cos,
+        CosDictionary({
+          'Subtype': const CosName('Type1'),
+          'BaseFont': const CosName('Unknown-Regular'),
+          'FontDescriptor': CosDictionary({'Flags': CosInteger(flags)}),
+        }));
+    expect(load(32).isSerif, isFalse, reason: 'Nonsymbolic only');
+    expect(load(2 | 32).isSerif, isTrue);
+    expect(
+        PdfFontInfo.load(
+            cos, CosDictionary({'Subtype': const CosName('Type1')})).isSerif,
+        isFalse,
+        reason: 'no descriptor, no flag');
+  });
+
   test('Type3 widths scale by the FontMatrix, not /1000', () {
     // browser-print PDFs use Type3 fonts with a 1/2048 glyph space
     final font = CosDictionary({

@@ -314,7 +314,7 @@ class _BrowserCanvasDevice implements PdfDevice {
     if (run.invisible || run.text.isEmpty) return;
     const renderSize = 100.0;
     final name = run.fontName ?? '';
-    final family = pdfCanvas2dSubstituteFamily(name);
+    final family = pdfCanvas2dSubstituteFamily(name, serif: run.serif);
     final weight = name.contains('Bold') ? 'bold' : 'normal';
     final style = name.contains('Italic') || name.contains('Oblique')
         ? 'italic'
@@ -351,7 +351,16 @@ class _BrowserCanvasDevice implements PdfDevice {
       context.scale(1 / placed.unitsPerEm, -1 / renderSize);
       _paintWithAlpha(run.fillAlpha, () {
         for (final part in placed.parts) {
-          context.fillText(part.text, part.x, 0);
+          if (part.scaleX == 1) {
+            context.fillText(part.text, part.x, 0);
+          } else {
+            context
+              ..save()
+              ..translate(part.x, 0)
+              ..scale(part.scaleX, 1)
+              ..fillText(part.text, 0, 0)
+              ..restore();
+          }
         }
       });
       context.restore();

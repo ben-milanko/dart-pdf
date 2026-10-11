@@ -1745,6 +1745,7 @@ class _DeferredRecordWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final result = await _inner.record(
       pageIndex,
@@ -1798,6 +1799,7 @@ class _RatioRecordingWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (imageDecodeRegion != null) detailRecords++;
     if (decodeImages && imagePixelRatio != null) {
@@ -1849,6 +1851,7 @@ class _BlockingDetailWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (imageDecodeRegion != null) {
       detailRecords++;
@@ -1900,6 +1903,7 @@ class _LocalCommandWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
       return null;
