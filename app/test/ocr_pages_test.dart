@@ -1,6 +1,7 @@
 // ocrAllPages is the page loop the native and web OCR jobs share: every page
 // rasterized at OcrRunnerEngine.pixelRatioFor, progress per page, cancellation
-// between pages. Proven with a fake engine (no model).
+// between pages. Proven with a fake engine (no model). recognizeAllPages is
+// the same loop handing the spans back instead of writing them.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_app/ocr_pages.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,6 +41,29 @@ void main() {
     final spans = await ocrAllPages(editor, engine,
         isCancelled: () => started >= 2, onPage: (_, __) => started++);
     expect(spans, 2);
+    expect(engine.pixelRatios, hasLength(2));
+  });
+
+  test('recognizeAllPages returns spans by page and writes nothing', () async {
+    final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+    final engine = _FakeEngine();
+    final spans = await recognizeAllPages(editor, engine,
+        isCancelled: () => false, onPage: (_, __) {});
+    expect(spans.keys, [0, 1, 2]);
+    expect(spans[1]!.single.text, 'page 1');
+    expect(editor.hasChanges, isFalse);
+  });
+
+  test('recognizeAllPages skips the pages includePage turns down', () async {
+    final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+    final engine = _FakeEngine();
+    final pages = <int>[];
+    final spans = await recognizeAllPages(editor, engine,
+        isCancelled: () => false,
+        onPage: (i, _) => pages.add(i),
+        includePage: (i) => i != 1);
+    expect(spans.keys, [0, 2]);
+    expect(pages, [0, 2]);
     expect(engine.pixelRatios, hasLength(2));
   });
 }

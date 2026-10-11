@@ -2180,6 +2180,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'More tools'**
   String get appMenuMoreTools;
+
+  /// Section header in Settings for OCR (text recognition) options.
+  ///
+  /// In en, this message translates to:
+  /// **'Text recognition'**
+  String get settingsTextRecognition;
+
+  /// Settings switch that runs OCR on its own when a scanned document is opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically OCR scans'**
+  String get settingsAutoOcrTitle;
+
+  /// Explanation under the Automatically OCR scans switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.'**
+  String get settingsAutoOcrSubtitle;
+
+  /// Toast after automatic OCR added a text layer to a scanned document the user opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.'**
+  String get ocrAutoResult;
+
+  /// Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied.
+  ///
+  /// In en, this message translates to:
+  /// **'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.'**
+  String get ocrAutoDocumentChanged;
 }
 
 class _AppLocalizationsDelegate
