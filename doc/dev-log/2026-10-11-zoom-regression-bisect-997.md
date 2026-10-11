@@ -46,24 +46,38 @@ land.
   frame/activity instant the predicate holds): ready lands ~17 ms (one frame)
   before stable, and stable is 108.6 ms - the pre-#748 number.
 
-## Reading
+## Reading (confirmed by a PdfPerfLog trace)
 
-What is established: after #748 the page's visible render completes on time
-(first visual = stable under tracked readiness), but "scheduler idle and nothing
-queued" - what a ~20 ms `evaluate()` poll has to observe - becomes true about
-50 ms later, and a polled harness charges that to the zoom.
+A zoom sequence (1.72, 1, 1.72, 1 on page 2) traced on both sides of #748:
 
-What is not yet traced is exactly which work keeps it busy. The likely
-candidate is the post-frame release itself: it restarts the preview prerender
-and raster warm one frame after the settle, so background work queues behind
-the visible render and keeps the scheduler (and the main thread the poll needs)
-occupied. That would also explain why #997's restore experiment, which kept the
-polled harness, did not recover: the background restart still follows the zoom
-either way. A `PdfPerfLog` trace of one zoom (scheduler grants after the
-visible render) would confirm it.
+| | `fa4d6b28` (#748^) | `main` |
+|---|---|---|
+| hold release | `renderHold off (pending=0)`, same ms as the zoom | `renderHold off (pending=1)`, 15-23 ms later (post-frame) |
+| polled ready | 3-4 ms after the zoom | - |
+| tracked ready | - | 16-27 ms before the pixels |
+| then | `scheduler grant page=2`, render, paint (~100 ms) | the same grant, render, paint |
+| background work after the zoom | none | none |
+
+Before #748 the hold released synchronously, before the frame whose build
+queues the zoom's render. A poll right after `setZoom` therefore saw an idle
+scheduler and reported "ready" within 3-4 ms - readiness was vacuous, and
+"stable" was the pixel time alone. #748 releases the hold after that build, so
+the scheduler is now busy with the zoom's own render (`pending=1`) and
+readiness is real. Polled, it lands a poll interval and an `evaluate()` round
+trip after the pixels; `settle()`'s `max(lastChangedAt, readyAt)` then charges
+that to the zoom. Tracked (#999), it lands a frame before the pixels and
+binds nothing.
+
+No extra work runs after the zoom. (A first single-zoom trace showed a
+`command-warm page=5 ... elapsed=476ms` straddling it, but that was the
+neighbour warm started by the preceding page jump; it does not recur on the
+repeated zooms.) Why #997's restore experiment (synchronous release on `main`, polled harness)
+did not recover is not settled here: the `syncrel` variant above was only
+measured with tracked readiness.
 
 So in this container #997 is a measurement artifact of polled readiness, which
-is exactly the precision problem #999 named. The quick wins it proposed for
+is exactly the precision problem #999 named - and the pre-#748 baseline was the
+optimistic one. The quick wins it proposed for
 #997 (the #755 colour-pipeline gating, re-synchronising the release) would not
 change the visible zoom here; the `noquick`/`tiles8`/`syncrel` variants of
 `main` measured 104-106 ms under tracked readiness, all within noise of `main`
@@ -75,8 +89,8 @@ change the visible zoom here; the `noquick`/`tiles8`/`syncrel` variants of
   `PERF_EXPECT_CHROME=154` on the parity host before closing #997: if the
   tracked zoom-stable p50 there is back near 25-28 ms, the issue is the
   harness; if not, the residual is real and hardware-specific.
-- Whether the background warm/prerender restarting right behind a zoom costs
-  the *next* interaction (a cadence question, not zoom latency).
+- Why restoring the synchronous release under the polled harness did not
+  recover in #997 (see above).
 
 ## Reproducing
 
