@@ -28,6 +28,8 @@ jobs:
       - name: Check fresh-worktree formatter contract
         run: dart tool/format.dart --output=none --set-exit-if-changed tool/format.dart
       - run: flutter pub get
+      - name: Check release listing preservation policy
+        run: python3 -m unittest discover -s tool/storeflight -p 'test_*.py' -v
       - run: dart analyze --fatal-infos
       - name: Test Patrol performance summarizer
         run: dart tool/patrol_perf_summary_test.dart

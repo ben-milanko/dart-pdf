@@ -7,7 +7,35 @@ The standalone app ships from the `app/` workspace package. Versioning,
 artifact builds, and packaging are automated; **code signing and store upload
 are manual** because they need credentials only the maintainer holds.
 
-## Version
+## Preserve the live store listing
+
+The production `storeflight.yaml` uses schema 2 and
+`release_listing_policy: preserve` for Apple and Google Play. Update Storeflight
+before releasing; an older executable must reject this schema rather than
+silently publish repository listing copy.
+
+A normal binary release updates "What's New" but does not synchronize names,
+subtitles, descriptions, keywords, promotional copy, screenshots or previews
+from the repository. Apple promotional text is version-specific, so Storeflight
+copies the latest live version's text separately for iOS and Mac when preparing
+a new version, then reads it back before submitting. Retries preserve the target
+draft's existing edits; if they conflict with the current live listing, submission
+stops for deliberate reconciliation instead of overwriting either. Missing or
+unverifiable live metadata stops submission;
+there is no fallback to generic repository text.
+
+The Apple `protect_product_page_tests` guard stops an iOS submission before any
+store write when an unfinished native product-page test exists. It does not stop
+tests, remove review items, or automatically restart them. Coordinate an urgent
+release explicitly if the test must be interrupted. Release changes can still
+affect measurement even when listing content is unchanged.
+
+Keep version changes and release notes separate from intentional listing
+updates. Use `storeflight metadata` only for a reviewed, deliberate metadata
+change; check active tests first. For the first store release without a live
+listing, use an explicitly reviewed `release_listing_policy: sync` bootstrap.
+
+## Version source
 
 `app/pubspec.yaml` `version:` is the single source of truth (`X.Y.Z+build`).
 CI passes `--build-name`/`--build-number` derived from the tag and run number,
