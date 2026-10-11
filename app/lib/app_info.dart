@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'build_channel.dart';
@@ -37,13 +38,25 @@ class AppInfo {
   /// The version as shown to the user. Every nightly shares the package
   /// version of the release it is heading towards, so a nightly adds its
   /// source commit to tell one night's build from the next.
-  static String get displayVersion {
-    if (!isNightly) return version;
-    final commit =
-        buildCommit.length > 7 ? buildCommit.substring(0, 7) : buildCommit;
-    return commit == 'unknown'
+  static String get displayVersion => formatDisplayVersion(
+        version: version,
+        nightly: isNightly,
+        commit: buildCommit,
+      );
+
+  /// [displayVersion] for an explicit channel and commit, so both channels
+  /// are testable from one compiled build.
+  @visibleForTesting
+  static String formatDisplayVersion({
+    required String version,
+    required bool nightly,
+    required String commit,
+  }) {
+    if (!nightly) return version;
+    final short = commit.length > 7 ? commit.substring(0, 7) : commit;
+    return short.isEmpty || short == 'unknown'
         ? '$version nightly'
-        : '$version nightly ($commit)';
+        : '$version nightly ($short)';
   }
 
   /// Populates [version] from the platform package metadata. Best-effort: any
