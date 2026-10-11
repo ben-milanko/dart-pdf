@@ -498,6 +498,19 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   return commands;
 }
 
+/// The number of top-level commands in a buffer written by
+/// [serializeCommands] - the length [deserializeCommands] would return - read
+/// from the header without decoding anything, or null when [bytes] is not a
+/// buffer this build can read.
+///
+/// A worker reply's size is what decides whether its UI-isolate decode and
+/// replay may run during a scroll; this lets a host make that call before
+/// paying for the decode (#998).
+int? serializedCommandCount(Uint8List bytes) {
+  if (bytes.length < 5 || bytes[0] != _formatVersion) return null;
+  return ByteData.sublistView(bytes).getUint32(1);
+}
+
 /// A buffer from another format version cannot be read - the layout changes
 /// between versions - so it fails here, before anything is parsed, rather than
 /// half-way through as a misread count or a plausible-looking wrong page.

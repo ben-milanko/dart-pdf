@@ -40,6 +40,7 @@ class _FakeBackend extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     recordCalls++;
     streamRequested.add(onPartial != null);

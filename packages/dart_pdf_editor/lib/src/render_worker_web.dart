@@ -479,6 +479,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (_disposed || _failed) {
       _wlog(
@@ -518,6 +519,13 @@ class _WebRenderWorker extends PdfRenderWorker {
     if (buffers == null || buffers.length != 1) {
       request.trace?.log(_workerNumber, request, outcome: 'declined');
       return null;
+    }
+    if (decodeGate != null) {
+      final count = serializedCommandCount(buffers.single);
+      if (count != null && !await decodeGate(count)) {
+        request.trace?.log(_workerNumber, request, outcome: 'dropped');
+        return null;
+      }
     }
     try {
       final deserializeClock =

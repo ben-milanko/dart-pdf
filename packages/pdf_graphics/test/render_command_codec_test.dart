@@ -204,6 +204,19 @@ void main() {
       expect(a, equals(b));
     });
 
+    test('the header names the command count without a decode', () {
+      final recorder = _record(CosDocument.open(buildClassicPdf()),
+          'q 0 0 1 rg 5 5 20 30 re f Q BT /F1 12 Tf 10 10 Td (hi) Tj ET');
+      final bytes = serializeCommands(recorder.commands)!;
+      expect(serializedCommandCount(bytes), deserializeCommands(bytes).length);
+      // Not a buffer this build reads: a stale worker script, or too short.
+      expect(
+          serializedCommandCount(
+              Uint8List.fromList([bytes[0] + 1, 0, 0, 0, 1])),
+          isNull);
+      expect(serializedCommandCount(Uint8List(0)), isNull);
+    });
+
     test('text opacity survives command serialization', () {
       const run = PdfTextRun(
         text: 'Faded',
