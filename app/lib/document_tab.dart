@@ -256,6 +256,10 @@ class DocumentTab {
   /// placeholder frame is still on screen (build can run several times).
   bool materializing = false;
 
+  /// Whether automatic OCR has already looked at this tab's document (see
+  /// `EditorScreen._maybeAutoOcr`), so it runs at most once per tab.
+  bool autoOcrChecked = false;
+
   /// The writable on-disk origin (desktop), when the document was opened from
   /// a real path. Save writes back here; updated when a Save As lands on a new
   /// path. Null means save-as only.

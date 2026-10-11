@@ -193,6 +193,62 @@ Uint8List buildMultiPagePdf(int pageCount,
   return ascii(buffer.toString());
 }
 
+/// Builds a [pageCount]-page "scan": each page paints one image XObject (a
+/// 1x1 gray pixel) scaled over [coverage] of its US Letter area and carries no
+/// text - the shape a scanner writes. [text] (drawn in base-14 /F1 on every
+/// page) turns it into a born-digital page with a picture, and [inlineImage]
+/// paints the pixel as `BI ... EI` instead of an XObject.
+Uint8List buildScannedPdf({
+  int pageCount = 1,
+  double coverage = 1,
+  String? text,
+  bool inlineImage = false,
+}) {
+  const width = 612.0;
+  final w = (width * coverage).toStringAsFixed(2);
+  final objects = <String>[];
+  final kids = [
+    for (var i = 0; i < pageCount; i++) '${3 + i * 2} 0 R',
+  ].join(' ');
+  final fontNumber = 3 + pageCount * 2;
+  final imageNumber = fontNumber + 1;
+  objects.add('<< /Type /Catalog /Pages 2 0 R >>');
+  objects.add('<< /Type /Pages /Kids [$kids] /Count $pageCount >>');
+  final paint =
+      inlineImage ? 'BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID 80> EI' : '/Im0 Do';
+  final content = 'q $w 0 0 792 0 0 cm $paint Q'
+      '${text == null ? '' : ' BT /F1 12 Tf 72 720 Td ($text) Tj ET'}';
+  for (var i = 0; i < pageCount; i++) {
+    objects.add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents ${4 + i * 2} 0 R /Resources << '
+        '/Font << /F1 $fontNumber 0 R >> '
+        '${inlineImage ? '' : '/XObject << /Im0 $imageNumber 0 R >> '}>> >>');
+    objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');
+  }
+  objects.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  objects.add('<< /Type /XObject /Subtype /Image /Width 1 /Height 1 '
+      '/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /ASCIIHexDecode '
+      '/Length 3 >>\nstream\n80>\nendstream');
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a one-page PDF drawing each of [lines] as its own text run in
 /// base-14 /F1, top-down from y=720 at 24pt intervals.
 ///

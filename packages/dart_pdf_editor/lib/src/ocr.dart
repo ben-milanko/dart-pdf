@@ -185,6 +185,37 @@ extension PdfOcrApply on PdfEditor {
     PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
     bool skipExistingText = true,
   }) async {
+    final spans = await recognizeOcr(
+      pageIndex,
+      engine,
+      pixelRatio: pixelRatio,
+      rasterizer: rasterizer,
+      skipExistingText: skipExistingText,
+    );
+    return injectTextLayer(
+      pageIndex,
+      spans,
+      font: font,
+      minConfidence: minConfidence,
+      visible: visible,
+    );
+  }
+
+  /// The recognition half of [applyOcr]: rasterizes page [pageIndex], runs
+  /// [engine] over it, and returns the spans [applyOcr] would write - with
+  /// [skipExistingText], only those not already covered by the page's text -
+  /// without touching the document.
+  ///
+  /// Use it to recognize from a snapshot and write the layer somewhere else
+  /// later (`injectTextLayer` on a newer revision of the same pages), so a
+  /// long background job never holds the live editing session.
+  Future<List<PdfOcrSpan>> recognizeOcr(
+    int pageIndex,
+    PdfOcrEngine engine, {
+    double pixelRatio = 2,
+    PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
+    bool skipExistingText = true,
+  }) async {
     final page = document.page(pageIndex);
     final pageImage = await rasterizer.rasterize(
       page,
@@ -192,19 +223,11 @@ extension PdfOcrApply on PdfEditor {
       pixelRatio: pixelRatio,
     );
     try {
-      var spans = await engine.recognize(pageImage);
-      if (skipExistingText && spans.isNotEmpty) {
-        spans = ocrSpansNotIn(
-          PdfTextExtractor.extract(document, pageIndex),
-          spans,
-        );
-      }
-      return injectTextLayer(
-        pageIndex,
+      final spans = await engine.recognize(pageImage);
+      if (!skipExistingText || spans.isEmpty) return spans;
+      return ocrSpansNotIn(
+        PdfTextExtractor.extract(document, pageIndex),
         spans,
-        font: font,
-        minConfidence: minConfidence,
-        visible: visible,
       );
     } finally {
       pageImage.dispose();
