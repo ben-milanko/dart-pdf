@@ -73,6 +73,46 @@ void main() {
     expect(outlined.glyphs![1].offset, closeTo(1.1, 1e-9));
   });
 
+  test(
+      'fits each glyph to its PDF slot: centred if narrower, squeezed if wider',
+      () {
+    // Fixture natural advances are A=.6, B=1.0; the PDF swaps them (A=1.0,
+    // B=.6), so the run scale stays 1 and only the per-glyph fit can keep the
+    // narrow A from sitting flush left with 0.4 em of air after it, and the
+    // wide B from running 0.4 em past its slot - Helvetica's i and e against
+    // an unembedded Minion's widths.
+    final plain = outliner.outline(run('AB', const [0, 0.6, 1.6]))!;
+    final fitted = outliner.outline(run('AB', const [0, 1.0, 1.6]))!;
+    expect(fitted.transform.a, closeTo(20, 1e-9));
+    expect(fitted.glyphs![0].offset, closeTo(0.2, 1e-9),
+        reason: 'A is centred in its 1.0 em slot');
+    expect(fitted.glyphs![1].offset, closeTo(1.0, 1e-9),
+        reason: 'B starts its slot');
+
+    double maxX(PdfPath path) {
+      var x = double.negativeInfinity;
+      final reader = path.cursor();
+      while (reader.moveNext()) {
+        if (reader.verb == PdfPathVerb.close) continue;
+        x = [
+          x,
+          reader.x1,
+          if (reader.verb == PdfPathVerb.cubicTo) ...[
+            reader.x2,
+            reader.x3,
+          ]
+        ].reduce((a, b) => a > b ? a : b);
+      }
+      return x;
+    }
+
+    expect(maxX(fitted.glyphs![1].outline!),
+        closeTo(maxX(plain.glyphs![1].outline!) * 0.6, 1e-9),
+        reason: 'B is squeezed into its 0.6 em slot');
+    expect(fitted.glyphs![0].outline, same(plain.glyphs![0].outline),
+        reason: 'a centred glyph keeps its own outline');
+  });
+
   test('keeps whitespace as an empty placement at its PDF offset', () {
     final outlined = outliner.outline(
       run('A B', const [0, 0.6, 0.9, 1.9], width: 1.9),

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show pdfFitSubstitutedPiece;
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 /// Supplies vector outlines for a substituted [PdfTextRun].
@@ -100,8 +102,11 @@ typedef FlutterGpuFontFaceResolver = FlutterGpuFontFace? Function(
 ///
 /// PDF character offsets remain authoritative. Glyph shapes receive one
 /// uniform horizontal scale—the same copy-fitting rule used by
-/// `CanvasPdfDevice`—while every origin stays at its PDF position. Complex
-/// shaping, vertical text, missing glyphs, and malformed metrics return null.
+/// `CanvasPdfDevice`—and each glyph is then fitted to the slot the PDF gives
+/// it ([pdfFitSubstitutedPiece]): centred when the substitute draws it
+/// narrower, squeezed when wider, untouched within the 0.02 em tolerance.
+/// Complex shaping, vertical text, missing glyphs, and malformed metrics
+/// return null.
 class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
   const FlutterGpuTrueTypeTextOutliner(this.resolveFace);
 
@@ -134,6 +139,8 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
       final blank = _isWhitespace(rune) || _isControl(rune);
       final glyphId = face.gidForUnicode(rune);
       PdfPath? outline;
+      var glyphAdvance = 0.0;
+      var glyphSlot = 0.0;
       if (!blank) {
         if (glyphId == 0) return null;
         outline = face.outlineForGlyph(glyphId);
@@ -146,8 +153,11 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
         if (pdfWidth == null) return null;
         naturalAdvance += advance;
         pdfAdvance += pdfWidth;
+        glyphAdvance = advance;
+        glyphSlot = pdfWidth;
       }
-      resolved.add(_ResolvedGlyph(index, length, outline));
+      resolved
+          .add(_ResolvedGlyph(index, length, outline, glyphAdvance, glyphSlot));
       index += length;
     }
     final hasInk = resolved.any((glyph) => glyph.outline != null);
@@ -156,14 +166,7 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
     if (!xScale.isFinite || xScale <= 0) return null;
 
     final glyphs = <PdfGlyphPlacement>[
-      for (final glyph in resolved)
-        PdfGlyphPlacement(
-          // The run transform receives xScale below. Divide origins by it so
-          // `S(xScale) * (offset/xScale)` lands at the original PDF offset.
-          offset: offsets[glyph.index] / xScale,
-          outline: glyph.outline,
-          text: text.substring(glyph.index, glyph.index + glyph.length),
-        ),
+      for (final glyph in resolved) _place(glyph, offsets, text, xScale),
     ];
     final scaledOffsets = <double>[
       for (final offset in offsets) offset / xScale,
@@ -195,12 +198,59 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
   }
 }
 
+/// [glyph] placed at its PDF offset under a run scaled by [xScale], fitted
+/// to the slot the PDF gives it the way `CanvasPdfDevice` fits a piece.
+PdfGlyphPlacement _place(
+    _ResolvedGlyph glyph, List<double> offsets, String text, double xScale) {
+  var outline = glyph.outline;
+  var origin = offsets[glyph.index];
+  if (outline != null) {
+    // In PDF em: the substitute draws the glyph `advance x xScale` wide.
+    final fit =
+        pdfFitSubstitutedPiece(slot: glyph.slot, drawn: glyph.advance * xScale);
+    origin += fit.shift;
+    if (fit.scaleX != 1) outline = _scaleX(outline, fit.scaleX);
+  }
+  return PdfGlyphPlacement(
+    // The run transform receives xScale. Divide origins by it so
+    // `S(xScale) * (offset/xScale)` lands at the original PDF offset.
+    offset: origin / xScale,
+    outline: outline,
+    text: text.substring(glyph.index, glyph.index + glyph.length),
+  );
+}
+
+/// [path] squeezed horizontally by [factor] about its own origin - the pen
+/// position a glyph outline is drawn from.
+PdfPath _scaleX(PdfPath path, double factor) {
+  final segments = <PdfPathSegment>[];
+  final reader = path.cursor();
+  while (reader.moveNext()) {
+    segments.add(switch (reader.verb) {
+      PdfPathVerb.moveTo => PdfMoveTo(reader.x1 * factor, reader.y1),
+      PdfPathVerb.lineTo => PdfLineTo(reader.x1 * factor, reader.y1),
+      PdfPathVerb.cubicTo => PdfCubicTo(reader.x1 * factor, reader.y1,
+          reader.x2 * factor, reader.y2, reader.x3 * factor, reader.y3),
+      PdfPathVerb.close => const PdfClosePath(),
+    });
+  }
+  return PdfPath(segments);
+}
+
 class _ResolvedGlyph {
-  const _ResolvedGlyph(this.index, this.length, this.outline);
+  const _ResolvedGlyph(
+      this.index, this.length, this.outline, this.advance, this.slot);
 
   final int index;
   final int length;
   final PdfPath? outline;
+
+  /// The substitute's own advance for the glyph, in em; 0 when blank.
+  final double advance;
+
+  /// The width the PDF gives the glyph ([PdfTextRun.glyphWidthAt]); 0 when
+  /// blank.
+  final double slot;
 }
 
 int _runeLengthAt(String text, int index) {
