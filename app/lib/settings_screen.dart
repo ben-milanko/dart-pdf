@@ -303,7 +303,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 Text(appL10n(context).settingsAbout,
                     style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
-                Text('${AppInfo.name} ${AppInfo.version}',
+                Text('${AppInfo.displayName} ${AppInfo.displayVersion}',
                     style: theme.textTheme.bodyMedium),
                 Text(AppInfo.tagline, style: theme.textTheme.bodySmall),
                 const SizedBox(height: 4),
@@ -331,8 +331,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showLicensePage(
                     context: context,
-                    applicationName: AppInfo.name,
-                    applicationVersion: AppInfo.version,
+                    applicationName: AppInfo.displayName,
+                    applicationVersion: AppInfo.displayVersion,
                   ),
                 ),
               ],
@@ -443,12 +443,12 @@ class _UpdateSection extends StatelessWidget {
         Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
           appL10n(context).settingsUpdateAvailable(
-              updates.latest!.displayVersion, AppInfo.version),
+              updates.latest!.displayVersion, AppInfo.displayVersion),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),
       UpdateStatus.upToDate => Text(
-          appL10n(context).settingsUpToDate(AppInfo.version),
+          appL10n(context).settingsUpToDate(AppInfo.displayVersion),
           key: const ValueKey('settings-up-to-date'),
           style: style,
         ),
@@ -458,7 +458,8 @@ class _UpdateSection extends StatelessWidget {
           style: style?.copyWith(color: scheme.error),
         ),
       UpdateStatus.idle => Text(
-          appL10n(context).settingsUpdateIdle(AppInfo.name, AppInfo.version),
+          appL10n(context)
+              .settingsUpdateIdle(AppInfo.displayName, AppInfo.displayVersion),
           style: style,
         ),
     };

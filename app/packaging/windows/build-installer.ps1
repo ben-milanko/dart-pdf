@@ -6,7 +6,13 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Version,
 
-  [string]$OutputPath = 'dartpdf-windows-installer.exe'
+  [string]$OutputPath = 'dartpdf-windows-installer.exe',
+
+  # What Windows calls the install: the installer title, Start menu entry and
+  # Installed apps row. The nightly passes 'DartPDF Nightly' so it can be told
+  # apart from a stable install. Both channels share one install directory,
+  # uninstall key and ProgID, so either replaces the other in place.
+  [string]$ProductName = 'DartPDF'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,21 +31,36 @@ $versionParts = @(
 while ($versionParts.Count -lt 4) { $versionParts += '0' }
 $fileVersion = ($versionParts[0..3] -join '.')
 
+# Start menu entries every channel has ever created, so switching channels
+# (or uninstalling) never leaves the other channel's shortcut behind.
+$shortcutNames = @('DartPDF', 'DartPDF Nightly')
+# Single-quoted fragments: NSIS's own $SMPROGRAMS must reach the script as-is.
+function Get-ShortcutDeletes([string[]]$names) {
+  ($names | ForEach-Object {
+    '  Delete "$SMPROGRAMS\DartPDF\' + $_ + '.lnk"'
+    '  Delete "$SMPROGRAMS\DartPDF\Uninstall ' + $_ + '.lnk"'
+  }) -join "`r`n"
+}
+$staleShortcuts = Get-ShortcutDeletes @(
+  $shortcutNames | Where-Object { $_ -ne $ProductName }
+)
+$allShortcuts = Get-ShortcutDeletes $shortcutNames
+
 $nsi = @"
 Unicode true
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
 
-Name "DartPDF"
+Name "$ProductName"
 OutFile "$output"
 InstallDir "`$LOCALAPPDATA\Programs\DartPDF"
 InstallDirRegKey HKCU "Software\DartPDF" "InstallDir"
 RequestExecutionLevel user
 
 VIProductVersion "$fileVersion"
-VIAddVersionKey "ProductName" "DartPDF"
+VIAddVersionKey "ProductName" "$ProductName"
 VIAddVersionKey "CompanyName" "DartPDF"
-VIAddVersionKey "FileDescription" "DartPDF installer"
+VIAddVersionKey "FileDescription" "$ProductName installer"
 VIAddVersionKey "ProductVersion" "$Version"
 VIAddVersionKey "FileVersion" "$Version"
 
@@ -56,14 +77,15 @@ Section "DartPDF" SecInstall
   SetOutPath "`$INSTDIR"
   File /r "$bundle\*.*"
 
+$staleShortcuts
   CreateDirectory "`$SMPROGRAMS\DartPDF"
-  CreateShortcut "`$SMPROGRAMS\DartPDF\DartPDF.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
-  CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk" "`$INSTDIR\Uninstall.exe"
+  CreateShortcut "`$SMPROGRAMS\DartPDF\$ProductName.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
+  CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall $ProductName.lnk" "`$INSTDIR\Uninstall.exe"
 
   WriteUninstaller "`$INSTDIR\Uninstall.exe"
 
   WriteRegStr HKCU "Software\DartPDF" "InstallDir" "`$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "DartPDF"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "$ProductName"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayVersion" "$Version"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "Publisher" "DartPDF"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "InstallLocation" "`$INSTDIR"
@@ -95,8 +117,7 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-  Delete "`$SMPROGRAMS\DartPDF\DartPDF.lnk"
-  Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk"
+$allShortcuts
   RMDir "`$SMPROGRAMS\DartPDF"
 
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF"

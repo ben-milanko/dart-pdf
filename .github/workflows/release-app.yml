@@ -368,6 +368,10 @@ jobs:
             SetOutPath "`$INSTDIR"
             File /r "$rel\*.*"
 
+            ; A nightly install (packaging/windows/build-installer.ps1) names
+            ; its shortcuts "DartPDF Nightly"; this install replaces it.
+            Delete "`$SMPROGRAMS\DartPDF\DartPDF Nightly.lnk"
+            Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF Nightly.lnk"
             CreateDirectory "`$SMPROGRAMS\DartPDF"
             CreateShortcut "`$SMPROGRAMS\DartPDF\DartPDF.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
             CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk" "`$INSTDIR\Uninstall.exe"
@@ -396,6 +400,8 @@ jobs:
             SetShellVarContext current
             Delete "`$SMPROGRAMS\DartPDF\DartPDF.lnk"
             Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk"
+            Delete "`$SMPROGRAMS\DartPDF\DartPDF Nightly.lnk"
+            Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF Nightly.lnk"
             RMDir "`$SMPROGRAMS\DartPDF"
 
             DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF"

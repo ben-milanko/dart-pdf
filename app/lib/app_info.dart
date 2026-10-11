@@ -1,5 +1,7 @@
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'build_channel.dart';
+
 /// Static product identity, surfaced in the About box.
 ///
 /// [version] is loaded from the build artifact by [load] (called once at
@@ -10,6 +12,15 @@ class AppInfo {
   static const name = 'DartPDF';
   static const tagline = 'A fully native Flutter PDF editor';
   static const sourceUrl = 'https://github.com/ben-milanko/dart-pdf';
+
+  /// [name] as the running build presents it: `DartPDF Nightly` for the
+  /// rolling nightly, so it is never mistaken for a stable install.
+  static const displayName = kProductDisplayName;
+
+  /// Release channel from `PDF_BUILD_CHANNEL` (`stable` unless CI says
+  /// otherwise).
+  static const buildChannel = kBuildChannel;
+  static const isNightly = kIsNightlyBuild;
 
   /// Git commit supplied by CI through `--dart-define=PDF_BUILD_COMMIT=...`.
   /// Release builds without the define stay honest rather than inventing one.
@@ -22,6 +33,18 @@ class AppInfo {
   /// unavailable. Kept separate from [version] because two builds of one
   /// version are otherwise indistinguishable in a diagnostics export.
   static String buildNumber = '';
+
+  /// The version as shown to the user. Every nightly shares the package
+  /// version of the release it is heading towards, so a nightly adds its
+  /// source commit to tell one night's build from the next.
+  static String get displayVersion {
+    if (!isNightly) return version;
+    final commit =
+        buildCommit.length > 7 ? buildCommit.substring(0, 7) : buildCommit;
+    return commit == 'unknown'
+        ? '$version nightly'
+        : '$version nightly ($commit)';
+  }
 
   /// Populates [version] from the platform package metadata. Best-effort: any
   /// failure leaves the fallback in place.
