@@ -2112,6 +2112,12 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  /// A scan is named for the day it was captured ("Scan 2026-10-11.pdf"), so
+  /// it saves - and lists in Recent files - under something findable instead
+  /// of "Untitled". A second scan the same day gets " (2)", and so on.
+  String _nextScanTitle() =>
+      scanDocumentTitle(DateTime.now(), {for (final tab in _tabs) tab.title});
+
   Future<void> _newDocument() async {
     final pageSize = await showNewDocumentDialog(context);
     if (!mounted || pageSize == null) return;
@@ -2170,7 +2176,7 @@ class _EditorScreenState extends State<EditorScreen>
     final bytes = await _runScan();
     if (!mounted || bytes == null) return;
     final tab = DocumentTab.document(
-      title: _nextUntitledTitle(),
+      title: _nextScanTitle(),
       bytes: bytes,
       preferences: _prefs,
       initiallyDirty: true,
