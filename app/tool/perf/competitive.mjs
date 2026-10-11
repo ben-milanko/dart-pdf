@@ -24,17 +24,20 @@ import puppeteer from 'puppeteer-core';
 import {
   aggregateRuns,
   cadenceDelay,
+  chromeVersionMismatch,
   digest,
   evaluateBudgets,
   framesInWindow,
   parityRatios,
   percentile,
   processTreeRssSnapshot,
+  processTypeRss,
   queryFlag,
   resolveHttpByteRange,
   resolveVisualCaptureMode,
   screenshotSampleAt,
   sleep,
+  summarizeLongAnimationFrames,
   translateEpochTimestamp,
 } from './competitive_common.mjs';
 
@@ -89,6 +92,8 @@ const iterations = Number(opt('--iterations', '3'));
 const timeoutMs = Number(opt('--timeout', '300000'));
 const port = Number(opt('--port', process.env.PERF_PORT ?? '8100'));
 const browserCooldownMs = Number(process.env.PERF_BROWSER_COOLDOWN_MS ?? 0);
+// The Chrome build both engines must run on (#999); see chromeVersionMismatch.
+const expectedChrome = process.env.PERF_EXPECT_CHROME?.trim() || null;
 const headless = !has('--headed') && process.env.PERF_HEADLESS !== 'false';
 const gate = has('--gate');
 const webBackend = process.env.PERF_WEB_BACKEND ??
@@ -712,7 +717,13 @@ function captureDurationSummary(tracker) {
 
 async function installRafProbe(target) {
   await target.evaluate(() => {
-    const state = { active: true, previous: null, intervals: [] };
+    const state = {
+      active: true,
+      previous: null,
+      intervals: [],
+      longFrames: [],
+      longFramesSupported: false,
+    };
     globalThis.__dartPdfParityRaf = state;
     const tick = (stamp) => {
       if (!state.active) return;
@@ -721,6 +732,34 @@ async function installRafProbe(target) {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+    // Long Animation Frame attribution (#999): which script made each long
+    // frame. Flattened to plain data here so it survives `evaluate`.
+    if (PerformanceObserver.supportedEntryTypes?.includes(
+      'long-animation-frame',
+    )) {
+      state.longFramesSupported = true;
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          state.longFrames.push({
+            startTime: entry.startTime,
+            duration: entry.duration,
+            blockingDuration: entry.blockingDuration,
+            renderStart: entry.renderStart,
+            styleAndLayoutStart: entry.styleAndLayoutStart,
+            scripts: (entry.scripts ?? []).map((script) => ({
+              invokerType: script.invokerType,
+              invoker: script.invoker,
+              sourceURL: script.sourceURL,
+              sourceFunctionName: script.sourceFunctionName,
+              sourceCharPosition: script.sourceCharPosition,
+              duration: script.duration,
+              forcedStyleAndLayoutDuration:
+                script.forcedStyleAndLayoutDuration,
+            })),
+          });
+        }
+      }).observe({ type: 'long-animation-frame' });
+    }
   });
 }
 
@@ -730,13 +769,71 @@ async function resetRafProbe(target) {
     if (state) {
       state.previous = null;
       state.intervals.length = 0;
+      state.longFrames.length = 0;
     }
+  });
+}
+
+// The long animation frames since the last reset. Entries reach the observer
+// after their frame, so read this once the action has visually settled, not
+// straight after input as the rAF intervals are. Null where the browser has no
+// LoAF support, so "none recorded" and "not measurable" stay distinct.
+async function readLongFrames(target) {
+  return target.evaluate(() => {
+    const state = globalThis.__dartPdfParityRaf;
+    return state?.longFramesSupported ? state.longFrames.slice() : null;
   });
 }
 
 async function readRafProbe(target) {
   return target.evaluate(
     () => globalThis.__dartPdfParityRaf?.intervals.slice() ?? [],
+  );
+}
+
+// The tab renderer and GPU process apart from the browser total (#999), so an
+// engine change is not read through Chrome's own version-to-version growth.
+function perProcessRss(rssStages) {
+  const renderer = processTypeRss(rssStages, 'renderer');
+  const gpu = processTypeRss(rssStages, 'gpu');
+  return {
+    rendererPeakRssBytes: renderer.peakBytes,
+    rendererSettledRssBytes: renderer.settledBytes,
+    gpuPeakRssBytes: gpu.peakBytes,
+    gpuSettledRssBytes: gpu.settledBytes,
+  };
+}
+
+// Per-journey Long Animation Frame entries. `supported` stays null until a
+// read happens and turns false when the probed frame has no LoAF support, so
+// a zero count means "no long frames" only where the API could report them.
+function newLongFrameBuckets() {
+  return {
+    navigation: { entries: [], supported: null },
+    zoom: { entries: [], supported: null },
+    scroll: { entries: [], supported: null },
+  };
+}
+
+function addLongFrames(bucket, entries) {
+  if (entries === undefined) return;
+  if (entries === null) {
+    bucket.supported ??= false;
+    return;
+  }
+  bucket.supported = true;
+  bucket.entries.push(...entries);
+}
+
+function summarizeJourneyLongFrames(longFrames) {
+  return Object.fromEntries(
+    Object.entries(longFrames).map(([journey, bucket]) => [
+      journey,
+      {
+        supported: bucket.supported,
+        ...summarizeLongAnimationFrames(bucket.entries),
+      },
+    ]),
   );
 }
 
@@ -828,8 +925,11 @@ async function driveScrollJourney(
   const samplesMs = [];
   const rafIntervalsMs = [];
   const frameBytes = [];
+  // Undefined when there was nothing to read, null when the frame cannot
+  // report long animation frames (see addLongFrames).
+  let longFrames = null;
   if (!Array.isArray(actions) || !actions.length) {
-    return { samplesMs, rafIntervalsMs, frameBytes };
+    return { samplesMs, rafIntervalsMs, frameBytes, longFrames: undefined };
   }
   await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2);
   for (const action of actions) {
@@ -883,6 +983,8 @@ async function driveScrollJourney(
     });
     samplesMs.push(settled.visualElapsedMs);
     frameBytes.push(...settled.frameBytes);
+    const entries = await readLongFrames(rafTarget);
+    if (entries != null) longFrames = [...(longFrames ?? []), ...entries];
     if (flutterStart != null) {
       flutterWindows.push({
         deltaY,
@@ -891,7 +993,7 @@ async function driveScrollJourney(
       });
     }
   }
-  return { samplesMs, rafIntervalsMs, frameBytes };
+  return { samplesMs, rafIntervalsMs, frameBytes, longFrames };
 }
 
 async function runDartTextQuery(page, query) {
@@ -1106,6 +1208,11 @@ async function measurePdfiumWarmOpen(browser, iteration) {
 async function runDartPdf(serverStats, iteration) {
   const browser = await launchBrowser();
   const browserVersion = await browser.version();
+  const pinMismatch = chromeVersionMismatch(browserVersion, expectedChrome);
+  if (pinMismatch) {
+    await browser.close().catch(() => {});
+    throw new Error(pinMismatch);
+  }
   const graphics = await browserGraphicsInfo(browser);
   const browserPid = browser.process()?.pid ?? null;
   const rssSamples = [];
@@ -1148,6 +1255,7 @@ async function runDartPdf(serverStats, iteration) {
   const scrubFlutterWindows = [];
   const searchResults = [];
   const rafIntervalsMs = [];
+  const longFrames = newLongFrameBuckets();
   const consoleLines = [];
   let page;
   let visualTracker;
@@ -1345,6 +1453,7 @@ async function runDartPdf(serverStats, iteration) {
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(page));
+      addLongFrames(longFrames.navigation, await readLongFrames(page));
       navigationFlutterWindows.push({
         page: target,
         startMs: flutterStart,
@@ -1366,29 +1475,43 @@ async function runDartPdf(serverStats, iteration) {
       const flutterStart = await markFlutterFrames(page);
       await resetRafProbe(page);
       const actionMark = await visualTracker.mark();
-      await page.evaluate((scale) => {
+      const tracked = await page.evaluate(({ pageIndex, scale }) => {
         console.log(
           `[driver] zoom=${scale} browserMs=${performance.now().toFixed(1)}`,
         );
+        // Prefer the harness's frame-accurate readiness record (#999); a
+        // bundle that predates it falls back to polling the busy flag.
+        if (typeof globalThis.__perfSetZoomTracked === 'function') {
+          globalThis.__perfSetZoomTracked(scale, pageIndex);
+          return true;
+        }
         globalThis.__perfSetZoom(scale);
-      }, zoom);
-      const readyPromise = waitUntil(
-        () => page.evaluate(
-          ({ pageIndex, scale }) =>
-            Math.abs(globalThis.__perfZoom() - scale) < 0.02 &&
-            globalThis.__perfPageVisible(pageIndex) &&
-            !globalThis.__perfBusy(),
-          { pageIndex: currentPage, scale: zoom },
-        ),
-        `DartPDF zoom ${zoom}`,
-      );
+        return false;
+      }, { pageIndex: currentPage, scale: zoom });
+      const readyPromise = (tracked
+        ? waitUntil(
+            () => page.evaluate(() => {
+              const at = Number(globalThis.__perfZoomReadyAt());
+              return Number.isFinite(at) && at >= 0 ? { at } : null;
+            }),
+            `DartPDF zoom ${zoom}`,
+          ).then(pageTimestampOnDriverClock)
+        : waitUntil(
+            () => page.evaluate(
+              ({ pageIndex, scale }) =>
+                Math.abs(globalThis.__perfZoom() - scale) < 0.02 &&
+                globalThis.__perfPageVisible(pageIndex) &&
+                !globalThis.__perfBusy(),
+              { pageIndex: currentPage, scale: zoom },
+            ),
+            `DartPDF zoom ${zoom}`,
+          ).then(() => performance.now()));
       const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `DartPDF zoom ${zoom}`,
       }));
       await Promise.race([readyPromise, visualPromise]);
-      await readyPromise;
-      zoomReadySamplesMs.push(performance.now() - actionMark.at);
+      zoomReadySamplesMs.push(await readyPromise - actionMark.at);
       const settled = await visualPromise;
       await captureDiagnostic(
         page,
@@ -1401,6 +1524,7 @@ async function runDartPdf(serverStats, iteration) {
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(page));
+      addLongFrames(longFrames.zoom, await readLongFrames(page));
       zoomFlutterWindows.push({
         zoom,
         startMs: flutterStart,
@@ -1421,6 +1545,7 @@ async function runDartPdf(serverStats, iteration) {
     );
     scrollSamplesMs.push(...scroll.samplesMs);
     scrollRafIntervalsMs.push(...scroll.rafIntervalsMs);
+    addLongFrames(longFrames.scroll, scroll.longFrames);
     screencastFrameBytes.push(...scroll.frameBytes);
     if (scroll.samplesMs.length) sampleRss('scroll');
 
@@ -1602,6 +1727,7 @@ async function runDartPdf(serverStats, iteration) {
         ? Math.max(...rssSamples.filter(Number.isFinite))
         : null,
       browserSettledRssBytes: settledRssBytes,
+      ...perProcessRss(rssStages),
       openNetwork,
       network,
       finalVisualHash: visualTracker.lastHash,
@@ -1629,6 +1755,7 @@ async function runDartPdf(serverStats, iteration) {
           // search diagnostics before the earlier navigation markers.
           .slice(-1000),
         rssStages,
+        longAnimationFrames: summarizeJourneyLongFrames(longFrames),
         screenshotCaptureDurationMs: primaryCaptureSummary,
         warmScreenshotCaptureDurationMs: warmCaptureSummary,
       },
@@ -1669,6 +1796,11 @@ async function runDartPdf(serverStats, iteration) {
 async function runPdfium(serverStats, iteration) {
   const browser = await launchBrowser();
   const browserVersion = await browser.version();
+  const pinMismatch = chromeVersionMismatch(browserVersion, expectedChrome);
+  if (pinMismatch) {
+    await browser.close().catch(() => {});
+    throw new Error(pinMismatch);
+  }
   const graphics = await browserGraphicsInfo(browser);
   const browserPid = browser.process()?.pid ?? null;
   const rssSamples = [];
@@ -1707,6 +1839,7 @@ async function runPdfium(serverStats, iteration) {
   const scrubRafIntervalsMs = [];
   const searchResults = [];
   const rafIntervalsMs = [];
+  const longFrames = newLongFrameBuckets();
   let page;
   let visualTracker;
   let openRssBytes = null;
@@ -1804,6 +1937,7 @@ async function runPdfium(serverStats, iteration) {
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(arrived.frame));
+      addLongFrames(longFrames.navigation, await readLongFrames(arrived.frame));
       sampleRss(`page:${target + 1}`);
       currentPage = target;
     }
@@ -1813,19 +1947,42 @@ async function runPdfium(serverStats, iteration) {
       await resetRafProbe(frame);
       const actionMark = await visualTracker.mark();
       await frame.evaluate((scale) => {
-        document.querySelector('pdf-viewer').viewport_.setZoom(scale);
+        // Record readiness on the viewer's own frame clock (#999), the same
+        // way the DartPDF harness does, rather than whenever the driver's
+        // ~20 ms poll next lands: the first animation frame on which the
+        // viewport reports the requested zoom. PDFium exposes no render-idle
+        // signal, so its readiness stays "zoom applied"; the visual-stability
+        // samples remain the cross-engine comparison.
+        const viewport = document.querySelector('pdf-viewer').viewport_;
+        const probe = { scale, at: -1 };
+        globalThis.__dartPdfParityZoom = probe;
+        const tick = () => {
+          if (globalThis.__dartPdfParityZoom !== probe || probe.at >= 0) return;
+          if (Math.abs(viewport.getZoom() - scale) < 0.02) {
+            probe.at = performance.timeOrigin + performance.now();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        viewport.setZoom(scale);
+        requestAnimationFrame(tick);
       }, zoom);
-      const readyPromise = waitPdfium(
-        page,
-        (state) => Math.abs(state.zoom - zoom) < 0.02,
-        `zoom ${zoom}`,
-      );
+      const readyPromise = waitUntil(async () => {
+        const snapshot = await pdfiumState(page);
+        if (!snapshot) return null;
+        const at = await snapshot.frame.evaluate(
+          () => globalThis.__dartPdfParityZoom?.at ?? -1,
+        );
+        return Number.isFinite(at) && at >= 0
+          ? { frame: snapshot.frame, at: pageTimestampOnDriverClock({ at }) }
+          : null;
+      }, `PDFium zoom ${zoom}`);
       const visualPromise = awaitLater(visualTracker.settle(actionMark, {
-        ready: readyPromise,
+        ready: readyPromise.then((zoomed) => zoomed.at),
         label: `PDFium zoom ${zoom}`,
       }));
       const zoomed = await readyPromise;
-      zoomReadySamplesMs.push(performance.now() - actionMark.at);
+      zoomReadySamplesMs.push(zoomed.at - actionMark.at);
       const settled = await visualPromise;
       await captureDiagnostic(
         page,
@@ -1838,6 +1995,7 @@ async function runPdfium(serverStats, iteration) {
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(zoomed.frame));
+      addLongFrames(longFrames.zoom, await readLongFrames(zoomed.frame));
       sampleRss(`zoom:${zoom}`);
     }
 
@@ -1850,6 +2008,7 @@ async function runPdfium(serverStats, iteration) {
     );
     scrollSamplesMs.push(...scroll.samplesMs);
     scrollRafIntervalsMs.push(...scroll.rafIntervalsMs);
+    addLongFrames(longFrames.scroll, scroll.longFrames);
     screencastFrameBytes.push(...scroll.frameBytes);
     if (scroll.samplesMs.length) sampleRss('scroll');
 
@@ -1973,6 +2132,7 @@ async function runPdfium(serverStats, iteration) {
         ? Math.max(...rssSamples.filter(Number.isFinite))
         : null,
       browserSettledRssBytes: settledRssBytes,
+      ...perProcessRss(rssStages),
       openNetwork,
       network,
       finalVisualHash: visualTracker.lastHash,
@@ -1981,6 +2141,7 @@ async function runPdfium(serverStats, iteration) {
         graphics,
         loadProgress: full.state.fullyLoaded ? 100 : null,
         rssStages,
+        longAnimationFrames: summarizeJourneyLongFrames(longFrames),
         screenshotCaptureDurationMs: primaryCaptureSummary,
         warmScreenshotCaptureDurationMs: warmCaptureSummary,
       },
@@ -2046,6 +2207,10 @@ function printReport(dart, pdfium, ratios, budgetResults) {
     ['search warm p95', dart.searchWarmMs.p95, pdfium.searchWarmMs.p95, ratios.searchWarmP95, 'searchWarmP95'],
     ['browser peak RSS p50 MiB', dart.browserRssBytes.p50 / 1048576, pdfium.browserRssBytes.p50 / 1048576, ratios.rssP50, 'rssP50'],
     ['browser settled RSS MiB', dart.browserSettledRssBytes.p50 / 1048576, pdfium.browserSettledRssBytes.p50 / 1048576, ratios.settledRssP50, 'settledRssP50'],
+    ['renderer peak RSS p50 MiB', dart.rendererPeakRssBytes.p50 / 1048576, pdfium.rendererPeakRssBytes.p50 / 1048576, ratios.rendererPeakRssP50, 'rendererPeakRssP50'],
+    ['renderer settled RSS MiB', dart.rendererSettledRssBytes.p50 / 1048576, pdfium.rendererSettledRssBytes.p50 / 1048576, ratios.rendererSettledRssP50, 'rendererSettledRssP50'],
+    ['GPU peak RSS p50 MiB', dart.gpuPeakRssBytes.p50 / 1048576, pdfium.gpuPeakRssBytes.p50 / 1048576, ratios.gpuPeakRssP50, 'gpuPeakRssP50'],
+    ['GPU settled RSS MiB', dart.gpuSettledRssBytes.p50 / 1048576, pdfium.gpuSettledRssBytes.p50 / 1048576, ratios.gpuSettledRssP50, 'gpuSettledRssP50'],
   ].filter(([, dartValue, pdfiumValue]) =>
     Number.isFinite(dartValue) || Number.isFinite(pdfiumValue));
   const budgetByMetric = new Map(
@@ -2115,7 +2280,11 @@ async function main() {
           (run.searchColdMs == null
             ? ''
             : `search=${formatMs(run.searchColdMs)}/${formatMs(run.searchWarmMs)}ms `) +
-          `rss=${formatMs(run.browserRssBytes / 1048576)}MiB`,
+          `rss=${formatMs(run.browserRssBytes / 1048576)}MiB ` +
+          `renderer=${formatMs(run.rendererPeakRssBytes / 1048576)}MiB ` +
+          `gpu=${formatMs(run.gpuPeakRssBytes / 1048576)}MiB ` +
+          `loaf-zoom=${formatMs(run.diagnostics?.longAnimationFrames?.zoom?.totalBlockingMs)}ms ` +
+          `loaf-scroll=${formatMs(run.diagnostics?.longAnimationFrames?.scroll?.totalBlockingMs)}ms`,
         );
         if (browserCooldownMs > 0) await sleep(browserCooldownMs);
       }
@@ -2205,6 +2374,7 @@ async function main() {
       cpus: cpus().length,
       node: process.version,
       chrome: chromeVersion,
+      chromeExpected: expectedChrome,
       graphics:
         dartRuns[0]?.diagnostics?.graphics ??
         pdfiumRuns[0]?.diagnostics?.graphics ??

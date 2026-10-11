@@ -28,6 +28,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, extname, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { chromeVersionMismatch } from './competitive_common.mjs';
 import puppeteer from 'puppeteer-core';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -367,6 +368,20 @@ async function main() {
       '--lang=en-US', '--accept-lang=en-US'],
     defaultViewport: { width: 1400, height: 1000 },
   });
+  // Recorded in the envelope, and checked against PERF_EXPECT_CHROME (#999):
+  // frame cadence differs between Chrome builds, so runs on different builds
+  // must not be compared as if only the code changed.
+  const chromeVersion = await browser.version().catch(() => null);
+  const pinMismatch = chromeVersionMismatch(
+    chromeVersion,
+    process.env.PERF_EXPECT_CHROME?.trim() || null,
+  );
+  if (pinMismatch) {
+    await browser.close().catch(() => { });
+    server.close();
+    console.error(`✗ ${pinMismatch}`);
+    process.exit(2);
+  }
 
   let result = null;
   let fatal = null;
@@ -468,6 +483,7 @@ async function main() {
       os: `${process.platform}-${process.arch}`,
       cpus: cpus().length,
       node: process.version,
+      chrome: chromeVersion,
       ci: process.env.CI === 'true',
       runner: process.env.RUNNER_OS ? 'github-actions' : 'local',
     },
