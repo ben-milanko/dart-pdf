@@ -377,6 +377,7 @@ searchMs                52.30       38.10       -27.2%    ✓ faster
 | `PERF_TIMEOUT` | `300` | overall budget, seconds |
 | `PERF_VERBOSE` | `false` | echo every browser console line |
 | `PERF_PORT` / `PERF_CHROME` | `8099` / system Chrome | server port / Chrome path |
+| `PERF_EXPECT_CHROME` | *(unpinned)* | the Chrome build a run must use - a full version or a component prefix (`154`, `154.0.8037`); `driver.mjs` and `competitive.mjs` refuse to run on any other. Every envelope records the build it used in `env.chrome` |
 | `PERF_RESULTS` | `./results.ndjson` | ndjson output path |
 
 ### Tab-memory probe

@@ -159,6 +159,10 @@ export function aggregateRuns(runs) {
     browserOpenRssBytes: scalar('browserOpenRssBytes'),
     browserPeakRssBytes: scalar('browserPeakRssBytes'),
     browserSettledRssBytes: scalar('browserSettledRssBytes'),
+    rendererPeakRssBytes: scalar('rendererPeakRssBytes'),
+    rendererSettledRssBytes: scalar('rendererSettledRssBytes'),
+    gpuPeakRssBytes: scalar('gpuPeakRssBytes'),
+    gpuSettledRssBytes: scalar('gpuSettledRssBytes'),
   };
 }
 
@@ -307,7 +311,122 @@ export function parityRatios(dart, pdfium) {
       dart.browserSettledRssBytes.p50,
       pdfium.browserSettledRssBytes.p50,
     ),
+    rendererPeakRssP50: ratio(
+      dart.rendererPeakRssBytes?.p50,
+      pdfium.rendererPeakRssBytes?.p50,
+    ),
+    rendererSettledRssP50: ratio(
+      dart.rendererSettledRssBytes?.p50,
+      pdfium.rendererSettledRssBytes?.p50,
+    ),
+    gpuPeakRssP50: ratio(
+      dart.gpuPeakRssBytes?.p50,
+      pdfium.gpuPeakRssBytes?.p50,
+    ),
+    gpuSettledRssP50: ratio(
+      dart.gpuSettledRssBytes?.p50,
+      pdfium.gpuSettledRssBytes?.p50,
+    ),
   };
+}
+
+// Long Animation Frame attribution (#999). Each entry is a
+// PerformanceLongAnimationFrameTiming flattened to plain data by the in-page
+// probe: the frame's timing plus the scripts Chrome blames for it. The summary
+// keeps the totals a regression moves and the scripts it should point at,
+// aggregated by what ran (invoker + function + source) so a wheel or zoom
+// journey names its hot code instead of only its slow frames.
+export function summarizeLongAnimationFrames(entries, { top = 8 } = {}) {
+  const frames = (entries ?? []).filter((entry) =>
+    Number.isFinite(entry?.duration));
+  const byScript = new Map();
+  let scriptMs = 0;
+  let renderMs = 0;
+  let styleAndLayoutMs = 0;
+  for (const frame of frames) {
+    const end = frame.startTime + frame.duration;
+    if (Number.isFinite(frame.renderStart) && frame.renderStart > 0) {
+      renderMs += Math.max(0, end - frame.renderStart);
+    }
+    if (Number.isFinite(frame.styleAndLayoutStart) &&
+        frame.styleAndLayoutStart > 0) {
+      styleAndLayoutMs += Math.max(0, end - frame.styleAndLayoutStart);
+    }
+    for (const script of frame.scripts ?? []) {
+      const duration = Number(script.duration);
+      if (!Number.isFinite(duration)) continue;
+      scriptMs += duration;
+      const key = [
+        script.invokerType ?? '',
+        script.invoker ?? '',
+        script.sourceFunctionName ?? '',
+        script.sourceURL ?? '',
+      ].join('|');
+      const row = byScript.get(key) ?? {
+        invokerType: script.invokerType ?? null,
+        invoker: script.invoker ?? null,
+        sourceFunctionName: script.sourceFunctionName ?? null,
+        sourceURL: script.sourceURL ?? null,
+        durationMs: 0,
+        forcedStyleAndLayoutMs: 0,
+        count: 0,
+      };
+      row.durationMs += duration;
+      row.forcedStyleAndLayoutMs +=
+        Number(script.forcedStyleAndLayoutDuration) || 0;
+      row.count += 1;
+      byScript.set(key, row);
+    }
+  }
+  const sum = (name) =>
+    frames.reduce((total, frame) => total + (Number(frame[name]) || 0), 0);
+  return {
+    count: frames.length,
+    totalDurationMs: sum('duration'),
+    totalBlockingMs: sum('blockingDuration'),
+    maxDurationMs: frames.length
+      ? Math.max(...frames.map((frame) => frame.duration))
+      : null,
+    scriptMs,
+    renderMs,
+    styleAndLayoutMs,
+    topScripts: [...byScript.values()]
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .slice(0, top),
+  };
+}
+
+// Per-process-type RSS from a run's `rssStages` (#999). The browser total
+// mixes Chrome's own version-to-version growth (151 -> 154 alone added about
+// 150 MiB) with the engine's memory; the tab's renderer processes and the GPU
+// process are what an engine change actually moves. `peakBytes` is the largest
+// sample of that type over the journey, `settledBytes` the `final-settled`
+// sample's.
+export function processTypeRss(rssStages, type) {
+  const values = (rssStages ?? [])
+    .map((stage) => stage?.byTypeBytes?.[type])
+    .filter(Number.isFinite);
+  const settled = (rssStages ?? [])
+    .filter((stage) => stage?.stage === 'final-settled')
+    .map((stage) => stage?.byTypeBytes?.[type])
+    .find(Number.isFinite);
+  return {
+    peakBytes: values.length ? Math.max(...values) : null,
+    settledBytes: settled ?? null,
+  };
+}
+
+// The Chrome build pin (#999). Headless Chrome 154 paces frames at 60 Hz where
+// 151 did not, so cadence numbers from different builds are not comparable:
+// `PERF_EXPECT_CHROME` names the build a run must use (a full version, or a
+// prefix on a component boundary - `154` or `154.0.8037`). Returns the reason
+// to refuse the run, or null when it matches or nothing is pinned.
+export function chromeVersionMismatch(actual, expected) {
+  if (!expected) return null;
+  const version = String(actual ?? '').match(/(\d+(?:\.\d+)*)/)?.[1] ?? '';
+  if (version === expected || version.startsWith(`${expected}.`)) return null;
+  return `Chrome ${actual ?? 'unknown'} does not match ` +
+    `PERF_EXPECT_CHROME=${expected}`;
 }
 
 // Sum the resident set of Chrome's root process and every descendant. This is
