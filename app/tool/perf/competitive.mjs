@@ -804,11 +804,36 @@ function perProcessRss(rssStages) {
   };
 }
 
+// Per-journey Long Animation Frame entries. `supported` stays null until a
+// read happens and turns false when the probed frame has no LoAF support, so
+// a zero count means "no long frames" only where the API could report them.
+function newLongFrameBuckets() {
+  return {
+    navigation: { entries: [], supported: null },
+    zoom: { entries: [], supported: null },
+    scroll: { entries: [], supported: null },
+  };
+}
+
+function addLongFrames(bucket, entries) {
+  if (entries === undefined) return;
+  if (entries === null) {
+    bucket.supported ??= false;
+    return;
+  }
+  bucket.supported = true;
+  bucket.entries.push(...entries);
+}
+
 function summarizeJourneyLongFrames(longFrames) {
   return Object.fromEntries(
-    Object.entries(longFrames).map(
-      ([journey, entries]) => [journey, summarizeLongAnimationFrames(entries)],
-    ),
+    Object.entries(longFrames).map(([journey, bucket]) => [
+      journey,
+      {
+        supported: bucket.supported,
+        ...summarizeLongAnimationFrames(bucket.entries),
+      },
+    ]),
   );
 }
 
@@ -900,9 +925,11 @@ async function driveScrollJourney(
   const samplesMs = [];
   const rafIntervalsMs = [];
   const frameBytes = [];
-  const longFrames = [];
+  // Undefined when there was nothing to read, null when the frame cannot
+  // report long animation frames (see addLongFrames).
+  let longFrames = null;
   if (!Array.isArray(actions) || !actions.length) {
-    return { samplesMs, rafIntervalsMs, frameBytes, longFrames };
+    return { samplesMs, rafIntervalsMs, frameBytes, longFrames: undefined };
   }
   await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2);
   for (const action of actions) {
@@ -956,7 +983,8 @@ async function driveScrollJourney(
     });
     samplesMs.push(settled.visualElapsedMs);
     frameBytes.push(...settled.frameBytes);
-    longFrames.push(...(await readLongFrames(rafTarget) ?? []));
+    const entries = await readLongFrames(rafTarget);
+    if (entries != null) longFrames = [...(longFrames ?? []), ...entries];
     if (flutterStart != null) {
       flutterWindows.push({
         deltaY,
@@ -1227,7 +1255,7 @@ async function runDartPdf(serverStats, iteration) {
   const scrubFlutterWindows = [];
   const searchResults = [];
   const rafIntervalsMs = [];
-  const longFrames = { navigation: [], zoom: [], scroll: [] };
+  const longFrames = newLongFrameBuckets();
   const consoleLines = [];
   let page;
   let visualTracker;
@@ -1425,7 +1453,7 @@ async function runDartPdf(serverStats, iteration) {
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(page));
-      longFrames.navigation.push(...(await readLongFrames(page) ?? []));
+      addLongFrames(longFrames.navigation, await readLongFrames(page));
       navigationFlutterWindows.push({
         page: target,
         startMs: flutterStart,
@@ -1496,7 +1524,7 @@ async function runDartPdf(serverStats, iteration) {
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(page));
-      longFrames.zoom.push(...(await readLongFrames(page) ?? []));
+      addLongFrames(longFrames.zoom, await readLongFrames(page));
       zoomFlutterWindows.push({
         zoom,
         startMs: flutterStart,
@@ -1517,7 +1545,7 @@ async function runDartPdf(serverStats, iteration) {
     );
     scrollSamplesMs.push(...scroll.samplesMs);
     scrollRafIntervalsMs.push(...scroll.rafIntervalsMs);
-    longFrames.scroll.push(...scroll.longFrames);
+    addLongFrames(longFrames.scroll, scroll.longFrames);
     screencastFrameBytes.push(...scroll.frameBytes);
     if (scroll.samplesMs.length) sampleRss('scroll');
 
@@ -1811,7 +1839,7 @@ async function runPdfium(serverStats, iteration) {
   const scrubRafIntervalsMs = [];
   const searchResults = [];
   const rafIntervalsMs = [];
-  const longFrames = { navigation: [], zoom: [], scroll: [] };
+  const longFrames = newLongFrameBuckets();
   let page;
   let visualTracker;
   let openRssBytes = null;
@@ -1909,9 +1937,7 @@ async function runPdfium(serverStats, iteration) {
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(arrived.frame));
-      longFrames.navigation.push(
-        ...(await readLongFrames(arrived.frame) ?? []),
-      );
+      addLongFrames(longFrames.navigation, await readLongFrames(arrived.frame));
       sampleRss(`page:${target + 1}`);
       currentPage = target;
     }
@@ -1969,7 +1995,7 @@ async function runPdfium(serverStats, iteration) {
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
       rafIntervalsMs.push(...await readRafProbe(zoomed.frame));
-      longFrames.zoom.push(...(await readLongFrames(zoomed.frame) ?? []));
+      addLongFrames(longFrames.zoom, await readLongFrames(zoomed.frame));
       sampleRss(`zoom:${zoom}`);
     }
 
@@ -1982,7 +2008,7 @@ async function runPdfium(serverStats, iteration) {
     );
     scrollSamplesMs.push(...scroll.samplesMs);
     scrollRafIntervalsMs.push(...scroll.rafIntervalsMs);
-    longFrames.scroll.push(...scroll.longFrames);
+    addLongFrames(longFrames.scroll, scroll.longFrames);
     screencastFrameBytes.push(...scroll.frameBytes);
     if (scroll.samplesMs.length) sampleRss('scroll');
 
