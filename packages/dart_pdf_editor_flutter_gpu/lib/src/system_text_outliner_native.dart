@@ -143,7 +143,8 @@ class _SystemFontCatalogue {
             ? _Family.symbol
             : name.contains('Courier') || name.contains('Mono')
                 ? _Family.mono
-                : name.contains('Times') || name.contains('Serif')
+                : pdfBundledSubstituteFor(name, serif: run.serif) ==
+                        PdfBundledSubstitute.termes
                     ? _Family.serif
                     : _Family.sans;
     final bold = name.contains('Bold');
@@ -159,7 +160,8 @@ class _SystemFontCatalogue {
       // Canvas draws this run in a bundled metric-compatible face wherever the
       // optional assets package supplies one, so outlining anything else would
       // put the accelerated backend's glyphs somewhere Canvas would not.
-      final bundled = _bundledFace(pdfBundledSubstituteFor(name), style);
+      final bundled = _bundledFace(
+          pdfBundledSubstituteFor(name, serif: run.serif), style);
       if (bundled.face != null) return bundled.face;
       // Still loading, or an oblique this family ships no file for (the engine
       // slants it and we cannot): decline, leaving the scene on the exact

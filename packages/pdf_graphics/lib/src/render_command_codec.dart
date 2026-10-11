@@ -66,7 +66,11 @@ import 'text_extraction.dart';
 /// Version 11: a tiled cell's command list is written once per record and
 /// referenced by id after that ([_writeTiledCellReference]), so the cell a
 /// repeated Type3 glyph shares stays one list across the seam.
-const int _formatVersion = 11;
+///
+/// Version 12: a text run carries its font descriptor's Serif flag
+/// ([PdfTextRun.serif]) after its font name, for the face a substituting
+/// device picks.
+const int _formatVersion = 12;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1867,6 +1871,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     _writeGradient(w, run.gradient!);
   }
   w.strOpt(run.fontName);
+  w.boolean(run.serif);
   w.f64(run.fontSize);
   // glyphs?
   final glyphs = run.glyphs;
@@ -1923,6 +1928,7 @@ PdfTextRun _readTextRun(_Reader r) {
   final width = r.f64();
   final gradient = r.boolean() ? _readGradient(r) : null;
   final fontName = r.strOpt();
+  final serif = r.boolean();
   final fontSize = r.f64();
   List<PdfGlyphPlacement>? glyphs;
   if (r.boolean()) {
@@ -1960,6 +1966,7 @@ PdfTextRun _readTextRun(_Reader r) {
     width: width,
     gradient: gradient,
     fontName: fontName,
+    serif: serif,
     fontSize: fontSize,
     glyphs: glyphs,
     invisible: invisible,

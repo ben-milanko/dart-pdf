@@ -2,16 +2,23 @@ import 'dart:typed_data';
 
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'font_substitution.dart';
+
 /// One substring painted by the worker-owned Canvas2D text surface.
 ///
 /// [x] is measured in the same device-font units as
 /// [PdfCanvas2dTextLayout.unitsPerEm]. Scaling both by the reciprocal places
-/// the substring at its exact PDF advance in em space.
+/// the substring at its PDF advance in em space - centred in the slot the PDF
+/// gives it when the substitute draws it narrower ([pdfFitSubstitutedPiece]).
 class PdfCanvas2dTextPart {
-  const PdfCanvas2dTextPart(this.text, this.x);
+  const PdfCanvas2dTextPart(this.text, this.x, {this.scaleX = 1});
 
   final String text;
   final double x;
+
+  /// The horizontal squeeze to paint [text] under, about [x]: below 1 when the
+  /// substitute draws it wider than the PDF's slot for it, 1 otherwise.
+  final double scaleX;
 }
 
 /// Exact-placement plan for a substituted Canvas2D text run.
@@ -41,8 +48,11 @@ const double _canvas2dPlacementToleranceEm = 0.02;
 /// glyphs across them. A word is painted in the longest pieces that stay
 /// within 0.02 em of the PDF's own offsets, so one the substitute agrees with
 /// is painted whole and keeps its shaping and kerning.
-/// Font-family substitution is responsible for compatible glyph proportions;
-/// individual glyphs are never distorted to force them into their cells.
+/// Font-family substitution is responsible for compatible glyph proportions.
+/// Where it cannot supply them, each piece is fitted to the slot the PDF gives
+/// it ([pdfFitSubstitutedPiece]): centred when narrower, so the difference is
+/// shared out either side of it rather than left as a gap inside the word, and
+/// squeezed when wider, so it does not run into its neighbour.
 ///
 /// Returns null for missing/malformed offsets, all-whitespace text, or scripts
 /// that need joining, reordering, combining, or multi-code-unit shaping. Those
@@ -112,23 +122,31 @@ PdfCanvas2dTextLayout? pdfCanvas2dTextLayout(
     // instead of accumulating across the word.
     var piece = start;
     var shaped = 0.0;
+    void addPart(int to) {
+      // The PDF's width for the piece: to the end of its last glyph, not to
+      // the next pen position, so the spacing after it stays a gap.
+      final slot =
+          offsets[to - 1] - offsets[piece] + run.glyphWidthAt(to - 1, 1)!;
+      final fit =
+          pdfFitSubstitutedPiece(slot: slot, drawn: shaped / unitsPerEm);
+      parts.add(PdfCanvas2dTextPart(
+        text.substring(piece, to),
+        (offsets[piece] + fit.shift) * unitsPerEm,
+        scaleX: fit.scaleX,
+      ));
+    }
+
     for (var i = start; i < end; i++) {
       if (i > piece &&
           (shaped / unitsPerEm - (offsets[i] - offsets[piece])).abs() >
               _canvas2dPlacementToleranceEm) {
-        parts.add(PdfCanvas2dTextPart(
-          text.substring(piece, i),
-          offsets[piece] * unitsPerEm,
-        ));
+        addPart(i);
         piece = i;
         shaped = 0;
       }
       shaped += widthOf(text.codeUnitAt(i));
     }
-    parts.add(PdfCanvas2dTextPart(
-      text.substring(piece, end),
-      offsets[piece] * unitsPerEm,
-    ));
+    addPart(end);
     start = end;
   }
   return parts.isEmpty ? null : PdfCanvas2dTextLayout(unitsPerEm, parts);

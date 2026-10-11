@@ -175,6 +175,7 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
       width: run.width / xScale,
       gradient: run.gradient,
       fontName: run.fontName,
+      serif: run.serif,
       fontSize: run.fontSize,
       glyphs: List.unmodifiable(glyphs),
       charOffsets: List.unmodifiable(scaledOffsets),

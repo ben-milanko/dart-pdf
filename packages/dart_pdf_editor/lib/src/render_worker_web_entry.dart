@@ -2931,7 +2931,7 @@ Map<String, _WorkerSubstituteFace> _workerSubstituteFaces(
     if (command is! PdfDrawTextCommand) continue;
     final run = command.run;
     if (run.invisible || run.text.isEmpty) continue;
-    final substitute = pdfBundledSubstituteFor(run.fontName);
+    final substitute = pdfBundledSubstituteFor(run.fontName, serif: run.serif);
     final bold = pdfSubstituteIsBold(run.fontName);
     final italic = pdfSubstituteIsItalic(run.fontName);
     final face = (
