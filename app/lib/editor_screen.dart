@@ -13,6 +13,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show pdfDocumentLooksScanned;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
@@ -36,6 +37,7 @@ import 'l10n/app_l10n.dart';
 import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
+import 'ocr_auto.dart';
 import 'ocr_status_chip.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
@@ -155,6 +157,8 @@ class EditorScreen extends StatefulWidget {
     this.initialHandoff,
     this.ownsApplicationSession = true,
     this.recentThumbnails,
+    this.ocr,
+    this.autoOcr,
   });
 
   final PdfEditingPreferences prefs;
@@ -289,6 +293,15 @@ class EditorScreen extends StatefulWidget {
   /// the tab overview. Null builds the platform store; tests inject one.
   final RecentThumbnailCache? recentThumbnails;
 
+  /// The on-device OCR service behind the OCR menu item and automatic OCR.
+  /// Null builds the platform one; tests inject a fake so the flow runs
+  /// without a downloaded model.
+  final OnDeviceOcr? ocr;
+
+  /// The "Automatically OCR scans" choice. Null uses the app-wide
+  /// [AutoOcrSetting.instance]; tests inject their own.
+  final AutoOcrSetting? autoOcr;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -329,7 +342,9 @@ class _EditorScreenState extends State<EditorScreen>
       store: widget.unsavedChangesStore ?? openUnsavedChangesStore());
 
   final _incoming = IncomingFileService();
-  final _ocr = OnDeviceOcr();
+  late final OnDeviceOcr _ocr = widget.ocr ?? OnDeviceOcr();
+  late final AutoOcrSetting _autoOcr =
+      widget.autoOcr ?? AutoOcrSetting.instance;
   StreamSubscription<List<IncomingFile>>? _incomingSub;
   final Object _windowCloseOwner = Object();
   DartPdfWindowCloseCoordinator? _windowCloseCoordinator;
@@ -721,7 +736,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _incomingSub?.cancel();
     _incoming.dispose();
-    _ocr.dispose();
+    if (widget.ocr == null) _ocr.dispose();
     // Detaches only - the mirrored records stay, so an editor torn down with
     // dirty tabs (a crash, a forced quit) can still hand the work back.
     _autosave.dispose();
@@ -2781,6 +2796,66 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
+  /// Automatic OCR: the first time an editable tab is shown, a scanned
+  /// document ([pdfDocumentLooksScanned]) gets the same on-device OCR as the
+  /// menu item, in the background - unless the user turned it off in Settings
+  /// ([AutoOcrSetting]). Unlike the menu item, the text layer lands in the same
+  /// tab as one undoable edit, so the document the user opened simply becomes
+  /// searchable and selectable (and has a change to save).
+  ///
+  /// A tab passed over while another OCR job runs is checked again when that
+  /// job ends. Read-only mode makes no edits, so it is skipped too.
+  void _maybeAutoOcr(DocumentTab tab) {
+    final controller = tab.session;
+    if (tab.autoOcrChecked || controller == null || _readOnly) return;
+    if (!OnDeviceOcr.isSupported) return;
+    tab.autoOcrChecked = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _autoOcr.load();
+      if (!mounted || !_autoOcr.value) return;
+      if (!_tabs.contains(tab) || tab.session != controller) return;
+      if (_ocr.isBusy) {
+        tab.autoOcrChecked = false;
+        return;
+      }
+      if (!pdfDocumentLooksScanned(controller.document)) return;
+      await _runAutoOcr(tab, controller);
+      // Another tab may have been passed over while this job ran.
+      if (!mounted) return;
+      if (_active case final active?) _maybeAutoOcr(active);
+    });
+  }
+
+  Future<void> _runAutoOcr(
+      DocumentTab tab, PdfEditingController controller) async {
+    final snapshot = OcrSessionSnapshot.of(controller);
+    AppDevTools.instance.addLog('auto OCR: "${tab.title}" looks scanned');
+    await _ocr.start(
+      context,
+      // A copy: after an undo, the next edit overwrites the session buffer
+      // past that revision, and the job reads its snapshot lazily.
+      bytes: Uint8List.fromList(controller.bytes),
+      title: tab.title,
+      automatic: true,
+      onToast: (message) {
+        if (mounted) _toast(message);
+      },
+      onRecognized: (spans) {
+        if (!mounted || !_tabs.contains(tab) || tab.session != controller) {
+          return;
+        }
+        if (spans.isEmpty) return;
+        final l10n = appL10n(context);
+        final written = applyOcrToSession(controller, snapshot, spans);
+        if (written == null) {
+          _toast(l10n.ocrAutoDocumentChanged);
+        } else if (written > 0) {
+          _toast(l10n.ocrAutoResult);
+        }
+      },
+    );
+  }
+
   /// Closes the tab at [index], confirming first when it has unsaved edits.
   Future<void> _closeTab(int index) => _closeTabs([_tabs[index]]);
 
@@ -3836,6 +3911,7 @@ class _EditorScreenState extends State<EditorScreen>
             updates: _updates,
             updateInstaller: _updateInstaller,
             onOpenDevTools: kDevToolsEnabled ? _toggleDevTools : null,
+            autoOcr: _autoOcr,
           ),
         ),
       ];
@@ -4439,6 +4515,7 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
+    _maybeAutoOcr(tab);
     // built once per EditorScreen build (see _buildAppBar)
     final appBar = _appBarContent(tab);
     // one header: the app bar, drawn by the shell with its own controls as

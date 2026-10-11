@@ -1314,6 +1314,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appMenuMoreTools => 'More tools';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2626,6 +2644,24 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get appMenuMoreTools => 'More tools';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognised on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognised - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -3938,4 +3974,22 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get appMenuMoreTools => 'More tools';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognised on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognised - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

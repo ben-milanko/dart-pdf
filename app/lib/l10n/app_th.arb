@@ -340,5 +340,10 @@
   "appMenuRecent": "ล่าสุด",
   "appMenuSeeAll": "ดูทั้งหมด",
   "appMenuExport": "ส่งออก",
-  "appMenuMoreTools": "เครื่องมือเพิ่มเติม"
+  "appMenuMoreTools": "เครื่องมือเพิ่มเติม",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }
