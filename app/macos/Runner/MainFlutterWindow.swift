@@ -279,6 +279,11 @@ class MainFlutterWindow: NSWindow {
         return
       }
       if call.method == "readImage" {
+        let externalOnly = (call.arguments as? [String: Any])?["externalOnly"] as? Bool ?? false
+        if externalOnly && SnapshotClipboard.shared.isLocalCopy {
+          result(nil)
+          return
+        }
         result(self.readImageFromClipboard())
         return
       }

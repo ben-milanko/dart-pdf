@@ -3261,6 +3261,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
       _controller.canRotateSelected &&
+      _controller.selectedAnnotationSlots.length == 1 &&
       _handleLayout(rect, rotation).hitsRotateHandle(position);
 
   /// The drag's rotation delta for the pointer at [position]: the angle
@@ -3789,6 +3790,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _textEditRect != null) {
       _onEscapeTextEdit();
       return KeyEventResult.handled;
+    }
+    if (event is KeyDownEvent &&
+        _textEditRect != null &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed) &&
+        !HardwareKeyboard.instance.isAltPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyB ||
+          event.logicalKey == LogicalKeyboardKey.keyI) {
+        _toggleInlineTextStyle(
+            italic: event.logicalKey == LogicalKeyboardKey.keyI);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyU) {
+        _toggleInlineUnderline();
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
@@ -5800,10 +5817,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _toggleInlineTextStyle({required bool italic}) {
     if (_textEditRect == null) return;
 
-    final base = _canStyleInlineTextSelection
+    final font = _canStyleInlineTextSelection
         ? _currentInlineTextStyle().font
         : _textEditFont;
-    if (base is! PdfStandardFont) return;
+    final base = font is PdfStandardFont
+        ? font
+        : PdfStandardFont.fromName(
+            font is PdfEmbeddedFont ? font.postScriptName : font.resourceName);
     final next =
         italic ? base.withItalic(!base.isItalic) : base.withBold(!base.isBold);
 
@@ -6622,6 +6642,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _moveStart == null,
                     showRotateHandle: selected != null &&
                         _controller.canRotateSelected &&
+                        _controller.selectedAnnotationSlots.length == 1 &&
                         _moveStart == null,
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],

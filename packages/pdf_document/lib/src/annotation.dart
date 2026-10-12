@@ -455,6 +455,33 @@ class PdfAnnotation {
     return leaders;
   }
 
+  /// Leader styling independent of the text-box outline. Older callouts
+  /// inherit their outline stroke until separate styling is recorded.
+  PdfCalloutLeaderStyle? get calloutLeaderStyle {
+    if (!isCallout) return null;
+    final style = freeTextStyle;
+    final raw = document.cos.resolve(dict['DartPdfCalloutLeaderStyle']);
+    final stored = raw is CosDictionary ? raw : null;
+    final color = stored == null ? null : _colorArray(stored['C']);
+    final width =
+        stored == null ? null : _number(document.cos.resolve(stored['W']));
+    final dash = stored == null ? null : document.cos.resolve(stored['D']);
+    return PdfCalloutLeaderStyle(
+      color: color ?? style?.borderColor ?? style?.color ?? 0,
+      width: width != null && width > 0
+          ? width
+          : (style != null && style.borderWidth > 0 ? style.borderWidth : 1),
+      dash: stored == null
+          ? borderDash
+          : dash is CosArray
+              ? [
+                  for (final item in dash.items)
+                    if (_number(document.cos.resolve(item)) case final n?) n,
+                ]
+              : null,
+    );
+  }
+
   /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
   /// distinct from /Rect which also encloses the leader line and arrowhead.
   /// Null when this is not a callout.
@@ -1078,9 +1105,17 @@ const double kPdfFreeTextDefaultLineSpacing = 1.2;
 /// The default free-text horizontal glyph scaling, as a percentage.
 const double kPdfFreeTextDefaultHorizontalScale = 100.0;
 
+/// A callout leader's independent color, width, and dash pattern.
+class PdfCalloutLeaderStyle {
+  const PdfCalloutLeaderStyle(
+      {required this.color, required this.width, this.dash});
+  final int color;
+  final double width;
+  final List<double>? dash;
+}
+
 /// A free-text annotation's text and box styling, as recoverable from
-/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
-/// 0xRRGGBB.
+/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are 0xRRGGBB.
 class PdfFreeTextStyle {
   const PdfFreeTextStyle({
     required this.fontName,

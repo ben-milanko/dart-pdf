@@ -25,6 +25,36 @@ void main() {
     prefs.dispose();
   });
 
+  testWidgets('Ctrl+S includes ink restored by redo before it auto-commits',
+      (tester) async {
+    Uint8List? saved;
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildClassicPdf(), title: 'ink.pdf'),
+      saveDocumentAs: (context, bytes, suggestedName) async {
+        saved = Uint8List.fromList(bytes);
+        return SaveResult.cancelled;
+      },
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final editing =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+    editing.addInkStroke(0, const [(100, 100), (150, 150)]);
+    editing.undo();
+    editing.redo();
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(saved, isNotNull);
+    expect(PdfDocument.open(saved!).page(0).annotations.single.subtype, 'Ink');
+    expect(editing.hasPendingInk, isFalse);
+  });
+
   testWidgets('Ctrl+Shift+S routes to the app Save as flow', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {

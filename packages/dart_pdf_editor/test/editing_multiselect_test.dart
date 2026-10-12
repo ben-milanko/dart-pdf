@@ -103,7 +103,9 @@ void main() {
       expect(editing.document.page(0).annotations, hasLength(2));
     });
 
-    test('resize, rotate, and text editing demand a single selection', () {
+    test(
+        'rotation supports multiple selections; resize and text editing need one',
+        () {
       final editing = twoShapes();
       editing.selectAnnotationAt(0, 140, 675);
       expect(editing.canResizeSelected, isTrue);
@@ -111,7 +113,7 @@ void main() {
 
       editing.selectAnnotationAt(0, 290, 675, toggle: true);
       expect(editing.canResizeSelected, isFalse);
-      expect(editing.canRotateSelected, isFalse);
+      expect(editing.canRotateSelected, isTrue);
       expect(editing.canEditSelectedText, isFalse);
       expect(editing.canRestyleSelectedText, isFalse);
     });

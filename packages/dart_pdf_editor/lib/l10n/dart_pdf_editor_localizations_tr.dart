@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Sayfalara uygula…';
 
   @override
+  String get propLeader => 'Kılavuz çizgisi';
+
+  @override
+  String get propOutlineWidth => 'Anahat kalınlığı';
+
+  @override
+  String get menuRotateSelection => 'Seçimin merkezi etrafında döndür…';
+
+  @override
+  String get menuRotateEach => 'Her açıklamayı döndür…';
+
+  @override
+  String get rotationAngleTitle => 'Döndürme (derece, saat yönünün tersine)';
+
+  @override
+  String get menuGroup => 'Grupla';
+
+  @override
+  String get menuUngroup => 'Grubu çöz';
+
+  @override
   String get menuBringToFront => 'Öne getir';
 
   @override

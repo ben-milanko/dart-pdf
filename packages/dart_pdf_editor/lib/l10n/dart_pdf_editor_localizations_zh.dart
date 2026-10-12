@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuApplyToPages => '应用到页面…';
 
   @override
+  String get propLeader => '引线';
+
+  @override
+  String get propOutlineWidth => '轮廓宽度';
+
+  @override
+  String get menuRotateSelection => '围绕选择中心旋转…';
+
+  @override
+  String get menuRotateEach => '分别旋转各个批注…';
+
+  @override
+  String get rotationAngleTitle => '旋转角度（度，逆时针）';
+
+  @override
+  String get menuGroup => '组合';
+
+  @override
+  String get menuUngroup => '取消组合';
+
+  @override
   String get menuBringToFront => '移到最前';
 
   @override
@@ -2748,6 +2769,27 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuApplyToPages => '套用至頁面…';
+
+  @override
+  String get propLeader => '引線';
+
+  @override
+  String get propOutlineWidth => '輪廓寬度';
+
+  @override
+  String get menuRotateSelection => '圍繞選取中心旋轉…';
+
+  @override
+  String get menuRotateEach => '分別旋轉各個註解…';
+
+  @override
+  String get rotationAngleTitle => '旋轉角度（度，逆時針）';
+
+  @override
+  String get menuGroup => '群組';
+
+  @override
+  String get menuUngroup => '取消群組';
 
   @override
   String get menuBringToFront => '移至最上層';

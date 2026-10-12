@@ -263,6 +263,7 @@ class PdfEditorView extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
@@ -372,6 +373,7 @@ class PdfEditorView extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
@@ -616,6 +618,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.systemImagePasteProvider].
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// See [PdfViewer.systemImagePasteOverridesLocalClipboard].
+  final bool systemImagePasteOverridesLocalClipboard;
 
   /// Supplies an external PDF for vector paste before the in-app clipboard.
   /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
@@ -1032,6 +1037,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         imagePicker: widget.imagePicker,
         systemPdfPasteProvider: widget.systemPdfPasteProvider,
         systemImagePasteProvider: widget.systemImagePasteProvider,
+        systemImagePasteOverridesLocalClipboard:
+            widget.systemImagePasteOverridesLocalClipboard,
         systemTextPasteProvider: widget.systemTextPasteProvider,
         onExportSelectedContentImage: widget.onExportSelectedContentImage,
         onExportCustomStamps: widget.onExportCustomStamps,
@@ -1972,6 +1979,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         systemPdfPasteProvider: widget.systemPdfPasteProvider,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
+                        systemImagePasteOverridesLocalClipboard:
+                            widget.systemImagePasteOverridesLocalClipboard,
                         systemTextPasteProvider: widget.systemTextPasteProvider,
                         onSnapshot: widget.onSnapshot,
                         onPlaceSignature: widget.onPlaceSignature,

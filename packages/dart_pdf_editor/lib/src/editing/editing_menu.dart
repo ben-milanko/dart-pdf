@@ -253,7 +253,7 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 
 /// Shows the annotation context menu at [position] (global coordinates)
 /// for [controller]'s current selection: copy/cut/apply-to-pages/paste,
-/// bring to front, send to back, add/remove node (a single /PolyLine or
+/// group/ungroup, bring to front, send to back, add/remove node (a single /PolyLine or
 /// /Polygon, when [pagePoint] is known), delete, then whatever
 /// [customActions] adds. Resolves when the menu closes, after the picked
 /// action ran.
@@ -365,6 +365,42 @@ Future<void> showPdfAnnotationMenu({
   ];
   final arrange = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
+      if (request.slots.length > 1)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-group'),
+          label: pdfL10n(context).menuGroup,
+          icon: Icons.group_work_outlined,
+          enabled: controller.canGroupSelectedAnnotations,
+          onSelected: (request) =>
+              request.controller.groupSelectedAnnotations(),
+        ),
+      if (controller.canUngroupSelectedAnnotations)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-ungroup'),
+          label: pdfL10n(context).menuUngroup,
+          icon: Icons.workspaces_outline,
+          onSelected: (request) =>
+              request.controller.ungroupSelectedAnnotations(),
+        ),
+      if (request.slots.length > 1 && controller.canRotateSelected)
+        for (final mode in PdfAnnotationRotationMode.values)
+          PdfAnnotationMenuItem(
+            key: ValueKey('pdf-annot-menu-rotate-${mode.name}'),
+            label: mode == PdfAnnotationRotationMode.selectionCenter
+                ? pdfL10n(context).menuRotateSelection
+                : pdfL10n(context).menuRotateEach,
+            icon: Icons.rotate_right,
+            onSelected: (request) async {
+              final value = await textPrompt(context,
+                  title: pdfL10n(context).rotationAngleTitle,
+                  initial: '90',
+                  multiline: false);
+              final degrees = double.tryParse(value?.trim() ?? '');
+              if (degrees != null && degrees.isFinite) {
+                request.controller.rotateSelected(degrees, mode: mode);
+              }
+            },
+          ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-front'),
         label: pdfL10n(context).menuBringToFront,

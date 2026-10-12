@@ -1410,6 +1410,7 @@ class PdfViewer extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
@@ -1791,12 +1792,17 @@ class PdfViewer extends StatefulWidget {
   /// clipboard read); return null from the callback to mean "user cancelled".
   final PdfImagePicker? imagePicker;
 
-  /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector
-  /// clipboard is empty. When this returns PNG or JPEG bytes, the image is
+  /// Supplies a clipboard image for ⌘V/Ctrl+V. PNG or JPEG bytes are
   /// placed as a stamp under the cursor, or at the current page center when
-  /// no pointer location is known. When null or when it returns null, paste
-  /// falls back to plain text from Flutter's system clipboard.
+  /// no pointer location is known. With no external image, paste uses the
+  /// in-app clipboard, then plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Reads images before local annotation/vector copies. Enable only when
+  /// [systemImagePasteProvider] tracks clipboard ownership and returns null
+  /// for an app-owned or superseded copy. Readers without that capability
+  /// retain local vector paste, including on mobile and web.
+  final bool systemImagePasteOverridesLocalClipboard;
 
   /// Supplies an external PDF for vector paste before the in-app clipboard.
   /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
@@ -7623,10 +7629,58 @@ class _PdfViewerState extends State<PdfViewer>
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
-  /// cursor. When that clipboard is empty, ask the host for a system
-  /// clipboard image first, then fall back to plain text from Flutter's
-  /// system clipboard and create a FreeText annotation at the same point.
+  void _onToggleTextFormatting(PdfTextFormatting format) {
+    final editing = widget.editing;
+    if (editing == null) return;
+    if (editing.canRestyleSelectedText) {
+      editing.toggleSelectedTextFormatting(format);
+      return;
+    }
+    final range = _selRange;
+    final selected = _controller.selectedText;
+    if (range == null || selected.isEmpty) return;
+    if (range.$1.$1 != range.$2.$1) {
+      _textSelectionToast(pdfL10n(context).viewerEditNeedsSinglePage);
+      return;
+    }
+    if (format == PdfTextFormatting.underline) {
+      _markupTextSelection(PdfMarkupKind.underline);
+      return;
+    }
+    final page = range.$1.$1;
+    final element = editing.textElementForSelection(
+        page, _selectionRectsOn(page), selected);
+    if (element == null) {
+      _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
+      return;
+    }
+    if (!editing.canStyleContentText(page, element)) {
+      _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
+      return;
+    }
+    final cos = editing.document.cos;
+    final fonts = cos.resolve(editing.pageAt(page).resources['Font']);
+    final resource = element.resourceName;
+    final dict = fonts is CosDictionary && resource != null
+        ? cos.resolve(fonts[resource])
+        : null;
+    final name = dict is CosDictionary ? cos.resolve(dict['BaseFont']) : null;
+    final font =
+        PdfStandardFont.fromName(name is CosName ? name.value : 'Helvetica');
+    final style = format == PdfTextFormatting.bold
+        ? PdfTextStyle(bold: !font.isBold)
+        : PdfTextStyle(italic: !font.isItalic);
+    if (editing.replaceTextInElement(page, element, selected, selected, style) >
+        0) {
+      _clearSelection();
+    } else {
+      _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
+    }
+  }
+
+  /// ⌘V/Ctrl+V: prefer an external PDF or new external image, then paste the
+  /// in-app annotation/snapshot clipboard. Otherwise create a FreeText box
+  /// from system clipboard text at the captured paste point.
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
   /// current page's center.
@@ -7640,10 +7694,6 @@ class _PdfViewerState extends State<PdfViewer>
         pageIndex == null && local != null ? _pagePointAt(local) : null;
     final page = pageIndex ?? point?.$1 ?? _controller.currentPage;
     at ??= point == null ? null : (point.$2, point.$3);
-    if (widget.systemPdfPasteProvider == null) {
-      _pasteLocalClipboard(editing, page, at);
-      return;
-    }
     unawaited(_pasteWithExternalPdf(editing, page, at));
   }
 
@@ -7654,7 +7704,7 @@ class _PdfViewerState extends State<PdfViewer>
     try {
       PdfClipboardPdf? pdf;
       try {
-        pdf = await widget.systemPdfPasteProvider!(context);
+        pdf = await widget.systemPdfPasteProvider?.call(context);
       } catch (_) {
         // Missing support or denied clipboard access keeps local paste usable.
       }
@@ -7674,29 +7724,35 @@ class _PdfViewerState extends State<PdfViewer>
         }
         return;
       }
-      _pasteLocalClipboard(editing, page, at);
+      final imageFirst =
+          widget.systemImagePasteOverridesLocalClipboard && !alreadyPasted;
+      if (imageFirst &&
+          await _pasteSystemClipboardImage(editing, page, at, revision)) {
+        return;
+      }
+      if (!mounted ||
+          widget.editing != editing ||
+          editing.revisionId != revision) {
+        return;
+      }
+      if (editing.hasSnapshotClipboard) {
+        editing.pasteSnapshot(page, at: at);
+      } else if (editing.hasAnnotationClipboard) {
+        editing.pasteAnnotations(page, at: at);
+      } else {
+        if (!imageFirst &&
+            await _pasteSystemClipboardImage(editing, page, at, revision)) {
+          return;
+        }
+        await _pasteSystemClipboardText(editing, page, at, revision);
+      }
     } finally {
       _readingPaste = false;
     }
   }
 
-  void _pasteLocalClipboard(
-      PdfEditingController editing, int page, (double, double)? at) {
-    if (editing.hasSnapshotClipboard) {
-      editing.pasteSnapshot(page, at: at);
-    } else if (editing.hasAnnotationClipboard) {
-      editing.pasteAnnotations(page, at: at);
-    } else {
-      unawaited(_pasteSystemClipboard(editing));
-    }
-  }
-
-  Future<void> _pasteSystemClipboard(PdfEditingController editing) async {
-    if (await _pasteSystemClipboardImage(editing)) return;
-    await _pasteSystemClipboardText(editing);
-  }
-
-  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing) async {
+  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing,
+      int page, (double, double)? at, int revision) async {
     final provider = widget.systemImagePasteProvider;
     if (provider == null) return false;
     Uint8List? bytes;
@@ -7706,25 +7762,23 @@ class _PdfViewerState extends State<PdfViewer>
       return false;
     }
     if (bytes == null || bytes.isEmpty) return false;
-    if (!mounted || widget.editing != editing) return false;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      return editing.placeImageAsync(point.$1, point.$2, point.$3, bytes);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
+      return false;
     }
-    if (_pages.isEmpty) return false;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return false;
-    final box = _pages[page].cropBox;
+    if (page < 0 || page >= editing.document.pageCount) return false;
+    final box = editing.pageAt(page).cropBox;
     return editing.placeImageAsync(
       page,
-      (box.left + box.right) / 2,
-      (box.bottom + box.top) / 2,
+      at?.$1 ?? (box.left + box.right) / 2,
+      at?.$2 ?? (box.bottom + box.top) / 2,
       bytes,
     );
   }
 
-  Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
+  Future<void> _pasteSystemClipboardText(PdfEditingController editing, int page,
+      (double, double)? at, int revision) async {
     // Prefer the host's reader (the web build wires one over the browser Async
     // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
     // fall back to Flutter's clipboard when none is injected.
@@ -7737,23 +7791,23 @@ class _PdfViewerState extends State<PdfViewer>
         text = null;
       }
     } else {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      text = data?.text;
+      try {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        text = data?.text;
+      } catch (_) {
+        return;
+      }
     }
     if (text == null || text.trim().isEmpty) return;
-    if (!mounted || widget.editing != editing) return;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      editing.placeFreeText(point.$1, point.$2, point.$3, text);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
       return;
     }
-    if (_pages.isEmpty) return;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return;
-    final box = _pages[page].cropBox;
-    editing.placeFreeText(
-        page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
+    if (page < 0 || page >= editing.document.pageCount) return;
+    final box = editing.pageAt(page).cropBox;
+    editing.placeFreeText(page, at?.$1 ?? (box.left + box.right) / 2,
+        at?.$2 ?? (box.bottom + box.top) / 2, text);
   }
 
   /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
@@ -9914,6 +9968,12 @@ class _PdfViewerState extends State<PdfViewer>
           enabled: editing),
       PdfRedoIntent: action<PdfRedoIntent>((_) => widget.editing?.redo(),
           enabled: editing),
+      PdfToggleTextFormattingIntent: action<PdfToggleTextFormattingIntent>(
+          (intent) => _onToggleTextFormatting(intent.format),
+          enabled: (_) =>
+              widget.editing != null &&
+              (widget.editing!.canRestyleSelectedText ||
+                  _controller.selectedText.isNotEmpty)),
       PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
           (_) => widget.editing?.autosizeSelectedTextBox(),
           enabled: editing),

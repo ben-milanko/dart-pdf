@@ -295,7 +295,9 @@ class DocumentTab {
   bool get isComparison => compareAfter != null;
 
   /// True when the document has edits not yet written to disk.
-  bool get isDirty => session != null && session!.bytes.length != savedLength;
+  bool get isDirty =>
+      session != null &&
+      (session!.hasPendingInk || session!.bytes.length != savedLength);
 
   /// True until this document has been saved at least once. A brand-new
   /// document (created via New, [initiallyDirty]) has no saved baseline, so

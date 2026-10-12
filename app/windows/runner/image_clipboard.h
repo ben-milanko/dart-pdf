@@ -22,7 +22,8 @@ bool CopyPngToClipboard(HWND owner, const std::vector<uint8_t>& png);
 
 // Reads an image off the Windows clipboard and returns it as PNG bytes, or
 // std::nullopt when the clipboard holds no image (or the conversion fails).
-std::optional<std::vector<uint8_t>> ReadImageFromClipboard(HWND owner);
+std::optional<std::vector<uint8_t>> ReadImageFromClipboard(
+    HWND owner, bool external_only = false);
 
 // Offers PDF and PNG/DIB in the same clipboard update. Subsequent reads ignore
 // this process's own write, preserving in-app repeat paste and object reuse.

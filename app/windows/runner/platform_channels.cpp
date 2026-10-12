@@ -339,8 +339,18 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
             result->Success();
           }
         } else if (call.method_name() == "readImage") {
+          bool external_only = false;
+          if (const auto* args =
+                  std::get_if<flutter::EncodableMap>(call.arguments())) {
+            const auto value = args->find(flutter::EncodableValue("externalOnly"));
+            if (value != args->end()) {
+              if (const auto* flag = std::get_if<bool>(&value->second)) {
+                external_only = *flag;
+              }
+            }
+          }
           std::optional<std::vector<uint8_t>> png =
-              ReadImageFromClipboard(owner);
+              ReadImageFromClipboard(owner, external_only);
           if (png.has_value()) {
             result->Success(flutter::EncodableValue(std::move(*png)));
           } else {

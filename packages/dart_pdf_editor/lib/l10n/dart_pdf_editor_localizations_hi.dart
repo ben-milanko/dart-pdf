@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'पृष्ठों पर लागू करें…';
 
   @override
+  String get propLeader => 'निर्देशक रेखा';
+
+  @override
+  String get propOutlineWidth => 'बाहरी रेखा की मोटाई';
+
+  @override
+  String get menuRotateSelection => 'चयन के केंद्र के चारों ओर घुमाएँ…';
+
+  @override
+  String get menuRotateEach => 'हर टिप्पणी को घुमाएँ…';
+
+  @override
+  String get rotationAngleTitle => 'घुमाव (डिग्री, वामावर्त)';
+
+  @override
+  String get menuGroup => 'समूह बनाएँ';
+
+  @override
+  String get menuUngroup => 'समूह हटाएँ';
+
+  @override
   String get menuBringToFront => 'सबसे आगे लाएँ';
 
   @override
