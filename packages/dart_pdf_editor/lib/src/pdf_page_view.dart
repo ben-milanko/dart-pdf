@@ -2617,6 +2617,20 @@ class _PdfPageViewState extends State<PdfPageView>
       widget.renderScheduler?.cancel(this);
       return;
     }
+    // The same holds for a neighbour that already paints something (a
+    // preview, a retained picture from an earlier pass). Letting it through
+    // made the jump race #1079 describes: whether an off-screen neighbour
+    // rendered beside the focused page depended on what it happened to hold,
+    // and when it did, the two renders shared the worker and the raster
+    // thread, slowing the page the user asked for. Defer it until it enters
+    // the viewport (didUpdateWidget / the visibility check consume the flag);
+    // preparing neighbours ahead of time is PdfPageRasterWarmPolicy's job.
+    if (widget.focusDistance != 0 && !_isOnScreen()) {
+      _deferredOffscreenRasterRefresh = true;
+      widget.renderScheduler?.cancel(this);
+      _scheduleDeferredVisibilityCheck();
+      return;
+    }
     // Then the persistent tier: a stored raster at exactly this size is the
     // whole page already interpreted and rasterized, so reading and decoding
     // it beats scheduling the render it would replace. A miss costs an
