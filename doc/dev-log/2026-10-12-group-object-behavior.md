@@ -18,8 +18,9 @@ carry ciphertext encrypted for an old object number.
 Free-text restyling preserves the authored appearance frame and its transform,
 including after resizing and ungrouping. Style and opacity regeneration keeps
 that frame too. Callout leader styling likewise returns scaled or moved geometry
-to the original frame before rebuilding it, and a local-inset marker keeps the
-text box's geometry correct after ungrouping.
+to the original frame before rebuilding it. Standard `/RD` values describe the
+scaled box in page space for other readers; separate local insets retain the
+authored frame for later edits and ungrouping.
 
 Regression coverage includes shared handles and live gestures, group move from
 the empty interior, proportional resize/flip/rotation, alignment with ordinary

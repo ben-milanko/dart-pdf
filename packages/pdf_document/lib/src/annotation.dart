@@ -496,7 +496,7 @@ class PdfAnnotation {
   /// which is what this package writes.
   PdfRect? get calloutBox {
     if (!isCallout) return null;
-    final rd = document.cos.resolve(dict['RD']);
+    var rd = document.cos.resolve(dict['RD']);
     double d(int i) {
       if (rd is! CosArray || rd.items.length <= i) return 0;
       return math.max(0, _number(document.cos.resolve(rd.items[i])) ?? 0);
@@ -506,6 +506,8 @@ class PdfAnnotation {
     PdfMatrix? localToPage;
     final localFlag = document.cos.resolve(dict[kPdfCalloutRDFrameKey]);
     if (localFlag is CosBoolean && localFlag.value) {
+      final localRd = document.cos.resolve(dict[kPdfCalloutLocalRDKey]);
+      if (localRd is CosArray) rd = localRd;
       final form = normalAppearance;
       final bbox = form == null
           ? null
@@ -1128,6 +1130,9 @@ const String kPdfCalloutLeadersKey = 'CalloutLeaders';
 
 /// Marks /RD insets that remain in a transformed appearance's local frame.
 const String kPdfCalloutRDFrameKey = 'DartPdfCalloutRDInAppearance';
+
+/// Local insets retained alongside the standard page-space /RD values.
+const String kPdfCalloutLocalRDKey = 'DartPdfCalloutLocalRD';
 
 /// Preserves the authored frame when restyling transformed group artwork.
 const String kPdfAppearanceFrameKey = 'DartPdfPreserveAppearanceFrame';

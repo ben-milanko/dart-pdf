@@ -16,6 +16,7 @@ extension PdfAnnotationGrouping on PdfEditor {
       CosStream form,
       PdfRect bbox,
       PdfMatrix matrix,
+      PdfRect? box,
       Uint8List bytes
     })>[];
     final seen = Set<CosDictionary>.identity();
@@ -41,11 +42,26 @@ extension PdfAnnotationGrouping on PdfEditor {
         return false;
       }
       try {
+        PdfRect? box;
+        if (a.isCallout) {
+          final local = CosDictionary({...a.dict.entries})
+            ..['Rect'] = _rectArray(bbox)
+            ..entries.remove(kPdfCalloutRDFrameKey);
+          local['RD'] =
+              a.dict[kPdfCalloutLocalRDKey] ?? a.dict['RD'] ?? CosNull.instance;
+          final inverse = baked.inverted();
+          if (inverse == null) return false;
+          if (_mapPointPairs(a.dict['CL'], inverse.apply) case final line?) {
+            local['CL'] = line;
+          }
+          box = PdfAnnotation.fromDict(document, local).calloutBox;
+        }
         specs.add((
           a: a,
           form: form,
           bbox: bbox,
           matrix: matrix,
+          box: box,
           bytes: document.cos.decodeStreamData(form)
         ));
       } catch (_) {
@@ -80,8 +96,11 @@ extension PdfAnnotationGrouping on PdfEditor {
       dict['AP'] = ap;
       dict['Rect'] = _rectArray(boundsUnderMatrix(spec.matrix, spec.bbox));
       dict[kPdfAppearanceFrameKey] = const CosBoolean(true);
-      if (spec.a.isCallout) {
+      if (spec.box case final box?) {
         dict[kPdfCalloutRDFrameKey] = const CosBoolean(true);
+        dict[kPdfCalloutLocalRDKey] = _rdArray(spec.bbox, box);
+        dict['RD'] = _rdArray(boundsUnderMatrix(spec.matrix, spec.bbox),
+            boundsUnderMatrix(spec.matrix, box));
       }
       for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
         final points = _mapPointPairs(dict[key], transform.apply);

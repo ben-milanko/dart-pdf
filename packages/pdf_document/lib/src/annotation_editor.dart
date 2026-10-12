@@ -2638,6 +2638,9 @@ extension PdfAnnotationEditing on PdfEditor {
     dict['Rect'] = _rectArray(rect);
     _writeCalloutLeaders(dict, geometry.lines);
     dict['RD'] = _rdArray(rect, box);
+    dict.entries
+      ..remove(kPdfCalloutRDFrameKey)
+      ..remove(kPdfCalloutLocalRDKey);
     final fontResource = unicodeFont != null
         ? unicodeFont.buildResource(_updater.addObject)
         : baseFont is PdfEmbeddedFont
@@ -2669,6 +2672,10 @@ extension PdfAnnotationEditing on PdfEditor {
       final ref = document.cos.referenceTo(freshForm);
       if (ref != null) _updater.replaceObject(ref.objectNumber, freshForm);
       dict['Rect'] = _rectArray(boundsUnderMatrix(appearanceToPage, rect));
+      dict[kPdfCalloutRDFrameKey] = const CosBoolean(true);
+      dict[kPdfCalloutLocalRDKey] = _rdArray(rect, box);
+      dict['RD'] = _rdArray(boundsUnderMatrix(appearanceToPage, rect),
+          boundsUnderMatrix(appearanceToPage, box));
       _writeCalloutLeaders(dict, [
         for (final line in geometry.lines)
           [for (final p in line) appearanceToPage.apply(p.$1, p.$2)],
@@ -2732,6 +2739,9 @@ extension PdfAnnotationEditing on PdfEditor {
         ..entries.remove(kPdfCalloutRDFrameKey)
         ..['Rect'] = _rectArray(bbox)
         ..['CL'] = _pointArray(lines.first);
+      if (annotation.dict[kPdfCalloutLocalRDKey] case final localRd?) {
+        local['RD'] = localRd;
+      }
       box = PdfAnnotation.fromDict(document, local).calloutBox!;
     }
     _writeCalloutLeaderStyle(annotation.dict, color ?? old.color,
@@ -5009,6 +5019,9 @@ extension PdfAnnotationEditing on PdfEditor {
               to.bottom + (oldBox.top - from.bottom) * sy,
             );
             dict['RD'] = _rdArray(to, box);
+            dict.entries
+              ..remove(kPdfCalloutRDFrameKey)
+              ..remove(kPdfCalloutLocalRDKey);
             w = _calloutContent(
               box,
               leaders,
@@ -5432,6 +5445,9 @@ extension PdfAnnotationEditing on PdfEditor {
       final local = CosDictionary({...dict.entries})
         ..['Rect'] = _rectArray(bbox)
         ..entries.remove(kPdfCalloutRDFrameKey);
+      if (dict[kPdfCalloutLocalRDKey] case final localRd?) {
+        local['RD'] = localRd;
+      }
       void mapPoints(CosDictionary target, PdfMatrix transform) {
         for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
           final points = _mapPointPairs(target[key], transform.apply);
@@ -5456,10 +5472,18 @@ extension PdfAnnotationEditing on PdfEditor {
           preserveRich: preserveRich)) {
         return false;
       }
+      final localBox = annotation.isCallout
+          ? PdfAnnotation.fromDict(document, local).calloutBox
+          : null;
       mapPoints(local, mapping!);
       local['Rect'] = _rectArray(boundsUnderMatrix(mapping, bbox));
       if (annotation.isCallout) {
         local[kPdfCalloutRDFrameKey] = const CosBoolean(true);
+        if (localBox != null) {
+          local[kPdfCalloutLocalRDKey] = _rdArray(bbox, localBox);
+          local['RD'] = _rdArray(boundsUnderMatrix(mapping, bbox),
+              boundsUnderMatrix(mapping, localBox));
+        }
       }
       dict.entries
         ..clear()

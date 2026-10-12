@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -76,6 +77,13 @@ void main() {
         from.left + (box.right - from.left) * 2,
         from.bottom + (box.top - from.bottom) * 2);
     expect(editing.pageAt(0).annotations.first.calloutBox, expected);
+    final standard = CosDictionary({
+      ...editing.pageAt(0).annotations.first.dict.entries,
+    })
+      ..entries.remove(kPdfCalloutRDFrameKey);
+    expect(
+        PdfAnnotation.fromDict(editing.document, standard).calloutBox, expected,
+        reason: 'standard /RD must describe the scaled box in other readers');
     editing.ungroupSelectedAnnotations();
     editing.selectAnnotation(0, 0);
     editing.restyleSelectedCalloutLeader(width: 7);

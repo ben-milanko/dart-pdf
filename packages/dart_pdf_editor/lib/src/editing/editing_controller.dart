@@ -9400,6 +9400,9 @@ class PdfEditingController extends ChangeNotifier {
         for (final n in [bbox.left, bbox.bottom, bbox.right, bbox.top])
           CosReal(n)
       ]);
+    if (annotation.dict[kPdfCalloutLocalRDKey] case final localRd?) {
+      dict['RD'] = localRd;
+    }
     if (annotation.calloutLeaders case final lines?) {
       CosArray local(List<(double, double)> line) => CosArray([
             for (final p in line) ...[
