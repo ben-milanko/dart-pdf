@@ -15,6 +15,8 @@ import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'build_channel.dart';
+
 const Size _defaultWindowSize = Size(1100, 800);
 final _windowLifetime = _WindowLifetime();
 
@@ -68,7 +70,7 @@ void runDartPdfApp(Widget root) {
   );
   controller = RegularWindowController(
     size: _defaultWindowSize,
-    title: 'DartPDF',
+    title: kProductDisplayName,
     delegate: delegate,
   );
   entry = _DartPdfWindowEntry(

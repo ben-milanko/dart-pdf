@@ -99,7 +99,8 @@ jobs:
           flutter build windows --release `
             --build-name="$buildName" `
             --build-number="${{ github.run_number }}" `
-            --dart-define="PDF_BUILD_COMMIT=${{ needs.changes.outputs.head_sha }}"
+            --dart-define="PDF_BUILD_COMMIT=${{ needs.changes.outputs.head_sha }}" `
+            --dart-define="PDF_BUILD_CHANNEL=nightly"
           if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
           & build/windows/x64/runner/Release/dartpdf.exe --version
           if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
@@ -130,6 +131,7 @@ jobs:
           ./packaging/windows/build-installer.ps1 `
             -BundlePath build/windows/x64/runner/Release `
             -Version $buildName `
+            -ProductName 'DartPDF Nightly' `
             -OutputPath dartpdf-nightly-windows-installer.exe
 
       - uses: actions/upload-artifact@v7
@@ -225,7 +227,21 @@ jobs:
           flutter build macos --release \
             --build-name="$build_name" \
             --build-number="${{ github.run_number }}" \
-            --dart-define="PDF_BUILD_COMMIT=$HEAD_SHA"
+            --dart-define="PDF_BUILD_COMMIT=$HEAD_SHA" \
+            --dart-define="PDF_BUILD_CHANNEL=nightly"
+
+      - name: Name the bundle DartPDF Nightly
+        working-directory: app
+        # The menu bar, Dock and app switcher show the nightly as
+        # "DartPDF Nightly". The bundle stays DartPDF.app with the same bundle
+        # id, so settings, file associations and the in-app DMG hand-off carry
+        # over between channels. Runs before the ad-hoc re-sign below.
+        run: |
+          set -euo pipefail
+          plist=build/macos/Build/Products/Release/DartPDF.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName DartPDF Nightly" "$plist"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string DartPDF Nightly" "$plist"
 
       - uses: actions/download-artifact@v8
         with:

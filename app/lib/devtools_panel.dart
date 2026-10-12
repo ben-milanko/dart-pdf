@@ -43,6 +43,7 @@ Map<String, String> devToolsBuildIdentity() => <String, String>{
       'appVersion': AppInfo.version,
       'appBuild': AppInfo.buildNumber,
       'buildCommit': AppInfo.buildCommit,
+      'buildChannel': AppInfo.buildChannel,
     };
 
 /// Developer tools panel. Create it only off-release. Docks as a side panel on
