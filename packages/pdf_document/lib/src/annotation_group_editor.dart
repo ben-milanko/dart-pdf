@@ -1,6 +1,106 @@
 part of 'editor.dart';
 
 extension PdfAnnotationGrouping on PdfEditor {
+  /// Applies one page-space transform to an annotation set, including its
+  /// appearances and point geometry. Text and strokes scale with the artwork.
+  /// Validates the complete set before changing any member.
+  bool transformAnnotations(
+      int pageIndex, Iterable<PdfAnnotation> annotations, PdfMatrix transform) {
+    if (transform.toList().any((n) => !n.isFinite) ||
+        transform.inverted() == null) {
+      return false;
+    }
+    final page = document.page(pageIndex);
+    final specs = <({
+      PdfAnnotation a,
+      CosStream form,
+      PdfRect bbox,
+      PdfMatrix matrix,
+      Uint8List bytes
+    })>[];
+    final seen = Set<CosDictionary>.identity();
+    for (final a in annotations) {
+      if (!seen.add(a.dict)) continue;
+      if (!page.annotations.any((p) => identical(p.dict, a.dict))) return false;
+      final form = a.normalAppearance;
+      final bbox = form == null
+          ? null
+          : pdfRectFrom(document.cos, form.dictionary['BBox']);
+      final baked = form == null ? null : _bakedFormMatrix(form, a.rect);
+      if (form == null ||
+          bbox == null ||
+          baked == null ||
+          a.rect.width <= 0 ||
+          a.rect.height <= 0) {
+        return false;
+      }
+      final matrix = baked.concat(transform);
+      if (matrix.toList().any((n) => !n.isFinite) ||
+          !a.rect.width.isFinite ||
+          !a.rect.height.isFinite) {
+        return false;
+      }
+      try {
+        specs.add((
+          a: a,
+          form: form,
+          bbox: bbox,
+          matrix: matrix,
+          bytes: document.cos.decodeStreamData(form)
+        ));
+      } catch (_) {
+        return false;
+      }
+    }
+    if (specs.isEmpty) return false;
+    for (final spec in specs) {
+      // Detach the appearance: foreign annotations can share the same /AP.
+      // Decoding also makes a newly numbered stream safe in encrypted PDFs.
+      final bytes = spec.bytes;
+      final fd = CosDictionary({...spec.form.dictionary.entries})
+        ..entries.remove('Filter')
+        ..entries.remove('DecodeParms')
+        ..['Length'] = CosInteger(bytes.length)
+        ..['Matrix'] =
+            CosArray([for (final n in spec.matrix.toList()) CosReal(n)]);
+      final ref = _updater.addObject(CosStream(fd, bytes));
+      final oldAp = document.cos.resolve(spec.a.dict['AP']) as CosDictionary;
+      final ap = CosDictionary({...oldAp.entries});
+      final normal = document.cos.resolve(oldAp['N']);
+      ap['N'] = normal is CosDictionary
+          ? CosDictionary({
+              for (final entry in normal.entries.entries)
+                entry.key:
+                    identical(document.cos.resolve(entry.value), spec.form)
+                        ? ref
+                        : entry.value
+            })
+          : ref;
+      final dict = spec.a.dict;
+      dict['AP'] = ap;
+      dict['Rect'] = _rectArray(boundsUnderMatrix(spec.matrix, spec.bbox));
+      dict[kPdfAppearanceFrameKey] = const CosBoolean(true);
+      if (spec.a.isCallout) {
+        dict[kPdfCalloutRDFrameKey] = const CosBoolean(true);
+      }
+      for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+        final points = _mapPointPairs(dict[key], transform.apply);
+        if (points != null) dict[key] = points;
+      }
+      for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+        final nested = document.cos.resolve(dict[key]);
+        if (nested is CosArray) {
+          dict[key] = CosArray([
+            for (final stroke in nested.items)
+              _mapPointPairs(stroke, transform.apply) ?? stroke
+          ]);
+        }
+      }
+      _markAnnotationChanged(pageIndex, dict);
+    }
+    return true;
+  }
+
   /// Groups page markups using the standard /RT /Group and /IRT entries.
   /// Existing groups touched by [annotations] are merged in full. Appearances,
   /// geometry, annotation names, and page paint order are preserved.

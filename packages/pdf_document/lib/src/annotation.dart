@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
+import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'stamp_template.dart';
 import 'takeoff.dart';
@@ -501,7 +502,32 @@ class PdfAnnotation {
       return math.max(0, _number(document.cos.resolve(rd.items[i])) ?? 0);
     }
 
-    final r = rect;
+    var r = rect;
+    PdfMatrix? localToPage;
+    final localFlag = document.cos.resolve(dict[kPdfCalloutRDFrameKey]);
+    if (localFlag is CosBoolean && localFlag.value) {
+      final form = normalAppearance;
+      final bbox = form == null
+          ? null
+          : pdfRectFrom(document.cos, form.dictionary['BBox']);
+      final quad = appearanceQuad;
+      if (bbox != null && bbox.width > 0 && bbox.height > 0 && quad != null) {
+        final a = (quad[1].$1 - quad[0].$1) / bbox.width;
+        final b = (quad[1].$2 - quad[0].$2) / bbox.width;
+        final c = (quad[3].$1 - quad[0].$1) / bbox.height;
+        final d = (quad[3].$2 - quad[0].$2) / bbox.height;
+        localToPage = PdfMatrix(
+            a,
+            b,
+            c,
+            d,
+            quad[0].$1 - a * bbox.left - c * bbox.bottom,
+            quad[0].$2 - b * bbox.left - d * bbox.bottom);
+        r = bbox;
+      }
+    }
+    PdfRect pageBox(PdfRect box) =>
+        localToPage == null ? box : boundsUnderMatrix(localToPage, box);
     PdfRect inset(double bottom, double top) {
       final left = (r.left + d(0)).clamp(r.left, r.right);
       final right = (r.right - d(2)).clamp(left, r.right);
@@ -511,14 +537,16 @@ class PdfAnnotation {
     }
 
     final common = inset(d(1), d(3)); // left, bottom, right, top
-    if (d(1) == d(3)) return common;
+    if (d(1) == d(3)) return pageBox(common);
     final spec = inset(d(3), d(1)); // left, top, right, bottom (§12.5.6.19)
-    final attach = calloutLine?.last;
-    if (attach == null) return common;
-    return _perimeterDistance(spec, attach) + 0.01 <
+    var attach = calloutLine?.last;
+    if (attach == null) return pageBox(common);
+    final inverse = localToPage?.inverted();
+    if (inverse != null) attach = inverse.apply(attach.$1, attach.$2);
+    return pageBox(_perimeterDistance(spec, attach) + 0.01 <
             _perimeterDistance(common, attach)
         ? spec
-        : common;
+        : common);
   }
 
   /// How far [p] is from [box]'s outline (0 on it).
@@ -1097,6 +1125,12 @@ typedef PdfCalloutLeader = ({
 /// of them, so other viewers still show every arrow. Non-standard, written
 /// and read back only by this package.
 const String kPdfCalloutLeadersKey = 'CalloutLeaders';
+
+/// Marks /RD insets that remain in a transformed appearance's local frame.
+const String kPdfCalloutRDFrameKey = 'DartPdfCalloutRDInAppearance';
+
+/// Preserves the authored frame when restyling transformed group artwork.
+const String kPdfAppearanceFrameKey = 'DartPdfPreserveAppearanceFrame';
 
 /// The default free-text line-height multiplier (baseline-to-baseline
 /// distance is `fontSize * lineSpacing`).

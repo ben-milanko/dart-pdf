@@ -2708,7 +2708,11 @@ extension PdfAnnotationEditing on PdfEditor {
     var box = annotation.calloutBox!;
     var lines = info.leaders;
     PdfMatrix? appearanceToPage;
-    if (annotation.appearanceRotation != 0) {
+    final currentForm = annotation.normalAppearance;
+    final currentTransform = currentForm == null
+        ? null
+        : _bakedFormMatrix(currentForm, annotation.rect);
+    if (currentTransform != null && currentTransform != PdfMatrix.identity) {
       final form = annotation.normalAppearance;
       final bbox = form == null
           ? null
@@ -2725,6 +2729,7 @@ extension PdfAnnotationEditing on PdfEditor {
       // leader points must return to that frame before redrawing, otherwise
       // a style-only change scales and rotates the arrow a second time.
       final local = CosDictionary({...annotation.dict.entries})
+        ..entries.remove(kPdfCalloutRDFrameKey)
         ..['Rect'] = _rectArray(bbox)
         ..['CL'] = _pointArray(lines.first);
       box = PdfAnnotation.fromDict(document, local).calloutBox!;
@@ -5414,6 +5419,59 @@ extension PdfAnnotationEditing on PdfEditor {
     // re-wrap: /Rect and style entries are parsed at construction or
     // lazily, and the dict just changed under the caller's instance
     final annotation = PdfAnnotation.fromDict(document, dict);
+    final frameFlag = document.cos.resolve(dict[kPdfAppearanceFrameKey]);
+    if (frameFlag is CosBoolean && frameFlag.value) {
+      final form = annotation.normalAppearance;
+      final bbox = form == null
+          ? null
+          : pdfRectFrom(document.cos, form.dictionary['BBox']);
+      final mapping =
+          form == null ? null : _bakedFormMatrix(form, annotation.rect);
+      final inverse = mapping?.inverted();
+      if (bbox == null || inverse == null) return false;
+      final local = CosDictionary({...dict.entries})
+        ..['Rect'] = _rectArray(bbox)
+        ..entries.remove(kPdfCalloutRDFrameKey);
+      void mapPoints(CosDictionary target, PdfMatrix transform) {
+        for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+          final points = _mapPointPairs(target[key], transform.apply);
+          if (points != null) target[key] = points;
+        }
+        for (final key in const ['InkList', kPdfCalloutLeadersKey]) {
+          final nested = document.cos.resolve(target[key]);
+          if (nested is CosArray) {
+            target[key] = CosArray([
+              for (final points in nested.items)
+                _mapPointPairs(points, transform.apply) ?? points
+            ]);
+          }
+        }
+      }
+
+      mapPoints(local, inverse);
+      if (!_regenerateStyledAppearance(
+          PdfAnnotation.fromDict(document, local), bbox,
+          opacity: opacity,
+          pageRotation: pageRotation,
+          preserveRich: preserveRich)) {
+        return false;
+      }
+      mapPoints(local, mapping!);
+      local['Rect'] = _rectArray(boundsUnderMatrix(mapping, bbox));
+      if (annotation.isCallout) {
+        local[kPdfCalloutRDFrameKey] = const CosBoolean(true);
+      }
+      dict.entries
+        ..clear()
+        ..addAll(local.entries);
+      final rebuilt = PdfAnnotation.fromDict(document, dict).normalAppearance!;
+      rebuilt.dictionary['Matrix'] =
+          CosArray([for (final n in mapping.toList()) CosReal(n)]);
+      final ref = document.cos.referenceTo(rebuilt);
+      if (ref != null) _updater.replaceObject(ref.objectNumber, rebuilt);
+      _markAnnotationChanged(pageIndex, dict);
+      return true;
+    }
     final quad = annotation.appearanceQuad;
     final theta = quad == null ? 0.0 : _quadRotation(quad);
     if (theta == 0) {

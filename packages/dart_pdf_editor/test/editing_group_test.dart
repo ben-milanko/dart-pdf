@@ -26,6 +26,197 @@ void main() {
     PdfSnapshotClipboard.instance.clear();
   });
 
+  test('a group resizes, flips, rotates and undoes as one object', () {
+    final editing = shapes();
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    expect(editing.selectedIsSingleGroup, isTrue);
+    expect(editing.selectedGroupBounds, const PdfRect(50, 700, 300, 750));
+    expect(editing.canResizeSelected, isTrue);
+    expect(editing.canAlignSelected, isFalse);
+    final before = editing.revisionCount;
+    editing.resizeSelected(const PdfRect(50, 700, 550, 800));
+    expect(editing.revisionCount, before + 1);
+    final a = editing.pageAt(0).annotations;
+    expect(a[0].rect, const PdfRect(50, 700, 250, 800));
+    expect(a[1].rect, const PdfRect(350, 700, 550, 800));
+    expect(a[2].rect, rectC);
+    expect(editing.selectedIsSingleGroup, isTrue);
+    editing.undo();
+    editing.selectAnnotation(0, 0);
+    editing.resizeSelected(const PdfRect(50, 700, 300, 750), flipX: true);
+    expect(editing.pageAt(0).annotations[0].rect,
+        const PdfRect(200, 700, 300, 750));
+    editing.rotateSelected(90);
+    expect(editing.selectedGroupBounds!.width, closeTo(50, 0.01));
+    expect(editing.selectedGroupBounds!.height, closeTo(250, 0.01));
+    expect(PdfAnnotationGroups.ofPage(editing.pageAt(0)).slotsFor(0), [0, 1]);
+  });
+
+  test('grouped callout leaders move with the whole group', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addCallout(0, const PdfRect(300, 600, 460, 660), 'Detail', (120, 500))
+      ..addRectangle(0, rectA);
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    final tip = editing.pageAt(0).annotations.first.calloutLine!.first;
+    editing.moveSelected(20, 30);
+    final moved = editing.pageAt(0).annotations.first.calloutLine!.first;
+    expect(moved.$1, closeTo(tip.$1 + 20, 0.01));
+    expect(moved.$2, closeTo(tip.$2 + 30, 0.01));
+    final from = editing.selectedGroupBounds!;
+    final box = editing.pageAt(0).annotations.first.calloutBox!;
+    editing.resizeSelected(PdfRect(from.left, from.bottom,
+        from.left + from.width * 2, from.bottom + from.height * 2));
+    final expected = PdfRect(
+        from.left + (box.left - from.left) * 2,
+        from.bottom + (box.bottom - from.bottom) * 2,
+        from.left + (box.right - from.left) * 2,
+        from.bottom + (box.top - from.bottom) * 2);
+    expect(editing.pageAt(0).annotations.first.calloutBox, expected);
+    editing.ungroupSelectedAnnotations();
+    editing.selectAnnotation(0, 0);
+    editing.restyleSelectedCalloutLeader(width: 7);
+    final actual = editing.selectedAnnotation!.calloutBox!;
+    expect(actual.left, closeTo(expected.left, 0.01));
+    expect(actual.top, closeTo(expected.top, 0.01));
+  });
+
+  test('formatting a resized group retains the group artwork transform', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addFreeText(0, rectA, 'First')
+      ..addFreeText(0, rectB, 'Second');
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.resizeSelected(const PdfRect(50, 700, 550, 800));
+    final rects = [for (final a in editing.pageAt(0).annotations) a.rect];
+    editing.toggleSelectedTextFormatting(PdfTextFormatting.bold);
+    expect([for (final a in editing.pageAt(0).annotations) a.rect], rects);
+    expect(
+        editing
+            .pageAt(0)
+            .annotations
+            .every((a) => a.freeTextStyle!.fontName.contains('Bold')),
+        isTrue);
+    for (final a in editing.pageAt(0).annotations) {
+      final bbox = pdfRectFrom(
+          editing.document.cos, a.normalAppearance!.dictionary['BBox'])!;
+      expect(a.rect.width / bbox.width, closeTo(2, 0.01));
+      expect(a.rect.height / bbox.height, closeTo(2, 0.01));
+    }
+    expect(editing.selectedIsSingleGroup, isTrue);
+    editing.ungroupSelectedAnnotations();
+    editing.selectAnnotation(0, 0);
+    editing.toggleSelectedTextFormatting(PdfTextFormatting.italic);
+    final selected = editing.selectedAnnotation!;
+    final bbox = pdfRectFrom(
+        editing.document.cos, selected.normalAppearance!.dictionary['BBox'])!;
+    expect(selected.rect, rects.first);
+    expect(selected.rect.width / bbox.width, closeTo(2, 0.01));
+    editing.restyleSelected(opacity: 0.5);
+    final restyled = editing.selectedAnnotation!;
+    final styledBox = pdfRectFrom(
+        editing.document.cos, restyled.normalAppearance!.dictionary['BBox'])!;
+    expect(restyled.rect, rects.first);
+    expect(restyled.rect.width / styledBox.width, closeTo(2, 0.01));
+    expect(restyled.appearanceOpacity, closeTo(0.5, 0.01));
+  });
+
+  test('alignment and page moves treat a group as one object', () {
+    final editing = shapes();
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.selectAnnotationSlots([(0, 0), (0, 2)]);
+    editing.alignSelected(PdfAlignment.left);
+    final a = editing.pageAt(0).annotations;
+    expect(a[1].rect.left - a[0].rect.left, 150);
+    expect(a[2].rect.left, a[0].rect.left);
+    editing.selectAnnotation(0, 0);
+    expect(editing.moveSelectedToPage(1, 20, -100), isTrue);
+    expect(editing.pageAt(0).annotations, hasLength(1));
+    expect(editing.pageAt(1).annotations, hasLength(3));
+    expect(editing.selectedIsSingleGroup, isTrue);
+    expect(PdfAnnotationGroups.ofPage(editing.pageAt(1)).slotsFor(1), [1, 2]);
+    editing.undo();
+    expect(PdfAnnotationGroups.ofPage(editing.pageAt(0)).slotsFor(0), [0, 1]);
+  });
+
+  test('individual rotation rotates each selected group as a unit', () {
+    final editing = shapes();
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.selectAnnotationSlots([(0, 0), (0, 2)]);
+    editing.rotateSelected(90,
+        mode: PdfAnnotationRotationMode.individualCenters);
+    final a = editing.pageAt(0).annotations;
+    final cx0 = (a[0].rect.left + a[0].rect.right) / 2;
+    final cx1 = (a[1].rect.left + a[1].rect.right) / 2;
+    final cy0 = (a[0].rect.bottom + a[0].rect.top) / 2;
+    final cy1 = (a[1].rect.bottom + a[1].rect.top) / 2;
+    expect(cx0, closeTo(cx1, 0.01));
+    expect(cy1 - cy0, closeTo(150, 0.01));
+    expect((a[2].rect.left + a[2].rect.right) / 2, 400);
+  });
+
+  testWidgets('group selection has one box and shared resize/rotate handles',
+      (tester) async {
+    final editing = shapes();
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ListenableBuilder(
+                listenable: editing,
+                builder: (context, _) => PdfViewer(
+                    document: editing.document,
+                    editing: editing,
+                    initialFit: PdfViewerFit.width)))));
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    await tester.pumpAndSettle();
+    dynamic painter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((w) => w.painter)
+        .firstWhere(
+            (p) => p.runtimeType.toString() == '_EditingPreviewPainter');
+    expect(painter.extraSelectionRects, isEmpty);
+    expect(painter.showHandles, isTrue);
+    expect(painter.showRotateHandle, isTrue);
+    const scale = 800 / 612;
+    Offset point(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    // The empty gap between the members belongs to the group selection.
+    await tester.dragFrom(point(175, 725), const Offset(20, 10),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    final bounds = editing.selectedGroupBounds!;
+    final revision = editing.revisionCount;
+    await tester.dragFrom(
+        point(bounds.right, bounds.top), const Offset(100, -30),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(editing.revisionCount, revision + 1);
+    expect(editing.pageAt(0).annotations[0].rect.width, greaterThan(100));
+    expect(editing.pageAt(0).annotations[1].rect.width,
+        closeTo(editing.pageAt(0).annotations[0].rect.width, 0.01));
+    final group = editing.selectedGroupBounds!;
+    final center =
+        point((group.left + group.right) / 2, (group.bottom + group.top) / 2);
+    final knob = Offset(center.dx, point(0, group.top).dy - 22);
+    final rotate =
+        await tester.startGesture(knob, kind: PointerDeviceKind.mouse);
+    await rotate.moveTo(center + Offset(group.height * scale / 2 + 22, 0));
+    await tester.pump();
+    await rotate.up();
+    await tester.pumpAndSettle();
+    expect(editing.pageAt(0).annotations.first.appearanceRotation.abs(),
+        closeTo(1.5708, 0.03));
+  });
+
   test('group and ungroup are single revisions and persist through reopen', () {
     final editing = shapes();
     addTearDown(editing.dispose);

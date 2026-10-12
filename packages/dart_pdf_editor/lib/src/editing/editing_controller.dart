@@ -5712,6 +5712,15 @@ class PdfEditingController extends ChangeNotifier {
   /// The rects match the chrome the overlay draws: a text markup's first
   /// quad, a callout's text box, otherwise /Rect.
   bool selectionGrabAt(int pageIndex, double x, double y, {double margin = 0}) {
+    final group = selectedGroupBounds;
+    if (selectedPage == pageIndex &&
+        group != null &&
+        x >= group.left - margin &&
+        x <= group.right + margin &&
+        y >= group.bottom - margin &&
+        y <= group.top + margin) {
+      return true;
+    }
     for (final slot in _selected) {
       if (slot.$1 != pageIndex) continue;
       final annotation = _annotationAt(slot);
@@ -5733,6 +5742,50 @@ class PdfEditingController extends ChangeNotifier {
   List<(int page, int index)> get selectedAnnotationSlots =>
       List.unmodifiable(_selected);
 
+  /// Whether the complete selection is one persistent annotation group.
+  bool get selectedIsSingleGroup {
+    if (_selected.length < 2) return false;
+    final page = _selected.first.$1;
+    final members = _annotationGroups(page).slotsFor(_selected.first.$2);
+    return members.length == _selected.length &&
+        _selected.every((s) => s.$1 == page && members.contains(s.$2));
+  }
+
+  /// The complete artwork bounds of a selected group, including leaders.
+  PdfRect? get selectedGroupBounds {
+    if (!selectedIsSingleGroup) return null;
+    return primarySelectedGroupBounds;
+  }
+
+  /// The primary group's bounds, including in a mixed selection.
+  PdfRect? get primarySelectedGroupBounds => _selected.isEmpty
+      ? null
+      : annotationGroupBounds(_selected.last.$1, _selected.last.$2);
+
+  List<int> annotationGroupSlots(int page, int index) =>
+      _annotationGroups(page).slotsFor(index);
+
+  /// Artwork bounds of a group, or null for an ungrouped annotation.
+  PdfRect? annotationGroupBounds(int page, int index) {
+    final members = annotationGroupSlots(page, index);
+    if (members.length < 2) return null;
+    return members.map((i) => _page(page).annotations[i].rect).reduce((a, b) =>
+        PdfRect(math.min(a.left, b.left), math.min(a.bottom, b.bottom),
+            math.max(a.right, b.right), math.max(a.top, b.top)));
+  }
+
+  bool get _canTransformSelectedGroup =>
+      selectedIsSingleGroup &&
+      _selected.every((s) {
+        final a = _annotationAt(s)!;
+        return isAnnotationEditable(a) &&
+            a.rect.width > 0 &&
+            a.rect.height > 0 &&
+            a.rect.width.isFinite &&
+            a.rect.height.isFinite &&
+            a.appearanceQuad != null;
+      });
+
   bool get hasAnnotationSelection => selectedAnnotation != null;
 
   /// Whether the annotation in slot [index] of [pageIndex]'s /Annots is
@@ -5740,22 +5793,32 @@ class PdfEditingController extends ChangeNotifier {
   bool isAnnotationSelected(int pageIndex, int index) =>
       _selected.contains((pageIndex, index));
 
-  /// Resizing manipulates one /Rect; only a single selection has handles.
+  /// A single annotation or one complete group has resize handles.
   /// Form-field widgets resize too while the form tool is armed (the
   /// editor regenerates their appearance at the new size).
   bool get canResizeSelected =>
+      _canTransformSelectedGroup ||
       _selected.length == 1 &&
-      (selectedAnnotation?.behavior.resizable == true ||
-          (tool == PdfEditTool.form &&
-              selectedAnnotation?.subtype == 'Widget'));
+          (selectedAnnotation?.behavior.resizable == true ||
+              (tool == PdfEditTool.form &&
+                  selectedAnnotation?.subtype == 'Widget'));
 
   /// Rotation rides the appearance stream's /Matrix, so it needs one.
   bool get canRotateSelected =>
+      _canTransformSelectedGroup ||
       _selected.isNotEmpty &&
-      _selected.every((slot) {
-        final a = _annotationAt(slot);
-        return a != null && a.behavior.rotatable && isAnnotationEditable(a);
-      });
+          _selected.every((slot) {
+            final a = _annotationAt(slot);
+            return a != null &&
+                isAnnotationEditable(a) &&
+                (a.behavior.rotatable ||
+                    (_annotationGroups(slot.$1).slotsFor(slot.$2).length > 1 &&
+                        a.rect.width > 0 &&
+                        a.rect.height > 0 &&
+                        a.rect.width.isFinite &&
+                        a.rect.height.isFinite &&
+                        a.appearanceQuad != null));
+          });
 
   bool get canEditSelectedText =>
       _selected.length == 1 &&
@@ -5821,6 +5884,13 @@ class PdfEditingController extends ChangeNotifier {
         continue;
       }
       if (annotation.rect.contains(x, y)) return (i, annotation);
+    }
+    for (final slot in _selected.reversed) {
+      if (slot.$1 != pageIndex) continue;
+      final bounds = annotationGroupBounds(slot.$1, slot.$2);
+      if (bounds?.contains(x, y) == true) {
+        return (slot.$2, _annotationAt(slot)!);
+      }
     }
     return null;
   }
@@ -7503,15 +7573,24 @@ class PdfEditingController extends ChangeNotifier {
   /// as one revision. The selection survives: annotations keep their
   /// /Annots slots across a move.
   void moveSelected(double dx, double dy) {
-    final targets = <(int, PdfAnnotation)>[
+    final targets = <(int, PdfAnnotation, bool)>[
       for (final slot in _selected)
-        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+        if (_annotationAt(slot) case final annotation?)
+          (
+            slot.$1,
+            annotation,
+            _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
+          ),
     ];
     if (targets.isEmpty) return;
     apply(
       (e) {
-        for (final (page, annotation) in targets) {
-          _moveAnnotationIn(e, page, annotation, dx, dy);
+        for (final (page, annotation, grouped) in targets) {
+          if (grouped) {
+            e.moveAnnotation(page, annotation, dx, dy);
+          } else {
+            _moveAnnotationIn(e, page, annotation, dx, dy);
+          }
         }
       },
     );
@@ -7574,14 +7653,20 @@ class PdfEditingController extends ChangeNotifier {
   /// selection order - the candidates an alignment acts on. Aligning across
   /// pages has no geometric meaning, so the primary page wins and other
   /// pages' selections are left alone.
-  List<PdfAnnotation> _alignmentTargets() {
-    final page = selectedPage;
-    if (page == null) return const [];
-    final out = <PdfAnnotation>[];
+  List<List<PdfAnnotation>> _alignmentTargets() =>
+      selectedPage == null ? const [] : _selectedUnitsOn(selectedPage!);
+
+  List<List<PdfAnnotation>> _selectedUnitsOn(int page) {
+    final out = <List<PdfAnnotation>>[];
+    final seen = <int>{};
     for (final slot in _selected) {
       if (slot.$1 != page) continue;
       final annotation = _annotationAt(slot);
-      if (annotation != null) out.add(annotation);
+      if (annotation == null) continue;
+      final members = _annotationGroups(page).slotsFor(slot.$2);
+      if (seen.add(members.first)) {
+        out.add([for (final index in members) _page(page).annotations[index]]);
+      }
     }
     return out;
   }
@@ -7607,9 +7692,17 @@ class PdfEditingController extends ChangeNotifier {
     if (targets.length < alignment.minimumCount) return;
     // a callout lines up by its text box (its arrows stay where they point)
     final offsets = alignmentOffsets([
-      for (final a in targets) a.calloutBox ?? a.rect,
+      for (final unit in targets)
+        if (unit.length == 1)
+          unit.single.calloutBox ?? unit.single.rect
+        else
+          unit.map((a) => a.rect).reduce((a, b) => PdfRect(
+              math.min(a.left, b.left),
+              math.min(a.bottom, b.bottom),
+              math.max(a.right, b.right),
+              math.max(a.top, b.top))),
     ], alignment);
-    final moves = <(PdfAnnotation, double, double)>[];
+    final moves = <(List<PdfAnnotation>, double, double)>[];
     for (var i = 0; i < targets.length; i++) {
       final (:dx, :dy) = offsets[i];
       if (dx != 0 || dy != 0) moves.add((targets[i], dx, dy));
@@ -7617,14 +7710,20 @@ class PdfEditingController extends ChangeNotifier {
     if (moves.isEmpty) return;
     apply(
       (e) {
-        for (final (annotation, dx, dy) in moves) {
-          _moveAnnotationIn(e, page, annotation, dx, dy);
+        for (final (unit, dx, dy) in moves) {
+          for (final annotation in unit) {
+            if (unit.length > 1) {
+              e.moveAnnotation(page, annotation, dx, dy);
+            } else {
+              _moveAnnotationIn(e, page, annotation, dx, dy);
+            }
+          }
         }
       },
     );
   }
 
-  /// Re-homes the single selected annotation onto [targetPage], shifted
+  /// Re-homes a selected annotation or group onto [targetPage], shifted
   /// by ([dx], [dy]) in page space - what a move drag dropped over a
   /// *different* page produces. The annotation leaves its source page and
   /// is appended to the target page's /Annots, so it draws on top instead
@@ -7634,6 +7733,43 @@ class PdfEditingController extends ChangeNotifier {
   /// whether it moved. A same-page target falls back to [moveSelected].
   bool moveSelectedToPage(int targetPage, double dx, double dy) {
     if (targetPage < 0 || targetPage >= _document.pageCount) return false;
+    if (selectedIsSingleGroup) {
+      final source = selectedPage!;
+      if (source == targetPage) {
+        moveSelected(dx, dy);
+        return true;
+      }
+      final slots = List.of(_selected)..sort((a, b) => a.$2.compareTo(b.$2));
+      final annotations = [for (final slot in slots) _annotationAt(slot)!];
+      if (annotations.any((a) => !isAnnotationEditable(a))) return false;
+      final snapshots = [
+        for (final a in annotations)
+          PdfAnnotationSnapshot.capture(_document, a,
+              keepName: true, sourcePageRotation: _page(source).rotation)
+      ];
+      if (snapshots.any((s) => s == null)) return false;
+      final first = _page(targetPage).annotations.length;
+      final primary = slots.indexOf(_selected.last);
+      if (!apply((e) {
+        e.removeAnnotations(source, annotations);
+        for (final snapshot in snapshots) {
+          e.pasteAnnotation(targetPage, snapshot!, dx: dx, dy: dy);
+        }
+        e.groupAnnotations(
+            targetPage, e.document.page(targetPage).annotations.skip(first));
+      })) {
+        return false;
+      }
+      _selected
+        ..clear()
+        ..addAll([
+          for (var i = 0; i < slots.length; i++)
+            if (i != primary) (targetPage, first + i),
+          (targetPage, first + primary),
+        ]);
+      notifyListeners();
+      return true;
+    }
     if (_selected.length != 1) return false;
     final slot = _selected.single;
     if (slot.$1 == targetPage) {
@@ -7665,11 +7801,35 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
-  /// Resizes the selected annotation so its /Rect becomes [to].
+  /// Resizes an annotation or scales a group's combined artwork to [to].
   ///
   /// [flipX]/[flipY] mirror the artwork - what a resize handle dragged
   /// past the opposite edge produces.
   void resizeSelected(PdfRect to, {bool flipX = false, bool flipY = false}) {
+    if (selectedIsSingleGroup) {
+      final from = selectedGroupBounds!;
+      if (!canResizeSelected ||
+          to.width < 1 ||
+          to.height < 1 ||
+          !to.width.isFinite ||
+          !to.height.isFinite) {
+        return;
+      }
+      if (to == from && !flipX && !flipY) return;
+      final sx = to.width / from.width * (flipX ? -1 : 1);
+      final sy = to.height / from.height * (flipY ? -1 : 1);
+      final matrix = PdfMatrix(
+          sx,
+          0,
+          0,
+          sy,
+          to.left - sx * from.left + (flipX ? to.width : 0),
+          to.bottom - sy * from.bottom + (flipY ? to.height : 0));
+      final page = _selected.first.$1;
+      final targets = [for (final s in _selected) _annotationAt(s)!];
+      apply((e) => e.transformAnnotations(page, targets, matrix));
+      return;
+    }
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (to.width < 1 || to.height < 1) return;
@@ -8041,6 +8201,10 @@ class PdfEditingController extends ChangeNotifier {
     bool flipX = false,
     bool flipY = false,
   }) {
+    if (selectedIsSingleGroup) {
+      resizeSelected(localTo, flipX: flipX, flipY: flipY);
+      return;
+    }
     final annotation = selectedAnnotation;
     if (annotation == null || !canResizeSelected) return;
     if (localTo.width < 1 || localTo.height < 1) return;
@@ -8289,7 +8453,8 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Rotates the selected annotations by [degrees] counterclockwise in page
-  /// space, around their shared bounds or each annotation's own center.
+  /// space, around shared bounds or each selected object's center. Persistent
+  /// groups remain one object in either mode.
   /// A selection spanning pages uses a separate shared center on each page.
   /// All rotations commit in one revision and keep their /Annots slots.
   void rotateSelected(
@@ -8303,8 +8468,39 @@ class PdfEditingController extends ChangeNotifier {
     }
     final angle = degrees * math.pi / 180;
     final c = math.cos(angle), s = math.sin(angle);
+    if (selectedIsSingleGroup) {
+      final bounds = selectedGroupBounds!;
+      final cx = (bounds.left + bounds.right) / 2;
+      final cy = (bounds.bottom + bounds.top) / 2;
+      final transform =
+          PdfMatrix(c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy);
+      final page = _selected.first.$1;
+      apply((e) => e.transformAnnotations(page, byPage[page]!, transform));
+      return;
+    }
     apply((e) {
       for (final entry in byPage.entries) {
+        if (mode == PdfAnnotationRotationMode.individualCenters) {
+          for (final unit in _selectedUnitsOn(entry.key)) {
+            if (unit.length == 1) {
+              e.rotateAnnotation(entry.key, unit.single, degrees);
+            } else {
+              final bounds = unit.map((a) => a.rect).reduce((a, b) => PdfRect(
+                  math.min(a.left, b.left),
+                  math.min(a.bottom, b.bottom),
+                  math.max(a.right, b.right),
+                  math.max(a.top, b.top)));
+              final cx = (bounds.left + bounds.right) / 2;
+              final cy = (bounds.bottom + bounds.top) / 2;
+              e.transformAnnotations(
+                  entry.key,
+                  unit,
+                  PdfMatrix(
+                      c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy));
+            }
+          }
+          continue;
+        }
         final bounds = entry.value.map((a) => a.rect).reduce((a, b) => PdfRect(
             math.min(a.left, b.left),
             math.min(a.bottom, b.bottom),
@@ -8806,23 +9002,25 @@ class PdfEditingController extends ChangeNotifier {
     // remove and re-add their annotation so a newly chosen embedded font can
     // install its own resources; remap the complete mixed selection to the
     // survivor slots and appended replacement slots up front.
-    final specs = [
-      for (final target in targets)
-        (
-          page: target.page,
-          slot: target.slot,
-          annotation: target.annotation,
-          rect: target.annotation.appearanceRotation == 0
-              ? target.annotation.rect
-              : _localFrameOf(target.annotation),
-          rotation: target.annotation.appearanceRotation,
-          pageRotation: _page(target.page).rotation,
-          textFont: _freeTextFontOf(target.annotation),
-          parsed: target.annotation.freeTextStyle,
-          richRuns: _richRunsOf(target.annotation),
-          callout: _calloutShapeOf(target.annotation),
-        ),
-    ];
+    final specs = targets.map((target) {
+      final frame = _freeTextAppearanceFrame(target.annotation);
+      final source = frame?.annotation ?? target.annotation;
+      return (
+        page: target.page,
+        slot: target.slot,
+        annotation: target.annotation,
+        rect: source.appearanceRotation == 0 || frame != null
+            ? source.rect
+            : _localFrameOf(source),
+        rotation: frame != null ? 0.0 : source.appearanceRotation,
+        transform: frame?.transform,
+        pageRotation: _page(target.page).rotation,
+        textFont: _freeTextFontOf(target.annotation),
+        parsed: target.annotation.freeTextStyle,
+        richRuns: _richRunsOf(target.annotation),
+        callout: _calloutShapeOf(source),
+      );
+    }).toList();
     final removedByPage = <int, List<int>>{};
     final pageCounts = <int, int>{};
     for (final spec in specs) {
@@ -8967,7 +9165,10 @@ class PdfEditingController extends ChangeNotifier {
             name: annotation.name,
           );
         }
-        if (spec.rotation != 0) {
+        if (spec.transform case final transform?) {
+          e.transformAnnotations(spec.page,
+              [e.document.page(spec.page).annotations.last], transform);
+        } else if (spec.rotation != 0) {
           final annotations = _document.page(spec.page).annotations;
           if (annotations.isNotEmpty) {
             e.rotateAnnotation(
@@ -9169,6 +9370,55 @@ class PdfEditingController extends ChangeNotifier {
   /// leaders, arrow style - or null when it isn't one. Text and font
   /// rewrites remove a box and add it back; without this a callout came
   /// back as a plain box stretched over its whole /Rect, leaders gone.
+  ({PdfAnnotation annotation, PdfMatrix transform})? _freeTextAppearanceFrame(
+      PdfAnnotation annotation) {
+    final form = annotation.normalAppearance;
+    final bbox = form == null
+        ? null
+        : pdfRectFrom(_document.cos, form.dictionary['BBox']);
+    final quad = annotation.appearanceQuad;
+    if (bbox == null || bbox.width <= 0 || bbox.height <= 0 || quad == null) {
+      return null;
+    }
+    final a = (quad[1].$1 - quad[0].$1) / bbox.width;
+    final b = (quad[1].$2 - quad[0].$2) / bbox.width;
+    final c = (quad[3].$1 - quad[0].$1) / bbox.height;
+    final d = (quad[3].$2 - quad[0].$2) / bbox.height;
+    final transform = PdfMatrix(
+        a,
+        b,
+        c,
+        d,
+        quad[0].$1 - a * bbox.left - c * bbox.bottom,
+        quad[0].$2 - b * bbox.left - d * bbox.bottom);
+    final inverse = transform.inverted();
+    if (inverse == null) return null;
+    if (transform == PdfMatrix.identity) return null;
+    final dict = CosDictionary({...annotation.dict.entries})
+      ..entries.remove(kPdfCalloutRDFrameKey)
+      ..['Rect'] = CosArray([
+        for (final n in [bbox.left, bbox.bottom, bbox.right, bbox.top])
+          CosReal(n)
+      ]);
+    if (annotation.calloutLeaders case final lines?) {
+      CosArray local(List<(double, double)> line) => CosArray([
+            for (final p in line) ...[
+              CosReal(inverse.transformX(p.$1, p.$2)),
+              CosReal(inverse.transformY(p.$1, p.$2)),
+            ],
+          ]);
+      dict['CL'] = local(lines.first);
+      if (lines.length > 1) {
+        dict[kPdfCalloutLeadersKey] =
+            CosArray([for (final line in lines.skip(1)) local(line)]);
+      }
+    }
+    return (
+      annotation: PdfAnnotation.fromDict(_document, dict),
+      transform: transform
+    );
+  }
+
   static ({
     PdfRect box,
     List<PdfCalloutLeader> leaders,

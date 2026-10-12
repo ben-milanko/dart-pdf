@@ -22,6 +22,31 @@ PdfDocument edited(PdfDocument doc, void Function(PdfEditor) edit) {
 }
 
 void main() {
+  test('group transforms detach shared appearances and preserve point geometry',
+      () {
+    final seed = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+      ..addSquare(0, const PdfRect(50, 700, 150, 750))
+      ..addSquare(0, const PdfRect(200, 700, 300, 750));
+    final a = seed.document.page(0).annotations;
+    a[1].dict['AP'] = a[0].dict['AP']!;
+    final doc = PdfDocument.open(seed.save());
+    final editor = PdfEditor(doc);
+    expect(
+        editor.transformAnnotations(
+            0, doc.page(0).annotations, const PdfMatrix(2, 0, 0, 2, -50, -700)),
+        isTrue);
+    final out = PdfDocument.open(editor.save());
+    final transformed = out.page(0).annotations;
+    expect(transformed[0].rect, const PdfRect(50, 700, 250, 800));
+    expect(transformed[1].rect, const PdfRect(350, 700, 550, 800));
+    expect(
+        identical(
+            transformed[0].normalAppearance, transformed[1].normalAppearance),
+        isFalse);
+    expect(transformed[0].appearanceQuad![0].$1, 50);
+    expect(transformed[1].appearanceQuad![0].$1, 350);
+  });
+
   test('removing the leader keeps surviving members grouped', () {
     var doc = shapes();
     doc = edited(doc, (e) => e.groupAnnotations(0, doc.page(0).annotations));
