@@ -546,6 +546,9 @@ Future<SaveResult> saveBytesAs(
       await SharePlus.instance.share(ShareParams(
         files: [file],
         fileNameOverrides: [name],
+        // iOS builds the share sheet header from this; without it the
+        // header shows only "PDF • 407 KB", no file name.
+        title: name,
         // required on iPad: the share popover anchors to this rect
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
@@ -606,6 +609,7 @@ Future<SaveResult> saveJsonAs(
       await SharePlus.instance.share(ShareParams(
         files: [file],
         fileNameOverrides: [name],
+        title: name,
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
       return SaveResult.shared();
@@ -651,6 +655,7 @@ Future<SaveResult> saveImageBytesAs(
       await SharePlus.instance.share(ShareParams(
         files: [file],
         fileNameOverrides: [name],
+        title: name,
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
       return SaveResult.shared();

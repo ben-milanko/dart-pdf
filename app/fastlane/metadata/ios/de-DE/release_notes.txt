@@ -1,6 +1,6 @@
-Neu in 6.0.0
+Neu in 8.1.0
 
-- Seitentext mit dem Auswahlwerkzeug auswählen; im Handmodus ein Wort doppelt anklicken.
-- Die Lesesteuerung teilt sich eine Kopfleiste.
-- Schnellere Seitendarstellung mit weniger Speicherverbrauch.
-- Fehlende Details nach schnellem Zoomen behoben.
+- Schrift und Stil von Dropdown- und Listenfeldern ändern.
+- Neues Telefonmenü zum Erstellen, Öffnen, Drucken und Signieren.
+- Textbearbeitung bewahrt Schrift und Zeilenumbruch. Verbesserte iOS-Tastatur und Auswahlmenüs.
+- Vollständige Farbpalette für Stift und Textmarker auf Mobilgeräten.

@@ -9,6 +9,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_app/app_info.dart';
 import 'package:dart_pdf_editor_app/devtools.dart';
 import 'package:dart_pdf_editor_app/devtools_panel.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
@@ -71,6 +72,7 @@ void main() {
     expect(identity, containsPair('appVersion', isNotEmpty));
     expect(identity, contains('appBuild'));
     expect(identity, containsPair('buildCommit', isNotEmpty));
+    expect(identity, containsPair('buildChannel', AppInfo.buildChannel));
   });
 
   Future<void> pumpWithDoc(WidgetTester tester) async {

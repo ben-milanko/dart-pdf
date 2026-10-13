@@ -348,6 +348,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Añadir nodo';
 
   @override
+  String get menuAddLeader => 'Añadir línea guía';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -408,6 +411,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Quitar nodo';
+
+  @override
+  String get menuRemoveLeader => 'Quitar línea guía';
 
   @override
   String get menuSaveToStamps => 'Guardar en sellos';
@@ -2304,4 +2310,137 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Cerrar';
+
+  @override
+  String get insertPagesTitle => 'Insertar páginas';
+
+  @override
+  String get insertPagesFiles => 'Archivos';
+
+  @override
+  String get insertPagesAddFiles => 'Añadir archivos…';
+
+  @override
+  String get insertPagesSortByName => 'Ordenar por nombre';
+
+  @override
+  String get insertPagesNoFiles => 'Añade uno o más PDF para insertar.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'No se pudo abrir $names. Puede que el archivo esté dañado o protegido con contraseña.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count páginas',
+      one: '1 página',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Subir';
+
+  @override
+  String get insertPagesMoveDown => 'Bajar';
+
+  @override
+  String get insertPagesRemoveFile => 'Quitar de la lista';
+
+  @override
+  String get insertPagesRange => 'Páginas';
+
+  @override
+  String get insertPagesRangeHint => 'Todas (p. ej., 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Usa páginas 1–$count, p. ej., 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Todas las páginas';
+
+  @override
+  String get insertPagesSubsetOdd => 'Páginas impares';
+
+  @override
+  String get insertPagesSubsetEven => 'Páginas pares';
+
+  @override
+  String get insertPagesReverse => 'Orden inverso';
+
+  @override
+  String get insertPagesPlacement => 'Ubicación';
+
+  @override
+  String get insertPagesBefore => 'Antes de';
+
+  @override
+  String get insertPagesAfter => 'Después de';
+
+  @override
+  String get insertPagesFirstPage => 'Primera página';
+
+  @override
+  String get insertPagesLastPage => 'Última página';
+
+  @override
+  String get insertPagesPage => 'Página';
+
+  @override
+  String get insertPagesPageNumber => 'Número de página';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'de $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Introduce 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Intercalar páginas';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alterna páginas insertadas y existentes a partir de la ubicación; por ejemplo, para reunir páginas impares y pares escaneadas por separado.';
+
+  @override
+  String get insertPagesRunInserted => 'Páginas insertadas cada vez';
+
+  @override
+  String get insertPagesRunExisting => 'Páginas del documento entre medias';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Incluir marcadores';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Añadir un marcador por archivo';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Inserta $inserted páginas',
+      one: 'Inserta 1 página',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total páginas',
+      one: '1 página',
+    );
+    return '$_temp0: el documento tendrá $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Insertar';
 }

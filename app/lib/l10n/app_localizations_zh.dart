@@ -772,7 +772,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      '网页 OCR 会下载一个 Florence-2 视觉语言模型，并通过 Transformers.js 使用 WebGPU/WASM 在本地运行。PDF 页面会保留在此浏览器中；仅在首次使用时获取模型文件。';
+      '网页 OCR 会下载一个小型文字识别模型（PP-OCRv5，约 21 MB），并通过 WebAssembly 在本地运行。PDF 页面保留在此浏览器中；仅在首次使用时获取模型文件。';
 
   @override
   String get ocrWebPromptTitle => '在此浏览器中运行 AI OCR？';
@@ -918,7 +918,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自动接收来自 main 的未签名 Windows 测试版本更新通知。';
+      '自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
@@ -1016,8 +1016,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 页';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在识别文本…';
+
+  @override
+  String get ocrChipPreparing => '正在加载 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';
@@ -1221,6 +1227,78 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '此版本不提供发行说明。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '打开 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '在各自的标签页中打开每个文件,还是将它们合并为一个新文档?拖动文件可设置合并顺序。';
+
+  @override
+  String get incomingFilesCombine => '合并';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合并 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖动文件可设置合并顺序。';
+
+  @override
+  String get appMenuNew => '新建';
+
+  @override
+  String get appMenuOpen => '打开';
+
+  @override
+  String get appMenuPrint => '打印';
+
+  @override
+  String get appMenuSign => '签名';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '导出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1991,7 +2069,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get ocrWebPromptBody =>
-      '網頁 OCR 會下載 Florence-2 視覺語言模型，並透過 Transformers.js 以 WebGPU/WASM 在本機執行。PDF 頁面會保留在此瀏覽器中；只有模型檔案會在首次使用時擷取。';
+      '網頁 OCR 會下載一個小型文字辨識模型（PP-OCRv5，約 21 MB），並透過 WebAssembly 在本機執行。PDF 頁面會留在此瀏覽器中；只在首次使用時取得模型檔案。';
 
   @override
   String get ocrWebPromptTitle => '在此瀏覽器中執行 AI OCR？';
@@ -2137,7 +2215,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自動接收來自 main 的未簽署 Windows 測試版本更新通知。';
+      '自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
@@ -2236,8 +2314,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 頁';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在辨識文字…';
+
+  @override
+  String get ocrChipPreparing => '正在載入 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';
@@ -2441,4 +2525,76 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get whatsNewUnavailable => '此版本未提供版本資訊。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '開啟 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。';
+
+  @override
+  String get incomingFilesCombine => '合併';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合併 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖曳檔案即可設定合併順序。';
+
+  @override
+  String get appMenuNew => '新增';
+
+  @override
+  String get appMenuOpen => '開啟';
+
+  @override
+  String get appMenuPrint => '列印';
+
+  @override
+  String get appMenuSign => '簽署';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '匯出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

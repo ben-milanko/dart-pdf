@@ -639,6 +639,7 @@ class _PdfReaderState extends State<PdfReader> {
                 viewerController: _viewer,
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
+                hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: false,
                 bottomSheet: bottomSheet,
                 // the sheet chrome carries its own close button
@@ -710,6 +711,8 @@ class _PdfReaderState extends State<PdfReader> {
                           backgroundColor: widget.backgroundColor,
                           pageColor: pageColor,
                           showAnnotations: prefs.showAnnotations,
+                          hiddenAnnotationSubtypes:
+                              prefs.hiddenAnnotationSubtypes,
                           showScrollbarChapters: prefs.showScrollbarChapters,
                           highlightFormFields: prefs.highlightFormFields,
                           renderWorker: _shell.worker,

@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
+import 'package:dart_pdf_editor_app/recent_thumbnails.dart';
+import 'package:dart_pdf_editor_app/recents.dart';
 import 'package:dart_pdf_editor_app/session_store.dart';
 import 'package:dart_pdf_editor_app/unsaved_changes.dart';
 import 'package:dart_pdf_editor_app/welcome_screen.dart';
@@ -351,6 +353,54 @@ void main() {
     expect(tabTitle('slow-b.pdf'), findsOneWidget);
   });
 
+  testWidgets('an unopened restored tab shows its stored thumbnail',
+      (tester) async {
+    final a = seedFile('a.pdf');
+    final b = seedFile('b.pdf');
+    seedSession([(title: 'a.pdf', path: a), (title: 'b.pdf', path: b)]);
+    // The device store already holds a.pdf's first page from an earlier
+    // launch (a 1x1 PNG stands in for it); nothing is read from the source.
+    final stored = <String, Uint8List>{};
+    final thumbnails = RecentThumbnailCache(
+      readBytes: (path, {bookmark}) async => fail('must not read $path'),
+      readStored: (key) async => stored[key],
+      writeStored: (key, bytes) async => stored[key] = bytes,
+      pruneStored: (_) async {},
+    );
+    addTearDown(thumbnails.dispose);
+    await tester.runAsync(() => thumbnails.put(
+        RecentFile(title: 'a.pdf', path: a, openedAt: 0),
+        RecentThumbnail(pngBytes: _onePixelPng, aspectRatio: 0.75)));
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(
+          home: EditorScreen(prefs: prefs, recentThumbnails: thumbnails)));
+      await pumpFrames(tester);
+    });
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.runAsync(() => pumpFrames(tester));
+    await tester.pump();
+
+    final tile = find.ancestor(
+      of: find.descendant(
+        of: find.byKey(const ValueKey('desktop-tabs-grid')),
+        matching: findMiddleEllipsisText('a.pdf'),
+      ),
+      matching: find.byKey(const ValueKey('mobile-tab-tile')),
+    );
+    expect(tile, findsOneWidget);
+    final image = find.descendant(
+      of: tile,
+      matching: find.byKey(const ValueKey('mobile-tab-preview-image')),
+    );
+    expect(image, findsOneWidget);
+    expect(tester.widget<Image>(image).image, isA<MemoryImage>());
+    // No generic "PDF" placeholder for the unopened tab.
+    expect(find.descendant(of: tile, matching: find.text('PDF')), findsNothing);
+  });
+
   testWidgets('a restored tab left unparsed opens when it is activated',
       (tester) async {
     // Two-document session: the last restored tab is active and parsed; the
@@ -448,3 +498,10 @@ void main() {
         FontWeight.w600);
   });
 }
+
+final _onePixelPng = Uint8List.fromList([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, //
+  0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, //
+  84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, //
+  0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130, //
+]);

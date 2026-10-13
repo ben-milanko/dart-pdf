@@ -13,7 +13,10 @@ String ocrStatusLabel(AppLocalizations l10n, OcrJobStatus status) =>
           ? l10n.ocrChipDownloadingModel
           : l10n.ocrChipDownloadingModelPercent(
               (status.downloadFraction! * 100).round()),
-      OcrPhase.recognising =>
-        l10n.ocrChipRecognising(status.page, status.pageCount),
+      OcrPhase.preparing => l10n.ocrChipPreparing,
+      // A single page has no "x of y" to tell; the progress bar carries it.
+      OcrPhase.recognising => status.pageCount <= 1
+          ? l10n.ocrChipRecognisingText
+          : l10n.ocrChipRecognising(status.page, status.pageCount),
       OcrPhase.finishing => l10n.ocrChipFinishing,
     };

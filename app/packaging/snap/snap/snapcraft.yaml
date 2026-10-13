@@ -1,4 +1,6 @@
 name: dartpdf
+title: "DartPDF: Edit PDF Documents"
+summary: Easily annotate documents, fill forms, and redact text privately offline.
 adopt-info: dartpdf
 base: core24
 grade: stable

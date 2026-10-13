@@ -1,0 +1,6 @@
+Novidades da versão 7.0.0
+
+- OCR mais preciso e rápido para letras pequenas e desenhos, com progresso mais claro.
+- Abra links e pressione por mais tempo para selecionar texto no modo Seleção.
+- Os resultados de busca continuam visíveis ao ampliar.
+- A prévia da tinta mantém a opacidade escolhida; exportações vetoriais incluem anotações.

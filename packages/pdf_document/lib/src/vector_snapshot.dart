@@ -175,8 +175,14 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   /// so the snapshot shows what the page shows on screen. Only annotations
   /// the renderer paints on screen qualify: hidden, no-view, popup, reply
   /// and review-state annotations, and any without an /AP, are left out.
+  ///
+  /// [clip], when given, is a closed polygon (at least three vertices, page
+  /// user space) the capture is cut to - the Snapshot tool's traced
+  /// footprint. Everything outside it is clipped away, so the snapshot keeps
+  /// [region] as its box but draws only what the polygon encloses; pass the
+  /// polygon's bounds as [region].
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
-      {bool annotations = true}) {
+      {bool annotations = true, List<(double, double)>? clip}) {
     final page = document.page(pageIndex);
     final copier = _SnapshotCopier(document);
     var content = page.contentBytes();
@@ -193,6 +199,24 @@ extension PdfVectorSnapshotEditing on PdfEditor {
               ..add(drawn))
             .takeBytes();
       }
+    }
+    if (clip != null && clip.length >= 3) {
+      // cut the drawing to the traced polygon (page user space - the content
+      // replays under [_matrix], so the clip rides the same mapping)
+      final w = ContentWriter()
+        ..save()
+        ..moveTo(clip.first.$1, clip.first.$2);
+      for (final (x, y) in clip.skip(1)) {
+        w.lineTo(x, y);
+      }
+      w
+        ..closePath()
+        ..clip();
+      content = (BytesBuilder(copy: false)
+            ..add(w.takeBytes())
+            ..add(content)
+            ..add(latin1.encode('\nQ')))
+          .takeBytes();
     }
     final rx0 = region.left, ry0 = region.bottom;
     final rx1 = region.right, ry1 = region.top;
@@ -372,6 +396,111 @@ extension PdfVectorSnapshotEditing on PdfEditor {
     return marker is CosBoolean && marker.value;
   }
 
+  /// The cropped sub-region of a pasted vector snapshot's captured box that
+  /// its appearance draws, normalized (origin bottom-left, `[0,0,1,1]` is the
+  /// whole capture). Null when [annotation] is not a vector snapshot or shows
+  /// the whole capture. Written by [cropVectorSnapshot].
+  PdfRect? vectorSnapshotCrop(PdfAnnotation annotation) {
+    if (!isVectorSnapshotStamp(annotation)) return null;
+    final crop = pdfRectFrom(
+        document.cos, document.cos.resolve(annotation.dict[_snapshotCropKey]));
+    if (crop == null || crop.width <= 0 || crop.height <= 0) return null;
+    if (crop.left <= 0 &&
+        crop.bottom <= 0 &&
+        crop.right >= 1 &&
+        crop.top >= 1) {
+      return null;
+    }
+    return crop;
+  }
+
+  /// Crops the pasted vector snapshot [annotation] to show only [crop] - the
+  /// normalized sub-region of its captured box, origin bottom-left,
+  /// `[0,0,1,1]` being the whole capture. Like
+  /// [PdfAnnotationEditing.cropImageStamp] the crop is absolute (against the
+  /// capture, so `[0,0,1,1]` restores it whatever was cropped before), and
+  /// [rect], when given, becomes the new /Rect - size it to the visible
+  /// sub-region so the graphics keep their scale. The graphics stay vector:
+  /// the appearance re-references the same captured form, clipped.
+  ///
+  /// Opacity and any recolour carry over (both live in the appearance's
+  /// resources, which are kept). Returns false when [annotation] is not a
+  /// vector snapshot this editor pasted.
+  bool cropVectorSnapshot(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    required PdfRect crop,
+    PdfRect? rect,
+  }) {
+    if (!isVectorSnapshotStamp(annotation)) return false;
+    final cos = document.cos;
+    final appearance = annotation.normalAppearance;
+    if (appearance == null) return false;
+    final resources = cos.resolve(appearance.dictionary['Resources']);
+    if (resources is! CosDictionary) return false;
+    final xObjects = cos.resolve(resources['XObject']);
+    if (xObjects is! CosDictionary) return false;
+    final capRef = xObjects['Cap'];
+    final captured = cos.resolve(capRef);
+    if (capRef == null || captured is! CosStream) return false;
+    final capBox = pdfRectFrom(cos, captured.dictionary['BBox']);
+    if (capBox == null || capBox.width <= 0 || capBox.height <= 0) {
+      return false;
+    }
+    final c = PdfAnnotationEditing._normalizeImageCrop(crop);
+    final target = rect ?? annotation.rect;
+    if (target.width <= 0 || target.height <= 0) return false;
+    final full = c.left <= 0 && c.bottom <= 0 && c.right >= 1 && c.top >= 1;
+
+    // the crop's sub-rect of the captured box fills the target rect
+    final sx = target.width / (c.width * capBox.width);
+    final sy = target.height / (c.height * capBox.height);
+    final w = ContentWriter();
+    final extGState = cos.resolve(resources['ExtGState']);
+    if (extGState is CosDictionary && extGState.containsKey('GS0')) {
+      w.extGState('GS0');
+    }
+    w.save();
+    if (!full) {
+      w
+        ..rect(target.left, target.bottom, target.width, target.height)
+        ..clip();
+    }
+    w
+      ..concatMatrix(
+        sx,
+        0,
+        0,
+        sy,
+        target.left - (capBox.left + c.left * capBox.width) * sx,
+        target.bottom - (capBox.bottom + c.bottom * capBox.height) * sy,
+      )
+      ..drawXObject('Cap')
+      ..restore();
+
+    final dict = annotation.dict;
+    if (full) {
+      dict.entries.remove(_snapshotCropKey);
+    } else {
+      dict[_snapshotCropKey] = CosArray([
+        CosReal(c.left),
+        CosReal(c.bottom),
+        CosReal(c.right),
+        CosReal(c.top),
+      ]);
+    }
+    if (rect != null) dict['Rect'] = _rectArray(rect);
+    _replaceAppearance(
+      dict,
+      appearance,
+      target,
+      w,
+      resources: CosDictionary({...resources.entries}),
+    );
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
+  }
+
   /// Recolours a pasted vector snapshot to a single ink [color] (`0xRRGGBB`),
   /// keeping it sharp vector graphics.
   ///
@@ -496,6 +625,11 @@ extension PdfVectorSnapshotEditing on PdfEditor {
 /// stamps onto its /Stamp so a pasted vector snapshot is distinguishable from
 /// an ordinary stamp (see [PdfVectorSnapshotEditing.isVectorSnapshotStamp]).
 const _vectorSnapshotMarker = 'DartPdfVectorSnapshot';
+
+/// The private key recording a pasted vector snapshot's crop (normalized
+/// against its captured box) - see
+/// [PdfVectorSnapshotEditing.cropVectorSnapshot].
+const _snapshotCropKey = 'DartPdfSnapshotCrop';
 
 /// Formats a matrix component for a content stream - integers without a
 /// trailing `.0`.

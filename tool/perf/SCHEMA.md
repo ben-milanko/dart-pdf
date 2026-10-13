@@ -143,7 +143,26 @@ Cold open reports logical-ready, engine-ready, first stable visual, and final
 stable visual times. Page and zoom stages retain engine-ready, first-change,
 and final-stable raw samples; budgets use the final-stable p50/p95 values.
 Whole-browser RSS is the Chrome process-tree aggregate, not only the renderer
-process or Dart heap. Engine-specific Flutter timings live under
+process or Dart heap. Because a Chrome upgrade moves that total on its own
+(151 -> 154 added about 150 MiB), each run also reports
+`rendererPeakRssBytes`/`rendererSettledRssBytes` (every `--type=renderer`
+process in the tree) and `gpuPeakRssBytes`/`gpuSettledRssBytes`, aggregated
+and ratioed like the total (`rendererPeakRssP50`, `gpuSettledRssP50`, ...) but
+not budgeted. `env.chrome` records the browser build (both this suite and the
+`chrome-*` driver suites), and `PERF_EXPECT_CHROME` makes a run refuse any
+other build: headless frame pacing differs between builds, so cadence numbers
+from different builds are not comparable.
+
+Zoom readiness (`zoomReadySamplesMs`) is a historical timestamp on the
+engine's own clock, not a driver poll: DartPDF's harness records the first
+frame-end or render-activity change after a tracked zoom
+(`__perfSetZoomTracked`) at which the zoom has landed, the page is visible and
+the page scheduler is idle (`__perfZoomReadyAt`); PDFium's records the first
+animation frame reporting the requested zoom. Each run's
+`diagnostics.longAnimationFrames` summarizes Long Animation Frame entries per
+journey (`navigation`, `zoom`, `scroll`): count, total and blocking duration,
+script/render/style-and-layout time, and the top scripts by duration keyed on
+invoker, function and source URL. Engine-specific Flutter timings live under
 `runs.dartPdf[].diagnostics` and never substitute for common visual metrics.
 `flutterFramesByAction` retains raw `{s,b,r,t}` frame timings (vsync start,
 build, raster, and total milliseconds) for cold open and

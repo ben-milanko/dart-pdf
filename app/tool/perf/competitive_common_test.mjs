@@ -4,15 +4,18 @@ import test from 'node:test';
 import {
   aggregateRuns,
   cadenceDelay,
+  chromeVersionMismatch,
   evaluateBudgets,
   framesInWindow,
   parityRatios,
   percentile,
+  processTypeRss,
   queryFlag,
   resolveHttpByteRange,
   resolveVisualCaptureMode,
   screenshotSampleAt,
   summarize,
+  summarizeLongAnimationFrames,
   translateEpochTimestamp,
 } from './competitive_common.mjs';
 
@@ -325,4 +328,78 @@ test('parity ratios and budgets are lower-is-better', () => {
     { metric: 'openP50', value: 1.1, limit: 1.15, pass: true },
     { metric: 'rssP50', value: 1.25, limit: 1.2, pass: false },
   ]);
+});
+
+test('long animation frames aggregate by the script Chrome blames', () => {
+  const summary = summarizeLongAnimationFrames([
+    {
+      startTime: 100, duration: 80, blockingDuration: 30,
+      renderStart: 150, styleAndLayoutStart: 170,
+      scripts: [
+        {invokerType: 'user-callback', invoker: 'FrameRequestCallback',
+          sourceFunctionName: 'replay', sourceURL: 'main.dart.js',
+          duration: 40, forcedStyleAndLayoutDuration: 2},
+        {invokerType: 'event-listener', invoker: 'Window.onwheel',
+          sourceFunctionName: 'wheel', sourceURL: 'main.dart.js',
+          duration: 5},
+      ],
+    },
+    {
+      startTime: 300, duration: 60, blockingDuration: 10,
+      renderStart: 0, styleAndLayoutStart: 0,
+      scripts: [
+        {invokerType: 'user-callback', invoker: 'FrameRequestCallback',
+          sourceFunctionName: 'replay', sourceURL: 'main.dart.js',
+          duration: 50},
+      ],
+    },
+    {duration: Number.NaN},
+  ]);
+  assert.equal(summary.count, 2);
+  assert.equal(summary.totalDurationMs, 140);
+  assert.equal(summary.totalBlockingMs, 40);
+  assert.equal(summary.maxDurationMs, 80);
+  assert.equal(summary.scriptMs, 95);
+  // Only the first frame reached rendering: 180 - 150 and 180 - 170.
+  assert.equal(summary.renderMs, 30);
+  assert.equal(summary.styleAndLayoutMs, 10);
+  assert.equal(summary.topScripts[0].sourceFunctionName, 'replay');
+  assert.equal(summary.topScripts[0].durationMs, 90);
+  assert.equal(summary.topScripts[0].count, 2);
+  assert.equal(summary.topScripts[0].forcedStyleAndLayoutMs, 2);
+  assert.equal(summary.topScripts[1].invoker, 'Window.onwheel');
+
+  const empty = summarizeLongAnimationFrames(undefined);
+  assert.equal(empty.count, 0);
+  assert.equal(empty.maxDurationMs, null);
+  assert.deepEqual(empty.topScripts, []);
+});
+
+test('per-process RSS keeps the renderer and GPU apart from the total', () => {
+  const stages = [
+    {stage: 'open', byTypeBytes: {renderer: 300, gpu: 100, browser: 50}},
+    {stage: 'zoom:2', byTypeBytes: {renderer: 500, gpu: 140}},
+    {stage: 'final-settled', byTypeBytes: {renderer: 350, gpu: 120}},
+  ];
+  assert.deepEqual(processTypeRss(stages, 'renderer'),
+    {peakBytes: 500, settledBytes: 350});
+  assert.deepEqual(processTypeRss(stages, 'gpu'),
+    {peakBytes: 140, settledBytes: 120});
+  assert.deepEqual(processTypeRss(stages, 'utility'),
+    {peakBytes: null, settledBytes: null});
+  assert.deepEqual(processTypeRss(undefined, 'gpu'),
+    {peakBytes: null, settledBytes: null});
+});
+
+test('the Chrome pin matches whole version components only', () => {
+  assert.equal(chromeVersionMismatch('HeadlessChrome/154.0.8037.93', ''), null);
+  assert.equal(
+    chromeVersionMismatch('HeadlessChrome/154.0.8037.93', '154'), null);
+  assert.equal(
+    chromeVersionMismatch('Chrome/154.0.8037.93', '154.0.8037.93'), null);
+  assert.match(
+    chromeVersionMismatch('HeadlessChrome/151.0.7000.1', '154'),
+    /PERF_EXPECT_CHROME=154/);
+  // 15 is not a prefix of 154 on a component boundary.
+  assert.notEqual(chromeVersionMismatch('HeadlessChrome/154.0.1.2', '15'), null);
 });

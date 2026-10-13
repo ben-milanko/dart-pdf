@@ -1,0 +1,10 @@
+New in 8.0.0
+
+- Combine PDFs opened together and insert pages from several documents, with page choices, bookmarks and interleaving.
+- Capture a polygon-shaped snapshot, crop a pasted snapshot and preview its position in the page grid.
+- Add multiple arrows to a callout, move its text box while keeping the arrows pointing at their targets, and change text colour while editing.
+- Edit the style and dimensions of several selected form fields together.
+- See stored thumbnails for unopened tabs and correct thumbnails after reordering pages.
+- Place polygon vertices immediately, with no double-tap delay.
+- Faster decoding of scanned documents, refreshed fields in pasted template stamps, restored file drag-and-drop and improved enlarged Controls accessibility.
+- Central Kurdish localization.

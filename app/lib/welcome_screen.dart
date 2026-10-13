@@ -200,7 +200,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         Icon(Icons.picture_as_pdf_outlined,
                             size: 64, color: theme.colorScheme.primary),
                         const SizedBox(height: 12),
-                        Text(AppInfo.name,
+                        Text(AppInfo.displayName,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.headlineSmall),
                         const SizedBox(height: 24),

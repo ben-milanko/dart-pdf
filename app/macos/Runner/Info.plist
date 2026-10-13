@@ -77,6 +77,32 @@
 			</array>
 		</dict>
 	</array>
+	<!--
+	  Finder right-click > Quick Actions (Services on older macOS) >
+	  "Combine with DartPDF" for selected PDFs. AppKit hands the files to
+	  AppDelegate.combinePDFs(_:userData:error:) on the pasteboard, launching
+	  the app first when it is not running.
+	-->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Combine with DartPDF</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>combinePDFs</string>
+			<key>NSPortName</key>
+			<string>$(PRODUCT_NAME)</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

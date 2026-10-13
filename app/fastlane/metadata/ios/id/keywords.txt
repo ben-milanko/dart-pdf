@@ -1,1 +1,1 @@
-pdf,editor,anotasi,sorot,tanda tangan,formulir,redaksi,gabung,halaman,pindai,ocr,bandingkan,edit
+ocr,markup,sorot,catatan,stempel,formulir,gabung,pembaca,sandi,banding,pindai,halaman,tinta,ekspor

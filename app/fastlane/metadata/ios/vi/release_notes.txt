@@ -1,6 +1,6 @@
-Mới trong 6.0.0
+Mới trong 8.1.0
 
-- Chọn văn bản bằng công cụ Chọn; nhấp đúp vào từ trong chế độ Bàn tay.
-- Các điều khiển đọc dùng chung một thanh đầu trang.
-- Hiển thị trang nhanh hơn, dùng ít bộ nhớ hơn.
-- Sửa lỗi mất chi tiết sau khi phóng to nhanh.
+- Đổi phông chữ và kiểu của trường danh sách và danh sách thả xuống.
+- Menu điện thoại mới để tạo, mở, in và ký tài liệu.
+- Chỉnh sửa văn bản giữ nguyên phông chữ và ngắt dòng. Cải thiện bàn phím và menu chọn văn bản trên iOS.
+- Bảng màu đầy đủ cho bút và bút đánh dấu trên di động.

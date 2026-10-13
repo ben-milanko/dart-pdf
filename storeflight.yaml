@@ -1,5 +1,6 @@
 # DartPDF production release configuration. Shorebird is not enabled.
-schema: 1
+# Older clients must reject this configuration, not silently ignore its guards.
+schema: 2
 
 app:
   root: app
@@ -43,6 +44,21 @@ build:
     android:
       expected_signer: "CN=DartPDF, O=Railway Engineering Solutions Pty Ltd"
   providers:
+    # Local Flutter builds share generated files and the app build directory.
+    # Store uploads remain independent; only compilation is serialized.
+    ios:
+      serial_group: dartpdf-flutter-root
+    macos:
+      serial_group: dartpdf-flutter-root
+    android:
+      serial_group: dartpdf-flutter-root
+    web:
+      # Regenerate the bundled renderer, cache-bust assets, and include the
+      # same-origin OCR models before Storeflight deploys the web app.
+      command: [bash, ../tool/storeflight/build-web.sh]
+      artifact: build/storeflight/web/app-web.tar.gz
+      serial_group: dartpdf-flutter-root
+      timeout_minutes: 120
     windows:
       command:
         - pwsh
@@ -102,16 +118,21 @@ profiles:
     wait: true
     destinations:
       apple:
+        # Binary releases carry forward live platform-specific listing text.
+        # Deliberate copy updates use the separate `storeflight metadata` command.
+        release_listing_policy: preserve
+        protect_product_page_tests: true
         bundle_id_ios: dev.milanko.dartpdf
         bundle_id_macos: dev.milanko.dartpdf
         platforms: [ios, macos]
         submit_for_review: true
         release_after_approval: automatic
         credentials:
-          key_id: [keychain:trax-asc-key-id, env:ASC_API_KEY_ID]
-          issuer_id: [keychain:trax-asc-issuer-id, env:ASC_API_ISSUER_ID]
-          private_key: [file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8, env:ASC_API_KEY_P8]
+          key_id: ["keychain:trax-asc-key-id", "env:ASC_API_KEY_ID"]
+          issuer_id: ["keychain:trax-asc-issuer-id", "env:ASC_API_ISSUER_ID"]
+          private_key: ["file:~/.appstoreconnect/private_keys/AuthKey_TRZ8JH3T68.p8", "env:ASC_API_KEY_P8"]
       google_play:
+        release_listing_policy: preserve
         package: dev.milanko.dartpdf
         track: production
         release_status: completed
@@ -122,7 +143,7 @@ profiles:
         managed_publishing: false
         allow_standard_publishing: true
         credentials:
-          service_account: [file:app/.secrets/google-play-service-account.json, env:PLAY_STORE_SERVICE_ACCOUNT_JSON]
+          service_account: ["file:app/.secrets/google-play-service-account.json", "env:PLAY_STORE_SERVICE_ACCOUNT_JSON"]
       microsoft_store:
         product_id: 9N071VSV6RGK
         submit_for_review: true
@@ -162,10 +183,10 @@ profiles:
         packages:
           - {name: pdf_cos, path: ../packages/pdf_cos}
           - {name: pdf_test_fixtures, path: ../packages/pdf_test_fixtures, depends_on: [pdf_cos]}
-          - {name: pdf_document, path: ../packages/pdf_document, depends_on: [pdf_cos]}
+          - {name: pdf_document, path: ../packages/pdf_document, depends_on: [pdf_cos, pdf_test_fixtures]}
           - {name: pdf_graphics, path: ../packages/pdf_graphics, depends_on: [pdf_cos, pdf_document]}
-          - {name: dart_pdf_cli, path: ../packages/dart_pdf_cli, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_editor, path: ../packages/dart_pdf_editor, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
+          - {name: dart_pdf_cli, path: ../packages/dart_pdf_cli, depends_on: [pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_printing, path: ../packages/dart_pdf_printing, depends_on: [dart_pdf_editor, pdf_cos, pdf_document]}
           - {name: dart_pdf_editor_flutter_gpu, path: ../packages/dart_pdf_editor_flutter_gpu, depends_on: [dart_pdf_editor, pdf_cos, pdf_document, pdf_graphics]}
           - {name: dart_pdf_editor_assets, path: ../packages/dart_pdf_editor_assets, depends_on: [dart_pdf_editor]}
@@ -187,13 +208,13 @@ profiles:
         idempotency_check: >-
           curl -fsSL https://dartpdf-flatpak.web.app/version.json |
           grep -F '"{version}"'
-        status_command: [curl, --fail, --silent, https://dartpdf-flatpak.web.app/version.json]
+        status_command: [curl, --fail, --silent, "https://dartpdf-flatpak.web.app/version.json"]
         verify:
           command: [../tool/storeflight/verify-flatpak-install.sh, "{version}"]
           contains: "{version}"
       web:
-        deploy_command: [firebase, deploy, --config, firebase.json, --only, hosting:dartpdf-app]
-        status_command: [curl, --fail, --silent, https://app.dart-pdf.com/version.json]
+        deploy_command: [firebase, deploy, --config, firebase.json, --only, "hosting:dartpdf-app"]
+        status_command: [curl, --fail, --silent, "https://app.dart-pdf.com/version.json"]
         verify:
           url: https://app.dart-pdf.com/version.json
           contains: "{version}"

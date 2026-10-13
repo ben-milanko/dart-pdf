@@ -28,12 +28,14 @@ class _SyncWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     recorded.add(pageIndex);
     final page = _doc.page(pageIndex);
@@ -63,12 +65,14 @@ class _DecliningWorker extends _SyncWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     recorded.add(pageIndex);
     return null;
   }

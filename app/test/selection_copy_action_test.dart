@@ -30,8 +30,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // A document opens in Hand mode, where a mouse drag pans instead of
-    // selecting. Leave it the way the toolbar does before dragging out a
+    // A document opens in Select mode, where a mouse drag grabs page
+    // content. Leave it the way the toolbar does before dragging out a
     // text selection.
     tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!.tool = null;
     await tester.pump();

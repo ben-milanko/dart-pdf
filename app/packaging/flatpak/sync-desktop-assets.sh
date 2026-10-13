@@ -14,6 +14,7 @@ out="$here/desktop-assets"
 
 install -d "$out" "$out/icons"
 cp "$linux/dev.milanko.dartpdf.desktop"      "$out/"
+cp "$linux/dev.milanko.dartpdf.combine.desktop" "$out/"
 cp "$linux/dev.milanko.dartpdf.metainfo.xml" "$out/"
 for sz in 64 128 256 512; do
   cp "$linux/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png" "$out/icons/dartpdf-${sz}.png"

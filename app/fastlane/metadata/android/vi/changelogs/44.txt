@@ -1,0 +1,7 @@
+Mới trong 8.0.0
+
+- Kết hợp PDF và chèn các trang xen kẽ.
+- Chụp vùng đa giác và cắt ảnh chụp đã dán.
+- Thêm nhiều mũi tên chú thích, giữ cố định điểm đích.
+- Chỉnh kiểu và kích thước nhiều trường biểu mẫu cùng lúc.
+- Giải mã bản quét nhanh hơn và xem trước rõ hơn.

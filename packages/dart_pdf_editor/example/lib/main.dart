@@ -149,6 +149,8 @@ Future<String?> savePdfBytes(
       await SharePlus.instance.share(ShareParams(
         files: [file],
         fileNameOverrides: [name],
+        // iOS uses this for the share sheet header.
+        title: name,
         // required on iPad: the share popover anchors to this rect
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
@@ -1506,6 +1508,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         await SharePlus.instance.share(ShareParams(
           files: [file],
           fileNameOverrides: [name],
+          title: name,
           sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
         ));
       default:
@@ -1582,6 +1585,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         await SharePlus.instance.share(ShareParams(
           files: [file],
           fileNameOverrides: [name],
+          title: name,
           sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
         ));
       default:

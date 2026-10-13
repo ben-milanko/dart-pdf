@@ -450,6 +450,10 @@
   "@menuAddNode": {
     "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
   },
+  "menuAddLeader": "Add leader",
+  "@menuAddLeader": {
+    "description": "Annotation context-menu item that adds another leader line (arrow) to the selected callout."
+  },
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Apply annotation to pages} other{Apply annotations to pages}}",
   "@menuApplyAnnotationsToPagesTitle": {
     "description": "Title of the page-range dialog when applying the selected annotation(s) to multiple pages.",
@@ -526,6 +530,10 @@
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
+  },
+  "menuRemoveLeader": "Remove leader",
+  "@menuRemoveLeader": {
+    "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
   },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
@@ -2443,7 +2451,7 @@
   "@tbTipSignature": {
     "description": "Tooltip for placing a saved handwritten signature."
   },
-  "tbTipSnapshot": "Snapshot - drag a region to capture it (paste back as vector)",
+  "tbTipSnapshot": "Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)",
   "@tbTipSnapshot": {
     "description": "Tooltip for the snapshot capture tool."
   },
@@ -2951,5 +2959,174 @@
   "dialogDismiss": "Dismiss",
   "@dialogDismiss": {
     "description": "Screen-reader label of the dimmed area behind an editor dialog; activating it closes the dialog."
+  },
+  "insertPagesTitle": "Insert pages",
+  "@insertPagesTitle": {
+    "description": "Title of the multi-document insert-pages dialog."
+  },
+  "insertPagesFiles": "Files",
+  "@insertPagesFiles": {
+    "description": "Heading over the list of PDFs to insert."
+  },
+  "insertPagesAddFiles": "Add files…",
+  "@insertPagesAddFiles": {
+    "description": "Button that picks more PDFs to insert."
+  },
+  "insertPagesSortByName": "Sort by name",
+  "@insertPagesSortByName": {
+    "description": "Button that sorts the files to insert by file name."
+  },
+  "insertPagesNoFiles": "Add one or more PDFs to insert.",
+  "@insertPagesNoFiles": {
+    "description": "Shown when the insert list is empty."
+  },
+  "insertPagesOpenFailed": "Couldn't open {names}. The file may be damaged or password-protected.",
+  "@insertPagesOpenFailed": {
+    "description": "Shown when picked files cannot be opened.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "insertPagesFilePageCount": "{count, plural, =1{1 page} other{{count} pages}}",
+  "@insertPagesFilePageCount": {
+    "description": "Page count of a file in the insert list.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "insertPagesMoveUp": "Move up",
+  "@insertPagesMoveUp": {
+    "description": "Tooltip: move a file earlier in the insert order."
+  },
+  "insertPagesMoveDown": "Move down",
+  "@insertPagesMoveDown": {
+    "description": "Tooltip: move a file later in the insert order."
+  },
+  "insertPagesRemoveFile": "Remove from list",
+  "@insertPagesRemoveFile": {
+    "description": "Tooltip: drop a file from the insert list."
+  },
+  "insertPagesRange": "Pages",
+  "@insertPagesRange": {
+    "description": "Label of a file's page range field."
+  },
+  "insertPagesRangeHint": "All (e.g. 1-3, 7)",
+  "@insertPagesRangeHint": {
+    "description": "Hint of a file's page range field; blank means all pages."
+  },
+  "insertPagesRangeInvalid": "Use pages 1–{count}, e.g. 1-3, 7",
+  "@insertPagesRangeInvalid": {
+    "description": "Validation error for a file's page range.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "insertPagesSubsetAll": "All pages",
+  "@insertPagesSubsetAll": {
+    "description": "Page filter option: every page."
+  },
+  "insertPagesSubsetOdd": "Odd pages",
+  "@insertPagesSubsetOdd": {
+    "description": "Page filter option: pages 1, 3, 5..."
+  },
+  "insertPagesSubsetEven": "Even pages",
+  "@insertPagesSubsetEven": {
+    "description": "Page filter option: pages 2, 4, 6..."
+  },
+  "insertPagesReverse": "Reverse order",
+  "@insertPagesReverse": {
+    "description": "Checkbox: insert a file's pages last to first."
+  },
+  "insertPagesPlacement": "Placement",
+  "@insertPagesPlacement": {
+    "description": "Heading over the where-to-insert controls."
+  },
+  "insertPagesBefore": "Before",
+  "@insertPagesBefore": {
+    "description": "Placement option: insert before the chosen page."
+  },
+  "insertPagesAfter": "After",
+  "@insertPagesAfter": {
+    "description": "Placement option: insert after the chosen page."
+  },
+  "insertPagesFirstPage": "First page",
+  "@insertPagesFirstPage": {
+    "description": "Placement anchor: the document's first page."
+  },
+  "insertPagesLastPage": "Last page",
+  "@insertPagesLastPage": {
+    "description": "Placement anchor: the document's last page."
+  },
+  "insertPagesPage": "Page",
+  "@insertPagesPage": {
+    "description": "Placement anchor: a page number entered by the user."
+  },
+  "insertPagesPageNumber": "Page number",
+  "@insertPagesPageNumber": {
+    "description": "Label of the placement page number field."
+  },
+  "insertPagesOfCount": "of {count}",
+  "@insertPagesOfCount": {
+    "description": "Suffix after the placement page number, e.g. 'of 12'.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "insertPagesPageInvalid": "Enter 1–{count}",
+  "@insertPagesPageInvalid": {
+    "description": "Validation error for the placement page number.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "insertPagesInterleave": "Interleave pages",
+  "@insertPagesInterleave": {
+    "description": "Checkbox: weave the inserted pages between the existing ones."
+  },
+  "insertPagesInterleaveHelp": "Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.",
+  "@insertPagesInterleaveHelp": {
+    "description": "Explains the interleave option."
+  },
+  "insertPagesRunInserted": "Inserted pages each time",
+  "@insertPagesRunInserted": {
+    "description": "Interleave: how many inserted pages go in each run."
+  },
+  "insertPagesRunExisting": "Document pages between",
+  "@insertPagesRunExisting": {
+    "description": "Interleave: how many existing pages sit between runs."
+  },
+  "insertPagesIncludeBookmarks": "Include bookmarks",
+  "@insertPagesIncludeBookmarks": {
+    "description": "Checkbox: bring each file's bookmarks along."
+  },
+  "insertPagesBookmarkFiles": "Add a bookmark for each file",
+  "@insertPagesBookmarkFiles": {
+    "description": "Checkbox: add a bookmark named after each file, nesting its own bookmarks."
+  },
+  "insertPagesSummary": "{inserted, plural, =1{Inserts 1 page} other{Inserts {inserted} pages}} - the document will have {total, plural, =1{1 page} other{{total} pages}}.",
+  "@insertPagesSummary": {
+    "description": "Summary of what the insert will do.",
+    "placeholders": {
+      "inserted": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "insertPagesConfirm": "Insert",
+  "@insertPagesConfirm": {
+    "description": "Confirm button of the insert-pages dialog."
   }
 }

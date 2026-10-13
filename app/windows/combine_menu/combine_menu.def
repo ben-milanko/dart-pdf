@@ -1,0 +1,4 @@
+LIBRARY dartpdf_combine_menu
+EXPORTS
+  DllCanUnloadNow PRIVATE
+  DllGetClassObject PRIVATE

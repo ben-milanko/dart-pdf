@@ -79,11 +79,13 @@ void main() {
       final columns = await _inkColumns(_run('AA', [0, 1.6, 2.6], 2.6));
       expect(columns, isNotEmpty);
 
-      // 2.6 em of PDF advance across 2 em of natural glyph = a 1.3x squeeze,
-      // so each glyph is 20 * 1.3 = 26pt wide, starting at 20 and at
-      // 20 + 1.6 * 20 = 52.
-      expect(columns.first, closeTo(20, 2));
-      expect(columns.last, closeTo(52 + 26, 2));
+      // 2.6 em of PDF advance across 2 em of natural glyph = a 1.3x stretch,
+      // so each glyph draws 20 * 1.3 = 26pt wide. Each is then fitted to the
+      // slot the PDF gives it (pdfFitSubstitutedPiece): the first A, 26pt in a
+      // 32pt slot, is centred there - 20 + 3 = 23 to 49; the second, 26pt in a
+      // 20pt slot starting at 20 + 1.6 * 20 = 52, is squeezed to end at 72.
+      expect(columns.first, closeTo(23, 2));
+      expect(columns.last, closeTo(72, 2));
       // The gap between them is real ink-free space, which the whole-run path
       // cannot produce.
       final gap = [
@@ -91,7 +93,7 @@ void main() {
           if (!columns.contains(x)) x,
       ];
       expect(gap, isNotEmpty, reason: 'the second glyph must start at 1.6 em');
-      expect(gap.first, closeTo(46, 3)); // 20 + 26
+      expect(gap.first, closeTo(49, 3)); // 23 + 26
       expect(gap.last, closeTo(52, 3));
 
       // The whole-run path, for contrast: one solid block from 20 to the run's
@@ -273,8 +275,10 @@ void main() {
       );
       final columns = await _inkColumns(spaced);
       expect(columns, isNotEmpty);
-      // First visible glyph at 2.0 em: 20 + 2.0 * 20 = 60.
-      expect(columns.first, closeTo(60, 2));
+      // First visible glyph's slot at 2.0 em: 20 + 2.0 * 20 = 60, and the
+      // glyph centred 3pt into it (see the first test) - not a whole column
+      // further right.
+      expect(columns.first, closeTo(63, 2));
     });
   });
 }

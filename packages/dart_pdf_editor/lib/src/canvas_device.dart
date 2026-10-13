@@ -1261,6 +1261,7 @@ class CanvasPdfDevice
       width: coreWidth,
       gradient: run.gradient,
       fontName: run.fontName,
+      serif: run.serif,
       fontSize: run.fontSize,
       fill: run.fill,
       strokeColor: run.strokeColor,
@@ -1382,7 +1383,7 @@ class CanvasPdfDevice
   /// stopped being shaped one by one.
   static String _glyphKeySuffix(PdfTextRun run) {
     final c = run.color;
-    return ' ${run.fontName ?? ''} '
+    return ' ${run.fontName ?? ''}${run.serif ? ' serif' : ''} '
         '${c.red},${c.green},${c.blue},${run.fillAlpha}';
   }
 
@@ -1439,7 +1440,7 @@ class CanvasPdfDevice
   ///
   /// The glyph *shapes* take one uniform horizontal scale, so their proportions
   /// stay even (scaling each word to its own advance would squeeze an `i` far
-  /// harder than an `o`); only the origins become exact. That scale is
+  /// harder than an `o`). That scale is
   /// `Σ natural ÷ Σ PDF glyph width` over the ink-bearing characters alone, so
   /// neither the substitute's idea of a space (Skia's width for a lone
   /// whitespace layout is not something to build on) nor the run's Tc/Tw can
@@ -1449,10 +1450,19 @@ class CanvasPdfDevice
   /// export reaching the next table column - is a digit in a 2.24 em step, and
   /// scaling it to that step drew it four times too wide.
   ///
+  /// A uniform scale only matches the substitute to the PDF on average. Where
+  /// a face's proportions differ - Helvetica standing in for an unembedded
+  /// Minion, whose `i` is wider and whose `e` is narrower - each piece is then
+  /// fitted into the slot the PDF gives it ([pdfFitSubstitutedPiece]):
+  /// centred when it draws narrower, so the difference falls either side of it
+  /// instead of as a gap inside the word, and squeezed when it draws wider, so
+  /// it no longer runs into its neighbour. A piece within the cut tolerance of
+  /// its slot - every piece of a metric-compatible clone - is untouched.
+  ///
   /// The caller derives `scaleX = run.width × renderSize ÷ layout.width` and
   /// paints under `scaleX / renderSize`, so reporting `run.width × k` for a
   /// layout laid out at `k` units per em recovers `renderSize ÷ k` whatever the
-  /// run's total advance is - and every part lands on exactly its own offset.
+  /// run's total advance is - and every part lands in exactly its own slot.
   ///
   /// Null when there is nothing measurable to scale against.
   _TextLayout? _buildPlacedLayout(PdfTextRun run, List<double> offsets) {
@@ -1493,6 +1503,21 @@ class CanvasPdfDevice
     TextStyle? style;
     bool? kernFree;
 
+    // Where `[from, to)` sits in the slot the PDF gives it, when it draws
+    // [drawn] layout units wide: pinned to its first character's offset,
+    // then centred or squeezed there if the substitute's proportions differ
+    // from the PDF's ([pdfFitSubstitutedPiece]). Returns the origin in
+    // layout units and the horizontal squeeze.
+    (double, double) fit(int from, int to, double drawn) {
+      var last = to - 1;
+      if (last > from && _runeLengthAt(text, last - 1) == 2) last--;
+      final slot = offsets[last] -
+          offsets[from] +
+          run.glyphWidthAt(last, _runeLengthAt(text, last))!;
+      final fitted = pdfFitSubstitutedPiece(slot: slot, drawn: drawn / k);
+      return ((offsets[from] + fitted.shift) * k, fitted.scaleX);
+    }
+
     // Emits `[from, to)` drawn from the offset the PDF gives its first
     // character. A single character is served from the glyph cache the
     // measuring pass above has already filled: retaining that painter beats
@@ -1503,7 +1528,8 @@ class CanvasPdfDevice
       if (to - from == _runeLengthAt(text, from)) {
         final glyph = glyphAt(from).retain();
         baseline ??= glyph.baseline;
-        parts.add(_GlyphRun(glyph, offsets[from] * k));
+        final (dx, scaleX) = fit(from, to, glyph.width);
+        parts.add(_GlyphRun(glyph, dx, scaleX));
         return;
       }
       if (_composableSpan(text, from, to) &&
@@ -1516,12 +1542,16 @@ class CanvasPdfDevice
         // coordinates, dimensions, grid refs - are nearly all of this shape,
         // and shaping each of them made their cold paint several times the
         // cost it had under #454's composition.
-        var dx = offsets[from] * k;
+        var drawn = 0.0;
+        for (var j = from; j < to; j += _runeLengthAt(text, j)) {
+          drawn += glyphAt(j).width;
+        }
+        var (dx, scaleX) = fit(from, to, drawn);
         for (var j = from; j < to; j += _runeLengthAt(text, j)) {
           final glyph = glyphAt(j).retain();
           baseline ??= glyph.baseline;
-          parts.add(_GlyphRun(glyph, dx));
-          dx += glyph.width;
+          parts.add(_GlyphRun(glyph, dx, scaleX));
+          dx += glyph.width * scaleX;
         }
         return;
       }
@@ -1534,7 +1564,8 @@ class CanvasPdfDevice
         return _shapeString(piece, style!);
       }).retain();
       baseline ??= part.baseline;
-      parts.add(_GlyphRun(part, offsets[from] * k));
+      final (dx, scaleX) = fit(from, to, part.width);
+      parts.add(_GlyphRun(part, dx, scaleX));
     }
 
     var i = 0;
@@ -1717,7 +1748,7 @@ class CanvasPdfDevice
         _cjkPrimaryFontFor(name) != null) {
       return false;
     }
-    final substitute = pdfBundledSubstituteFor(name);
+    final substitute = pdfBundledSubstituteFor(name, serif: run.serif);
     switch (substitute) {
       case PdfBundledSubstitute.heros ||
             PdfBundledSubstitute.termes ||
@@ -1999,7 +2030,8 @@ class CanvasPdfDevice
     // Symbolic families have no metric-compatible clone to bundle, so they keep
     // asking for a host symbol face; everything else draws in the bundled
     // TeX Gyre face whose advances match the PDF's own (font_substitution.dart).
-    final substitute = symbol ? null : pdfBundledSubstituteFor(name);
+    final substitute =
+        symbol ? null : pdfBundledSubstituteFor(name, serif: run.serif);
     return TextStyle(
       color: foreground == null ? _toColor(run.color, run.fillAlpha) : null,
       foreground: foreground,
@@ -2224,6 +2256,7 @@ final class _RunLayoutKey {
   _RunLayoutKey(PdfTextRun run, this.offsetsHash)
       : text = run.text,
         font = run.fontName,
+        serif = run.serif,
         red = run.color.red,
         green = run.color.green,
         blue = run.color.blue,
@@ -2233,6 +2266,7 @@ final class _RunLayoutKey {
         hashCode = Object.hash(
             run.text,
             run.fontName,
+            run.serif,
             _h(run.color.red),
             _h(run.color.green),
             _h(run.color.blue),
@@ -2243,6 +2277,7 @@ final class _RunLayoutKey {
 
   final String text;
   final String? font;
+  final bool serif;
   final double red, green, blue, alpha, letterSpacing, wordSpacing;
 
   /// [CanvasPdfDevice._offsetsHash] of an exactly placed run's pen offsets;
@@ -2267,6 +2302,7 @@ final class _RunLayoutKey {
       _same(other.letterSpacing, letterSpacing) &&
       _same(other.wordSpacing, wordSpacing) &&
       other.font == font &&
+      other.serif == serif &&
       other.text == text;
 }
 
@@ -2322,7 +2358,18 @@ class _TextLayout {
       return;
     }
     for (final g in parts!) {
-      g.glyph.painter!.paint(canvas, offset.translate(g.dx, 0));
+      if (g.scaleX == 1) {
+        g.glyph.painter!.paint(canvas, offset.translate(g.dx, 0));
+        continue;
+      }
+      // A piece squeezed into the PDF's slot for it ([pdfFitSubstitutedPiece]),
+      // scaled about its own origin.
+      canvas
+        ..save()
+        ..translate(offset.dx + g.dx, 0)
+        ..scale(g.scaleX, 1);
+      g.glyph.painter!.paint(canvas, Offset(0, offset.dy));
+      canvas.restore();
     }
   }
 
@@ -2345,7 +2392,11 @@ class _TextLayout {
 /// One character's layout within a composed run: the shared glyph-cache
 /// layout and its x-offset (natural, un-scaled 100px-per-em space).
 class _GlyphRun {
-  const _GlyphRun(this.glyph, this.dx);
+  const _GlyphRun(this.glyph, this.dx, [this.scaleX = 1]);
   final _TextLayout glyph;
   final double dx;
+
+  /// Horizontal squeeze applied about [dx]; 1 except for an exactly placed
+  /// piece the substitute draws wider than the PDF's slot for it.
+  final double scaleX;
 }

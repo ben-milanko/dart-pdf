@@ -798,7 +798,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Web-OCR lädt ein Florence-2-Vision-Language-Modell herunter und führt es lokal mit WebGPU/WASM über Transformers.js aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.';
+      'Web-OCR lädt ein kleines Texterkennungsmodell (PP-OCRv5, etwa 21 MB) herunter und führt es lokal mit WebAssembly aus. Die PDF-Seiten bleiben in diesem Browser; nur die Modelldateien werden bei der ersten Verwendung abgerufen.';
 
   @override
   String get ocrWebPromptTitle => 'KI-OCR in diesem Browser ausführen?';
@@ -948,7 +948,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Automatische Update-Benachrichtigungen für unsignierte Windows-Testbuilds aus main erhalten.';
+      'Automatische Update-Benachrichtigungen für unsignierte Windows-/macOS-Testbuilds aus main erhalten.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -1056,8 +1056,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR Seite $page von $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Text wird gelesen…';
+
+  @override
+  String get ocrChipPreparing => 'OCR-Modell wird geladen…';
 
   @override
   String get ocrChipFinishing => 'OCR wird abgeschlossen…';
@@ -1276,4 +1282,77 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'In diesem Build sind keine Versionshinweise verfügbar.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDFs öffnen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Jede Datei in einem eigenen Tab öffnen oder alle zu einem neuen Dokument zusammenführen? Ziehen Sie die Dateien, um die Reihenfolge festzulegen.';
+
+  @override
+  String get incomingFilesCombine => 'Zusammenführen';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDFs zusammenführen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Ziehen Sie die Dateien, um die Reihenfolge festzulegen.';
+
+  @override
+  String get appMenuNew => 'Neu';
+
+  @override
+  String get appMenuOpen => 'Öffnen';
+
+  @override
+  String get appMenuPrint => 'Drucken';
+
+  @override
+  String get appMenuSign => 'Signieren';
+
+  @override
+  String get appMenuRecent => 'Zuletzt verwendet';
+
+  @override
+  String get appMenuSeeAll => 'Alle anzeigen';
+
+  @override
+  String get appMenuExport => 'Exportieren';
+
+  @override
+  String get appMenuMoreTools => 'Weitere Werkzeuge';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

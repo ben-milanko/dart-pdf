@@ -88,11 +88,26 @@ class Jbig2Decoder {
       final rowBytes = (width + 7) >> 3;
       final out = Uint8List(rowBytes * height)
         ..fillRange(0, rowBytes * height, 0xFF);
+      final pageData = page.data;
+      final columns = width < page.width ? width : page.width;
+      final wholeBytes = columns >> 3;
       for (var y = 0; y < height && y < page.height; y++) {
-        for (var x = 0; x < width && x < page.width; x++) {
-          if (page.get(x, y) != 0) {
-            out[y * rowBytes + (x >> 3)] &= ~(0x80 >> (x & 7));
-          }
+        var src = y * page.width;
+        var o = y * rowBytes;
+        // eight pixels per output byte; a set (black) pixel clears its bit
+        for (var b = 0; b < wholeBytes; b++, src += 8, o++) {
+          out[o] = ~((pageData[src] << 7) |
+                  (pageData[src + 1] << 6) |
+                  (pageData[src + 2] << 5) |
+                  (pageData[src + 3] << 4) |
+                  (pageData[src + 4] << 3) |
+                  (pageData[src + 5] << 2) |
+                  (pageData[src + 6] << 1) |
+                  pageData[src + 7]) &
+              0xFF;
+        }
+        for (var x = wholeBytes << 3; x < columns; x++, src++) {
+          if (pageData[src] != 0) out[o] &= ~(0x80 >> (x & 7));
         }
       }
       return out;
@@ -509,6 +524,8 @@ class Jbig2Decoder {
       ..sort((a, b) => a.$2 != b.$2 ? a.$2 - b.$2 : a.$1 - b.$1);
 
     final bitmap = _Bitmap(w, h, fill: 0);
+    final window = _GenericWindow.of(pixels);
+    final data = bitmap.data;
     var ltp = 0;
     for (var y = 0; y < h; y++) {
       if (tpgdon) {
@@ -520,13 +537,17 @@ class Jbig2Decoder {
           continue;
         }
       }
+      if (window != null) {
+        window.decodeRow(decoder, contexts, indexes, bitmap, y);
+        continue;
+      }
       for (var x = 0; x < w; x++) {
         var context = 0;
         for (final (dx, dy) in pixels) {
           context = (context << 1) | bitmap.get(x + dx, y + dy);
         }
         final bit = decoder.decode(contexts, indexes, context);
-        if (bit != 0) bitmap.set(x, y, 1);
+        if (bit != 0) data[y * w + x] = 1;
       }
     }
     return bitmap;
@@ -843,8 +864,9 @@ class Jbig2Decoder {
     // region (§6.4.11), so it has to outlive the loop.
     final refinementContexts =
         refine == 1 ? Int8List(rTemplate == 0 ? 1 << 13 : 1 << 10) : null;
-    final refinementIndexes =
-        refinementContexts == null ? null : Uint8List(refinementContexts.length);
+    final refinementIndexes = refinementContexts == null
+        ? null
+        : Uint8List(refinementContexts.length);
 
     final region = _Bitmap(w, h, fill: defaultPixel);
     var stripT = -(decoder.decodeInt(iadt) ?? 0) * strips;
@@ -1303,6 +1325,143 @@ final _huffmanK = _HuffmanTable(const [
   _HuffmanLine(0, 32, -1),
   _HuffmanLine(7, 32, 141),
 ], htoob: false);
+
+/// A generic-region template whose pixels, row by row, form contiguous runs
+/// of columns - every nominal template, and template 0 with its default AT
+/// pixels (§6.2.5.3) - so the context can roll from one pixel to the next:
+/// each row's run shifts one column left and only the pixel entering at its
+/// right edge is read, instead of re-reading all 10-16 template pixels.
+class _GenericWindow {
+  _GenericWindow._(this.rowOffsets, this.firstColumns, this.lastColumns,
+      this.shifts, this.keepMask);
+
+  /// Template row offsets (dy), most significant row first.
+  final List<int> rowOffsets;
+  final List<int> firstColumns;
+  final List<int> lastColumns;
+
+  /// Bit position of each row run's least significant (rightmost) pixel.
+  final List<int> shifts;
+
+  /// After `context << 1`: the context width, minus each run's entry bit.
+  final int keepMask;
+
+  /// [pixels] sorted by row then column, as [Jbig2Decoder._decodeGeneric]
+  /// orders its context bits; null when some row's columns have a gap.
+  static _GenericWindow? of(List<(int, int)> pixels) {
+    final rows = <int>[];
+    final first = <int>[];
+    final last = <int>[];
+    for (final (dx, dy) in pixels) {
+      if (rows.isNotEmpty && rows.last == dy) {
+        if (dx != last.last + 1) return null;
+        last[last.length - 1] = dx;
+      } else {
+        rows.add(dy);
+        first.add(dx);
+        last.add(dx);
+      }
+    }
+    final shifts = List<int>.filled(rows.length, 0);
+    var bit = 0;
+    var entries = 0;
+    for (var r = rows.length - 1; r >= 0; r--) {
+      shifts[r] = bit;
+      entries |= 1 << bit;
+      bit += last[r] - first[r] + 1;
+    }
+    return _GenericWindow._(
+        rows, first, last, shifts, ((1 << bit) - 1) & ~entries);
+  }
+
+  void decodeRow(MqDecoder decoder, Int8List contexts, Uint8List indexes,
+      _Bitmap bitmap, int y) {
+    final w = bitmap.width;
+    final h = bitmap.height;
+    final data = bitmap.data;
+    final count = rowOffsets.length;
+    // -1 marks a template row above the bitmap: it reads as white.
+    final bases = List<int>.filled(count, -1);
+    for (var r = 0; r < count; r++) {
+      final ry = y + rowOffsets[r];
+      if (ry >= 0 && ry < h) bases[r] = ry * w;
+    }
+    var context = 0;
+    for (var r = 0; r < count; r++) {
+      for (var dx = firstColumns[r]; dx <= lastColumns[r]; dx++) {
+        context = (context << 1) | bitmap.get(dx, y + rowOffsets[r]);
+      }
+    }
+    final rowBase = y * w;
+    // Every template's own row (dy 0) is the least significant run and ends
+    // at dx -1, so the pixel entering it is the one just decoded. The rows
+    // above read from zero-padded copies, which need no bounds checks: the
+    // nominal shapes (rows -2/-1/0 or -1/0, the AT pixels a few columns out)
+    // are all of them.
+    final rows = rowOffsets.length;
+    if ((rows == 3 && rowOffsets[0] == -2 || rows == 2) &&
+        rowOffsets[rows - 2] == -1) {
+      final above =
+          _rowAbove(bitmap, y - 1, _above1 ??= Uint8List(w + 2 * _pad));
+      final keep = keepMask;
+      final s1 = shifts[rows - 2];
+      final o1 = _pad + 1 + lastColumns[rows - 2];
+      if (rows == 3) {
+        final twoAbove =
+            _rowAbove(bitmap, y - 2, _above2 ??= Uint8List(w + 2 * _pad));
+        final s2 = shifts[0];
+        final o2 = _pad + 1 + lastColumns[0];
+        for (var x = 0; x < w; x++) {
+          final bit = decoder.decode(contexts, indexes, context);
+          if (bit != 0) data[rowBase + x] = 1;
+          context = ((context << 1) & keep) |
+              (twoAbove[x + o2] << s2) |
+              (above[x + o1] << s1) |
+              bit;
+        }
+      } else {
+        for (var x = 0; x < w; x++) {
+          final bit = decoder.decode(contexts, indexes, context);
+          if (bit != 0) data[rowBase + x] = 1;
+          context = ((context << 1) & keep) | (above[x + o1] << s1) | bit;
+        }
+      }
+      return;
+    }
+    for (var x = 0; x < w; x++) {
+      final bit = decoder.decode(contexts, indexes, context);
+      if (bit != 0) data[rowBase + x] = 1;
+      context = (context << 1) & keepMask;
+      for (var r = 0; r < count; r++) {
+        final base = bases[r];
+        final nx = x + 1 + lastColumns[r];
+        if (base >= 0 && nx >= 0 && nx < w && data[base + nx] != 0) {
+          context |= 1 << shifts[r];
+        }
+      }
+    }
+  }
+
+  /// Columns of zero padding either side of the [_rowAbove] copies: room for
+  /// any entry column `x + 1 + lastColumn` an AT pixel can name (|dx| <= 127).
+  static const _pad = 129;
+
+  /// Scratch copies of the rows one and two above the row being decoded.
+  Uint8List? _above1;
+  Uint8List? _above2;
+
+  /// Copies row [y] of [bitmap] into [buffer] at offset [_pad], or zeroes it
+  /// when [y] is above the bitmap (those pixels read as white).
+  static Uint8List _rowAbove(_Bitmap bitmap, int y, Uint8List buffer) {
+    final w = bitmap.width;
+    if (y < 0) {
+      buffer.fillRange(_pad, _pad + w, 0);
+    } else {
+      buffer.setRange(_pad, _pad + w, bitmap.data, y * w);
+    }
+    return buffer;
+  }
+}
 
 /// A cached snapshot of the symbol + pattern dictionaries a /JBIG2Globals
 /// stream decodes to (#532). The bitmap lists are shared read-only across

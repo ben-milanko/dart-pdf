@@ -1,4 +1,13 @@
 ## Unreleased
+## 0.5.1
+
+- Update dependency constraints for the compatible dart-pdf 8.1.0 suite. No public API changes.
+
+## 0.5.0
+
+- Align dependency constraints with the dart-pdf 8.0.0 suite.
+
+## 0.4.0
 
 - **BREAKING:** built on `material_ui` like `dart_pdf_editor` 7.0.0: the print
   preview and progress dialogs use material_ui widgets and run under a

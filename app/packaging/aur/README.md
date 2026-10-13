@@ -1,72 +1,61 @@
-# AUR packaging for DartPDF (`dartpdf-bin`)
+# Arch Linux package candidate for DartPDF
 
-`dartpdf-bin` repackages the official prebuilt Linux release for Arch Linux and
-derivatives, so users can `paru -S dartpdf-bin` / `yay -S dartpdf-bin`.
+`dartpdf-bin` repackages the official prebuilt DartPDF 8.0.0 Linux release.
+It is not yet published to AUR. Do not advertise `yay -S dartpdf-bin` or
+`paru -S dartpdf-bin` until a live listing is verified.
 
-- **Package:** binary (`-bin`) — installs the release bundle under
-  `/opt/dartpdf`, preserves the GUI launcher at `/usr/bin/dartpdf`, and, for
-  sidecar-enabled releases, exposes the CLI/MCP executable as
-  `/usr/bin/dartpdf-cli`.
-- **Source of truth for the `PKGBUILD`:** this directory. The AUR git repo is a
-  publish target; keep this copy authoritative and push from here.
+This directory is the source of truth for the recipe. The
+[validation repository](https://github.com/ben-milanko/dartpdf-aur) prepares
+the eventual publication mirror; it is not an AUR listing.
 
-## Release payload
+## Package contents
 
-As of `app-v3.4.0`, the official release tarball carries the runner, `data/`,
-`lib/`, and the complete desktop-integration `share/` tree. The `PKGBUILD`
-installs that immutable payload directly and fetches only the Apache license
-from the matching release tag.
+The recipe keeps the GUI, CLI, native plugins, data and desktop integration.
+It installs the runtime bundle under `/usr/lib/dartpdf`, with launchers at
+`/usr/bin/dartpdf` and `/usr/bin/dartpdf-cli`. The 8.0.0 archive includes the
+CLI, so a missing sidecar fails packaging rather than silently omitting it.
 
-The checked-in `3.6.0` pin is the first stable release with the CLI/MCP
-sidecar. Its install remains conditional so the recipe can also validate older
-release archives without a separate packaging branch.
+Source checksums pin the archive and Apache-2.0 license to `app-v8.0.0`.
+The recipe repairs six Flutter plugins' upstream build-directory RUNPATH to
+`$ORIGIN`, resolving the bundled engine beside each plugin. It does not remove
+plugins or bypass source integrity checks.
 
-## Per-release update
+## Validation and limits
 
-1. Bump `pkgver` to the new `app-v<version>` (and reset `pkgrel=1`).
-2. Refresh checksums:
-   ```sh
-   cd app/packaging/aur
-   updpkgsums                       # rewrites sha256sums[] from the sources
-   ```
-3. Regenerate the metadata and sanity-build:
-   ```sh
-   makepkg --printsrcinfo > .SRCINFO
-   makepkg -f                       # builds the package locally
-   namcap PKGBUILD *.pkg.tar.zst    # lint (optional but recommended)
-   ```
-4. Test-install: `sudo pacman -U dartpdf-bin-*.pkg.tar.zst`, then launch
-   `dartpdf` and check the bundled CLI with `dartpdf-cli --version`.
+[Native Arch validation](https://github.com/ben-milanko/dartpdf-aur/actions/runs/37884461790)
+passed on 9 October 2026 at candidate commit
+`3151fd4c0d2fcae06bb6e972ca337ffae1c4adda`. Its PKGBUILD and .SRCINFO match
+the recipe here. The disposable Arch container verified source hashes,
+generated metadata, makepkg output, explicit direct ELF dependencies,
+installed file integrity, desktop entry, CLI inspection, a mapped GUI window
+and package removal.
 
-> **Note:** `.SRCINFO` in this repo is hand-maintained to mirror the `PKGBUILD`.
-> Always regenerate it with `makepkg --printsrcinfo > .SRCINFO` before pushing —
-> the AUR reads package metadata from it.
+Namcap reports no errors, but warnings remain: some upstream binaries lack
+FULL RELRO or are unstripped, some linked libraries are unused, and the
+bundled JNI helper cannot resolve `libjvm.so` without a JVM. Java is an
+optional dependency. The app window and CLI ran without it; the JNI feature
+and every editing workflow were not tested. The CLI reports its separate
+protocol version 0.1.0, not the GUI release version.
 
-## First-time publish to the AUR
+These are AI-assisted packaging and smoke checks, not an AUR acceptance
+decision, a complete application regression test or evidence of new users.
 
-You need an [AUR account](https://aur.archlinux.org) with an SSH key registered
-(Account → "SSH Public Key").
+## Update and publication
 
-```sh
-# Clone the (empty) AUR repo for the package name.
-git clone ssh://aur@aur.archlinux.org/dartpdf-bin.git aur-dartpdf-bin
-cd aur-dartpdf-bin
+For each new release, verify the official artifact, refresh source checksums,
+audit native dependency providers, regenerate `.SRCINFO` with
+`makepkg --printsrcinfo`, then build, lint, test-install, inspect the CLI,
+launch the GUI and remove the disposable test package. Do not omit lint
+warnings from review or count test installs as acquisitions.
 
-# Copy the packaging files in (only PKGBUILD + .SRCINFO belong in the AUR repo).
-cp /path/to/dart-pdf/app/packaging/aur/{PKGBUILD,.SRCINFO} .
+Before first publication, check the official and AUR catalogs for existing
+packages, review the current
+[AUR submission guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)
+and [Arch package guidelines](https://wiki.archlinux.org/title/Arch_package_guidelines),
+and use the owner's AUR account and approved SSH access. Credential changes
+and account terms require the owner's handoff. Adopt this update upstream
+before publishing the mirror.
 
-git add PKGBUILD .SRCINFO
-git commit -m "Initial import: dartpdf-bin 3.0.0"
-git push
-```
-
-The package appears at `https://aur.archlinux.org/packages/dartpdf-bin`. For
-subsequent releases, repeat the update steps above and `git push` the new
-`PKGBUILD` + `.SRCINFO`.
-
-## Relationship to a future source package
-
-`dartpdf-bin` is the fast path. A from-source `dartpdf` package would have to
-vendor the pinned Flutter SDK and build the engine, which is heavy and brittle
-on a rolling distro; the binary package is the recommended route (and matches
-how the Flatpak is built). Revisit a source package only if there's demand.
+After an actual AUR submission, verify the native listing and install path
+before announcing availability. Until then, users can download the existing
+[official Linux release](https://github.com/ben-milanko/dart-pdf/releases/tag/app-v8.0.0).

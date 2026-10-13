@@ -268,6 +268,46 @@ class PdfLivePageRegistry extends ChangeNotifier {
   }
 }
 
+/// Pull-based registry of live page views' render state for support exports.
+///
+/// Each page-view state registers a snapshot closure on `initState` and drops
+/// it on `dispose`; nothing is computed until [snapshot] is called, so the
+/// steady-state cost is one map insert per page lifecycle. The snapshot is the
+/// field answer to "this page never sharpened": which detail/tile route it is
+/// on, whether it still owes an exact patch, what the last detail pass
+/// decided, and which visible tiles are missing (and whether they are vetoed).
+class PdfPageViewDiagnostics {
+  PdfPageViewDiagnostics._();
+
+  static final PdfPageViewDiagnostics instance = PdfPageViewDiagnostics._();
+
+  final Map<Object, Map<String, Object?> Function()> _sources = Map.identity();
+
+  void register(Object owner, Map<String, Object?> Function() snapshot) {
+    _sources[owner] = snapshot;
+  }
+
+  void unregister(Object owner) {
+    _sources.remove(owner);
+  }
+
+  /// One JSON-encodable map per live page view, sorted by page index. A
+  /// source that throws reports its error instead of failing the export.
+  List<Map<String, Object?>> snapshot() {
+    final pages = <Map<String, Object?>>[];
+    for (final source in _sources.values.toList()) {
+      try {
+        pages.add(source());
+      } catch (error) {
+        pages.add({'error': error.toString()});
+      }
+    }
+    pages.sort((a, b) => ((a['pageIndex'] as int?) ?? -1)
+        .compareTo((b['pageIndex'] as int?) ?? -1));
+    return pages;
+  }
+}
+
 /// Debug registry of each page's current legacy detail-patch bounds, as
 /// fractions (0..1) of the page. Page views report on build (only while
 /// [pdfDebugPaintDetailBounds] is on); the thumbnail overlay draws them so

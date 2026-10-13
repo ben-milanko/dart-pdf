@@ -281,8 +281,21 @@ PdfImageBase? decodePdfImageBase(
   }
 
   if (filters.contains('JPXDecode')) {
+    // A smaller requested base skips JPX resolution levels, as the unmasked
+    // scaled path does: a masked scan layer (MRC copier output puts every
+    // page's colour under a stencil) otherwise ran the full entropy decode and
+    // wavelet only to be shrunk one layer up. Never for /Indexed - its samples
+    // are palette indices, which must not be resolution-averaged.
+    final reduce = targetWidth == null ||
+            targetHeight == null ||
+            luminosityMask ||
+            pdfImageColorFamily(cos, dict) == 'Indexed'
+        ? 0
+        : _jpxReduceLevels(_intOf(cos.resolve(dict['Width'])),
+            _intOf(cos.resolve(dict['Height'])), targetWidth, targetHeight);
     final jpx = JpxDecoder.decode(
-        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
+        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'),
+        reduceLevels: reduce);
     if (jpx == null) return null;
     // An /Indexed JPX carries palette indices in its single component, not
     // colour: the samples must run through the lookup table, exactly as a raw
@@ -870,12 +883,7 @@ PdfDecodedPixels? _decodeJpxScaled(
   if (dict.containsKey('SMask') || dict.containsKey('Mask')) return null;
   if (pdfImageColorFamily(cos, dict) == 'Indexed') return null;
 
-  // Resolution levels to skip = floor(log2(min(w/tw, h/th))), and only when the
-  // image is at least halved on its limiting axis (below that the reduce buys
-  // nothing and the full path's downsample is already cheap).
-  final ratio = math.min(width / targetWidth, height / targetHeight);
-  if (ratio < 2) return null;
-  final reduce = (math.log(ratio) / math.ln2).floor();
+  final reduce = _jpxReduceLevels(width, height, targetWidth, targetHeight);
   if (reduce < 1) return null;
 
   final jpx = JpxDecoder.decode(
@@ -887,6 +895,29 @@ PdfDecodedPixels? _decodeJpxScaled(
   // JPX carries no colour key; the mapper writes opaque alpha throughout.
   final decoded = _finish(rgba, jpx.width, jpx.height, hasAlpha: false);
   return downsamplePdfDecodedPixels(decoded, targetWidth, targetHeight);
+}
+
+/// JPX resolution levels to skip for a [width]x[height] image wanted at
+/// [targetWidth]x[targetHeight]: the most that still leave the reduced image
+/// (ceil(w / 2^r) x ceil(h / 2^r), how JPX sizes a resolution level) at least
+/// as large as the target on both axes, so the box filter after it only ever
+/// shrinks. Comparing against the reduced size rather than requiring
+/// w / tw >= 2 matters at exactly half size: an odd-width image shown at
+/// ceil(w / 2) has a ratio just under 2 and used to miss the reduce entirely,
+/// paying for a full decode it then threw away. The decoder clamps the result
+/// to the codestream's decomposition depth.
+int _jpxReduceLevels(int width, int height, int targetWidth, int targetHeight) {
+  if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return 0;
+  }
+  int ceilShift(int value, int shift) => (value + (1 << shift) - 1) >> shift;
+  var reduce = 0;
+  while (reduce < 30 &&
+      ceilShift(width, reduce + 1) >= targetWidth &&
+      ceilShift(height, reduce + 1) >= targetHeight) {
+    reduce++;
+  }
+  return reduce;
 }
 
 /// Decodes a rectangular source-region of a simple Flate/raw or CCITT image
@@ -1412,6 +1443,39 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   final inverted = decode is CosArray &&
       decode.length > 0 &&
       _numOf(cos.resolve(decode[0])) == 1;
+  final coverage = _stencilCoverage(data, width, inverted, sourceX, sourceY,
+      sourceWidth, sourceHeight, targetWidth, targetHeight);
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  for (var i = 0, di = 0; i < coverage.length; i++, di += 4) {
+    // Premultiplied white coverage: the device tints it through srcIn.
+    final v = coverage[i];
+    out[di] = out[di + 1] = out[di + 2] = out[di + 3] = v;
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+/// The fraction of painting bits in each [targetWidth]x[targetHeight] cell of
+/// the source region of a 1-bit stencil (MSB-first rows of `(width + 7) ~/ 8`
+/// bytes), as 0-255 bytes, row-major. A bit paints when it is 0, or 1 when
+/// [inverted] (/Decode [1 0]) - for a /Mask stencil, "paints" is "shows the
+/// image". Requires targetWidth <= sourceWidth and targetHeight <=
+/// sourceHeight, and the caller to have checked [data] covers the rows.
+///
+/// Truncating `count * 255 ~/ cellArea` over the same cell partition as
+/// [downsamplePdfDecodedPixels] and [_targetSizedSoftMask], so it is
+/// pixel-identical to expanding every bit and box-filtering the result.
+Uint8List _stencilCoverage(
+  Uint8List data,
+  int width,
+  bool inverted,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  final rowBytes = (width + 7) ~/ 8;
   // Area coverage, not point sampling. A scanned drawing stencil (a 7360px
   // CCITT sheet shown ~1500px wide) is mostly 1-2px linework: picking one
   // source bit per destination pixel dropped whole strokes and broke the rest
@@ -1492,7 +1556,7 @@ PdfDecodedPixels? _scaledImageMaskRegion(
       ? data.buffer.asUint32List(data.offsetInBytes, data.length >> 2)
       : null;
   final counts = Int32List(targetWidth);
-  final out = Uint8List(targetWidth * targetHeight * 4);
+  final out = Uint8List(targetWidth * targetHeight);
   var di = 0;
   for (var ty = 0; ty < targetHeight; ty++) {
     final sy0 = sourceY + ty * sourceHeight ~/ targetHeight;
@@ -1530,13 +1594,10 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     }
     final rows = sy1 - sy0;
     for (var tx = 0; tx < targetWidth; tx++) {
-      final v = counts[tx] * 255 ~/ (columnSpan[tx] * rows);
-      // Premultiplied white coverage: the device tints it through srcIn.
-      out[di] = out[di + 1] = out[di + 2] = out[di + 3] = v;
-      di += 4;
+      out[di++] = counts[tx] * 255 ~/ (columnSpan[tx] * rows);
     }
   }
-  return PdfDecodedPixels(out, targetWidth, targetHeight);
+  return out;
 }
 
 /// Exact region decode of a masked 8-bit image: a single-Flate DeviceRGB or
@@ -2517,19 +2578,47 @@ PdfImageSoftMask? pdfImageStencilMask(
     final height = samples.height;
     final rowBytes = (width + 7) ~/ 8;
     if (data.length < rowBytes * height) return null;
+    if (targetWidth != null &&
+        targetHeight != null &&
+        targetWidth > 0 &&
+        targetHeight > 0 &&
+        (targetWidth < width || targetHeight < height)) {
+      // Count the shown bits per target cell straight from the packed rows
+      // instead of expanding a byte per source pixel and box-filtering that:
+      // the same pixels (see [_stencilCoverage]), without the native-size
+      // plane - a 300 ppi scan's page mask is 17 megapixels.
+      final tw = targetWidth < width ? targetWidth : width;
+      final th = targetHeight < height ? targetHeight : height;
+      final scaleT0 = PdfPerf.begin();
+      final coverage =
+          _stencilCoverage(data, width, inverted, 0, 0, width, height, tw, th);
+      PdfPerf.end(PdfPerfPhase.imageDownsample, scaleT0);
+      return PdfImageSoftMask(coverage, tw, th);
+    }
+    // Shown (alpha 255) where the sample is 0, or 1 when /Decode inverts.
+    final flip = inverted ? 0 : 0xff;
     final alpha = Uint8List(width * height);
+    final wholeBytes = width >> 3;
     for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final bit = (data[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
-        final masked = inverted ? bit == 0 : bit == 1;
-        alpha[y * width + x] = masked ? 0 : 255;
+      final row = y * rowBytes;
+      var o = y * width;
+      for (var b = 0; b < wholeBytes; b++, o += 8) {
+        final shown = data[row + b] ^ flip;
+        if (shown == 0) continue; // the plane starts out all masked
+        if (shown == 0xff) {
+          alpha.fillRange(o, o + 8, 255);
+          continue;
+        }
+        for (var k = 0; k < 8; k++) {
+          if ((shown << k) & 0x80 != 0) alpha[o + k] = 255;
+        }
+      }
+      for (var x = wholeBytes << 3; x < width; x++, o++) {
+        final bit = (data[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+        if (bit != (flip & 1)) alpha[o] = 255;
       }
     }
-    return _targetSizedSoftMask(
-      PdfImageSoftMask(alpha, width, height),
-      targetWidth,
-      targetHeight,
-    );
+    return PdfImageSoftMask(alpha, width, height);
   } on Exception {
     return null; // unsupported mask: leave the image opaque
   }

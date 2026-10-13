@@ -1,0 +1,7 @@
+New in 8.0.0
+
+- Combine opened PDFs and insert pages from several documents, including interleaving.
+- Capture polygon snapshots and crop pasted snapshots.
+- Add multiple callout arrows and move text boxes while keeping arrows in place.
+- Edit the style and size of several form fields together.
+- Faster scan decoding, clearer tab previews and fixes for thumbnails, pasted stamps and accessibility.

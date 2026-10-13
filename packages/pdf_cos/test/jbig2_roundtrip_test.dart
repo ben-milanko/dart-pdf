@@ -34,7 +34,9 @@ void main() {
       final symbol = placement.refined ?? symbols[placement.symbol];
       for (var y = 0; y < symbol.height; y++) {
         for (var x = 0; x < symbol.width; x++) {
-          if (symbol.get(x, y) != 0) page.set(placement.x + x, placement.y + y, 1);
+          if (symbol.get(x, y) != 0) {
+            page.set(placement.x + x, placement.y + y, 1);
+          }
         }
       }
     }
@@ -98,8 +100,10 @@ void main() {
     const width = 96;
     const height = 40;
     final placements = [
-      for (var i = 0; i < 8; i++) Jbig2Placement(i % symbols.length, 2 + i * 11, 5),
-      for (var i = 0; i < 8; i++) Jbig2Placement(i % symbols.length, 2 + i * 11, 22),
+      for (var i = 0; i < 8; i++)
+        Jbig2Placement(i % symbols.length, 2 + i * 11, 5),
+      for (var i = 0; i < 8; i++)
+        Jbig2Placement(i % symbols.length, 2 + i * 11, 22),
     ];
     final page = encodeJbig2TextPage(
       width: width,
@@ -180,7 +184,8 @@ void main() {
     // Composition clips a symbol at the region edge, so an instance that
     // hangs off it is legal - the decoder must not read that as corrupt and
     // skip the whole page image.
-    final symbols = sortSymbolsForDictionary([glyph(1, 8, 10), glyph(2, 9, 10)]);
+    final symbols =
+        sortSymbolsForDictionary([glyph(1, 8, 10), glyph(2, 9, 10)]);
     final globals = encodeJbig2Globals(symbols);
 
     const width = 24;
@@ -211,8 +216,57 @@ void main() {
         expected(width, height, symbols, placements));
   });
 
+  group('a full-page generic region decodes back to its bitmap', () {
+    // The MRC scanner shape: one generic region covering the whole page. The
+    // decoder rolls the context along each row when every template row is a
+    // contiguous run of columns (all nominal templates) and rebuilds it per
+    // pixel otherwise; both must reproduce the encoder's bitmap exactly,
+    // including along all four edges where template pixels fall off the page.
+    Jbig2Bitmap scan() {
+      final bitmap = Jbig2Bitmap(83, 41);
+      bitmap
+        ..fillRect(0, 0, 83, 1) // top edge rule
+        ..fillRect(0, 0, 1, 41) // left edge rule
+        ..fillRect(82, 3, 1, 30) // right edge rule
+        ..fillRect(5, 40, 60, 1); // bottom edge rule
+      for (var i = 0; i < 9; i++) {
+        final g = glyph(i, 7, 11);
+        for (var y = 0; y < g.height; y++) {
+          for (var x = 0; x < g.width; x++) {
+            if (g.get(x, y) != 0) bitmap.set(4 + i * 8 + x, 6 + y, 1);
+          }
+        }
+      }
+      for (var x = 2; x < 80; x += 3) {
+        bitmap.set(x, 25 + x % 7, 1); // scattered noise
+      }
+      return bitmap;
+    }
+
+    for (final (name, template, at) in <(String, int, List<(int, int)>?)>[
+      ('template 0', 0, null),
+      ('template 1', 1, null),
+      ('template 2', 2, null),
+      ('template 3', 3, null),
+      // gaps in rows -2 and -1: decoded through the per-pixel path
+      ('template 0, custom AT', 0, [(5, -1), (-6, -1), (4, -2), (-3, -3)]),
+      ('template 1, custom AT', 1, [(-5, -2)]),
+    ]) {
+      test(name, () {
+        final bitmap = scan();
+        final page = encodeJbig2GenericPage(bitmap, template: template, at: at);
+        final decoded = Jbig2Decoder.decode(
+            data: page, width: bitmap.width, height: bitmap.height);
+        expect(decoded, isNotNull);
+        expect(
+            ink(decoded!, bitmap.width, bitmap.height), bitmap.data.toList());
+      });
+    }
+  });
+
   test('the page stream alone carries no symbols', () {
-    final symbols = sortSymbolsForDictionary([glyph(1, 8, 12), glyph(2, 9, 12)]);
+    final symbols =
+        sortSymbolsForDictionary([glyph(1, 8, 12), glyph(2, 9, 12)]);
     final page = encodeJbig2TextPage(
       width: 40,
       height: 20,

@@ -1,6 +1,6 @@
-Nowości w 6.0.0
+Nowości w 8.1.0
 
-- Zaznaczaj tekst narzędziem Zaznaczanie; w trybie Ręka kliknij słowo dwukrotnie.
-- Sterowanie czytaniem w jednym nagłówku.
-- Szybsze wyświetlanie stron przy mniejszym zużyciu pamięci.
-- Naprawiono brak szczegółów po szybkim powiększeniu.
+- Zmieniaj czcionkę i styl pól listy oraz list rozwijanych.
+- Nowe menu telefonu do tworzenia, otwierania, drukowania i podpisywania.
+- Edycja tekstu zachowuje czcionkę i podział wierszy. Ulepszenia klawiatury i menu zaznaczania w iOS.
+- Pełna paleta kolorów pióra i zakreślacza na urządzeniach mobilnych.

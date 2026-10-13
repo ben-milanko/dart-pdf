@@ -52,6 +52,10 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Explorer "Combine with DartPDF" handler for the Store MSIX; see
+# combine_menu/CMakeLists.txt.
+add_subdirectory("combine_menu")
+
 # Build the pure-Dart CLI/MCP sidecar for this Windows architecture. It is
 # installed as dartpdf.exe beside the GUI runner.
 set(DARTPDF_CLI_TARGET_OS "windows")

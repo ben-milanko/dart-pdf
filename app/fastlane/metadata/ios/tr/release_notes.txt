@@ -1,6 +1,6 @@
-6.0.0 yenilikleri
+8.1.0 yenilikleri
 
-- Seç aracıyla sayfa metnini seçin; El modunda bir sözcüğe çift tıklayın.
-- Okuma kontrolleri tek bir üst çubukta.
-- Daha az bellek kullanımıyla daha hızlı sayfa görüntüleme.
-- Hızlı yakınlaştırmadan sonra kaybolan ayrıntılar düzeltildi.
+- Açılır menü ve liste form alanlarının yazı tipini ve stilini değiştirin.
+- Oluşturma, açma, yazdırma ve imzalama için yeni telefon menüsü.
+- Metin düzenlerken yazı tipi ve satır kaydırma korunur. iOS klavyesi ve seçim menüleri iyileştirildi.
+- Mobil kalem ve vurgulayıcı için tam renk paleti.

@@ -121,16 +121,20 @@ class _RecordingWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) {
     // Only the base record ladder is interesting; deep-zoom detail records
     // carry a region and would be noise.
     if (imageDecodeRegion == null) commandLimits.add(commandLimit);
     return _inner.record(pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
@@ -145,6 +149,7 @@ class _RecordingWorker extends PdfRenderWorker {
   @override
   Future<StripPlan?> binStrips(int pageIndex,
           {required bool annotations,
+          Set<String> hiddenAnnotationSubtypes = const {},
           required List<double> pageToDevice,
           required int deviceWidth,
           required int deviceHeight,
@@ -153,6 +158,7 @@ class _RecordingWorker extends PdfRenderWorker {
           int priority = 0}) =>
       _inner.binStrips(pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           pageToDevice: pageToDevice,
           deviceWidth: deviceWidth,
           deviceHeight: deviceHeight,
@@ -163,6 +169,7 @@ class _RecordingWorker extends PdfRenderWorker {
   @override
   Future<PdfStripDetail?> recordStripDetail(int pageIndex,
           {required bool annotations,
+          Set<String> hiddenAnnotationSubtypes = const {},
           required List<double> pageToDevice,
           required int deviceWidth,
           required int deviceHeight,
@@ -171,6 +178,7 @@ class _RecordingWorker extends PdfRenderWorker {
           int priority = 0}) =>
       _inner.recordStripDetail(pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           pageToDevice: pageToDevice,
           deviceWidth: deviceWidth,
           deviceHeight: deviceHeight,

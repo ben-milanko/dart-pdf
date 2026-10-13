@@ -1,5 +1,24 @@
 # Changelog
 
+## 8.1.0
+
+- Add `PdfEditor.setChoiceFieldStyle` to change dropdown and list-box fonts, size, colour and alignment while regenerating their appearances.
+- Align dependencies with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Insert pages from multiple source documents, with interleaving, page choices and bookmarks.
+- Add multi-leader callouts and preserve arrow targets when their text boxes move. Read both common callout inset orders.
+- Capture polygon-clipped vector snapshots and crop pasted vector snapshots.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Include un-flattened annotations in vector snapshots.
+- Align injected OCR text with the reading direction on rotated pages.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
 ## 6.0.0
 
 - Align dependency constraints with the dart-pdf 6.0.0 package suite.

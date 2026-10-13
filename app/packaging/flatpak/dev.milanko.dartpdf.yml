@@ -62,6 +62,10 @@ modules:
       # Desktop integration, from the staged copies (see README "Desktop assets").
       - install -Dm644 dev.milanko.dartpdf.desktop
         /app/share/applications/dev.milanko.dartpdf.desktop
+      # "Combine with DartPDF" in the file manager's Open With list. (The KDE
+      # service menu the bundle also carries can't be exported from a Flatpak.)
+      - install -Dm644 dev.milanko.dartpdf.combine.desktop
+        /app/share/applications/dev.milanko.dartpdf.combine.desktop
       - install -Dm644 dev.milanko.dartpdf.metainfo.xml
         /app/share/metainfo/dev.milanko.dartpdf.metainfo.xml
       - install -Dm644 dartpdf-64.png  /app/share/icons/hicolor/64x64/apps/dev.milanko.dartpdf.png
@@ -88,6 +92,8 @@ modules:
       #    them here.
       - type: file
         path: desktop-assets/dev.milanko.dartpdf.desktop
+      - type: file
+        path: desktop-assets/dev.milanko.dartpdf.combine.desktop
       - type: file
         path: desktop-assets/dev.milanko.dartpdf.metainfo.xml
       - type: file

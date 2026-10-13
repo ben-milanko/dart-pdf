@@ -35,7 +35,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dart_pdf_editor/cupertino.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart' show Uint8List;
+import 'package:flutter/foundation.dart';
 // Only the widgets delegate: flutter_localizations' Cupertino delegate is the
 // legacy one, so cupertino_ui's GlobalCupertinoLocalizations is used instead.
 import 'package:flutter_localizations/flutter_localizations.dart'

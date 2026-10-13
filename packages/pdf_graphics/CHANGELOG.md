@@ -1,5 +1,21 @@
 # Changelog
 
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Optimize image-mask compositing and scan decoding without changing decoded pixels.
+- Allow annotation drawing to filter by annotation subtype.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Add `ocrSpansNotIn` to skip OCR spans already covered by page text.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
 ## 6.0.0
 
 - Add `PdfStreamingCommandWriter` for native workers to record directly to

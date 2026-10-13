@@ -5,6 +5,7 @@ import 'package:file_selector_platform_interface/file_selector_platform_interfac
     as fs;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfOutline;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,7 +16,20 @@ import 'test_finders.dart';
 
 class _Picker extends fs.FileSelectorPlatform {
   fs.XFile? file;
+  List<fs.XFile> files = const [];
   List<fs.XTypeGroup>? groups;
+
+  // Insert document picks through the multi-file dialog; a single [file]
+  // stands in for a one-file pick.
+  @override
+  Future<List<fs.XFile>> openFiles(
+      {List<fs.XTypeGroup>? acceptedTypeGroups,
+      String? initialDirectory,
+      String? confirmButtonText}) async {
+    groups = acceptedTypeGroups;
+    final one = file;
+    return one != null ? [one] : files;
+  }
 
   @override
   Future<fs.XFile?> openFile(
@@ -67,6 +81,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // Accepts the insert-pages dialog as it stands.
+  Future<void> confirm(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+    await tester.pumpAndSettle();
+  }
+
   Finder getDirtyDot() => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
         matching: find.byWidgetPredicate(
@@ -81,6 +101,10 @@ void main() {
     picker.file = fs.XFile.fromData(buildMultiPagePdf(3),
         name: 'inserted.pdf', mimeType: 'application/pdf');
     await insert(tester);
+    // the dialog defaults to "after the current page"
+    expect(
+        find.byKey(const ValueKey('pdf-insert-pages-dialog')), findsOneWidget);
+    await confirm(tester);
 
     expect(session.document.pageCount, 5);
     expect(session.canUndo, isTrue);
@@ -116,15 +140,24 @@ void main() {
       (tester) async {
     final session = await open(tester);
     final before = session.bytes;
-    await insert(tester); // picker returns null
+    await insert(tester); // picker returns nothing
+    expect(find.byKey(const ValueKey('pdf-insert-pages-dialog')), findsNothing);
     expect(session.bytes, before);
     expect(session.canUndo, isFalse);
     picker.file = fs.XFile.fromData(Uint8List.fromList('not a PDF'.codeUnits),
-        name: 'bad.pdf');
+        name: 'bad.pdf', path: 'bad.pdf');
     await insert(tester);
+    // the unreadable file is reported in the dialog and nothing can insert
+    expect(
+        find.byKey(const ValueKey('pdf-insert-pages-failed')), findsOneWidget);
+    expect(find.textContaining("Couldn't open bad.pdf"), findsOneWidget);
+    final confirmButton = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+    expect(confirmButton.onPressed, isNull);
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-cancel')));
+    await tester.pumpAndSettle();
     expect(session.bytes, before);
     expect(session.canUndo, isFalse);
-    expect(find.textContaining("Couldn't insert that file."), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpWidget(const SizedBox());
   });
@@ -136,6 +169,7 @@ void main() {
     final session = await open(tester, store: store);
     picker.file = fs.XFile.fromData(buildMultiPagePdf(3), name: 'inserted.pdf');
     await insert(tester);
+    await confirm(tester);
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     final merged = session.bytes;
@@ -156,6 +190,68 @@ void main() {
     expect(findMiddleEllipsisText('base.pdf'), findsWidgets);
     expect(getDirtyDot(), findsOneWidget);
     await tester.pump(const Duration(seconds: 6));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'several documents interleave in one undo step, bookmarked per file',
+      (tester) async {
+    final session = await open(tester);
+    final before = session.bytes;
+    picker.files = [
+      fs.XFile.fromData(buildMultiPagePdf(2), name: 'b.pdf', path: 'b.pdf'),
+      fs.XFile.fromData(buildMultiPagePdf(1), name: 'a.pdf', path: 'a.pdf'),
+    ];
+    await insert(tester);
+    expect(find.text('b.pdf'), findsOneWidget);
+    expect(find.text('a.pdf'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-sort')));
+    await tester.pumpAndSettle();
+    // before the first page, weaving one new page between each old one
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-side')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-insert-pages-side-before')).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-anchor')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-insert-pages-anchor-first')).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-interleave')));
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-insert-pages-bookmark-files')));
+    await tester.pumpAndSettle();
+    expect(find.text('Inserts 3 pages - the document will have 5 pages.'),
+        findsOneWidget);
+    await confirm(tester);
+
+    expect(session.document.pageCount, 5);
+    final doc = PdfDocument.open(session.bytes);
+    // a.pdf (1 page) sorts first, then b.pdf's 2: a1 b1 b2 woven into base
+    expect([
+      for (var i = 0; i < 5; i++)
+        RegExp(r'\(Page (\d)\)')
+            .firstMatch(String.fromCharCodes(doc.page(i).contentBytes()))!
+            .group(1)
+    ], [
+      '1',
+      '1',
+      '1',
+      '2',
+      '2'
+    ]);
+    final outline = PdfOutline.of(doc).items;
+    expect(outline.map((i) => i.title), ['a', 'b']);
+    expect(outline.map((i) => i.destination!.pageIndex), [0, 2]);
+    expect(
+        find.textContaining('Inserted 2 PDFs into base.pdf'), findsOneWidget);
+
+    session.undo();
+    await tester.pumpAndSettle();
+    expect(session.bytes, before);
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpWidget(const SizedBox());
   });
 

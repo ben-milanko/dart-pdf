@@ -32,7 +32,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
 
@@ -63,6 +63,11 @@ jobs:
       - name: Cache-bust web build
         run: bash tool/web_cache_bust.sh app/build/web
 
+      # The browser OCR loads its PP-OCR models from the app's own origin
+      # (GitHub release downloads send no CORS headers); SHA-256-checked.
+      - name: Add the OCR models
+        run: bash tool/fetch_ocr_models.sh app/build/web
+
       - name: Stage static preview artifact
         run: |
           set -euo pipefail
@@ -90,7 +95,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
 
@@ -149,7 +154,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
 
@@ -182,6 +187,15 @@ jobs:
         run: >-
           flutter build windows --profile
           --dart-define=PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}
+
+      # The Store MSIX's Explorer "Combine with DartPDF" handler; msix_config's
+      # context_menu.dll_path in app/pubspec.yaml expects it here.
+      - name: Confirm the Explorer combine handler built
+        working-directory: app
+        shell: pwsh
+        run: |
+          $dll = "build/windows/x64/combine_menu/dartpdf_combine_menu.dll"
+          if (-not (Test-Path $dll)) { throw "$dll was not built" }
 
       - name: Package portable Windows preview
         working-directory: app
@@ -226,7 +240,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
 

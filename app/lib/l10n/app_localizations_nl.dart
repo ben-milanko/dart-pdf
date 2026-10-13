@@ -795,7 +795,7 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Web-OCR downloadt een Florence-2 visie-taalmodel en voert het lokaal uit met WebGPU/WASM via Transformers.js. De PDF-pagina\'s blijven in deze browser; alleen modelbestanden worden bij het eerste gebruik opgehaald.';
+      'Web-OCR downloadt een klein tekstherkenningsmodel (PP-OCRv5, ongeveer 21 MB) en voert het lokaal uit met WebAssembly. De PDF-pagina\'s blijven in deze browser; alleen de modelbestanden worden opgehaald, bij het eerste gebruik.';
 
   @override
   String get ocrWebPromptTitle => 'AI-OCR in deze browser uitvoeren?';
@@ -944,7 +944,7 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Ontvang automatische updatemeldingen voor niet-ondertekende Windows-testbuilds van main.';
+      'Ontvang automatische updatemeldingen voor niet-ondertekende Windows-/macOS-testbuilds van main.';
 
   @override
   String get settingsUpdates => 'Updates';
@@ -1050,8 +1050,14 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR pagina $page van $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Tekst lezen…';
+
+  @override
+  String get ocrChipPreparing => 'OCR-model laden…';
 
   @override
   String get ocrChipFinishing => 'OCR afronden…';
@@ -1270,4 +1276,77 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Release-opmerkingen zijn niet beschikbaar in deze build.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pdf\'s openen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Elk bestand in een eigen tabblad openen, of ze samenvoegen tot één nieuw document? Sleep de bestanden om de volgorde te bepalen.';
+
+  @override
+  String get incomingFilesCombine => 'Samenvoegen';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pdf\'s samenvoegen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Sleep de bestanden om de volgorde te bepalen.';
+
+  @override
+  String get appMenuNew => 'Nieuw';
+
+  @override
+  String get appMenuOpen => 'Openen';
+
+  @override
+  String get appMenuPrint => 'Afdrukken';
+
+  @override
+  String get appMenuSign => 'Ondertekenen';
+
+  @override
+  String get appMenuRecent => 'Recent';
+
+  @override
+  String get appMenuSeeAll => 'Alles weergeven';
+
+  @override
+  String get appMenuExport => 'Exporteren';
+
+  @override
+  String get appMenuMoreTools => 'Meer hulpmiddelen';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

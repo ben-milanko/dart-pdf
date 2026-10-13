@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 8.1.0
+
+- Style dropdown and list-box form fields, including mixed selections with text fields. Add `selectedFormStyleFieldNames` and retain `selectedFormTextFieldNames` as a deprecated alias.
+- Preserve free-text fonts, wrapping and baselines when editing, and keep the caret aligned after resizing text.
+- Keep the iOS text-selection menu clear of the style chip and open the keyboard reliably for inline text in iOS browsers.
+- Show the full colour palette in the mobile pen and highlighter tune menu.
+
+## 8.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` and `PdfPageSurfaceSession` implementations must accept and forward `hiddenAnnotationSubtypes` on the affected rendering methods. See `doc/MIGRATING-8.0.0.md`.
+- Add display-only annotation subtype filtering, including consistent caches, hit testing and worker rendering.
+- Insert pages from multiple documents with interleaving and insertion options.
+- Capture polygon snapshots, crop pasted snapshots and show the paste position in the page grid.
+- Add multiple callout leaders, keep arrow targets fixed when moving the box, and apply style changes while editing text.
+- Bulk-edit selected form fields' style and dimensions.
+- Fix thumbnail identity after page reorders, stamp-template refresh on paste and enlarged Controls accessibility.
+- Add Central Kurdish localizations and remove the double-tap delay when placing polygon vertices.
+
+
+## 7.0.0
+
+- Open documents in Select mode; links and host page widgets remain usable,
+  and long-press selects text there. Cmd/Ctrl+A selects page text in Select
+  and Hand modes.
+- Pan horizontally to a search match when zoomed in.
+- Keep freehand ink previews at the committed opacity and align desktop text
+  context-menu actions with the touch selection chip.
+- Skip OCR spans already present in page text and show clearer OCR progress.
 - **BREAKING: built on `material_ui`.** The library's widgets now come from
   `package:material_ui` (and `package:cupertino_ui`) instead of
   `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,

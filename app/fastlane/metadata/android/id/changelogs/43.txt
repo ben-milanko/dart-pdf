@@ -1,0 +1,6 @@
+Baru di 7.0.0
+
+- OCR lebih akurat dan cepat untuk huruf kecil dan gambar, dengan progres lebih jelas.
+- Buka tautan dan tekan lama untuk memilih teks dalam mode Pilih.
+- Hasil pencarian tetap terlihat saat diperbesar.
+- Pratinjau tinta mempertahankan opasitas pilihan Anda; ekspor vektor menyertakan anotasi.

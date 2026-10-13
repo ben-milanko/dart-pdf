@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'annotation_display_filter.dart';
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
@@ -215,6 +216,7 @@ class PdfPageRasterSignature {
     required this.height,
     required this.pageColor,
     required this.annotations,
+    this.hiddenAnnotationSubtypes = const {},
     required this.rotation,
   });
 
@@ -231,6 +233,10 @@ class PdfPageRasterSignature {
   /// Whether annotations are baked into the raster.
   final bool annotations;
 
+  /// Annotation subtypes left out of the raster (see
+  /// [PdfPageRenderPlan.hiddenAnnotationSubtypes]).
+  final Set<String> hiddenAnnotationSubtypes;
+
   /// Display rotation override (null = the page's own /Rotate).
   final int? rotation;
 
@@ -245,16 +251,26 @@ class PdfPageRasterSignature {
       height == other.height &&
       pageColor == other.pageColor &&
       annotations == other.annotations &&
+      sameHiddenAnnotationSubtypes(
+          hiddenAnnotationSubtypes, other.hiddenAnnotationSubtypes) &&
       rotation == other.rotation;
 
   @override
   int get hashCode => Object.hash(
-      pageIndex, width, height, pageColor.toARGB32(), annotations, rotation);
+      pageIndex,
+      width,
+      height,
+      pageColor.toARGB32(),
+      annotations,
+      hiddenAnnotationSubtypesHash(hiddenAnnotationSubtypes),
+      rotation);
 
   @override
   String toString() => 'page=$pageIndex ${width}x$height '
       'color=${pageColor.toARGB32().toRadixString(16)} '
-      'annotations=$annotations rotation=$rotation';
+      'annotations=$annotations'
+      '${hiddenAnnotationSubtypes.isEmpty ? '' : ' hidden=${hiddenAnnotationSubtypesKey(hiddenAnnotationSubtypes)}'}'
+      ' rotation=$rotation';
 }
 
 /// Low-resolution page previews shown while a page's full render is
@@ -768,6 +784,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     PdfPage page, {
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
   }) {
     for (final withAnnotations in <bool>[
@@ -787,6 +804,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
           plan: PdfPageRenderPlan(
             pageColor: pageColor,
             annotations: withAnnotations,
+            hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
             rotation: withRotation,
           ),
         );
@@ -882,6 +900,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int height,
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
   }) =>
       fullImageForSignature(
@@ -891,6 +910,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
           height: height,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           rotation: rotation,
         ),
         page,
@@ -951,6 +971,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
     if (candidate.pageIndex != requested.pageIndex ||
         candidate.pageColor != requested.pageColor ||
         candidate.annotations != requested.annotations ||
+        !sameHiddenAnnotationSubtypes(candidate.hiddenAnnotationSubtypes,
+            requested.hiddenAnnotationSubtypes) ||
         candidate.rotation != requested.rotation ||
         candidate.width < requested.width ||
         candidate.height < requested.height) {
@@ -992,6 +1014,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     ui.Image image, {
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     String revision = '',
   }) {
@@ -1005,6 +1028,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       image,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
       revision: revision,
     );
@@ -1025,6 +1049,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       image,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
     );
   }
@@ -1043,6 +1068,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int height,
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     String revision = '',
   }) async {
@@ -1054,6 +1080,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       height: height,
       pageColor: pageColor.toARGB32(),
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
       revision: revision,
     );
@@ -1069,6 +1096,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       image,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
     );
     return image;
@@ -1087,6 +1115,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     ui.Image image, {
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     required String revision,
   }) {
@@ -1104,6 +1133,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       image.clone(),
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
       revision: revision,
     ));
@@ -1145,6 +1175,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
             pending.image,
             pageColor: pending.pageColor.toARGB32(),
             annotations: pending.annotations,
+            hiddenAnnotationSubtypes: pending.hiddenAnnotationSubtypes,
             rotation: pending.rotation,
             revision: pending.revision,
           );
@@ -1174,6 +1205,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     ui.Image image, {
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
   }) {
     if (_disposed) return;
@@ -1183,6 +1215,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       height: image.height,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
     );
     final bytes = signature.bytes;
@@ -1217,6 +1250,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         image.clone(),
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
       ),
     );
@@ -1354,6 +1388,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       PdfRenderWorker? worker,
       int? rotation,
       bool decodeImages = true,
@@ -1423,6 +1458,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         page,
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
         buildRatio: buildRatio,
         decodeImages: decodeImages,
@@ -1434,6 +1470,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final commands = retained == null && worker != null && worker.isActive
           ? await worker.record(index,
               annotations: annotations,
+              hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
               priority: priority,
               imagePixelRatio: decodeImages ? buildRatio : null,
               decodeImages: decodeImages,
@@ -1453,7 +1490,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
       }
       var includesImages = decodeImages;
       final plan = PdfPageRenderPlan(
-          pageColor: pageColor, annotations: annotations, rotation: rotation);
+          pageColor: pageColor,
+          annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
+          rotation: rotation);
       final ui.Picture picture;
       // A picture the cache entry owns must outlive this call; only one we
       // build here is ours to dispose.
@@ -1546,6 +1586,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     PdfPage page, {
     required Color pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     required double buildRatio,
     required bool decodeImages,
@@ -1560,6 +1601,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       page,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
     );
     if (handle == null) return null;
@@ -1646,6 +1688,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final commands = activeWorker
           ? await worker.record(index,
               annotations: signature.annotations,
+              hiddenAnnotationSubtypes: signature.hiddenAnnotationSubtypes,
               priority: priority,
               imagePixelRatio: pixelRatio)
           : null;
@@ -1667,6 +1710,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final plan = PdfPageRenderPlan(
         pageColor: signature.pageColor,
         annotations: signature.annotations,
+        hiddenAnnotationSubtypes: signature.hiddenAnnotationSubtypes,
         rotation: signature.rotation,
       );
       if (backend != null && accelerated) {
@@ -1819,6 +1863,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
           image,
           pageColor: signature.pageColor,
           annotations: signature.annotations,
+          hiddenAnnotationSubtypes: signature.hiddenAnnotationSubtypes,
           rotation: signature.rotation,
         );
         stored = hasFullRaster(signature, page);
@@ -2158,6 +2203,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
         height: key.height,
         pageColor: key.pageColor,
         annotations: key.annotations,
+        hiddenAnnotationSubtypes: key.hiddenAnnotationSubtypes,
         rotation: key.rotation,
       ),
     );
@@ -2208,6 +2254,7 @@ class _PendingFullRasterWrite {
     this.image, {
     required this.pageColor,
     required this.annotations,
+    this.hiddenAnnotationSubtypes = const {},
     required this.rotation,
     required this.revision,
   });
@@ -2216,6 +2263,7 @@ class _PendingFullRasterWrite {
   final ui.Image image;
   final Color pageColor;
   final bool annotations;
+  final Set<String> hiddenAnnotationSubtypes;
   final int? rotation;
   final String revision;
 }
@@ -2382,6 +2430,7 @@ class _FullRasterEntry {
     this.image, {
     required this.pageColor,
     required this.annotations,
+    this.hiddenAnnotationSubtypes = const {},
     required this.rotation,
   });
 
@@ -2389,6 +2438,7 @@ class _FullRasterEntry {
   final ui.Image image;
   final Color pageColor;
   final bool annotations;
+  final Set<String> hiddenAnnotationSubtypes;
   final int? rotation;
 
   int get bytes => image.width * image.height * 4;

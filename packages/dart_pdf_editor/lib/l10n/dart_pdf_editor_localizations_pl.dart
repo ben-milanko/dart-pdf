@@ -353,6 +353,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get menuAddNode => 'Dodaj węzeł';
 
   @override
+  String get menuAddLeader => 'Dodaj linię odniesienia';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -413,6 +416,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Usuń węzeł';
+
+  @override
+  String get menuRemoveLeader => 'Usuń linię odniesienia';
 
   @override
   String get menuSaveToStamps => 'Zapisz w stemplach';
@@ -2341,4 +2347,144 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => 'Zamknij';
+
+  @override
+  String get insertPagesTitle => 'Wstaw strony';
+
+  @override
+  String get insertPagesFiles => 'Pliki';
+
+  @override
+  String get insertPagesAddFiles => 'Dodaj pliki…';
+
+  @override
+  String get insertPagesSortByName => 'Sortuj według nazwy';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Dodaj co najmniej jeden plik PDF do wstawienia.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Nie można otworzyć: $names. Plik może być uszkodzony lub chroniony hasłem.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count strony',
+      many: '$count stron',
+      few: '$count strony',
+      one: '1 strona',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Przenieś w górę';
+
+  @override
+  String get insertPagesMoveDown => 'Przenieś w dół';
+
+  @override
+  String get insertPagesRemoveFile => 'Usuń z listy';
+
+  @override
+  String get insertPagesRange => 'Strony';
+
+  @override
+  String get insertPagesRangeHint => 'Wszystkie (np. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Użyj stron 1–$count, np. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Wszystkie strony';
+
+  @override
+  String get insertPagesSubsetOdd => 'Strony nieparzyste';
+
+  @override
+  String get insertPagesSubsetEven => 'Strony parzyste';
+
+  @override
+  String get insertPagesReverse => 'Odwrotna kolejność';
+
+  @override
+  String get insertPagesPlacement => 'Położenie';
+
+  @override
+  String get insertPagesBefore => 'Przed';
+
+  @override
+  String get insertPagesAfter => 'Po';
+
+  @override
+  String get insertPagesFirstPage => 'Pierwsza strona';
+
+  @override
+  String get insertPagesLastPage => 'Ostatnia strona';
+
+  @override
+  String get insertPagesPage => 'Strona';
+
+  @override
+  String get insertPagesPageNumber => 'Numer strony';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'z $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Wpisz 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Przeplataj strony';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Naprzemiennie wstawia nowe i istniejące strony od wybranego miejsca – np. aby połączyć osobno zeskanowane strony nieparzyste i parzyste.';
+
+  @override
+  String get insertPagesRunInserted => 'Wstawiane strony naraz';
+
+  @override
+  String get insertPagesRunExisting => 'Strony dokumentu pomiędzy';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Uwzględnij zakładki';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Dodaj zakładkę dla każdego pliku';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Wstawia $inserted strony',
+      many: 'Wstawia $inserted stron',
+      few: 'Wstawia $inserted strony',
+      one: 'Wstawia 1 stronę',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total strony',
+      many: '$total stron',
+      few: '$total strony',
+      one: '1 stronę',
+    );
+    return '$_temp0 – dokument będzie miał $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Wstaw';
 }

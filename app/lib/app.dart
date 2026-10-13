@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_memory.dart';
+import 'build_channel.dart';
 import 'devtools.dart';
 import 'document_tab.dart';
 import 'editor_screen.dart';
@@ -151,7 +152,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   }) {
     return openRegularWindow(
       context,
-      title: 'DartPDF',
+      title: kProductDisplayName,
       builder: (_) => _DartPdfWindow(
         prefs: _prefs,
         tabDragCoordinator: _tabDragCoordinator,
@@ -219,7 +220,7 @@ class _DartPdfWindow extends StatelessWidget {
     return _WindowShellSelector(
       prefs: prefs,
       builder: (context) => MaterialApp(
-        title: 'DartPDF',
+        title: kProductDisplayName,
         builder: (context, child) => KeyboardAvailability(child: child!),
         localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

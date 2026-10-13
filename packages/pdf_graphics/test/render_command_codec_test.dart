@@ -107,7 +107,8 @@ class _TranscriptDevice implements PdfDevice {
   @override
   void drawText(PdfTextRun run) => log.add('text "${run.text}" '
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
-      'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
+      'font=${run.fontName} serif=${run.serif} size=${run.fontSize} '
+      'fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
       'ls=${run.letterSpacing} ws=${run.wordSpacing} '
       'ld=${run.leadingSpace} vw=${run.visibleWidth} '
@@ -203,6 +204,19 @@ void main() {
       expect(a, equals(b));
     });
 
+    test('the header names the command count without a decode', () {
+      final recorder = _record(CosDocument.open(buildClassicPdf()),
+          'q 0 0 1 rg 5 5 20 30 re f Q BT /F1 12 Tf 10 10 Td (hi) Tj ET');
+      final bytes = serializeCommands(recorder.commands)!;
+      expect(serializedCommandCount(bytes), deserializeCommands(bytes).length);
+      // Not a buffer this build reads: a stale worker script, or too short.
+      expect(
+          serializedCommandCount(
+              Uint8List.fromList([bytes[0] + 1, 0, 0, 0, 1])),
+          isNull);
+      expect(serializedCommandCount(Uint8List(0)), isNull);
+    });
+
     test('text opacity survives command serialization', () {
       const run = PdfTextRun(
         text: 'Faded',
@@ -220,6 +234,28 @@ void main() {
       expect(restored.run.fillAlpha, 0.25);
       expect(restored.run.strokeAlpha, 0.6);
     });
+  });
+
+  test("a substituted run keeps its descriptor's Serif flag across the wire",
+      () {
+    // The worker-side painter picks the substitute face from it: losing it
+    // would draw an unembedded serif in Helvetica's shapes off-thread only.
+    for (final serif in [false, true]) {
+      final restored = (deserializeCommands(serializeCommands([
+        PdfDrawTextCommand(PdfTextRun(
+          text: 'biased',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 2.5,
+          fontName: 'Unknown-Regular',
+          serif: serif,
+        )),
+      ])!)
+              .single as PdfDrawTextCommand)
+          .run;
+      expect(restored.serif, serif);
+      expect(restored.fontName, 'Unknown-Regular');
+    }
   });
 
   test('typed and boxed char offsets write the same bytes and read unboxed',

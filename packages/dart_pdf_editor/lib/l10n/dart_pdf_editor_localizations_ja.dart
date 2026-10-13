@@ -346,6 +346,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuAddNode => '頂点を追加';
 
   @override
+  String get menuAddLeader => '引き出し線を追加';
+
+  @override
   String menuApplyAnnotationsToPagesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -406,6 +409,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '頂点を削除';
+
+  @override
+  String get menuRemoveLeader => '引き出し線を削除';
 
   @override
   String get menuSaveToStamps => 'スタンプに保存';
@@ -2272,4 +2278,124 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get dialogDismiss => '閉じる';
+
+  @override
+  String get insertPagesTitle => 'ページを挿入';
+
+  @override
+  String get insertPagesFiles => 'ファイル';
+
+  @override
+  String get insertPagesAddFiles => 'ファイルを追加…';
+
+  @override
+  String get insertPagesSortByName => '名前で並べ替え';
+
+  @override
+  String get insertPagesNoFiles => '挿入する PDF を 1 つ以上追加してください。';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '$names を開けませんでした。ファイルが破損しているか、パスワードで保護されている可能性があります。';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ページ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => '上へ移動';
+
+  @override
+  String get insertPagesMoveDown => '下へ移動';
+
+  @override
+  String get insertPagesRemoveFile => 'リストから削除';
+
+  @override
+  String get insertPagesRange => 'ページ';
+
+  @override
+  String get insertPagesRangeHint => 'すべて（例: 1-3, 7）';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return '1–$count のページを指定してください（例: 1-3, 7）';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'すべてのページ';
+
+  @override
+  String get insertPagesSubsetOdd => '奇数ページ';
+
+  @override
+  String get insertPagesSubsetEven => '偶数ページ';
+
+  @override
+  String get insertPagesReverse => '逆順';
+
+  @override
+  String get insertPagesPlacement => '挿入位置';
+
+  @override
+  String get insertPagesBefore => '前';
+
+  @override
+  String get insertPagesAfter => '後';
+
+  @override
+  String get insertPagesFirstPage => '最初のページ';
+
+  @override
+  String get insertPagesLastPage => '最後のページ';
+
+  @override
+  String get insertPagesPage => 'ページ';
+
+  @override
+  String get insertPagesPageNumber => 'ページ番号';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count を入力';
+  }
+
+  @override
+  String get insertPagesInterleave => 'ページを交互に挿入';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      '挿入位置から、挿入ページと既存ページを交互に並べます。別々にスキャンした奇数ページと偶数ページを結合する場合などに使います。';
+
+  @override
+  String get insertPagesRunInserted => '1 回に挿入するページ数';
+
+  @override
+  String get insertPagesRunExisting => '間に挟む文書のページ数';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'しおりを含める';
+
+  @override
+  String get insertPagesBookmarkFiles => 'ファイルごとにしおりを追加';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    return '$inserted ページを挿入します。挿入後は $total ページになります。';
+  }
+
+  @override
+  String get insertPagesConfirm => '挿入';
 }

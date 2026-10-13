@@ -1332,7 +1332,7 @@ abstract class AppLocalizations {
   /// Explanatory body of the browser-local OCR confirmation dialog.
   ///
   /// In en, this message translates to:
-  /// **'Web OCR downloads a Florence-2 vision-language model and runs it locally with WebGPU/WASM through Transformers.js. The PDF pages stay in this browser; only model files are fetched on first use.'**
+  /// **'Web OCR downloads a small text-recognition model (PP-OCRv5, about 21 MB) and runs it locally with WebAssembly. The PDF pages stay in this browser; only the model files are fetched, on first use.'**
   String get ocrWebPromptBody;
 
   /// Title of the dialog confirming browser-local AI OCR.
@@ -1584,7 +1584,7 @@ abstract class AppLocalizations {
   /// Explains the risk and behavior of the nightly update channel.
   ///
   /// In en, this message translates to:
-  /// **'Receive automatic update notifications for unsigned Windows test builds from main.'**
+  /// **'Receive automatic update notifications for unsigned Windows and macOS test builds from main.'**
   String get settingsNightlyUpdatesSubtitle;
 
   /// Section header for the software-update block in settings.
@@ -1707,11 +1707,23 @@ abstract class AppLocalizations {
   /// **'Downloading model {percent}%'**
   String ocrChipDownloadingModelPercent(int percent);
 
-  /// OCR progress chip while recognizing text, showing page of total.
+  /// OCR progress chip while recognizing a multi-page document: the page in progress and the total.
   ///
   /// In en, this message translates to:
-  /// **'OCR {page}/{pageCount}'**
+  /// **'OCR page {page} of {pageCount}'**
   String ocrChipRecognising(int page, int pageCount);
+
+  /// OCR progress chip while recognizing a single-page document (no page count to show; the progress bar carries completion).
+  ///
+  /// In en, this message translates to:
+  /// **'Reading text…'**
+  String get ocrChipRecognisingText;
+
+  /// OCR progress chip while the downloaded recognition model loads and warms up.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading OCR model…'**
+  String get ocrChipPreparing;
 
   /// OCR progress chip while assembling the recognized PDF after the last page.
   ///
@@ -2090,6 +2102,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Release notes aren\'t available in this build.'**
   String get whatsNewUnavailable;
+
+  /// Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file "Open with").
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Open {count} PDFs}}'**
+  String incomingFilesTitle(int count);
+
+  /// Body of the dialog asking whether PDFs opened from the operating system should open in separate tabs or be combined into one new document. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Open each file in its own tab, or combine them into one new document? Drag to set the order they\'re combined in.'**
+  String get incomingFilesMessage;
+
+  /// Button that combines several PDFs opened from the operating system into one new document.
+  ///
+  /// In en, this message translates to:
+  /// **'Combine'**
+  String get incomingFilesCombine;
+
+  /// Title of the dialog shown when PDFs arrive through the operating system's "Combine with DartPDF" menu entry; it only asks for their order.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, other{Combine {count} PDFs}}'**
+  String incomingFilesCombineTitle(int count);
+
+  /// Body of the dialog that orders PDFs chosen through the operating system's "Combine with DartPDF" menu entry. The file list below it can be reordered by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the files to set the order they\'re combined in.'**
+  String get incomingFilesCombineMessage;
+
+  /// Short label of the New button in the phone app menu sheet (blank or scanned document).
+  ///
+  /// In en, this message translates to:
+  /// **'New'**
+  String get appMenuNew;
+
+  /// Short label of the Open button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get appMenuOpen;
+
+  /// Short label of the Print button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get appMenuPrint;
+
+  /// Short label of the Digitally sign button in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign'**
+  String get appMenuSign;
+
+  /// Section header over the recent files in the phone app menu sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get appMenuRecent;
+
+  /// Row in the phone app menu sheet that opens the full recent-files list.
+  ///
+  /// In en, this message translates to:
+  /// **'See all'**
+  String get appMenuSeeAll;
+
+  /// Phone app menu sheet row (and page title) grouping the export actions: page as image, reduce file size, save as.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get appMenuExport;
+
+  /// Phone app menu sheet row (and page title) grouping the less common document tools: OCR, compare, insert pages.
+  ///
+  /// In en, this message translates to:
+  /// **'More tools'**
+  String get appMenuMoreTools;
+
+  /// Section header in Settings for OCR (text recognition) options.
+  ///
+  /// In en, this message translates to:
+  /// **'Text recognition'**
+  String get settingsTextRecognition;
+
+  /// Settings switch that runs OCR on its own when a scanned document is opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically OCR scans'**
+  String get settingsAutoOcrTitle;
+
+  /// Explanation under the Automatically OCR scans switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.'**
+  String get settingsAutoOcrSubtitle;
+
+  /// Toast after automatic OCR added a text layer to a scanned document the user opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.'**
+  String get ocrAutoResult;
+
+  /// Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied.
+  ///
+  /// In en, this message translates to:
+  /// **'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.'**
+  String get ocrAutoDocumentChanged;
 }
 
 class _AppLocalizationsDelegate

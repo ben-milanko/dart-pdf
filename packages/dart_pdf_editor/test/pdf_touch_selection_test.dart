@@ -382,6 +382,48 @@ void main() {
     });
   });
 
+  group('long-press selection in Select mode', () {
+    testWidgets('a long press over text selects the word', (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await longPressSelect(tester, view(100, 728));
+      expect(viewer.selectedText, 'Page');
+      expect(editing.tool, PdfEditTool.select);
+    });
+
+    testWidgets('dragging during the long press extends by whole words',
+        (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 728));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(view(140, 728));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(viewer.selectedText, 'Page 1');
+    });
+
+    testWidgets('a long press on an annotation leaves the text alone',
+        (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.addRectangle(0, const PdfRect(60, 700, 160, 760));
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 728));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(viewer.hasSelection, isFalse);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(viewer.hasSelection, isFalse);
+    });
+  });
+
   group('selection handles', () {
     testWidgets('dragging the end handle extends the selection',
         (tester) async {

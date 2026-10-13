@@ -1,0 +1,7 @@
+Nowości w 8.0.0
+
+- Łącz pliki PDF i przeplataj strony.
+- Twórz wielokątne migawki i przycinaj wklejone fragmenty.
+- Dodawaj wiele strzałek do objaśnień, zachowując ich cele.
+- Zmieniaj styl i rozmiar wielu pól formularza jednocześnie.
+- Szybsze dekodowanie skanów i wyraźniejsze podglądy.

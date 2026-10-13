@@ -137,7 +137,9 @@ class DocumentTab {
     required PdfEditingPreferences preferences,
     this.isDemo = false,
     this.isExtracted = false,
-  })  : session = PdfEditingController(bytes, preferences: preferences),
+  })  : session = PdfEditingController(bytes, preferences: preferences)
+          // A document opens in Select mode in either design.
+          ..tool = PdfEditTool.select,
         viewer = PdfViewerController(),
         error = null,
         compareBefore = null,

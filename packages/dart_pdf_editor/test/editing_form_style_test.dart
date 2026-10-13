@@ -206,6 +206,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-form-style-multiline')),
           findsOneWidget);
+
+      // the popup's multiline switch reaches the text field
+      await tester.tap(find.byKey(const ValueKey('pdf-form-style-multiline')));
+      await tester.pumpAndSettle();
+      expect(editing.acroForm!.fieldNamed('name')!.isMultiline, isTrue);
     });
 
     testWidgets('selected toolbar changes the selected field type',

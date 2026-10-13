@@ -1,6 +1,6 @@
-Novidades da versão 6.0.0
+Novidades da 8.1.0
 
-- Selecione texto com a ferramenta Selecionar; clique duas vezes em uma palavra no modo Mão.
-- Os controles de leitura compartilham um cabeçalho.
-- Páginas mais rápidas com menor uso de memória.
-- Corrigidos os detalhes ausentes após ampliar rapidamente.
+- Altere a fonte e o estilo de campos de lista e menus suspensos.
+- Novo menu no celular para criar, abrir, imprimir e assinar.
+- A edição de texto preserva a fonte e a quebra de linha. Melhorias no teclado e nos menus de seleção do iOS.
+- Paleta completa para caneta e marca-texto no celular.

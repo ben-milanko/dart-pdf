@@ -1,6 +1,6 @@
-Novità di 6.0.0
+Novità di 8.1.0
 
-- Seleziona il testo con lo strumento Seleziona; fai doppio clic su una parola in modalità Mano.
-- I controlli di lettura condividono una sola barra.
-- Pagine più rapide con meno memoria.
-- Corretti i dettagli mancanti dopo uno zoom rapido.
+- Cambia carattere e stile dei campi a discesa e degli elenchi.
+- Nuovo menu mobile per creare, aprire, stampare e firmare.
+- La modifica del testo conserva carattere e a capo. Miglioramenti alla tastiera e ai menu di selezione iOS.
+- Tavolozza completa per penna ed evidenziatore su mobile.

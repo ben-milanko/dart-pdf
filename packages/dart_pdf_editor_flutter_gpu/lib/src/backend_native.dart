@@ -6293,6 +6293,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
   final maskImage = scene.imageFor(spec.mask)!;
   final contentResource = await imageCache.acquire(
     context,
+    scene,
     spec.content,
     contentImage,
     stats,
@@ -6301,6 +6302,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
   );
   final maskResource = await imageCache.acquire(
     context,
+    scene,
     spec.mask,
     maskImage,
     stats,
@@ -6691,6 +6693,7 @@ Future<_GpuDraw> _compileSoftMaskFill(
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
     context,
+    scene,
     spec.mask,
     maskImage,
     stats,
@@ -6746,6 +6749,7 @@ Future<_GpuDraw> _compileSoftMaskStroke(
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
     context,
+    scene,
     spec.mask,
     maskImage,
     stats,
@@ -6805,6 +6809,7 @@ Future<_GpuDraw> _compileSoftMaskText(
   final maskImage = scene.imageFor(spec.mask)!;
   final maskResource = await imageCache.acquire(
     context,
+    scene,
     spec.mask,
     maskImage,
     stats,
@@ -7267,6 +7272,7 @@ class _GpuImageCache {
 
   Future<_GpuImageTexture> acquire(
           gpu.GpuContext context,
+          PdfRetainedScene scene,
           PdfImageRequest request,
           ui.Image image,
           FlutterGpuTileBackendStats stats,
@@ -7274,7 +7280,10 @@ class _GpuImageCache {
           required _GpuTextureLeases leases}) =>
       acquireSurface(
         context,
-        pdfImageContentKey(request),
+        // Document-scoped: this cache outlives a scene, and possibly the
+        // document, and a worker request's bare reference is the same
+        // `5 0 R` in every file.
+        pdfDocumentImageContentKey(scene.page.document.cos, request),
         image,
         stats,
         decoded: request.decoded,
@@ -7812,6 +7821,7 @@ Future<_GpuDraw?> _compileImageCommand(
   final maskImage = pdfGpuSoftMaskOf(image);
   final resource = await imageCache.acquire(
     context,
+    scene,
     request,
     image,
     stats,
@@ -7826,7 +7836,10 @@ Future<_GpuDraw?> _compileImageCommand(
     final vertices = _imageVertices(request.transform);
     final maskResource = await imageCache.acquireSurface(
       context,
-      (pdfImageContentKey(request), _GpuTexturePlane.deferredSoftMask),
+      (
+        pdfDocumentImageContentKey(scene.page.document.cos, request),
+        _GpuTexturePlane.deferredSoftMask
+      ),
       maskImage,
       stats,
       mipmapped: mipmapImages,

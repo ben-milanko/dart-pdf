@@ -1,0 +1,6 @@
+Nouveautés de 8.1.0
+
+- Modifiez la police et le style des champs de liste et des menus déroulants.
+- Nouveau menu mobile pour créer, ouvrir, imprimer et signer.
+- La modification du texte conserve la police et les retours à la ligne. Clavier et menus de sélection iOS améliorés.
+- Palette complète pour le stylo et le surligneur mobiles.

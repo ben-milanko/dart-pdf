@@ -103,4 +103,23 @@ void main() {
     await _exercise(tester);
     expectNoHostErrors(tester);
   });
+
+  testWidgets(
+      'ckb (right-to-left, no framework translation) with '
+      'PdfEditorLocalizations.delegates', (tester) async {
+    await _pump(tester, PdfReader(bytes: buildMultiPagePdf(2)),
+        locale: const Locale('ckb'),
+        delegates: PdfEditorLocalizations.delegates);
+    // the fallbacks resolve every type, so the host's Localizations reports
+    // no unsupported delegate, and lay the editor out right to left
+    expectNoHostErrors(tester);
+    final context = pdfEditorContext(tester);
+    expect(Directionality.of(context), TextDirection.rtl);
+    expect(pdfL10n(context).localeName, 'ckb');
+    await _exercise(tester, check: (dialog) {
+      expect(MaterialLocalizations.of(dialog).cancelButtonLabel,
+          const DefaultMaterialLocalizations().cancelButtonLabel);
+    });
+    expectNoHostErrors(tester);
+  });
 }

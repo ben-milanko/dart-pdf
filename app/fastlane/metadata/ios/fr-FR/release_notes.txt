@@ -1,6 +1,6 @@
-Nouveautés de 6.0.0
+Nouveautés de 8.1.0
 
-- Sélectionnez le texte avec l’outil Sélection ; double-cliquez sur un mot en mode Main.
-- Les commandes de lecture partagent une seule barre.
-- Affichage des pages plus rapide et moins gourmand en mémoire.
-- Correction des détails absents après un zoom rapide.
+- Modifiez la police et le style des champs de liste et des menus déroulants.
+- Nouveau menu mobile pour créer, ouvrir, imprimer et signer.
+- La modification du texte conserve la police et les retours à la ligne. Clavier et menus de sélection iOS améliorés.
+- Palette complète pour le stylo et le surligneur mobiles.

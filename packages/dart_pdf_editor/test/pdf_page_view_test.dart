@@ -426,6 +426,103 @@ void main() {
     await waitForWidth(secondKey, 1224);
   });
 
+  testWidgets(
+      'an off-screen neighbour that already paints defers its re-render '
+      'until visible (#1079)', (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    const firstKey = ValueKey('first-page-view');
+    const secondKey = ValueKey('second-page-view');
+
+    // The second page is mounted only once it is the visible one, so its
+    // first render comes from its own first layout.
+    Widget pair({required bool secondVisible, bool withSecond = true}) => Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            Positioned(
+              top: secondVisible ? 800 : 0,
+              width: 612,
+              child: SizedBox(
+                key: firstKey,
+                width: 612,
+                child: PdfPageView(
+                  page: page,
+                  focusDistance: secondVisible ? 1 : 0,
+                ),
+              ),
+            ),
+            if (withSecond)
+              Positioned(
+                top: secondVisible ? 0 : 800,
+                width: 612,
+                child: SizedBox(
+                  key: secondKey,
+                  width: 612,
+                  child: PdfPageView(
+                    page: page,
+                    focusDistance: secondVisible ? 0 : 1,
+                  ),
+                ),
+              ),
+          ],
+        );
+
+    ui.Image imageUnder(Key key) => tester
+        .widget<RawImage>(find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        ))
+        .image!;
+
+    Future<void> waitForWidth(Key key, int width) async {
+      for (var i = 0; i < 100; i++) {
+        await tester.pump();
+        final images = find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(RawImage),
+        );
+        if (images.evaluate().isNotEmpty && imageUnder(key).width == width) {
+          return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('page under $key did not rasterize at width $width');
+    }
+
+    // The first page renders while visible, then becomes the off-screen
+    // neighbour of the second: it now holds a raster of its own.
+    await tester.pumpWidget(pair(secondVisible: false, withSecond: false));
+    await waitForWidth(firstKey, 612);
+    await tester.pumpWidget(pair(secondVisible: true));
+    await waitForWidth(secondKey, 612);
+    expect(imageUnder(firstKey).width, 612);
+
+    // A device-pixel-ratio change asks every page for a new raster. The
+    // visible page takes it; the neighbour, though it already paints, must
+    // not render beside it.
+    tester.view.devicePixelRatio = 2.0;
+    await waitForWidth(secondKey, 1224);
+    for (var i = 0; i < 10; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    expect(imageUnder(firstKey).width, 612,
+        reason: 'an off-screen neighbour must not re-render beside the '
+            'visible page, whatever it already holds');
+
+    // Coming back on screen consumes the deferred refresh.
+    await tester.pumpWidget(pair(secondVisible: false));
+    await waitForWidth(firstKey, 1224);
+  });
+
   testWidgets('a worker result is not replayed after its page leaves viewport',
       (tester) async {
     tester.view.physicalSize = const Size(800, 600);
@@ -1738,16 +1835,19 @@ class _DeferredRecordWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final result = await _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1789,12 +1889,14 @@ class _RatioRecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (imageDecodeRegion != null) detailRecords++;
     if (decodeImages && imagePixelRatio != null) {
@@ -1803,6 +1905,7 @@ class _RatioRecordingWorker extends PdfRenderWorker {
     return _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1838,12 +1941,14 @@ class _BlockingDetailWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (imageDecodeRegion != null) {
       detailRecords++;
@@ -1852,6 +1957,7 @@ class _BlockingDetailWorker extends PdfRenderWorker {
     return _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1887,12 +1993,14 @@ class _LocalCommandWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
       return null;

@@ -159,4 +159,60 @@ void main() {
     second.complete(Uint8List(0));
     expect(await b, isNull);
   });
+
+  testWidgets('renders a pathless entry from bytes the caller holds',
+      (tester) async {
+    final pdf = PdfBlankDocument.create();
+    final cache = RecentThumbnailCache(
+        readBytes: (path, {bookmark}) async => fail('must not read'));
+    addTearDown(cache.dispose);
+    await tester.runAsync(() async {
+      // A miss without bytes memoizes null; bytes still get a render.
+      expect(await cache.thumbnailFor(entry(title: 'web.pdf')), isNull);
+      final thumb =
+          await cache.thumbnailFor(entry(title: 'web.pdf'), bytes: pdf);
+      expect(thumb, isNotNull);
+      expect(thumb!.pngBytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+    });
+  });
+
+  test('put replaces and invalidate drops the stored thumbnail', () async {
+    final stored = <String, Uint8List>{};
+    var sourceReads = 0;
+    RecentThumbnailCache buildCache() => RecentThumbnailCache(
+          readBytes: (path, {bookmark}) async {
+            sourceReads++;
+            // Unrenderable: a source read resolves to null without a worker.
+            return Uint8List(0);
+          },
+          readStored: (key) async => stored[key],
+          writeStored: (key, bytes) async {
+            stored[key] = Uint8List.fromList(bytes);
+          },
+          pruneStored: (keep) async {},
+        );
+    final cache = buildCache();
+    addTearDown(cache.dispose);
+    final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]);
+    await cache.put(
+        entry(path: '/a.pdf'), RecentThumbnail(pngBytes: png, aspectRatio: 2));
+    expect((await cache.thumbnailFor(entry(path: '/a.pdf')))!.pngBytes, png);
+
+    // A later launch reads what was put, without touching the source.
+    final relaunched = buildCache();
+    addTearDown(relaunched.dispose);
+    final thumb = await relaunched.thumbnailFor(entry(path: '/a.pdf'));
+    expect(thumb!.aspectRatio, 2);
+    expect(thumb.pngBytes, png);
+    expect(sourceReads, 0);
+
+    // Invalidating drops both layers: the next request goes to the source.
+    await cache.invalidate(entry(path: '/a.pdf'));
+    expect(await cache.thumbnailFor(entry(path: '/a.pdf')), isNull);
+    expect(sourceReads, 1);
+    final third = buildCache();
+    addTearDown(third.dispose);
+    expect(await third.thumbnailFor(entry(path: '/a.pdf')), isNull);
+    expect(sourceReads, 2);
+  });
 }

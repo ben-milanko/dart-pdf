@@ -1,6 +1,6 @@
-Baru di 6.0.0
+Baru di 8.1.0
 
-- Pilih teks halaman dengan alat Pilih; klik dua kali kata dalam mode Tangan.
-- Kontrol membaca berbagi satu bilah atas.
-- Halaman tampil lebih cepat dengan penggunaan memori lebih rendah.
-- Memperbaiki detail yang hilang setelah zoom cepat.
+- Ubah font dan gaya kolom formulir dropdown dan daftar.
+- Menu ponsel baru untuk membuat, membuka, mencetak dan menandatangani.
+- Pengeditan teks mempertahankan font dan pembungkusan baris. Papan ketik dan menu pilihan iOS diperbaiki.
+- Palet warna lengkap untuk pena dan penyorot seluler.

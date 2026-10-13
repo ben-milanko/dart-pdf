@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -82,6 +83,108 @@ void main() {
       expect(a.calloutBox!.top, closeTo(box0.top, 0.5));
       expect(a.calloutBox!.bottom, closeTo(box0.bottom, 0.5));
     });
+
+    test('moving a callout moves the box; every arrow keeps its tip', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.addSelectedCalloutLeader((560, 450)), isTrue);
+      final box0 = editing.document.page(0).annotations.single.calloutBox!;
+
+      editing.moveSelected(40, -30);
+      editing.nudgeSelected(1, 0); // the arrow keys move it the same way
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.isCallout, isTrue);
+      expect([
+        for (final l in a.calloutLeaders!) l.first
+      ], [
+        (120.0, 500.0),
+        (560.0, 450.0)
+      ], reason: 'arrows stay where they point');
+      expect(a.calloutBox!.left, closeTo(box0.left + 41, 0.01));
+      expect(a.calloutBox!.top, closeTo(box0.top - 30, 0.01));
+      expect(editing.selectedAnnotation?.isCallout, isTrue,
+          reason: 'the selection survives the move');
+    });
+
+    test('add/remove leader through the controller', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 630));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.canAddSelectedCalloutLeader, isTrue);
+      expect(editing.canRemoveSelectedCalloutLeader, isFalse,
+          reason: 'the only leader stays');
+      expect(editing.removeSelectedCalloutLeader(), isFalse);
+
+      // no target: aimed off the box, away from the existing arrow (which
+      // points left), so it never lands on top of it
+      expect(editing.addSelectedCalloutLeader(), isTrue);
+      var leaders = editing.selectedCalloutLeaders!;
+      expect(leaders, hasLength(2));
+      final box = editing.selectedAnnotation!.calloutBox!;
+      final (tx, ty) = leaders[1].first;
+      expect(tx > box.right || ty < box.bottom || ty > box.top, isTrue,
+          reason: 'the new tip sits outside the box');
+      expect(tx, greaterThan(box.left), reason: 'not on the existing side');
+
+      expect(editing.addSelectedCalloutLeader((380, 450)), isTrue);
+      expect(editing.selectedCalloutLeaders, hasLength(3));
+      // the leader nearest a point is the one that point removes
+      expect(editing.selectedCalloutLeaderNear((385, 470)), 2);
+      expect(editing.selectedCalloutLeaderNear((130, 630)), 0);
+      expect(editing.removeSelectedCalloutLeader(0), isTrue);
+      leaders = editing.selectedCalloutLeaders!;
+      expect(leaders, hasLength(2));
+      expect(leaders.last.first, (380.0, 450.0));
+      expect(leaders.every((l) => l.first != (120.0, 630.0)), isTrue);
+
+      // a reshape by index re-aims just that leader
+      editing.reshapeSelectedCalloutTarget((500, 300), leader: 1);
+      expect(editing.selectedCalloutLeaders![1].first, (500.0, 300.0));
+      expect(editing.selectedCalloutLeaders![0].first, leaders.first.first);
+    });
+
+    test('editing a callout\'s text or font keeps its leaders and box', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.addSelectedCalloutLeader((560, 450)), isTrue);
+      final box0 = editing.selectedAnnotation!.calloutBox!;
+
+      void expectStillACallout(String why) {
+        final a = editing.document.page(0).annotations.single;
+        expect(a.isCallout, isTrue, reason: why);
+        expect([
+          for (final l in a.calloutLeaders!) l.first
+        ], [
+          (120.0, 500.0),
+          (560.0, 450.0)
+        ], reason: why);
+        expect(a.calloutBox!.left, closeTo(box0.left, 0.01), reason: why);
+        expect(a.calloutBox!.top, closeTo(box0.top, 0.01), reason: why);
+        expect(a.calloutBox!.width, closeTo(box0.width, 0.01), reason: why);
+      }
+
+      editing.setSelectedText('new words');
+      expectStillACallout('text edit');
+      expect(editing.document.page(0).annotations.single.contents, 'new words');
+
+      editing.restyleSelectedText(size: 20, font: PdfStandardFont.courier);
+      expectStillACallout('font restyle');
+      expect(editing.selectedTextStyle?.size, 20);
+
+      expect(
+          editing.setSelectedRichText(const [
+            PdfFreeTextRun('rich ', color: 0x0000FF),
+            PdfFreeTextRun('text', color: 0xFF0000),
+          ]),
+          isTrue);
+      expectStillACallout('rich commit');
+      final a = editing.document.page(0).annotations.single;
+      expect(a.contents, 'rich text');
+      expect(a.freeTextStyle!.color, 0x0000FF);
+    });
   });
 
   group('callout tool in the viewer', () {
@@ -157,6 +260,39 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the placement drag previews the leader, not a box',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.callout;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(150, 500));
+      await gesture.moveTo(view(250, 580));
+      await gesture.moveTo(view(360, 660));
+      await tester.pump();
+
+      final painters = [
+        for (final paint
+            in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+          if (paint.painter?.runtimeType.toString() == '_EditingPreviewPainter')
+            paint.painter! as dynamic,
+      ];
+      expect(painters, isNotEmpty);
+      for (final painter in painters) {
+        expect(painter.dragRect, isNull,
+            reason: 'no rubber-band rectangle under the leader');
+        expect(painter.dragLine, isNull);
+      }
+      expect(
+          painters.any((p) => (p.calloutLeaders as List?)?.length == 1), isTrue,
+          reason: 'the leader (with its arrow) is what previews');
+
+      await gesture.up();
+      await tester.pump();
+      await tap(tester, view(450, 400));
+      await settle(tester);
+    });
+
     testWidgets('an empty callout box commits nothing', (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.callout;
@@ -218,6 +354,81 @@ void main() {
           reason: 'the base moved');
       expect(a.calloutBox!.left, closeTo(box0.left, 1), reason: 'box unmoved');
       expect(a.calloutBox!.right, closeTo(box0.right, 1));
+      await settle(tester);
+    });
+
+    testWidgets('dragging the box moves it while the arrows stay put',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.addSelectedCalloutLeader((520, 470)), isTrue);
+      await tester.pump();
+      final box0 = editing.document.page(0).annotations.single.calloutBox!;
+
+      // grab the text box (not a handle) and drag it up-left
+      await drag(tester, view(380, 640), view(340, 690));
+      await tester.pump();
+
+      final a = editing.document.page(0).annotations.single;
+      expect(a.isCallout, isTrue);
+      expect([
+        for (final l in a.calloutLeaders!) l.first
+      ], [
+        (150.0, 480.0),
+        (520.0, 470.0)
+      ], reason: 'every arrow tip stays where it pointed');
+      expect(a.calloutBox!.left, closeTo(box0.left - 40, 2));
+      expect(a.calloutBox!.top, closeTo(box0.top + 50, 2));
+      await settle(tester);
+    });
+
+    testWidgets('each leader has its own terminus handle', (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.addSelectedCalloutLeader((520, 470)), isTrue);
+      await tester.pump();
+
+      // the second leader's tip handle sits at (520, 470)
+      await drag(tester, view(520, 470), view(560, 420));
+      await tester.pump();
+
+      final leaders =
+          editing.document.page(0).annotations.single.calloutLeaders!;
+      expect(leaders.first.first, (150.0, 480.0), reason: 'leader 0 untouched');
+      expect(leaders[1].first.$1, closeTo(560, 6));
+      expect(leaders[1].first.$2, closeTo(420, 6));
+      await settle(tester);
+    });
+
+    testWidgets('the context menu adds and removes leaders', (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      Future<void> menu(Offset at) async {
+        final gesture = await tester.startGesture(at,
+            kind: PointerDeviceKind.mouse, buttons: kSecondaryButton);
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await menu(view(380, 630));
+      final remove = find.byKey(const ValueKey('pdf-annot-menu-remove-leader'));
+      expect(remove, findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-leader')));
+      await tester.pumpAndSettle();
+      expect(editing.selectedCalloutLeaders, hasLength(2));
+
+      await menu(view(380, 630));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-remove-leader')));
+      await tester.pumpAndSettle();
+      expect(editing.selectedCalloutLeaders, hasLength(1));
       await settle(tester);
     });
 

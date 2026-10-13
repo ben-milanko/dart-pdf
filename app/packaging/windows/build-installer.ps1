@@ -6,7 +6,13 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Version,
 
-  [string]$OutputPath = 'dartpdf-windows-installer.exe'
+  [string]$OutputPath = 'dartpdf-windows-installer.exe',
+
+  # What Windows calls the install: the installer title, Start menu entry and
+  # Installed apps row. The nightly passes 'DartPDF Nightly' so it can be told
+  # apart from a stable install. Both channels share one install directory,
+  # uninstall key and ProgID, so either replaces the other in place.
+  [string]$ProductName = 'DartPDF'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,21 +31,36 @@ $versionParts = @(
 while ($versionParts.Count -lt 4) { $versionParts += '0' }
 $fileVersion = ($versionParts[0..3] -join '.')
 
+# Start menu entries every channel has ever created, so switching channels
+# (or uninstalling) never leaves the other channel's shortcut behind.
+$shortcutNames = @('DartPDF', 'DartPDF Nightly')
+# Single-quoted fragments: NSIS's own $SMPROGRAMS must reach the script as-is.
+function Get-ShortcutDeletes([string[]]$names) {
+  ($names | ForEach-Object {
+    '  Delete "$SMPROGRAMS\DartPDF\' + $_ + '.lnk"'
+    '  Delete "$SMPROGRAMS\DartPDF\Uninstall ' + $_ + '.lnk"'
+  }) -join "`r`n"
+}
+$staleShortcuts = Get-ShortcutDeletes @(
+  $shortcutNames | Where-Object { $_ -ne $ProductName }
+)
+$allShortcuts = Get-ShortcutDeletes $shortcutNames
+
 $nsi = @"
 Unicode true
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
 
-Name "DartPDF"
+Name "$ProductName"
 OutFile "$output"
 InstallDir "`$LOCALAPPDATA\Programs\DartPDF"
 InstallDirRegKey HKCU "Software\DartPDF" "InstallDir"
 RequestExecutionLevel user
 
 VIProductVersion "$fileVersion"
-VIAddVersionKey "ProductName" "DartPDF"
+VIAddVersionKey "ProductName" "$ProductName"
 VIAddVersionKey "CompanyName" "DartPDF"
-VIAddVersionKey "FileDescription" "DartPDF installer"
+VIAddVersionKey "FileDescription" "$ProductName installer"
 VIAddVersionKey "ProductVersion" "$Version"
 VIAddVersionKey "FileVersion" "$Version"
 
@@ -56,14 +77,15 @@ Section "DartPDF" SecInstall
   SetOutPath "`$INSTDIR"
   File /r "$bundle\*.*"
 
+$staleShortcuts
   CreateDirectory "`$SMPROGRAMS\DartPDF"
-  CreateShortcut "`$SMPROGRAMS\DartPDF\DartPDF.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
-  CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk" "`$INSTDIR\Uninstall.exe"
+  CreateShortcut "`$SMPROGRAMS\DartPDF\$ProductName.lnk" "`$INSTDIR\dart_pdf_editor_app.exe"
+  CreateShortcut "`$SMPROGRAMS\DartPDF\Uninstall $ProductName.lnk" "`$INSTDIR\Uninstall.exe"
 
   WriteUninstaller "`$INSTDIR\Uninstall.exe"
 
   WriteRegStr HKCU "Software\DartPDF" "InstallDir" "`$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "DartPDF"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayName" "$ProductName"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "DisplayVersion" "$Version"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "Publisher" "DartPDF"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF" "InstallLocation" "`$INSTDIR"
@@ -75,21 +97,34 @@ Section "DartPDF" SecInstall
 
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf" "" "PDF document"
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\DefaultIcon" "" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+  ; Player lifts Explorer's 15-item cap on a selection's Open (the default
+  ; Document model hides the verb past 15) to 100. Explorer still runs the
+  ; "%1" command once per file; the single-instance runner forwards each to
+  ; the first window, which offers to combine the batch.
+  WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open" "MultiSelectModel" "Player"
   WriteRegStr HKCU "Software\Classes\DartPDF.pdf\shell\open\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" "%1"'
   WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf" ""
+  ; Explorer right-click > "Combine with DartPDF" on any PDF selection, whatever
+  ; the default PDF app is. Explorer starts one process per selected file; the
+  ; runner coalesces their forwards into one batch (see windows/runner).
+  ; Player lifts the 15-file cap of the default multi-select model.
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "MUIVerb" "Combine with DartPDF"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "Icon" "`$INSTDIR\dart_pdf_editor_app.exe,-102"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine" "MultiSelectModel" "Player"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine\command" "" '"`$INSTDIR\dart_pdf_editor_app.exe" --combine "%1"'
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-  Delete "`$SMPROGRAMS\DartPDF\DartPDF.lnk"
-  Delete "`$SMPROGRAMS\DartPDF\Uninstall DartPDF.lnk"
+$allShortcuts
   RMDir "`$SMPROGRAMS\DartPDF"
 
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DartPDF"
   DeleteRegKey HKCU "Software\DartPDF"
   DeleteRegKey HKCU "Software\Classes\DartPDF.pdf"
   DeleteRegValue HKCU "Software\Classes\.pdf\OpenWithProgids" "DartPDF.pdf"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.pdf\shell\DartPDF.Combine"
 
   RMDir /r "`$INSTDIR"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'

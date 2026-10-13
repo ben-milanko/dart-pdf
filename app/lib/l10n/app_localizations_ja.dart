@@ -775,7 +775,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'ウェブ OCR は Florence-2 のビジョン言語モデルをダウンロードし、Transformers.js を通じて WebGPU/WASM でローカルに実行します。PDF ページはこのブラウザ内に留まり、初回使用時にモデルファイルのみが取得されます。';
+      'Web OCR は小さな文字認識モデル（PP-OCRv5、約 21 MB）をダウンロードし、WebAssembly でローカルに実行します。PDF のページはこのブラウザー内にとどまり、初回使用時にモデルファイルだけが取得されます。';
 
   @override
   String get ocrWebPromptTitle => 'このブラウザで AI OCR を実行しますか?';
@@ -921,7 +921,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main の署名なし Windows テストビルドの更新通知を自動で受け取ります。';
+      'main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。';
 
   @override
   String get settingsUpdates => 'アップデート';
@@ -1021,8 +1021,14 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR $page/$pageCount ページ目';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'テキストを読み取り中…';
+
+  @override
+  String get ocrChipPreparing => 'OCR モデルを読み込み中…';
 
   @override
   String get ocrChipFinishing => 'OCR を完了中…';
@@ -1229,4 +1235,76 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => 'このビルドにはリリースノートがありません。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個の PDF を開く',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '各ファイルを別々のタブで開くか、1 つの新しいドキュメントに結合しますか?ドラッグして結合する順序を指定できます。';
+
+  @override
+  String get incomingFilesCombine => '結合';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個の PDF を結合',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => 'ドラッグして結合する順序を指定できます。';
+
+  @override
+  String get appMenuNew => '新規';
+
+  @override
+  String get appMenuOpen => '開く';
+
+  @override
+  String get appMenuPrint => '印刷';
+
+  @override
+  String get appMenuSign => '署名';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => 'すべて表示';
+
+  @override
+  String get appMenuExport => '書き出し';
+
+  @override
+  String get appMenuMoreTools => 'その他のツール';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

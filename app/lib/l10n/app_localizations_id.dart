@@ -791,7 +791,7 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'OCR web mengunduh model bahasa-visual Florence-2 dan menjalankannya secara lokal dengan WebGPU/WASM melalui Transformers.js. Halaman PDF tetap di peramban ini; hanya berkas model yang diambil saat pertama kali digunakan.';
+      'OCR web mengunduh model pengenalan teks kecil (PP-OCRv5, sekitar 21 MB) dan menjalankannya secara lokal dengan WebAssembly. Halaman PDF tetap berada di browser ini; hanya file model yang diambil, saat pertama kali digunakan.';
 
   @override
   String get ocrWebPromptTitle => 'Jalankan OCR AI di peramban ini?';
@@ -939,7 +939,7 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Terima notifikasi pembaruan otomatis untuk build uji Windows tanpa tanda tangan dari main.';
+      'Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.';
 
   @override
   String get settingsUpdates => 'Pembaruan';
@@ -1042,8 +1042,14 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR halaman $page dari $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Membaca teks…';
+
+  @override
+  String get ocrChipPreparing => 'Memuat model OCR…';
 
   @override
   String get ocrChipFinishing => 'Menyelesaikan OCR…';
@@ -1264,4 +1270,77 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Catatan rilis tidak tersedia di build ini.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Buka $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Buka setiap file di tabnya sendiri, atau gabungkan menjadi satu dokumen baru? Seret file untuk mengatur urutannya.';
+
+  @override
+  String get incomingFilesCombine => 'Gabungkan';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Gabungkan $count PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Seret file untuk mengatur urutan penggabungannya.';
+
+  @override
+  String get appMenuNew => 'Baru';
+
+  @override
+  String get appMenuOpen => 'Buka';
+
+  @override
+  String get appMenuPrint => 'Cetak';
+
+  @override
+  String get appMenuSign => 'Tanda tangani';
+
+  @override
+  String get appMenuRecent => 'Terbaru';
+
+  @override
+  String get appMenuSeeAll => 'Lihat semua';
+
+  @override
+  String get appMenuExport => 'Ekspor';
+
+  @override
+  String get appMenuMoreTools => 'Alat lainnya';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

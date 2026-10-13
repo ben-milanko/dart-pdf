@@ -22,20 +22,14 @@
 #         snapcraft upload --release=stable dartpdf_<version>_amd64.snap
 
 name: dartpdf
-title: DartPDF
-summary: Edit, annotate, sign, and fill in PDFs
+title: "DartPDF: Edit PDF Documents"
+summary: Easily annotate documents, fill forms, and redact text privately offline.
 description: |-
-  DartPDF is a PDF editor that runs entirely on your device. Open any PDF
-  to mark it up, fill in forms, sign it, redact content, rearrange pages,
-  or edit the text and images on the page. Changes save back to the
-  original file.
+  DartPDF is a PDF editor that runs entirely on your device.
 
+  Open any PDF to mark it up, fill in forms, sign it, redact content, rearrange pages, or edit the text and images on the page. Changes save back to the original file.
 
-
-  Nothing is uploaded. There is no account, no sync, and no ads. It is a
-  full, native PDF editor that keeps your documents on your own machine
-  rather than routing them through a proprietary incumbent's cloud.
-
+  Nothing is uploaded. There's no account, no sync, and no ads.
 
   Features:
 
@@ -51,9 +45,7 @@ description: |-
   - Compare two versions side by side
   - Open password-protected files
 
-
-  Opens PDFs from your file manager, via drag-and-drop, or as a launch
-  argument. Light and dark themes.
+  Runs on Linux. Opens PDFs from your file manager, via drag-and-drop, or as a launch argument. Light and dark themes.
 license: Apache-2.0
 base: core24
 confinement: strict

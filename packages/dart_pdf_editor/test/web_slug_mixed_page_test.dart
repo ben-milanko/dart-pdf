@@ -295,12 +295,14 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) {
     if (decodeImages && imageDecodeRegion != null) {
       if (!regionRecordStarted.isCompleted) regionRecordStarted.complete();
       return _regionRecord.future;
@@ -312,6 +314,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
     vectorRecordPriority = priority;
     return _inner.record(pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
@@ -326,6 +329,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
   @override
   Future<StripPlan?> binStrips(int pageIndex,
           {required bool annotations,
+          Set<String> hiddenAnnotationSubtypes = const {},
           required List<double> pageToDevice,
           required int deviceWidth,
           required int deviceHeight,
@@ -334,6 +338,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
           int priority = 0}) =>
       _inner.binStrips(pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           pageToDevice: pageToDevice,
           deviceWidth: deviceWidth,
           deviceHeight: deviceHeight,
@@ -344,6 +349,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
   @override
   Future<PdfStripDetail?> recordStripDetail(int pageIndex,
           {required bool annotations,
+          Set<String> hiddenAnnotationSubtypes = const {},
           required List<double> pageToDevice,
           required int deviceWidth,
           required int deviceHeight,
@@ -352,6 +358,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
           int priority = 0}) =>
       _inner.recordStripDetail(pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           pageToDevice: pageToDevice,
           deviceWidth: deviceWidth,
           deviceHeight: deviceHeight,

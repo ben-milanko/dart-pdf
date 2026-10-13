@@ -126,7 +126,9 @@ void main() {
         return http.Response(
           jsonEncode({
             'spans': [
-              {'text': 'Scanned', 'bbox': [100, 120, 340, 156]},
+              // Clear of the page's own "Hello, world!", which applyOcr
+              // would treat as already-extracted text.
+              {'text': 'Scanned', 'bbox': [100, 1200, 340, 1236]},
             ],
           }),
           200,

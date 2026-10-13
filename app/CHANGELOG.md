@@ -1,6 +1,45 @@
 # Changelog
 
 ## Unreleased
+## 8.1.0
+
+- Change dropdown and list-box form fonts, size, colour and alignment.
+- Open New, Open, Print and Sign actions from a phone-friendly bottom sheet.
+- Preserve text fonts, wrapping, baselines and caret position when editing.
+- Improve iOS inline keyboards, text-selection menus and share-sheet filenames.
+- Show the full colour palette for mobile pens and highlighters.
+- Restore Linux AppImage compatibility with Ubuntu 22.04 and correct desktop metadata and website download links.
+- Update to the 8.1.0 package suite and app build 45.
+
+## 8.0.0
+
+- Combine PDFs opened together and insert pages from several documents, with
+  page choices, bookmarks and interleaving.
+- Capture polygon snapshots, crop pasted snapshots and preview their paste
+  position in the page grid.
+- Add multiple callout leaders and move the text box without moving arrow
+  targets. Apply text style changes while editing.
+- Bulk-edit selected form fields' style and size.
+- Show stored thumbnails for unopened tabs and correct thumbnails after page
+  reordering. Refresh fields in pasted template stamps.
+- Restore desktop file drag-and-drop, preserve transparency in pasted images,
+  and open and combine long file paths and larger file selections.
+- Speed up scanned document decoding, preserve enlarged Controls accessibility,
+  place polygon vertices without delay and add Central Kurdish localization.
+- Update to the 8.0.0 package suite. Custom render-worker implementers should
+  read `doc/MIGRATING-8.0.0.md`.
+
+
+## 7.0.0
+
+- Read small print and technical drawings more accurately with OCR, with
+  faster processing and clearer progress. Repeat OCR skips text already
+  present, and text on rotated pages follows the page's reading direction.
+- Open documents in Select mode. Follow links and select text with a long
+  press there; Cmd/Ctrl+A selects page text in Select and Hand modes.
+- Bring search matches into view horizontally when zoomed in.
+- Keep freehand ink previews at the chosen opacity, and include annotations
+  in exported vector snapshots.
 
 - The app is built on `material_ui`, the package Flutter's Material widgets
   are moving to, instead of the retiring `package:flutter/material.dart`.

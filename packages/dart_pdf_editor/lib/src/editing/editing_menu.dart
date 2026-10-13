@@ -185,8 +185,9 @@ typedef PdfAnnotationMenuEntriesBuilder
 
 /// [PdfAnnotationMenuEntriesBuilder] for the text-selection context menu;
 /// build new rows with [pdfTextMenuEntry]. Stock ids are `pdf-text-menu-*`
-/// (`edit`, `highlight`, `underline`, `strikeout`, `squiggly`, `link`,
-/// `copy`, `select-all`).
+/// (`edit`, `copy`, `markup`, `link`, `select-all`), in the touch selection
+/// chip's order; `markup` opens the `highlight`, `underline`, `strikeout`
+/// and `squiggly` rows as a second menu, so they are not in [stock].
 typedef PdfTextMenuEntriesBuilder
     = List<PdfMenuEntry<PdfTextMenuItem>> Function(BuildContext context,
         PdfTextMenuRequest request, List<PdfMenuEntry<PdfTextMenuItem>> stock);
@@ -401,6 +402,27 @@ Future<void> showPdfAnnotationMenu({
         enabled: controller.canRemoveSelectedVertex,
         onSelected: (request) =>
             request.controller.removeSelectedVertexNear(pagePoint),
+      ),
+    ],
+    // A callout grows another arrow from the same box (aimed just off the
+    // box, ready to drag by its tip) or drops the one nearest the click -
+    // the last one when the menu has no click point. One always stays.
+    if (hasSelection && controller.canAddSelectedCalloutLeader) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-add-leader'),
+        label: pdfL10n(context).menuAddLeader,
+        icon: Icons.call_made,
+        onSelected: (request) => request.controller.addSelectedCalloutLeader(),
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-remove-leader'),
+        label: pdfL10n(context).menuRemoveLeader,
+        icon: Icons.remove_circle_outline,
+        enabled: controller.canRemoveSelectedCalloutLeader,
+        onSelected: (request) => request.controller.removeSelectedCalloutLeader(
+            pagePoint == null
+                ? null
+                : request.controller.selectedCalloutLeaderNear(pagePoint)),
       ),
     ],
   ];
@@ -623,7 +645,9 @@ Future<void> showPdfFormFieldMenu({
   // rename/convert structure changes, and the destructive delete/flatten.
   final edit = <PdfAnnotationMenuItem>[
     if (editItem() case final item?) item,
-    if (type == PdfFieldType.text)
+    if (type == PdfFieldType.text ||
+        type == PdfFieldType.comboBox ||
+        type == PdfFieldType.listBox)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-form-menu-style'),
         label: pdfL10n(context).menuTextStyle,

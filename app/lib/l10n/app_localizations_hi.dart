@@ -788,7 +788,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'वेब OCR एक Florence-2 विज़न-लैंग्वेज मॉडल डाउनलोड करता है और इसे Transformers.js के माध्यम से WebGPU/WASM के साथ स्थानीय रूप से चलाता है। PDF पृष्ठ इसी ब्राउज़र में रहते हैं; केवल मॉडल फ़ाइलें पहली बार उपयोग पर लाई जाती हैं।';
+      'वेब OCR एक छोटा टेक्स्ट-पहचान मॉडल (PP-OCRv5, लगभग 21 MB) डाउनलोड करता है और उसे WebAssembly के साथ स्थानीय रूप से चलाता है। PDF पेज इसी ब्राउज़र में रहते हैं; पहली बार उपयोग पर केवल मॉडल फ़ाइलें प्राप्त की जाती हैं।';
 
   @override
   String get ocrWebPromptTitle => 'इस ब्राउज़र में AI OCR चलाएँ?';
@@ -937,7 +937,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main से बिना हस्ताक्षर वाले Windows परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
+      'main से बिना हस्ताक्षर वाले Windows/macOS परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
 
   @override
   String get settingsUpdates => 'अपडेट';
@@ -1039,8 +1039,14 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR पृष्ठ $page / $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'टेक्स्ट पढ़ा जा रहा है…';
+
+  @override
+  String get ocrChipPreparing => 'OCR मॉडल लोड हो रहा है…';
 
   @override
   String get ocrChipFinishing => 'OCR पूरा किया जा रहा है…';
@@ -1257,4 +1263,77 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF खोलें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'हर फ़ाइल को अलग टैब में खोलें, या सभी को एक नए दस्तावेज़ में जोड़ें? क्रम तय करने के लिए फ़ाइलों को खींचें।';
+
+  @override
+  String get incomingFilesCombine => 'जोड़ें';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count PDF जोड़ें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'जोड़ने का क्रम तय करने के लिए फ़ाइलों को खींचें।';
+
+  @override
+  String get appMenuNew => 'नया';
+
+  @override
+  String get appMenuOpen => 'खोलें';
+
+  @override
+  String get appMenuPrint => 'प्रिंट करें';
+
+  @override
+  String get appMenuSign => 'हस्ताक्षर करें';
+
+  @override
+  String get appMenuRecent => 'हाल के';
+
+  @override
+  String get appMenuSeeAll => 'सभी देखें';
+
+  @override
+  String get appMenuExport => 'निर्यात करें';
+
+  @override
+  String get appMenuMoreTools => 'और टूल';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

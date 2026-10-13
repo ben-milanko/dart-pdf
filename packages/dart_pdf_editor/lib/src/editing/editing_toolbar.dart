@@ -2097,7 +2097,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// pointer users who reach for the toolbar.
   Widget _cropStrip(BuildContext context) {
     final l10n = pdfL10n(context);
-    final hasCrop = controller.selectedAnnotation?.imageStampCrop != null;
+    final hasCrop = controller.selectedHasCrop;
     final strip = _intrinsicStrip(
       _stripFlex([
         Padding(
@@ -2276,7 +2276,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       for (final color in widget.palette)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: InkWell(
+          // a swatch tapped while a text box is being typed into recolours
+          // that box: count the tap as inside the field, so it doesn't blur
+          // (and commit) the editor before the colour lands
+          child: TextFieldTapRegion(
+              child: InkWell(
             onTap: () => _applyColor(color),
             customBorder: const CircleBorder(),
             child: Container(
@@ -2291,22 +2295,33 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Tooltip(
           message: pdfL10n(context).tbMoreColors,
-          child: Material(
+          // like the swatches: the press must not blur an open text box
+          child: TextFieldTapRegion(
+              child: Material(
             key: const ValueKey('pdf-more-colors'),
             color: Colors.transparent,
             shape: CircleBorder(side: BorderSide(color: scheme.outline)),
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked = await pickEditingColor(context, controller,
-                    initial: current);
-                if (picked != null) _applyColor(picked);
+                // the picker takes focus: hold the open text box's commit so
+                // the picked colour restyles it instead of landing after it
+                // closed
+                final hold = controller.isEditingText;
+                if (hold) controller.beginEditingTextFocusHold();
+                try {
+                  final picked = await pickEditingColor(context, controller,
+                      initial: current);
+                  if (picked != null) _applyColor(picked);
+                } finally {
+                  if (hold) controller.endEditingTextFocusHold();
+                }
               },
               child: SizedBox(
                 width: 40,
@@ -2316,7 +2331,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
       ),
       IconButton(
@@ -2480,9 +2495,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     BuildContext context,
     _StyleFields fields, {
     bool compactTrigger = false,
+    bool toolColor = false,
     Axis axis = Axis.horizontal,
   }) {
-    if (!widget.showStyle || fields.isEmpty) return const [];
+    if (!widget.showStyle || (fields.isEmpty && !toolColor)) return const [];
     return [
       if (fields.font) _MiniDivider(axis: axis),
       _StyleMenu(
@@ -2490,6 +2506,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         palette: widget.palette,
         showColor: widget.showColor,
         fields: fields,
+        toolColor: toolColor,
         fontChipTrigger: fields.font && !compactTrigger,
         fontPicker: widget.fontPicker,
       ),
@@ -2812,9 +2829,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
     final tune = _mobileTuneTrailing(context);
     if (widget.showColor && controller.toolUsesColor) {
-      // The tune popup carries the full palette, so a couple of quick swatches
-      // beside it are enough - and dropping the third keeps the whole cluster
-      // (swatches + tune) inside the narrow dock without overflowing.
+      // The tune popup carries the full palette (see [_mobileTuneTrailing]),
+      // so a couple of quick swatches beside it are enough - and dropping the
+      // third keeps the whole cluster (swatches + tune) inside the narrow dock
+      // without overflowing.
       return [
         ..._mobileSwatches(context, count: tune.isEmpty ? 3 : 2),
         ...tune
@@ -2826,7 +2844,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// The tune popup trigger for the mobile dock's armed tool, or empty when
   /// no tool is armed or its controls carry nothing to tune. Mirrors the
   /// desktop strip's [_tuneTrailing] so the same stroke/opacity/font sliders
-  /// are one tap away on a phone.
+  /// are one tap away on a phone. Unlike the desktop strip, the dock has room
+  /// for only a couple of swatches, so the popup also carries the tool's full
+  /// colour row (palette + custom picker) - otherwise a pen or highlighter
+  /// could only reach the rest of the palette from the tool sheet.
   List<Widget> _mobileTuneTrailing(BuildContext context) {
     final group = controller.markupTool != null
         ? _groupForMarkup(controller.markupTool!)
@@ -2836,6 +2857,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context,
       _groupStyleFields(group),
       compactTrigger: true,
+      toolColor: controller.toolUsesColor,
     );
   }
 
@@ -2849,7 +2871,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         Padding(
           key: ValueKey('pdf-mobile-swatch-${i++}'),
           padding: const EdgeInsets.symmetric(horizontal: 3),
-          child: InkWell(
+          // inside the text field's tap group: see _colorCluster
+          child: TextFieldTapRegion(
+              child: InkWell(
             onTap: () => _applyColor(color),
             customBorder: const CircleBorder(),
             child: Container(
@@ -2864,7 +2888,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
     ];
   }
@@ -4014,12 +4038,18 @@ class _StyleMenu extends StatefulWidget {
     required this.palette,
     required this.fields,
     this.showColor = true,
+    this.toolColor = false,
     this.fontChipTrigger = false,
     this.fontPicker,
   });
 
   /// Which controls to show - see [_StyleFields].
   final _StyleFields fields;
+
+  /// Show a colour row for the armed tool's creation colour when [fields]
+  /// doesn't already carry one (an outline or text-colour row). The mobile
+  /// dock sets it, having room for only a couple of inline swatches.
+  final bool toolColor;
 
   /// How the font menu's "Load font…" entry loads a custom font.
   final PdfFontPicker? fontPicker;
@@ -4485,6 +4515,19 @@ class _StyleMenuState extends State<_StyleMenu> {
                       },
                     ),
                   ],
+                  if (widget.toolColor &&
+                      widget.showColor &&
+                      !fields.strokeColor &&
+                      !fields.boxColors)
+                    _boxColorRow(
+                      context: context,
+                      label: pdfL10n(context).tbColorLabel,
+                      keyPrefix: 'pdf-tool-color',
+                      value: controller.displayColor,
+                      // the same path as the dock swatches
+                      onChanged: _setTextColor,
+                      allowNone: false,
+                    ),
                   if (fields.strokeColor && widget.showColor)
                     _boxColorRow(
                       context: context,
