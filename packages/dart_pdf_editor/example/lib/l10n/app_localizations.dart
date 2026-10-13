@@ -860,6 +860,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{title} - part {part}.pdf'**
   String exExtractedTitle(String title, int part);
+
+  /// App menu item that switches the example from the Material design to the Cupertino (iOS-style) design.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to Cupertino design'**
+  String get exUseCupertinoDesign;
+
+  /// Title of the Cupertino design's settings page, and the tooltip of the nav-bar button that opens it.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get exSettings;
+
+  /// Settings section header: which design system (Material or Cupertino) the app uses.
+  ///
+  /// In en, this message translates to:
+  /// **'Design'**
+  String get exDesignSection;
+
+  /// Design option: Google's Material design. A product name; usually left untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Material'**
+  String get exDesignMaterial;
+
+  /// Design option: Apple-style Cupertino design. A product name; usually left untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Cupertino'**
+  String get exDesignCupertino;
+
+  /// Footer under the design choice in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching keeps your open documents and unsaved edits.'**
+  String get exDesignFooter;
+
+  /// Settings section header for light/dark appearance.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get exAppearanceSection;
+
+  /// Appearance option: follow the device's light/dark setting.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get exAppearanceSystem;
+
+  /// Appearance option: always light.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get exAppearanceLight;
+
+  /// Appearance option: always dark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get exAppearanceDark;
+
+  /// Settings section header listing the open documents; tapping one shows it.
+  ///
+  /// In en, this message translates to:
+  /// **'Open documents'**
+  String get exOpenDocumentsSection;
 }
 
 class _AppLocalizationsDelegate

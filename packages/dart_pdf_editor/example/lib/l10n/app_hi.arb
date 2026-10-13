@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF दस्तावेज़",
   "exFileTypeImages": "छवियाँ",
   "exFileTypeFonts": "फ़ॉन्ट",
-  "exExtractedTitle": "{title} - भाग {part}.pdf"
+  "exExtractedTitle": "{title} - भाग {part}.pdf",
+  "exUseCupertinoDesign": "Cupertino डिज़ाइन पर जाएँ",
+  "exSettings": "सेटिंग्स",
+  "exDesignSection": "डिज़ाइन",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "बदलने पर खुले दस्तावेज़ और बिना सहेजे बदलाव बने रहते हैं।",
+  "exAppearanceSection": "रूप",
+  "exAppearanceSystem": "सिस्टम",
+  "exAppearanceLight": "लाइट",
+  "exAppearanceDark": "डार्क",
+  "exOpenDocumentsSection": "खुले दस्तावेज़"
 }

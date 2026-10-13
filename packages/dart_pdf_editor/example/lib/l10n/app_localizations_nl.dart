@@ -448,4 +448,38 @@ class AppLocalizationsNl extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - deel $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Overschakelen naar Cupertino-ontwerp';
+
+  @override
+  String get exSettings => 'Instellingen';
+
+  @override
+  String get exDesignSection => 'Ontwerp';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Bij het overschakelen blijven geopende documenten en niet-opgeslagen wijzigingen behouden.';
+
+  @override
+  String get exAppearanceSection => 'Weergave';
+
+  @override
+  String get exAppearanceSystem => 'Systeem';
+
+  @override
+  String get exAppearanceLight => 'Licht';
+
+  @override
+  String get exAppearanceDark => 'Donker';
+
+  @override
+  String get exOpenDocumentsSection => 'Geopende documenten';
 }

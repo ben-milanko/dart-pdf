@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF-documenten",
   "exFileTypeImages": "Afbeeldingen",
   "exFileTypeFonts": "Lettertypen",
-  "exExtractedTitle": "{title} - deel {part}.pdf"
+  "exExtractedTitle": "{title} - deel {part}.pdf",
+  "exUseCupertinoDesign": "Overschakelen naar Cupertino-ontwerp",
+  "exSettings": "Instellingen",
+  "exDesignSection": "Ontwerp",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Bij het overschakelen blijven geopende documenten en niet-opgeslagen wijzigingen behouden.",
+  "exAppearanceSection": "Weergave",
+  "exAppearanceSystem": "Systeem",
+  "exAppearanceLight": "Licht",
+  "exAppearanceDark": "Donker",
+  "exOpenDocumentsSection": "Geopende documenten"
 }

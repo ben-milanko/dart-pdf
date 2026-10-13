@@ -189,3 +189,11 @@ String pdfDefaultMeasurementUnit([Locale? locale]) =>
 /// else. Like [pdfDefaultMeasurementUnit], this follows the device region.
 String pdfDefaultPageUnit([Locale? locale]) =>
     _isImperialRegion(locale) ? 'in' : 'cm';
+
+/// The real-world unit labels the scale prompts offer.
+const pdfScaleUnits = ['ft', 'in', 'yd', 'mi', 'm', 'cm', 'mm', 'km'];
+
+/// The on-page reference units offered for the left-hand side of the ratio.
+/// These are physical lengths on the printed page, so only the small units
+/// make sense.
+const pdfPageUnits = ['in', 'cm', 'mm'];

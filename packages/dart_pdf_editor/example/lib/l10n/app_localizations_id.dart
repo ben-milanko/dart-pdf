@@ -443,4 +443,38 @@ class AppLocalizationsId extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - bagian $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Beralih ke desain Cupertino';
+
+  @override
+  String get exSettings => 'Pengaturan';
+
+  @override
+  String get exDesignSection => 'Desain';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Beralih tetap mempertahankan dokumen yang terbuka dan perubahan yang belum disimpan.';
+
+  @override
+  String get exAppearanceSection => 'Tampilan';
+
+  @override
+  String get exAppearanceSystem => 'Sistem';
+
+  @override
+  String get exAppearanceLight => 'Terang';
+
+  @override
+  String get exAppearanceDark => 'Gelap';
+
+  @override
+  String get exOpenDocumentsSection => 'Dokumen terbuka';
 }

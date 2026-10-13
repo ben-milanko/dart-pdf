@@ -236,22 +236,7 @@ Future<T?> showPdfDialog<T>({
   return navigator.push<T>(
     DialogRoute<T>(
       context: context,
-      builder: (context) {
-        // Whatever the host lacks (Material localizations, a theme) is
-        // re-injected here, in the route's own context under the root
-        // navigator - a pass-through under a Material host.
-        final child =
-            pdfHostRoute(context, _PdfDialogKeyboardScope(builder: builder));
-        // Re-inject only when the route's own context lost it (a scope
-        // between the root and a nested navigator that opened the dialog on
-        // the root one is captured too; this is the belt to that brace).
-        if (scope == null ||
-            identical(PdfEditorScope.maybeOf(context, listen: false)?.presenter,
-                scope.presenter)) {
-          return child;
-        }
-        return PdfEditorScope(presenter: scope.presenter, child: child);
-      },
+      builder: (context) => pdfDialogRouteContent(context, builder, scope),
       barrierColor: barrierColor ??
           DialogTheme.of(context).barrierColor ??
           Theme.of(context).dialogTheme.barrierColor ??
@@ -269,4 +254,27 @@ Future<T?> showPdfDialog<T>({
       fullscreenDialog: fullscreenDialog,
     ),
   );
+}
+
+/// What [showPdfDialog]'s route builds around [builder] in the route's own
+/// [context]: Enter-to-submit ([PdfDialogSubmit]), whatever the host lacks
+/// (Material and Cupertino localizations, a theme - a pass-through under a
+/// Material host), and [scope] when the route lost it. Shared with other
+/// presenters' dialog routes (the Cupertino one); not exported.
+Widget pdfDialogRouteContent(
+    BuildContext context, WidgetBuilder builder, PdfEditorScope? scope) {
+  // Whatever the host lacks (Material localizations, a theme) is
+  // re-injected here, in the route's own context under the root
+  // navigator - a pass-through under a Material host.
+  final child =
+      pdfHostRoute(context, _PdfDialogKeyboardScope(builder: builder));
+  // Re-inject only when the route's own context lost it (a scope
+  // between the root and a nested navigator that opened the dialog on
+  // the root one is captured too; this is the belt to that brace).
+  if (scope == null ||
+      identical(PdfEditorScope.maybeOf(context, listen: false)?.presenter,
+          scope.presenter)) {
+    return child;
+  }
+  return PdfEditorScope(presenter: scope.presenter, child: child);
 }
