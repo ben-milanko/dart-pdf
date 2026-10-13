@@ -2200,8 +2200,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// page - the one that gets resize/rotate handles (single selection).
   Rect? get _selectedViewRect {
     if (_controller.selectedPage != widget.pageIndex) return null;
-    if (_controller.primarySelectedGroupBounds case final bounds?) {
-      return _geometry.toViewRect(bounds);
+    if (_controller.primarySelectedGroupQuad case final quad?) {
+      return _groupViewBounds(quad);
     }
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
@@ -2250,11 +2250,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (slot.$1 != widget.pageIndex) continue;
       final annotation = _controller.annotationAt(slot.$1, slot.$2);
       if (annotation == null) continue;
-      final bounds = _controller.annotationGroupBounds(slot.$1, slot.$2);
-      if (bounds != null) {
+      final quad = _controller.annotationGroupSelectionQuad(slot.$1, slot.$2);
+      if (quad != null) {
         if (seenGroups
             .add(_controller.annotationGroupSlots(slot.$1, slot.$2).first)) {
-          result.add(_geometry.toViewRect(bounds));
+          result.add(_groupViewBounds(quad));
         }
         continue;
       }
@@ -2270,11 +2270,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return result;
   }
 
+  Rect _groupViewBounds(List<(double, double)> quad) =>
+      _geometry.toViewRect(boundsOfPoints(quad)!);
+
+  bool _selectionBodyContains(Offset point) {
+    if (_controller.selectedIsSingleGroup) {
+      final chrome = _selectionChrome;
+      return chrome != null &&
+          chrome.$1.contains(_rotatePoint(point, chrome.$1.center, -chrome.$2));
+    }
+    return _selectedViewRects.any((rect) => rect.contains(point));
+  }
+
   /// The primary selection's appearance quad in view space (BBox corner
   /// order: ll, lr, ur, ul), or null without an appearance stream.
   List<Offset>? get _selectedViewQuad {
     if (_controller.selectedPage != widget.pageIndex) return null;
-    final quad = _controller.selectedAnnotation?.appearanceQuad;
+    final quad = _controller.primarySelectedGroupQuad ??
+        _controller.selectedAnnotation?.appearanceQuad;
     if (quad == null) return null;
     return [for (final (x, y) in quad) _geometry.toViewOffset(x, y)];
   }
@@ -2339,12 +2352,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// The view-space rotation of [quad]'s bottom edge - the angle the
   /// selection chrome spins by (canvas.rotate convention: clockwise
-  /// positive). Numeric noise within ~0.3° reads as unrotated.
+  /// positive). Only floating point noise reads as unrotated.
   static double _quadAngle(List<Offset> quad) {
     final edge = quad[1] - quad[0];
     if (edge.distance <= 0) return 0;
     final angle = edge.direction;
-    return angle.abs() < 0.005 ? 0 : angle;
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   /// The selection chrome's box and resting rotation: the axis-aligned
@@ -2365,13 +2378,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   (Rect, double)? get _selectionChrome {
     final selected = _selectedViewRect;
     if (selected == null) return null;
-    if (_controller.primarySelectedGroupBounds != null) return (selected, 0);
-    if (_controller.selectedAnnotation?.appearanceRotation == 0) {
+    final rotation = _controller.primarySelectedGroupBounds != null
+        ? _controller.primarySelectedGroupRotation
+        : _controller.selectedAnnotation?.appearanceRotation;
+    if (rotation == 0) {
       return (selected, 0);
     }
     final quad = _selectedViewQuad;
     if (quad == null) return (selected, 0);
-    final angle = _quadAngle(quad);
+    final angle = _controller.primarySelectedGroupBounds != null
+        ? (quad[1] - quad[0]).direction
+        : _quadAngle(quad);
     if (angle == 0) return (selected, 0);
     final center =
         Offset((quad[0].dx + quad[2].dx) / 2, (quad[0].dy + quad[2].dy) / 2);
@@ -4202,16 +4219,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       }
     }
     // dragging any selected annotation moves the whole selection
-    for (final rect in _selectedViewRects) {
-      if (rect.contains(position)) {
-        _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
-        setState(() {
-          _moveStart = position;
-          _moveCurrent = position;
-          _cursor = SystemMouseCursors.move; // 4-arrow while dragging
-        });
-        return;
-      }
+    if (_selectionBodyContains(position)) {
+      _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
+      setState(() {
+        _moveStart = position;
+        _moveCurrent = position;
+        _cursor = SystemMouseCursors.move; // 4-arrow while dragging
+      });
+      return;
     }
     final (x, y) = _geometry.toPagePoint(position);
     if (_controller.selectableAnnotationAt(widget.pageIndex, x, y) != null) {
@@ -4604,10 +4619,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // constant stroke width, so its afterimage must too (the stretch
       // ghost would thicken the line until the raster lands)
       final shapeStyle = _shapeResizeStyle(resizeRect, resizeAngle);
+      // The local chrome uses the group's own axes. A sideways page's
+      // generic rect conversion swaps these dimensions; retain the local
+      // width/height while still converting its centre to page coordinates.
+      var localTo = _geometry.toPageRect(resizeRect);
+      if (resizeAngle != 0 &&
+          _controller.selectedIsSingleGroup &&
+          (_geometry.rotation == 90 || _geometry.rotation == 270)) {
+        final cx = (localTo.left + localTo.right) / 2;
+        final cy = (localTo.bottom + localTo.top) / 2;
+        localTo = PdfRect(cx - localTo.height / 2, cy - localTo.width / 2,
+            cx + localTo.height / 2, cy + localTo.width / 2);
+      }
       void commit() => resizeAngle == 0
           ? _controller.resizeSelected(_geometry.toPageRect(resizeRect),
               flipX: resizeFlipX, flipY: resizeFlipY)
-          : _controller.resizeSelectedLocal(_geometry.toPageRect(resizeRect),
+          : _controller.resizeSelectedLocal(localTo,
               flipX: resizeFlipX, flipY: resizeFlipY);
       if (wrapStyle != null) {
         // the commit re-wraps the text at constant size - a stretched
@@ -5555,8 +5582,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _bumpCursor();
         }
         cursor = SystemMouseCursors.none;
-      } else if (_selectedViewRects
-          .any((rect) => rect.contains(event.localPosition))) {
+      } else if (_selectionBodyContains(event.localPosition)) {
         // hovering a selected annotation: the 4-arrow reads as "drag me"
         cursor = SystemMouseCursors.move;
       } else {

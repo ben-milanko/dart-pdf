@@ -1013,8 +1013,8 @@ class PdfAnnotation {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    // numeric noise within ~0.3° reads as unrotated
-    return angle.abs() < 0.005 ? 0 : angle;
+    // Ignore floating point noise, without flattening deliberate small turns.
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {

@@ -4706,6 +4706,7 @@ extension PdfAnnotationEditing on PdfEditor {
       cy - (cx * sinT + cy * cosT),
     );
     final matrix = baked.concat(rotation);
+    _transformGroupRotation(annotDict, rotation);
     form.dictionary['Matrix'] =
         CosArray([for (final v in matrix.toList()) CosReal(v)]);
 
@@ -4885,7 +4886,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    return angle.abs() < 0.005 ? 0 : angle;
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   /// Regenerates the appearance of a Square, Circle, FreeText, Line,

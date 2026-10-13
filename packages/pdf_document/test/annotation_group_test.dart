@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -22,6 +23,33 @@ PdfDocument edited(PdfDocument doc, void Function(PdfEditor) edit) {
 }
 
 void main() {
+  test('group orientation survives leader removal and resets when merged', () {
+    var doc = shapes();
+    doc = edited(
+        doc, (e) => e.groupAnnotations(0, doc.page(0).annotations.take(3)));
+    const angle = 37 * math.pi / 180;
+    doc = edited(
+        doc,
+        (e) => e.transformAnnotations(
+            0,
+            doc.page(0).annotations.take(3),
+            PdfMatrix(math.cos(angle), math.sin(angle), -math.sin(angle),
+                math.cos(angle), 400, 0)));
+    doc = edited(
+        doc, (e) => e.removeAnnotation(0, doc.page(0).annotations.first));
+    expect(PdfAnnotationGroups.ofPage(doc.page(0)).rotationFor(0),
+        closeTo(angle, 0.00001));
+    doc = edited(doc, (e) => e.groupAnnotations(0, doc.page(0).annotations));
+    expect(PdfAnnotationGroups.ofPage(doc.page(0)).rotationFor(0), 0);
+    doc = edited(doc, (e) => e.ungroupAnnotations(0, doc.page(0).annotations));
+    expect(
+        doc
+            .page(0)
+            .annotations
+            .every((a) => a.dict[kPdfAnnotationGroupRotationKey] == null),
+        isTrue);
+  });
+
   test('group transforms detach shared appearances and preserve point geometry',
       () {
     final seed = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
