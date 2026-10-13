@@ -364,6 +364,27 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Áp dụng cho các trang…';
 
   @override
+  String get propLeader => 'Đường dẫn';
+
+  @override
+  String get propOutlineWidth => 'Độ dày đường viền';
+
+  @override
+  String get menuRotateSelection => 'Xoay quanh tâm vùng chọn…';
+
+  @override
+  String get menuRotateEach => 'Xoay từng chú thích…';
+
+  @override
+  String get rotationAngleTitle => 'Góc xoay (độ, ngược chiều kim đồng hồ)';
+
+  @override
+  String get menuGroup => 'Nhóm';
+
+  @override
+  String get menuUngroup => 'Bỏ nhóm';
+
+  @override
   String get menuBringToFront => 'Đưa lên trước';
 
   @override

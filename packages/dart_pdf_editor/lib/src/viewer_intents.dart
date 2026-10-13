@@ -6,7 +6,7 @@
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 
-import 'editing/editing_controller.dart' show PdfEditTool;
+import 'editing/editing_controller.dart' show PdfEditTool, PdfTextFormatting;
 
 /// Copies the selection: selected annotations to the editing clipboard, or
 /// the selected text to the system clipboard (⌘C / Ctrl+C).
@@ -57,6 +57,12 @@ class PdfDeleteSelectionIntent extends Intent {
 /// Editing only.
 class PdfAutosizeTextBoxIntent extends Intent {
   const PdfAutosizeTextBoxIntent();
+}
+
+/// Toggles bold, italic, or underline on the selected text (Ctrl/⌘+B/I/U).
+class PdfToggleTextFormattingIntent extends Intent {
+  const PdfToggleTextFormattingIntent(this.format);
+  final PdfTextFormatting format;
 }
 
 /// Moves the selected annotations, or the selected page content, by
@@ -125,6 +131,16 @@ final Map<ShortcutActivator, Intent> pdfViewerDefaultShortcuts =
       const PdfRedoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyY, control: true):
       const PdfRedoIntent(),
+  for (final entry in {
+    LogicalKeyboardKey.keyB: PdfTextFormatting.bold,
+    LogicalKeyboardKey.keyI: PdfTextFormatting.italic,
+    LogicalKeyboardKey.keyU: PdfTextFormatting.underline,
+  }.entries) ...{
+    SingleActivator(entry.key, control: true):
+        PdfToggleTextFormattingIntent(entry.value),
+    SingleActivator(entry.key, meta: true):
+        PdfToggleTextFormattingIntent(entry.value),
+  },
   const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
       const PdfCutIntent(),
   const SingleActivator(LogicalKeyboardKey.keyX, control: true):

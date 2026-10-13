@@ -44,8 +44,8 @@ Uint8List buildType0Pdf(String text, Uint8List fontBytes) {
     'Count': const CosInteger(1),
   }));
   pageDict['Parent'] = pagesRef;
-  final catalogRef = builder
-      .add(CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
+  final catalogRef = builder.add(
+      CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
   return builder.build(root: catalogRef);
 }
 
@@ -107,6 +107,23 @@ String toUnicodeOf(PdfDocument doc) {
 
 void main() {
   final fontBytes = File('test/fonts/DejaVuSans.ttf').readAsBytesSync();
+
+  test('color and size edits can introduce a new embedded composite glyph', () {
+    final doc = PdfDocument.open(buildType0Pdf('Hello world', fontBytes));
+    final editor = PdfEditor(doc);
+    expect(
+        editor.replaceStyledText(0, 'world', 'wörld',
+            const PdfTextStyle(color: 0xFF0000, fontSize: 28)),
+        1);
+    final after = PdfDocument.open(editor.save());
+    expect(
+        PdfPageElements.of(after, 0)
+            .elements
+            .where((e) => e.kind == PdfElementKind.text)
+            .map((e) => e.text)
+            .join(),
+        'Hello wörld');
+  });
   final liberationBytes =
       File('test/fonts/LiberationSans-Regular.ttf').readAsBytesSync();
   final font = PdfEmbeddedFont.parse(fontBytes);
@@ -240,8 +257,8 @@ void main() {
       late int n;
       final doc = edit(
           pdf,
-          (e) => n = e.replaceText(0, 'world', '${ch}rld',
-              fallbackFonts: [fallback]));
+          (e) => n =
+              e.replaceText(0, 'world', '${ch}rld', fallbackFonts: [fallback]));
       expect(n, 1);
 
       // a new /Font resource holds the embedded fallback (Type0/Identity-H)
@@ -277,20 +294,21 @@ void main() {
         }
       }
       final ch = String.fromCharCode(missing!);
-      final pdf = buildType0PdfIndirectResources('Hello world', liberationBytes);
+      final pdf =
+          buildType0PdfIndirectResources('Hello world', liberationBytes);
       final fallback = PdfEmbeddedFont.parse(fontBytes);
 
       final editor = PdfEditor(PdfDocument.open(pdf));
-      final n = editor.replaceText(0, 'absent', '${ch}x',
-          fallbackFonts: [fallback]);
+      final n =
+          editor.replaceText(0, 'absent', '${ch}x', fallbackFonts: [fallback]);
       expect(n, 0);
       expect(editor.hasChanges, isFalse,
           reason: 'nothing matched, so nothing should be allocated or marked');
 
       // a matching fallback replacement on the same shape still works.
       final editor2 = PdfEditor(PdfDocument.open(pdf));
-      final n2 = editor2.replaceText(0, 'world', '${ch}rld',
-          fallbackFonts: [fallback]);
+      final n2 = editor2
+          .replaceText(0, 'world', '${ch}rld', fallbackFonts: [fallback]);
       expect(n2, 1);
       final doc = PdfDocument.open(editor2.save());
       final fonts =
@@ -335,8 +353,8 @@ Uint8List buildType0PdfIndirectResources(String text, Uint8List fontBytes) {
     'Count': const CosInteger(1),
   }));
   pageDict['Parent'] = pagesRef;
-  final catalogRef = builder
-      .add(CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
+  final catalogRef = builder.add(
+      CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
   return builder.build(root: catalogRef);
 }
 

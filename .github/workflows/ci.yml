@@ -236,6 +236,18 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  windows-clipboard:
+    name: Windows clipboard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Test native PNG and PDF clipboard transport
+        shell: cmd
+        run: |
+          cl /nologo /std:c++17 /EHsc /W4 app\windows\test\image_clipboard_test.cc app\windows\runner\image_clipboard.cpp /Fe:%RUNNER_TEMP%\image_clipboard_test.exe /link ole32.lib windowscodecs.lib user32.lib gdi32.lib
+          %RUNNER_TEMP%\image_clipboard_test.exe
+
   # Every other job runs the pinned .fvmrc Flutter, which says nothing about
   # the floor dart_pdf_editor declares (5.0.0 said >=3.24.0 but used a 3.44
   # API). This analyzes the editor and the pure-Dart packages under it on the

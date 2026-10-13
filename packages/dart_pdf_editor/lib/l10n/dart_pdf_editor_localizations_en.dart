@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Apply to pages…';
 
   @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection center…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
   String get menuBringToFront => 'Bring to front';
 
   @override
@@ -2792,6 +2813,27 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuApplyToPages => 'Apply to pages…';
 
   @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
   String get menuBringToFront => 'Bring to front';
 
   @override
@@ -5219,6 +5261,27 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuApplyToPages => 'Apply to pages…';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
 
   @override
   String get menuBringToFront => 'Bring to front';

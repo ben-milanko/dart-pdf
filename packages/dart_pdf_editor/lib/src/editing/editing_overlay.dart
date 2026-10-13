@@ -2200,6 +2200,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// page - the one that gets resize/rotate handles (single selection).
   Rect? get _selectedViewRect {
     if (_controller.selectedPage != widget.pageIndex) return null;
+    if (_controller.primarySelectedGroupBounds case final bounds?) {
+      return _geometry.toViewRect(bounds);
+    }
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
     // match _selectedViewRects: a text-markup's primary chrome hugs
@@ -2237,11 +2240,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// hugs the user's color swatches and stops looking like it selects
   /// the unmarked text in between.
   List<Rect> get _selectedViewRects {
+    if (_controller.selectedIsSingleGroup &&
+        _controller.selectedPage == widget.pageIndex) {
+      return [_selectedViewRect!];
+    }
     final result = <Rect>[];
+    final seenGroups = <int>{};
     for (final slot in _controller.selectedAnnotationSlots) {
       if (slot.$1 != widget.pageIndex) continue;
       final annotation = _controller.annotationAt(slot.$1, slot.$2);
       if (annotation == null) continue;
+      final bounds = _controller.annotationGroupBounds(slot.$1, slot.$2);
+      if (bounds != null) {
+        if (seenGroups
+            .add(_controller.annotationGroupSlots(slot.$1, slot.$2).first)) {
+          result.add(_geometry.toViewRect(bounds));
+        }
+        continue;
+      }
       final quads = annotation.behavior.markupQuads;
       if (quads != null && quads.isNotEmpty) {
         for (final q in quads) {
@@ -2264,6 +2280,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   bool get _selectedLineFamily {
+    if (_controller.primarySelectedGroupBounds != null) return false;
     return _controller.selectedAnnotation?.behavior.lineFamily == true;
   }
 
@@ -2294,6 +2311,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The selected line-family annotation's defining points in view space:
   /// /L endpoints for Line, /Vertices for PolyLine and Polygon.
   List<Offset>? get _selectedVertexPoints {
+    if (_controller.selectedAnnotationSlots.length != 1) return null;
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
@@ -2347,6 +2365,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   (Rect, double)? get _selectionChrome {
     final selected = _selectedViewRect;
     if (selected == null) return null;
+    if (_controller.primarySelectedGroupBounds != null) return (selected, 0);
     if (_controller.selectedAnnotation?.appearanceRotation == 0) {
       return (selected, 0);
     }
@@ -2601,6 +2620,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool underline,
     double lineSpacing,
   })? get _textResizeStyle {
+    if (_controller.selectedIsSingleGroup) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null ||
         annotation.behavior.resizeBehavior !=
@@ -2644,6 +2664,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// Mirrors `_regenerateResizedAppearance`'s Square/Circle gate exactly,
   /// so the preview never disagrees with the commit.
   _ShapeResize? _shapeResizeStyle(Rect rect, double rotation) {
+    if (_controller.selectedIsSingleGroup) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null ||
         annotation.behavior.resizeBehavior !=
@@ -2866,9 +2887,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// revision or the selection changes; called from [build] so the
   /// picture is usually ready before a drag starts.
   void _ensureGhost() {
-    // only a single selection drags with its artwork; a multi-selection
-    // moves as plain chrome boxes
-    final slot = _controller.selectedAnnotationSlots.length == 1
+    // A single annotation or group drags with its complete artwork.
+    final slot = (_controller.selectedAnnotationSlots.length == 1 ||
+            _controller.selectedIsSingleGroup)
         ? _controller.selectedAnnotationSlot
         : null;
     final document = _controller.document;
@@ -2885,10 +2906,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _ghost = null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return;
-    unawaited(PdfPageRenderer.renderAnnotationPicture(
-            document.page(widget.pageIndex), annotation,
-            rotation: widget.geometry.rotation)
-        .then((picture) {
+    final Future<ui.Picture?> picture;
+    if (_controller.selectedIsSingleGroup) {
+      final indices = [
+        for (final s in _controller.selectedAnnotationSlots) s.$2
+      ]..sort();
+      picture = _renderGroupGhost(document, indices);
+    } else {
+      picture = PdfPageRenderer.renderAnnotationPicture(
+          document.page(widget.pageIndex), annotation,
+          rotation: widget.geometry.rotation);
+    }
+    unawaited(picture.then((picture) {
       if (!mounted || _ghostKey != key) {
         picture?.dispose();
         return;
@@ -2899,6 +2928,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // alone would leave it blank until the next pointer move)
       if (_moveStart != null) _reportMovePreview();
     }));
+  }
+
+  Future<ui.Picture?> _renderGroupGhost(
+      PdfDocument document, List<int> indices) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final page = document.page(widget.pageIndex);
+    try {
+      for (final index in indices) {
+        final picture = await PdfPageRenderer.renderAnnotationPicture(
+            page, page.annotations[index],
+            rotation: widget.geometry.rotation);
+        if (picture != null) {
+          canvas.drawPicture(picture);
+          picture.dispose();
+        }
+      }
+      return recorder.endRecording();
+    } catch (_) {
+      recorder.endRecording().dispose();
+      return null;
+    }
   }
 
   /// Pushes the current single-selection move drag's floating preview up
@@ -2923,7 +2974,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         current == null ||
         _resizeHandle != null ||
         _rotateStartAngle != null ||
-        _controller.selectedAnnotationSlots.length != 1) {
+        (_controller.selectedAnnotationSlots.length != 1 &&
+            !_controller.selectedIsSingleGroup)) {
       report(null);
       return;
     }
@@ -3261,6 +3313,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
       _controller.canRotateSelected &&
+      (_controller.selectedAnnotationSlots.length == 1 ||
+          _controller.selectedIsSingleGroup) &&
       _handleLayout(rect, rotation).hitsRotateHandle(position);
 
   /// The drag's rotation delta for the pointer at [position]: the angle
@@ -3789,6 +3843,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _textEditRect != null) {
       _onEscapeTextEdit();
       return KeyEventResult.handled;
+    }
+    if (event is KeyDownEvent &&
+        _textEditRect != null &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed) &&
+        !HardwareKeyboard.instance.isAltPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyB ||
+          event.logicalKey == LogicalKeyboardKey.keyI) {
+        _toggleInlineTextStyle(
+            italic: event.logicalKey == LogicalKeyboardKey.keyI);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyU) {
+        _toggleInlineUnderline();
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }
@@ -4641,7 +4711,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final resolve = _host.resolvePagePoint;
       if (resolve != null &&
           moveCurrentGlobal != null &&
-          _controller.selectedAnnotationSlots.length == 1) {
+          (_controller.selectedAnnotationSlots.length == 1 ||
+              _controller.selectedIsSingleGroup)) {
         final drop = resolve(moveCurrentGlobal);
         if (drop != null && drop.$1 != widget.pageIndex) {
           _controller.moveSelectedToPage(drop.$1, drop.$2 - x0, drop.$3 - y0);
@@ -5800,10 +5871,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _toggleInlineTextStyle({required bool italic}) {
     if (_textEditRect == null) return;
 
-    final base = _canStyleInlineTextSelection
+    final font = _canStyleInlineTextSelection
         ? _currentInlineTextStyle().font
         : _textEditFont;
-    if (base is! PdfStandardFont) return;
+    final base = font is PdfStandardFont
+        ? font
+        : PdfStandardFont.fromName(
+            font is PdfEmbeddedFont ? font.postScriptName : font.resourceName);
     final next =
         italic ? base.withItalic(!base.isItalic) : base.withBold(!base.isBold);
 
@@ -6622,6 +6696,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _moveStart == null,
                     showRotateHandle: selected != null &&
                         _controller.canRotateSelected &&
+                        (_controller.selectedAnnotationSlots.length == 1 ||
+                            _controller.selectedIsSingleGroup) &&
                         _moveStart == null,
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],

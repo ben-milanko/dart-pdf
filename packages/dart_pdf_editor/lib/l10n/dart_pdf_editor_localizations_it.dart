@@ -365,6 +365,27 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Applica alle pagine…';
 
   @override
+  String get propLeader => 'Linea guida';
+
+  @override
+  String get propOutlineWidth => 'Spessore del contorno';
+
+  @override
+  String get menuRotateSelection => 'Ruota intorno al centro della selezione…';
+
+  @override
+  String get menuRotateEach => 'Ruota ogni annotazione…';
+
+  @override
+  String get rotationAngleTitle => 'Rotazione (gradi, senso antiorario)';
+
+  @override
+  String get menuGroup => 'Raggruppa';
+
+  @override
+  String get menuUngroup => 'Separa';
+
+  @override
   String get menuBringToFront => 'Porta in primo piano';
 
   @override

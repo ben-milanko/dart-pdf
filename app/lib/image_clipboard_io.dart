@@ -25,7 +25,8 @@ Future<bool> copyPngToClipboard(Uint8List bytes) async {
 /// Returns null when there is no image or the host platform does not expose
 /// one through the app channel.
 Future<Uint8List?> readImageFromClipboard() async {
-  return await _channel.invokeMethod<Uint8List>('readImage');
+  return await _channel
+      .invokeMethod<Uint8List>('readImage', {'externalOnly': true});
 }
 
 /// Reads plain text from the native system clipboard. Flutter's [Clipboard]

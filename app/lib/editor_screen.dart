@@ -3059,6 +3059,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// prompts for a location (save dialog / browser download / share sheet).
   /// An in-place write that fails (e.g. permissions) falls back to save-as.
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    FocusManager.instance.applyFocusChangesIfNeeded();
+    tab.session?.finishInk();
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
@@ -4604,6 +4607,7 @@ class _EditorScreenState extends State<EditorScreen>
           (widget.pdfClipboardReader ?? readPdfFromClipboard)(),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
+      systemImagePasteOverridesLocalClipboard: imageClipboardTracksOwnership,
       systemTextPasteProvider: (context) =>
           (widget.textClipboardReader ?? readTextFromClipboard)(),
       onExportSelectedContentImage: (context, image) =>

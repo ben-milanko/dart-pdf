@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosName;
 
 import '../design/material_host.dart';
 import 'annotation_presentation.dart';
@@ -131,6 +132,8 @@ class _PdfAnnotationPropertiesPanelState
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
+  double? _draggingLeaderWidth;
+  double? _draggingOutlineWidth;
   double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
@@ -471,7 +474,8 @@ class _PdfAnnotationPropertiesPanelState
     return Padding(
       padding: const EdgeInsetsDirectional.only(start: 16, end: 8),
       child: Row(children: [
-        Text(label),
+        Flexible(
+            child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis)),
         Expanded(
           child: Slider(
             key: key,
@@ -940,6 +944,81 @@ class _PdfAnnotationPropertiesPanelState
           onClear: () => _controller.restyleSelectedText(border: (null,)),
           clearTooltip: pdfL10n(context).propNoOutline,
           varies: borders.varies),
+      if (annotations.any((a) => a.isCallout))
+        _sliderRow(pdfL10n(context).propOutlineWidth,
+            _draggingOutlineWidth ?? freeStyles.first.borderWidth,
+            key: const ValueKey('pdf-prop-callout-outline-width'),
+            min: 0,
+            max: 16,
+            fieldMin: 0,
+            fieldMax: kPdfTypedSizeMax,
+            onChanged: (v) => setState(() => _draggingOutlineWidth = v),
+            onChangeEnd: (v) {
+              _controller.restyleSelectedText(borderWidth: v);
+              setState(() => _draggingOutlineWidth = null);
+            }),
+    ];
+  }
+
+  List<Widget> _calloutLeaderControls() {
+    final callouts = [
+      for (final a in _selectedAnnotations)
+        if (a.isCallout) a
+    ];
+    if (callouts.isEmpty) return const [];
+    final styles = [for (final a in callouts) a.calloutLeaderStyle!];
+    final colors = _common<int>([for (final s in styles) s.color]);
+    final widths = _common<double>([for (final s in styles) s.width]);
+    final dash = PdfLineStyle.ofDashArray(styles.first.dash);
+    final ending =
+        callouts.first.document.cos.resolve(callouts.first.dict['LE']);
+    final arrow = ending is CosName
+        ? PdfLineEnding.fromName(ending.value)
+        : PdfLineEnding.openArrow;
+    return [
+      _swatchRow(pdfL10n(context).propColor, Color(0xFF000000 | colors.value),
+          key: const ValueKey('pdf-prop-callout-leader-color'),
+          varies: colors.varies, onTap: () async {
+        final color = await pickEditingColor(context, _controller,
+            initial: Color(0xFF000000 | colors.value));
+        if (color != null) {
+          _controller.restyleSelectedCalloutLeader(color: color);
+        }
+      }),
+      _sliderRow(
+          pdfL10n(context).propStroke, _draggingLeaderWidth ?? widths.value,
+          key: const ValueKey('pdf-prop-callout-leader-width'),
+          min: 0.5,
+          max: 16,
+          fieldMin: 0.1,
+          fieldMax: kPdfTypedSizeMax,
+          varies: widths.varies,
+          onChanged: (v) => setState(() => _draggingLeaderWidth = v),
+          onChangeEnd: (v) {
+            _controller.restyleSelectedCalloutLeader(width: v);
+            setState(() => _draggingLeaderWidth = null);
+          }),
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(pdfL10n(context).propLineType)),
+            PdfDropdown<PdfLineStyle>(
+                key: const ValueKey('pdf-prop-callout-leader-dash'),
+                value: dash,
+                items: [
+                  for (final s in PdfLineStyle.values)
+                    PdfDropdownItem(
+                        value: s, label: pdfLineStyleLabel(context, s))
+                ],
+                onChanged: (s) =>
+                    _controller.restyleSelectedCalloutLeader(lineStyle: s)),
+          ])),
+      _lineEndingRow(
+          label: pdfL10n(context).propLineStart,
+          key: const ValueKey('pdf-prop-callout-leader-ending'),
+          value: arrow,
+          onChanged: (ending) =>
+              _controller.restyleSelectedCalloutLeader(ending: ending)),
     ];
   }
 
@@ -1094,6 +1173,7 @@ class _PdfAnnotationPropertiesPanelState
 
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
+    addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
     // a form widget's /T is its field name, not an author, and /V (not
     // /Contents) is its value - so widgets get a "Field name" group instead
     // of the generic Contents/Author group
@@ -1195,6 +1275,7 @@ class _PdfAnnotationPropertiesPanelState
     ]);
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
+    addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
     if (hasWidget) {
       // bulk form-field edits: text styling for every selected text field
       // and one width/height for every selected widget

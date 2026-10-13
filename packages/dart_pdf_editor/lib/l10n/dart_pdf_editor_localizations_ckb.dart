@@ -365,6 +365,27 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'جێبەجێکردن لەسەر پەڕەکان…';
 
   @override
+  String get propLeader => 'هێڵی ئاماژە';
+
+  @override
+  String get propOutlineWidth => 'پانی چوارچێوە';
+
+  @override
+  String get menuRotateSelection => 'سوڕاندن بە دەوری ناوەندی هەڵبژاردن…';
+
+  @override
+  String get menuRotateEach => 'سوڕاندنی هەر تێبینییەک…';
+
+  @override
+  String get rotationAngleTitle => 'سوڕاندن (پلە، پێچەوانەی کاتژمێر)';
+
+  @override
+  String get menuGroup => 'گرووپکردن';
+
+  @override
+  String get menuUngroup => 'هەڵوەشاندنەوەی گرووپ';
+
+  @override
   String get menuBringToFront => 'هێنانە پێشەوە';
 
   @override
