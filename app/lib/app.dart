@@ -18,6 +18,7 @@ import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 import 'tab_drag.dart';
 import 'trackpad_signature.dart';
+import 'web_safe_area.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -221,7 +222,8 @@ class _DartPdfWindow extends StatelessWidget {
       prefs: prefs,
       builder: (context) => MaterialApp(
         title: kProductDisplayName,
-        builder: (context, child) => KeyboardAvailability(child: child!),
+        builder: (context, child) =>
+            WebSafeArea(child: KeyboardAvailability(child: child!)),
         localizationsDelegates: appLocalizationsDelegates,
         // With no matching platform locale (e.g. Linux's C locale), use
         // English instead of the generated list's first language, Arabic.
