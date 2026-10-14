@@ -52,6 +52,7 @@ class PpOcrPipeline implements OcrModelRunner {
   PpOcrPipeline(
     this.inference, {
     this.detectionSideLimit = 4000,
+    this.detectionPixelLimit,
     this.detectionMean = const [0.485, 0.456, 0.406],
     this.detectionStd = const [0.229, 0.224, 0.225],
     this.recognitionImageHeight = 48,
@@ -71,6 +72,10 @@ class PpOcrPipeline implements OcrModelRunner {
   /// Detection resizes the page so its longest side is at most this many
   /// pixels (rounded to a multiple of 32).
   final int detectionSideLimit;
+
+  /// When set, detection also keeps the resized page's area at or under this
+  /// many pixels (see [detectionResize]) - for a backend with a capped heap.
+  final int? detectionPixelLimit;
   final List<double> detectionMean;
   final List<double> detectionStd;
 
@@ -128,7 +133,7 @@ class PpOcrPipeline implements OcrModelRunner {
 
     // --- detection ---
     final size = detectionResize(image.width, image.height,
-        sideLimit: detectionSideLimit);
+        sideLimit: detectionSideLimit, pixelLimit: detectionPixelLimit);
     final resized = image.resize(size.width, size.height);
     final detInput =
         toNchwFloat32(resized, mean: detectionMean, std: detectionStd);

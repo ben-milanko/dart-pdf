@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'ocr_image.dart';
@@ -30,14 +31,23 @@ class DetectionResize {
 /// longest side scaled down to at most [sideLimit], each side rounded to a
 /// multiple of [multiple] (and never below it). Pages already within the
 /// limit are only rounded, never upscaled.
+///
+/// [pixelLimit], when set, also caps the area (width x height, before
+/// rounding) - for a memory-bound backend, where detection's working set
+/// grows with the pixel count rather than the longest side.
 DetectionResize detectionResize(
   int srcWidth,
   int srcHeight, {
   int sideLimit = 4000,
+  int? pixelLimit,
   int multiple = 32,
 }) {
   final longest = srcWidth > srcHeight ? srcWidth : srcHeight;
-  final ratio = longest > sideLimit ? sideLimit / longest : 1.0;
+  var ratio = longest > sideLimit ? sideLimit / longest : 1.0;
+  if (pixelLimit != null) {
+    final pixels = srcWidth * ratio * srcHeight * ratio;
+    if (pixels > pixelLimit) ratio *= math.sqrt(pixelLimit / pixels);
+  }
   int round(double v) {
     final m = (v / multiple).round() * multiple;
     return m < multiple ? multiple : m;

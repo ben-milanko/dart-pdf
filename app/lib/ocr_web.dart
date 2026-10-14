@@ -11,6 +11,7 @@ import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 import 'l10n/app_l10n.dart';
 import 'ocr_pages.dart';
 import 'ocr_status.dart';
+import 'ocr_web_budget.dart';
 
 export 'ocr_status.dart';
 
@@ -89,8 +90,7 @@ class OnDeviceOcr {
     }
     _cancelled = false;
 
-    final pipeline = PpOcrPipeline(_BrowserOcrInference());
-    final engine = OcrRunnerEngine(pipeline);
+    OcrRunnerEngine? engine;
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
       // Feed the bridge's model-download progress into the chip. The bridge
@@ -113,10 +113,15 @@ class OnDeviceOcr {
         );
       });
       try {
-        await pipeline.load();
+        await _ocrLoad().toDart;
       } finally {
         _setProgressListener(null);
       }
+      // The bridge is up, so the heap it got is known; size the work to it.
+      final pipeline = browserOcrPipeline(_BrowserOcrInference(),
+          heapBytes: _ocrHeapLimitHook == null ? 0 : _ocrHeapLimit().toDartInt);
+      engine = OcrRunnerEngine(pipeline);
+      await pipeline.load();
       if (_cancelled) {
         onToast(l10n.ocrCancelled);
         return;
@@ -168,7 +173,7 @@ class OnDeviceOcr {
     } catch (e) {
       onToast(l10n.ocrFailed(e.toString()));
     } finally {
-      await engine.dispose();
+      await engine?.dispose();
       status.value = null;
     }
   }
@@ -201,6 +206,14 @@ external void _registerOcrProgress(JSFunction? listener);
 
 @JS('__dartPdfOcrRun')
 external JSAny? get _ocrBridge;
+
+/// The OCR wasm heap's maximum when the bridge had to cap it, else 0. Null
+/// against an older cached `index.html` without the hook.
+@JS('__dartPdfOcrHeapLimit')
+external JSAny? get _ocrHeapLimitHook;
+
+@JS('__dartPdfOcrHeapLimit')
+external JSNumber _ocrHeapLimit();
 
 @JS('__dartPdfOcrLoad')
 external JSPromise<JSString> _ocrLoad();
