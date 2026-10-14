@@ -863,6 +863,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _selectTapDown;
   Timer? _selectTapTimer;
   Offset? _selectTapUp;
+  // the last pointer that went down on the selection chip: its buttons own
+  // that tap, so it is never a selection tap on the page beneath
+  int? _chipPointer;
 
   // eyedropper: one page raster serves every preview sample
   PdfPageColorSampler? _sampler;
@@ -1883,8 +1886,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (_pointers.gestureBailed) return;
     // a second contact while one is down is not a tap
-    final freshTap =
-        _selectTapPointer == null && event.buttons == kPrimaryButton;
+    final freshTap = _selectTapPointer == null &&
+        event.buttons == kPrimaryButton &&
+        event.pointer != _chipPointer;
     _clearSelectTap();
     if (freshTap) {
       _selectTapPointer = event.pointer;
@@ -5818,7 +5822,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         child: Transform.scale(
           scale: _chromeScale,
           alignment: above ? Alignment.bottomCenter : Alignment.topCenter,
-          child: _selectionActionBar(anchor),
+          // reached before the overlay's own listener (innermost first)
+          child: Listener(
+            behavior: HitTestBehavior.deferToChild,
+            onPointerDown: (event) => _chipPointer = event.pointer,
+            child: _selectionActionBar(anchor),
+          ),
         ),
       ),
     );

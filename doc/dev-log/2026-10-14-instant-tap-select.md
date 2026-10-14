@@ -39,6 +39,13 @@ Plain selection taps now also commit from the overlay's raw
   selected free text (`_tapEditsSelectedFreeText`, now shared), following a
   link, shift/⌘ toggles, and reader mode with no tool (clearing the
   selection there unmounts the overlay's recognizers).
+- A press on the touch selection chip is never a candidate. The chip's
+  buttons are children of the overlay, so its raw listener sees their taps
+  too. An early select at the button's position used to clear the selection
+  before Delete ran, which then deleted nothing (`editing_ipad_test.dart`).
+  A `Listener` around the chip records `_chipPointer`, and because the
+  innermost listener runs first, it is set before the overlay's own
+  `_onPointerDown` sees the press.
 - `_selectTapUp` records the handled lift's global position so the arena's
   late `_onTapUp` for that same press returns early. Without it, the first
   tap on a free text would select it early, and then the delayed tap would
