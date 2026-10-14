@@ -4271,8 +4271,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_selectMode || _host.showAnnotationMenu == null) {
       return false;
     }
-    return _controller.selectableAnnotationAt(widget.pageIndex, x, y) != null ||
-        _controller.hasAnnotationClipboard;
+    if (_controller.selectableAnnotationAt(widget.pageIndex, x, y) != null) {
+      return true;
+    }
+    // With the select tool armed, a hold on empty page area belongs to the
+    // viewer's long-press: dragging it rubber-bands a marquee, and a still
+    // release opens this same paste menu there. Claiming it here too would
+    // race that recognizer and the paste menu would always win.
+    if (_tool == PdfEditTool.select) return false;
+    return _controller.hasAnnotationClipboard;
   }
 
   /// Touch/stylus long-press: the context menu mice reach by
