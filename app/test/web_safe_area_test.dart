@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dart_pdf_editor_app/web_safe_area.dart';
+import 'package:dart_pdf_editor_app/web_safe_area_stub.dart' as stub;
 
 void main() {
   test('insets add to the view padding and the padding', () {
@@ -37,5 +38,62 @@ void main() {
       }),
     ));
     expect(seen.padding, EdgeInsets.zero);
+  });
+
+  testWidgets('the stub host does nothing', (tester) async {
+    expect(stub.supported, isFalse);
+    stub.coverViewport();
+    stub.setPageBackground(const Color(0xFF000000));
+    expect(stub.readInsets(), EdgeInsets.zero);
+    stub.onInsetsChanged(() {})();
+  });
+
+  testWidgets(
+      'on a page: covers the viewport, pads by its insets, follows them, '
+      'and paints the page in the app bar colour', (tester) async {
+    var insets = const EdgeInsets.only(top: 47, bottom: 34);
+    var covered = 0;
+    void Function()? listener;
+    var unsubscribed = false;
+    final backgrounds = <Color>[];
+    final host = WebSafeAreaHost(
+      supported: true,
+      coverViewport: () => covered++,
+      readInsets: () => insets,
+      onInsetsChanged: (l) {
+        listener = l;
+        return () => unsubscribed = true;
+      },
+      setPageBackground: backgrounds.add,
+    );
+    late MediaQueryData seen;
+    final theme = ThemeData(
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF123456)));
+    await tester.pumpWidget(MaterialApp(
+      theme: theme,
+      builder: (context, child) => WebSafeArea(host: host, child: child!),
+      home: Builder(builder: (context) {
+        seen = MediaQuery.of(context);
+        return const SizedBox();
+      }),
+    ));
+    expect(covered, 1);
+    expect(seen.padding, const EdgeInsets.only(top: 47, bottom: 34));
+    expect(backgrounds, [const Color(0xFF123456)]);
+
+    // a rotation moves the notch to the side
+    insets = const EdgeInsets.only(left: 47, right: 47, bottom: 21);
+    listener!();
+    await tester.pump();
+    expect(seen.padding, insets);
+
+    // back to no insets: the child gets the host's own padding again
+    insets = EdgeInsets.zero;
+    listener!();
+    await tester.pump();
+    expect(seen.padding, EdgeInsets.zero);
+
+    await tester.pumpWidget(const SizedBox());
+    expect(unsubscribed, isTrue);
   });
 }
