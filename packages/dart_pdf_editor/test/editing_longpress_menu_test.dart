@@ -150,6 +150,26 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     });
 
+    testWidgets('a cancelled long-press marquee selects nothing',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(viewPoint(280, 470),
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(viewPoint(420, 380));
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      expect(editing.selectedAnnotationSlots, isEmpty);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
     // (a still hold keeps opening the paste menu - see the paste test above)
     testWidgets('long-press-drag with a clipboard marquees instead of pasting',
         (tester) async {
@@ -371,6 +391,45 @@ void main() {
   // dropped. The request carries the resolved target (annotation, text,
   // form widget, ...) so the host never has to re-run a hit test.
   group('onContextMenuRequested host takeover', () {
+    testWidgets(
+        'a still long-press on empty area in select mode hands the paste '
+        'gesture to the host on release', (tester) async {
+      final hostCalls = <PdfContextMenuRequest>[];
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              editing: editing,
+              contextMenuEnabled: false,
+              onContextMenuRequested: hostCalls.add,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      await longPressAt(tester, viewPoint(200, 480));
+      expect(hostCalls, hasLength(1));
+      expect(hostCalls.first.target, PdfContextMenuTarget.emptyPage);
+      final (x, y) = hostCalls.first.pagePoint;
+      expect(x, closeTo(200, 0.5));
+      expect(y, closeTo(480, 0.5));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
     testWidgets(
         'long-press on an annotation in select mode hands the gesture to '
         'the host instead of opening the stock menu', (tester) async {
