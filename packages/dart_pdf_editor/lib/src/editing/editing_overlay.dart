@@ -850,6 +850,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Timer? _polyLastTapTimer;
   // the form tool's double-tap fills the field under the down position
   TapDownDetails? _doubleTapDownDetails;
+  // Selection taps commit from the raw pointer-up as well ([_onSelectionTap]):
+  // the viewer's touch double-tap zoom (and the form tool's own fill
+  // double-tap) hold every tap in the arena for the double-tap timeout, so a
+  // tap selected ~300ms after it lifted. [_selectTapPointer]/[_selectTapDown]
+  // track a press that may yet be that tap, until [_selectTapTimer] (the
+  // long-press deadline - past it the press is the menu's or a text
+  // selection's) expires it; [_selectTapUp] is the global lift position of
+  // one already handled, so the arena's late [_onTapUp] for the same press
+  // doesn't run it a second time.
+  int? _selectTapPointer;
+  Offset? _selectTapDown;
+  Timer? _selectTapTimer;
+  Offset? _selectTapUp;
 
   // eyedropper: one page raster serves every preview sample
   PdfPageColorSampler? _sampler;
@@ -1869,6 +1882,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_pointers.gestureBailed) return;
+    // a second contact while one is down is not a tap
+    final freshTap =
+        _selectTapPointer == null && event.buttons == kPrimaryButton;
+    _clearSelectTap();
+    if (freshTap) {
+      _selectTapPointer = event.pointer;
+      _selectTapDown = event.localPosition;
+      _selectTapTimer = Timer(kLongPressTimeout, _clearSelectTap);
+    }
     if (_polyTool || _hybridPolyTool) {
       // a second contact while one is down is not a tap
       final fresh = _polyTapPointer == null && event.buttons == kPrimaryButton;
@@ -1944,6 +1966,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             computeHitSlop(event.kind, null)) {
       _clearPolyTap(); // a drag, not a vertex tap
     }
+    if (event.pointer == _selectTapPointer &&
+        (event.localPosition - _selectTapDown!).distance >
+            computeHitSlop(event.kind, null)) {
+      _clearSelectTap(); // a drag, not a selection tap
+    }
     if (event.kind == PointerDeviceKind.mouse ||
         event.kind == PointerDeviceKind.trackpad) {
       _guideCursor = event.localPosition;
@@ -1992,6 +2019,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _bailActiveGesture() {
     if (_interaction.isActive) _interaction.cancel();
     _pointers.gestureBailed = true;
+    _clearSelectTap();
     _pointers.clearRaw();
     // a second finger landed: stop panning so the viewer's pinch-zoom
     // recognizer takes both touches (no fling - the gesture isn't a pan)
@@ -3046,6 +3074,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   @override
   void dispose() {
     _polyLastTapTimer?.cancel();
+    _selectTapTimer?.cancel();
     _controller.removeListener(_onControllerChanged);
     if (_textEditRect != null) _controller.setEditingText(false);
     // if THIS overlay was mid-move, drop the shared cross-page preview
@@ -5282,8 +5311,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         ? _polyTapDown
         : null;
     if (event.pointer == _polyTapPointer) _clearPolyTap();
+    final selectTap =
+        event.pointer == _selectTapPointer && !_pointers.gestureBailed;
+    if (event.pointer == _selectTapPointer) _clearSelectTap();
+    _selectTapUp = null;
     _endRawPointer(event, canceled: false);
     if (tapDown != null) _onPolyTap(tapDown, event.localPosition, paired);
+    if (selectTap && _onSelectionTap(event)) _selectTapUp = event.position;
     if (!_controller.isPickingColor) return;
     final dragged = _pickDragged;
     _pickDownPosition = null;
@@ -5309,6 +5343,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _pickDownPosition = null;
     _pickDragged = false;
     if (event.pointer == _polyTapPointer) _clearPolyTap();
+    if (event.pointer == _selectTapPointer) _clearSelectTap();
     _endRawPointer(event, canceled: true);
   }
 
@@ -5317,6 +5352,66 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _polyTapDown = null;
     _polyTapPaired = false;
   }
+
+  void _clearSelectTap() {
+    _selectTapPointer = null;
+    _selectTapDown = null;
+    _selectTapTimer?.cancel();
+    _selectTapTimer = null;
+  }
+
+  /// The selecting half of [_onTapUp], run from the raw pointer-up so a
+  /// selection lands on the lift instead of when the double-tap recognizers
+  /// let the tap go. Mice are only held by the form tool's own double-tap
+  /// (the viewer's zoom recognizer is touch/stylus only), so elsewhere they
+  /// keep the arena path. Returns whether the tap was handled; anything that
+  /// isn't a plain selection - placing, the re-tap that opens a selected free
+  /// text, following a link, a modifier toggle - still waits for [_onTapUp].
+  bool _onSelectionTap(PointerUpEvent event) {
+    if (!mounted ||
+        _controller.isCroppingImage ||
+        _controller.isPickingColor ||
+        _controller.activeSavedAnnotation != null ||
+        _textEditRect != null ||
+        _additiveModifier) {
+      return false;
+    }
+    final local = event.localPosition;
+    final (x, y) = _geometry.toPagePoint(local);
+    if (_tool == PdfEditTool.form) {
+      _controller.selectFormWidgetAt(widget.pageIndex, x, y);
+      return true;
+    }
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus) {
+      return false;
+    }
+    if (_tool == PdfEditTool.content) {
+      _controller.selectElementAt(widget.pageIndex, x, y);
+      return true;
+    }
+    if (!_selectMode || _tapEditsSelectedFreeText(local)) return false;
+    _host.clearTextSelection?.call();
+    if (_controller.selectableAnnotationAt(widget.pageIndex, x, y) == null) {
+      // empty page: drop the selection now, but leave the tap to [_onTapUp]
+      // - it may still be a link to follow. (Without an armed tool the
+      // overlay unmounts its recognizers with the selection, so that case
+      // stays on the arena path whole.)
+      if (_tool == PdfEditTool.select) _controller.clearAnnotationSelection();
+      return false;
+    }
+    _controller.selectAnnotationAt(widget.pageIndex, x, y);
+    return true;
+  }
+
+  /// Whether a select-mode tap at [local] lands on the one selected free
+  /// text, which edits it in place like clicking into a text box.
+  bool _tapEditsSelectedFreeText(Offset local) =>
+      _controller.selectedAnnotationSlots.length == 1 &&
+      _controller.selectedAnnotationSlot?.$1 == widget.pageIndex &&
+      _controller.selectedAnnotation?.subtype == 'FreeText' &&
+      !_additiveModifier &&
+      (_selectedViewRect?.contains(local) ?? false);
 
   /// A poly-tool tap that went down at [down] has lifted at [up]. A hybrid
   /// tool's vertex lands here (a press could still have been the drag that
@@ -5337,6 +5432,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   Future<void> _onTapUp(TapUpDetails details) async {
+    if (details.globalPosition == _selectTapUp) {
+      // the raw pointer-up already selected for this press
+      _selectTapUp = null;
+      return;
+    }
     // the crop overlay owns taps while a crop is armed
     if (_controller.isCroppingImage) return;
     // the eyedropper commits from the raw pointer-up instead
@@ -5382,11 +5482,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_selectMode) {
       // tapping the already-selected free text edits it in place,
       // like clicking into a text box in any editor
-      if (_controller.selectedAnnotationSlots.length == 1 &&
-          _controller.selectedAnnotationSlot?.$1 == widget.pageIndex &&
-          _controller.selectedAnnotation?.subtype == 'FreeText' &&
-          !_additiveModifier &&
-          (_selectedViewRect?.contains(details.localPosition) ?? false)) {
+      if (_tapEditsSelectedFreeText(details.localPosition)) {
         _openTextEditor(_selectedViewRect!, existing: true);
         return;
       }
