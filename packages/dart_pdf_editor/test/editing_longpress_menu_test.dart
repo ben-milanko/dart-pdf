@@ -234,6 +234,29 @@ void main() {
   });
 
   group('reader mode', () {
+    testWidgets(
+        'long-press on empty area with a selection but no tool still pastes',
+        (tester) async {
+      // No tool armed but an annotation selected: the overlay is mounted in
+      // select behaviour and keeps claiming the hold for its paste menu
+      // (only the armed select tool hands empty area to the touch marquee).
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..selectAnnotationAt(0, 350, 425)
+        ..copySelectedAnnotations();
+      await tester.pump();
+      expect(editing.tool, isNull);
+      expect(editing.hasAnnotationSelection, isTrue);
+
+      await longPressAt(tester, viewPoint(200, 480));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
+      await tester.tapAt(const Offset(780, 580));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
     testWidgets('long-press on an annotation opens the menu without a tool',
         (tester) async {
       final editing = await pumpViewer(tester);
