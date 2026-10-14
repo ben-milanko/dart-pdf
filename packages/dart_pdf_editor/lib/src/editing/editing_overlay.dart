@@ -2004,6 +2004,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _activeStroke = null;
       _activeStrokePressures = null;
       _inkShiftAnchorIndex = null;
+      _penCursor = null;
       _resetErase();
       _panErasing = false;
       _dragStart = null;
@@ -2089,7 +2090,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _activeStroke = null;
       _activeStrokePressures = null;
       _inkShiftAnchorIndex = null;
+      // The raw path only drives touch and stylus. A finger never hovers,
+      // so nothing else would ever take the pen dot down - it would sit
+      // where the stroke ended. A hovering stylus re-places it on its next
+      // hover event.
+      _penCursor = null;
     });
+    _bumpCursor();
     _bumpActiveStroke();
     if (canceled || stroke == null || stroke.isEmpty) {
       _controller.cancelInkStroke();
