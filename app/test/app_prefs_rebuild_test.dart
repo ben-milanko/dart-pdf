@@ -28,6 +28,32 @@ void main() {
   PdfEditingPreferences prefsOf(WidgetTester tester) =>
       tester.widget<EditorScreen>(find.byType(EditorScreen)).prefs;
 
+  testWidgets('an unsupported system locale starts in English', (tester) async {
+    tester.binding.platformDispatcher.localesTestValue = const [Locale('C')];
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    await tester.pumpWidget(const DartPdfEditorApp());
+    await tester.pumpAndSettle();
+    final context =
+        tester.element(find.byKey(const ValueKey('welcome-open-pdf')));
+    expect(Localizations.localeOf(context), const Locale('en'));
+    expect(Directionality.of(context), TextDirection.ltr);
+    expect(find.text('Open a PDF'), findsOneWidget);
+  });
+
+  testWidgets('a later supported system locale still wins over English',
+      (tester) async {
+    tester.binding.platformDispatcher.localesTestValue = const [
+      Locale('zz'),
+      Locale('de'),
+    ];
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    await tester.pumpWidget(const DartPdfEditorApp());
+    await tester.pumpAndSettle();
+    final context =
+        tester.element(find.byKey(const ValueKey('welcome-open-pdf')));
+    expect(Localizations.localeOf(context), const Locale('de'));
+  });
+
   testWidgets('a tool-style preference tick leaves the app shell alone',
       (tester) async {
     // The checked-in 40-page letterhead report at a desktop window size, so

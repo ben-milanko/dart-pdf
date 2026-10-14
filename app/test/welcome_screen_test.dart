@@ -28,6 +28,24 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: screen)));
   }
 
+  testWidgets('first launch offers file picking and desktop drop guidance',
+      (tester) async {
+    var opened = 0;
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () => opened++,
+          onOpenRecent: (_) {},
+        ),
+        size: const Size(800, 600));
+    expect(find.byKey(const ValueKey('welcome-start-panel')), findsOneWidget);
+    expect(find.text('Drop PDF to open'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('welcome-open-pdf')));
+    expect(opened, 1);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
   testWidgets('a recent row shows its first-page thumbnail once it renders',
       (tester) async {
     final store = RecentsStore();
