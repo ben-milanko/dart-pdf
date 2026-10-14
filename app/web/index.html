@@ -356,6 +356,70 @@
     })();
   </script>
 
+  <!-- On-screen keyboard settle. Flutter web measures the page only when the
+       visual viewport fires 'resize', and on iOS (Safari, and Brave/Chrome on
+       WebKit) the last resize of a keyboard dismissal can arrive while the
+       keyboard is still animating away, or before the text field has blurred.
+       Flutter then keeps a short physical size or a stale keyboard inset, and
+       the body shows through as a blank band under the app until something
+       else resizes the window. Once the viewport has been quiet for a moment,
+       undo any document scroll iOS left behind for the focused input and
+       re-send 'resize' so Flutter measures the settled viewport. Mobile only:
+       desktop resizes already end on a real event. -->
+  <script>
+    (function () {
+      var vv = window.visualViewport;
+      if (!vv) return;
+      var coarse = window.matchMedia &&
+        window.matchMedia('(pointer: coarse)').matches;
+      var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!coarse && !ios) return;
+
+      // The keyboard animation runs ~250-500 ms; re-measure across it.
+      var SETTLE_MS = [120, 360, 800];
+      var timers = [];
+      var resending = false;
+
+      function editing() {
+        var el = document.activeElement;
+        if (!el) return false;
+        var tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+      }
+
+      function settle() {
+        // While a field is focused iOS may scroll to keep it in view; only
+        // put the page back once nothing is being edited.
+        if (!editing() && (window.scrollX || window.scrollY)) {
+          window.scrollTo(0, 0);
+        }
+        resending = true;
+        try {
+          vv.dispatchEvent(new Event('resize'));
+        } finally {
+          resending = false;
+        }
+      }
+
+      function schedule() {
+        if (resending) return;
+        for (var i = 0; i < timers.length; i++) window.clearTimeout(timers[i]);
+        timers = SETTLE_MS.map(function (ms) {
+          return window.setTimeout(settle, ms);
+        });
+      }
+
+      vv.addEventListener('resize', schedule);
+      vv.addEventListener('scroll', schedule);
+      window.addEventListener('resize', schedule);
+      window.addEventListener('orientationchange', schedule);
+      // A dismissal that doesn't resize at all (iOS can skip the final
+      // event) still blurs the field.
+      document.addEventListener('focusout', schedule, true);
+    })();
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
