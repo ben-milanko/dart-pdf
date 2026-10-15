@@ -32,3 +32,15 @@ Re-sent resizes landed across that handoff. The script now does nothing
 while an input, textarea or contenteditable is focused. The engine's own
 resize events already carry the keyboard inset in that state, and the bug
 this fixes only shows once the field has blurred.
+
+## Still reproducing: on-device readout
+
+With the settle script in place the band still showed on an iPhone, so the
+cause isn't (only) a missed final resize. To get facts from the device,
+`?vpdebug` in the URL (before any `#`) turns on a readout in `index.html`. It
+shows `innerHeight`, `documentElement.clientHeight`, the visual viewport
+(height, offsetTop, scale), document scroll, the `flutter-view` and canvas
+heights, the focused element, and the last 8 viewport/focus events with
+timestamps. If the canvas is shorter than `client`, Flutter is holding a
+stale size. If `client` itself is short, the browser is misreporting. If
+`scroll`/`top` are non-zero, the page was left scrolled.
