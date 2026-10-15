@@ -5518,6 +5518,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onHover(PointerHoverEvent event) {
+    // A finger can't hover. The web engine still synthesizes a touch hover
+    // at the lift point (MouseRegion delivers it through hit testing, not
+    // the mouse tracker), which would park the pen dot, eraser ring, guides
+    // and previews wherever the last stroke ended.
+    if (event.kind == PointerDeviceKind.touch) return;
     if (_guideCursor != event.localPosition) {
       _guideCursor = event.localPosition;
       _bumpCursor();

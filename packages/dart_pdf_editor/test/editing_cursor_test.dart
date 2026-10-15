@@ -228,6 +228,33 @@ void main() {
     });
   }
 
+  // Flutter web follows a finger's lift with a synthesized hover of kind
+  // touch at the same spot. A finger can't hover, so it must not bring the
+  // pen dot back.
+  testWidgets('a touch hover after the lift does not park the pen dot',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..inkCommitDelay = null
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final start = view(250, 450);
+    final end = view(330, 420);
+    final g = await tester.startGesture(start, kind: PointerDeviceKind.touch);
+    await tester.pump();
+    await g.moveTo(end);
+    await tester.pump();
+    await g.up();
+    await tester.pump();
+    tester.binding.handlePointerEvent(
+        PointerHoverEvent(kind: PointerDeviceKind.touch, position: end));
+    await tester.pump();
+
+    expect(cursorPainter(tester).penCursor, isNull);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('leaving the page retracts the painted pen dot', (tester) async {
     final editing = await pumpViewer(tester);
     editing.tool = PdfEditTool.ink;
