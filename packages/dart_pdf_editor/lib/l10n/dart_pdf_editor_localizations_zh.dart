@@ -2410,6 +2410,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '将页面颜色保存到文件';
+
+  @override
+  String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4818,4 +4824,10 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '將頁面顏色儲存至檔案';
+
+  @override
+  String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
 }

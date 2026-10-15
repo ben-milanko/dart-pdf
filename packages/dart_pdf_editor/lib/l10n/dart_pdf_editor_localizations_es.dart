@@ -2465,4 +2465,11 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Insertar';
+
+  @override
+  String get shellBakePageColor => 'Guardar el color de página en el archivo';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas.';
 }

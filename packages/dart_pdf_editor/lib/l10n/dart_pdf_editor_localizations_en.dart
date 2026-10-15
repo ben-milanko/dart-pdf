@@ -2452,6 +2452,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page color into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4902,6 +4909,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7352,4 +7366,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }

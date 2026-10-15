@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Bao gồm dấu trang",
   "insertPagesBookmarkFiles": "Thêm dấu trang cho mỗi tệp",
   "insertPagesSummary": "{inserted, plural, =1{Chèn 1 trang} other{Chèn {inserted} trang}} — tài liệu sẽ có {total, plural, =1{1 trang} other{{total} trang}}.",
-  "insertPagesConfirm": "Chèn"
+  "insertPagesConfirm": "Chèn",
+  "shellBakePageColor": "Lưu màu trang vào tệp",
+  "pageColorNotBakedSigned": "Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký."
 }

@@ -2464,4 +2464,11 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'خستنەناو';
+
+  @override
+  String get shellBakePageColor => 'پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
 }

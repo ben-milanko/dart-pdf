@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "รวมบุ๊กมาร์ก",
   "insertPagesBookmarkFiles": "เพิ่มบุ๊กมาร์กสำหรับแต่ละไฟล์",
   "insertPagesSummary": "จะแทรก {inserted} หน้า เอกสารจะมีทั้งหมด {total} หน้า",
-  "insertPagesConfirm": "แทรก"
+  "insertPagesConfirm": "แทรก",
+  "shellBakePageColor": "บันทึกสีหน้าลงในไฟล์",
+  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง"
 }

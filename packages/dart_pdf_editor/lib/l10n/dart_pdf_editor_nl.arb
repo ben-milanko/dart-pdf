@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Bladwijzers meenemen",
   "insertPagesBookmarkFiles": "Een bladwijzer per bestand toevoegen",
   "insertPagesSummary": "{inserted, plural, =1{Voegt 1 pagina in} other{Voegt {inserted} pagina's in}} – het document krijgt {total, plural, =1{1 pagina} other{{total} pagina's}}.",
-  "insertPagesConfirm": "Invoegen"
+  "insertPagesConfirm": "Invoegen",
+  "shellBakePageColor": "Paginakleur in bestand opslaan",
+  "pageColorNotBakedSigned": "De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina's zou de handtekeningen ongeldig maken."
 }

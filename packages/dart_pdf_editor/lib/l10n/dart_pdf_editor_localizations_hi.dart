@@ -2457,4 +2457,11 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'डालें';
+
+  @override
+  String get shellBakePageColor => 'पृष्ठ का रंग फ़ाइल में सहेजें';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।';
 }

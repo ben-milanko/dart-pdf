@@ -372,6 +372,25 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-page-color')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-bake-page-color')),
+          findsNothing);
+    });
+
+    testWidgets('view options toggle saving the page color into the file',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(1), preferences: prefs));
+      expect(prefs.bakePageColor, isFalse);
+      for (final expected in [true, false]) {
+        await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Save page color into file'));
+        await tester.pumpAndSettle();
+        expect(prefs.bakePageColor, expected);
+      }
     });
   });
 

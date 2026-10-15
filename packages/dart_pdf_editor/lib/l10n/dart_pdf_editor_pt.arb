@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Incluir marcadores",
   "insertPagesBookmarkFiles": "Adicionar um marcador para cada arquivo",
   "insertPagesSummary": "{inserted, plural, =1{Insere 1 página} other{Insere {inserted} páginas}} — o documento terá {total, plural, =1{1 página} other{{total} páginas}}.",
-  "insertPagesConfirm": "Inserir"
+  "insertPagesConfirm": "Inserir",
+  "shellBakePageColor": "Salvar a cor da página no arquivo",
+  "pageColorNotBakedSigned": "A cor da página não foi salva no arquivo: alterar as páginas invalidaria as assinaturas."
 }

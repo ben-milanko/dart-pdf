@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "책갈피 포함",
   "insertPagesBookmarkFiles": "파일마다 책갈피 추가",
   "insertPagesSummary": "{inserted}페이지를 삽입합니다. 문서는 {total}페이지가 됩니다.",
-  "insertPagesConfirm": "삽입"
+  "insertPagesConfirm": "삽입",
+  "shellBakePageColor": "페이지 색상을 파일에 저장",
+  "pageColorNotBakedSigned": "페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다."
 }

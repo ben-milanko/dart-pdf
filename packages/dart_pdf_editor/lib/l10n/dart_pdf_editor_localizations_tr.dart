@@ -2460,4 +2460,11 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Ekle';
+
+  @override
+  String get shellBakePageColor => 'Sayfa rengini dosyaya kaydet';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
 }
