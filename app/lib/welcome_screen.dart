@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
-import 'app_info.dart';
 import 'devtools.dart';
 import 'file_io.dart';
 import 'l10n/app_l10n.dart';
@@ -27,6 +26,9 @@ enum RecentsView {
 /// it (phones / narrow windows) the list is the default. Mirrors the editor's
 /// own mobile breakpoint so the two agree on what "narrow" means.
 const double _gridDefaultBreakpoint = 700;
+
+/// The start panel's width cap, independent of the recents column's.
+const double _startPanelMaxWidth = 420;
 
 /// The landing surface shown when no document is open: a hero with the open
 /// action and, below it, the most-recent documents.
@@ -197,39 +199,50 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (widget.showHero)
-                        Card.filled(
-                          key: const ValueKey('welcome-start-panel'),
-                          margin: EdgeInsets.zero,
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.picture_as_pdf_outlined,
-                                    size: 64, color: theme.colorScheme.primary),
-                                const SizedBox(height: 12),
-                                Text(AppInfo.displayName,
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.headlineSmall),
-                                if (defaultTargetPlatform ==
-                                        TargetPlatform.linux ||
-                                    defaultTargetPlatform ==
-                                        TargetPlatform.macOS ||
-                                    defaultTargetPlatform ==
-                                        TargetPlatform.windows) ...[
-                                  const SizedBox(height: 12),
-                                  Text(appL10n(context).editorDropToOpen,
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyLarge),
-                                ],
-                                const SizedBox(height: 24),
-                                FilledButton.icon(
-                                  key: const ValueKey('welcome-open-pdf'),
-                                  onPressed: widget.onOpen,
-                                  icon: const Icon(Icons.folder_open),
-                                  label: Text(appL10n(context).welcomeOpenPdf),
+                        // Sized to its content, not to the recents column
+                        // below it: stretched to the grid's 900px it read as
+                        // an empty slab. The app bar already names the app.
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                                maxWidth: _startPanelMaxWidth),
+                            child: Card.filled(
+                              key: const ValueKey('welcome-start-panel'),
+                              margin: EdgeInsets.zero,
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Icon(Icons.picture_as_pdf_outlined,
+                                        size: 64,
+                                        color: theme.colorScheme.primary),
+                                    if (defaultTargetPlatform ==
+                                            TargetPlatform.linux ||
+                                        defaultTargetPlatform ==
+                                            TargetPlatform.macOS ||
+                                        defaultTargetPlatform ==
+                                            TargetPlatform.windows) ...[
+                                      const SizedBox(height: 12),
+                                      Text(appL10n(context).editorDropToOpen,
+                                          textAlign: TextAlign.center,
+                                          style: theme.textTheme.bodyLarge),
+                                    ],
+                                    const SizedBox(height: 24),
+                                    Center(
+                                      child: FilledButton.icon(
+                                        key: const ValueKey('welcome-open-pdf'),
+                                        onPressed: widget.onOpen,
+                                        icon: const Icon(Icons.folder_open),
+                                        label: Text(
+                                            appL10n(context).welcomeOpenPdf),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ),

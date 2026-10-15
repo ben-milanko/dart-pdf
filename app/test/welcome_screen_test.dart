@@ -38,9 +38,14 @@ void main() {
           onOpen: () => opened++,
           onOpenRecent: (_) {},
         ),
-        size: const Size(800, 600));
-    expect(find.byKey(const ValueKey('welcome-start-panel')), findsOneWidget);
+        size: wide);
+    final panel = find.byKey(const ValueKey('welcome-start-panel'));
+    expect(panel, findsOneWidget);
     expect(find.text('Drop PDF to open'), findsOneWidget);
+    // The panel sizes to its content, not the 900px recents grid column, and
+    // leaves the app name to the app bar.
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(420));
+    expect(find.text('DartPDF'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('welcome-open-pdf')));
     expect(opened, 1);
     expect(tester.takeException(), isNull);
