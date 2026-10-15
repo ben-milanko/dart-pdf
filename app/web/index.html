@@ -362,8 +362,8 @@
        keyboard is still animating away, or before the text field has blurred.
        Flutter then keeps a short physical size or a stale keyboard inset, and
        the body shows through as a blank band under the app until something
-       else resizes the window. Once the viewport has been quiet for a moment,
-       undo any document scroll iOS left behind for the focused input and
+       else resizes the window. Once the viewport has been quiet for a moment
+       and no field is focused, undo any document scroll iOS left behind for the focused input and
        re-send 'resize' so Flutter measures the settled viewport. Mobile only:
        desktop resizes already end on a real event. -->
   <script>
@@ -389,11 +389,13 @@
       }
 
       function settle() {
-        // While a field is focused iOS may scroll to keep it in view; only
-        // put the page back once nothing is being edited.
-        if (!editing() && (window.scrollX || window.scrollY)) {
-          window.scrollTo(0, 0);
-        }
+        // Only once nothing is being edited. While a field is focused the
+        // engine's own resize events carry the keyboard inset, and opening an
+        // inline text box hands focus from the keyboard primer
+        // (soft_keyboard_primer_web.dart) to Flutter's textarea - re-measuring
+        // or scrolling across that handoff can cost the keyboard.
+        if (editing()) return;
+        if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
         resending = true;
         try {
           vv.dispatchEvent(new Event('resize'));

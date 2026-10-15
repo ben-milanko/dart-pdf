@@ -15,8 +15,20 @@ measurement. iOS can also leave the document scrolled for the focused input.
 
 Fix (`app/web/index.html`, mobile only - coarse pointer or iOS UA): debounce
 viewport `resize`/`scroll`, window `resize`/`orientationchange` and
-`focusout`; at 120/360/800 ms after the last one, scroll the document back to
-0,0 when no field is focused and re-dispatch `resize` on `visualViewport` so
-Flutter measures the settled viewport. Self-dispatched events are ignored, so
+`focusout`; at 120/360/800 ms after the last one, if no field is focused,
+scroll the document back to 0,0 and re-dispatch `resize` on `visualViewport`
+so Flutter measures the settled viewport. Self-dispatched events are ignored, so
 there is no loop (checked in Chromium with iPhone emulation: one burst -> 3
 re-measures, then quiet). Can't be reproduced off-device; verify on an iPhone.
+
+## Hands off while a field is focused
+
+The first cut also re-measured while a field was focused. On the PR preview
+the keyboard then stopped opening for a new free-text box (caret plus the
+"Paste" bubble, no keyboard). Opening an inline text box depends on a focus
+handoff: the keyboard primer (2026-10-09-ios-web-keyboard-primer.md) takes
+focus inside the tap, and Flutter's textarea takes it over a frame later.
+Re-sent resizes landed across that handoff. The script now does nothing
+while an input, textarea or contenteditable is focused. The engine's own
+resize events already carry the keyboard inset in that state, and the bug
+this fixes only shows once the field has blurred.
