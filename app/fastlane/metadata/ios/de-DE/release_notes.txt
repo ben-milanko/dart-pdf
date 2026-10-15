@@ -1,6 +1,12 @@
-Neu in 8.1.0
+Neu in 9.0.0
 
-- Schrift und Stil von Dropdown- und Listenfeldern ändern.
-- Neues Telefonmenü zum Erstellen, Öffnen, Drucken und Signieren.
-- Textbearbeitung bewahrt Schrift und Zeilenumbruch. Verbesserte iOS-Tastatur und Auswahlmenüs.
-- Vollständige Farbpalette für Stift und Textmarker auf Mobilgeräten.
+- Anmerkungen gruppieren, damit sie sich gemeinsam verschieben, skalieren, drehen, kopieren und einfügen lassen. Eine Auswahl um ihren gemeinsamen Mittelpunkt oder um den Mittelpunkt jedes Elements drehen.
+- Gescannte Dokumente werden automatisch erkannt (OCR), sodass sich ihr Text auswählen und durchsuchen lässt. Lässt sich in den Einstellungen abschalten. Neue Scans werden nach ihrem Aufnahmedatum benannt.
+- Die Seitenfarbe kann optional in gespeicherte und exportierte PDFs übernommen werden.
+- Markierten Text per Tastenkürzel fett, kursiv oder unterstrichen formatieren und Pfeile von Legenden getrennt vom Textfeld gestalten.
+- Polylinien einfacher zeichnen: beim Setzen verschieben, an den Rändern scrollen und den letzten Punkt rückgängig machen. Die Seitenübersicht zeigt, wo eine Seite landet, und animiert das Neuordnen.
+- Lange drücken und ziehen, um einen Auswahlrahmen aufzuziehen. Die Auswahl reagiert jetzt, sobald der Finger angehoben wird.
+- Dokumente mit nicht eingebetteten Serifenschriften sehen dem Original ähnlicher, Text bleibt auf einer geraden Grundlinie und gedrehte Bilder bleiben beim Zoomen scharf.
+- Fehlerbehebungen: Dokumente zeigten Bilder eines anderen Dokuments, Texterkennung und Anmeldung für digitale Signaturen, erneutes Öffnen zuletzt verwendeter Dateien nach einem Update und erster Start in nicht unterstützten Sprachen.
+- DartPDF weist jetzt darauf hin, wenn die Datei eines zuletzt verwendeten Dokuments verschoben wurde.
+- Flüssigeres Scrollen.

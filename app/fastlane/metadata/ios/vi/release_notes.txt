@@ -1,6 +1,12 @@
-Mới trong 8.1.0
+Có gì mới trong 9.0.0
 
-- Đổi phông chữ và kiểu của trường danh sách và danh sách thả xuống.
-- Menu điện thoại mới để tạo, mở, in và ký tài liệu.
-- Chỉnh sửa văn bản giữ nguyên phông chữ và ngắt dòng. Cải thiện bàn phím và menu chọn văn bản trên iOS.
-- Bảng màu đầy đủ cho bút và bút đánh dấu trên di động.
+- Nhóm các chú thích để di chuyển, đổi kích thước, xoay, sao chép và dán chúng như một. Xoay vùng chọn quanh tâm chung hoặc quanh tâm của từng mục.
+- Tài liệu quét được nhận dạng tự động (OCR) để bạn có thể chọn và tìm kiếm văn bản. Bạn có thể tắt tính năng này trong Cài đặt. Bản quét mới được đặt tên theo ngày chụp.
+- Tùy chọn lưu màu trang vào PDF đã lưu và đã xuất.
+- In đậm, in nghiêng hoặc gạch chân văn bản đã chọn bằng phím tắt, và tạo kiểu cho mũi tên chú thích riêng với hộp văn bản.
+- Vẽ đường gấp khúc dễ hơn: kéo khung nhìn khi đặt điểm, cuộn ở mép và hoàn tác điểm cuối. Lưới trang cho thấy trang sẽ nằm ở đâu và tạo hiệu ứng khi sắp xếp lại.
+- Nhấn giữ và kéo để vẽ khung chọn; vùng chọn giờ phản hồi ngay khi bạn nhấc ngón tay.
+- Tài liệu dùng phông serif không được nhúng trông gần với bản gốc hơn, văn bản giữ đường cơ sở ngang bằng và hình ảnh đã xoay vẫn sắc nét khi phóng to.
+- Sửa lỗi tài liệu hiển thị hình ảnh của tài liệu khác, nhận dạng văn bản và đăng nhập cho chữ ký số, mở lại tệp gần đây sau khi cập nhật, và lần khởi chạy đầu tiên ở ngôn ngữ chưa được hỗ trợ.
+- DartPDF giờ thông báo khi tệp của một tài liệu gần đây đã bị di chuyển.
+- Cuộn mượt mà hơn.

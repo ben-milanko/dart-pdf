@@ -1,0 +1,8 @@
+Novità della 9.0.0
+
+- Raggruppa le annotazioni per spostarle, ridimensionarle e ruotarle insieme.
+- OCR automatico dei documenti scansionati per poterli cercare.
+- Salvataggio facoltativo del colore della pagina nei PDF.
+- Scorciatoie per formattare il testo e stili separati per le frecce dei richiami.
+- Polilinee e riordino delle pagine più semplici.
+- Font serif migliori, immagini ruotate più nitide e scorrimento più fluido.

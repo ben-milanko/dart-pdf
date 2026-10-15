@@ -1,5 +1,12 @@
 # Changelog
 
+## 9.0.0
+
+- Add `pdfPageLooksScanned` and `pdfDocumentLooksScanned` to decide when a document needs OCR.
+- Carry the font descriptor's Serif flag on `PdfTextRun.serif` and `PdfFontInfo.isSerif`, so unembedded serif fonts can use a serif substitute.
+- Add `serializedCommandCount` to size a worker reply without decoding it. The render-command format version is now 12.
+- Crop rotated and skewed images in region-limited decodes, so they sharpen again on deep zoom.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

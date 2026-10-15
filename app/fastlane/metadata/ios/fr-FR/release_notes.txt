@@ -1,6 +1,12 @@
-Nouveautés de 8.1.0
+Nouveautés de la 9.0.0
 
-- Modifiez la police et le style des champs de liste et des menus déroulants.
-- Nouveau menu mobile pour créer, ouvrir, imprimer et signer.
-- La modification du texte conserve la police et les retours à la ligne. Clavier et menus de sélection iOS améliorés.
-- Palette complète pour le stylo et le surligneur mobiles.
+- Groupez des annotations pour les déplacer, redimensionner, faire pivoter, copier et coller d'un seul bloc. Faites pivoter une sélection autour de son centre commun ou du centre de chaque élément.
+- Les documents numérisés sont reconnus automatiquement (OCR) : leur texte peut être sélectionné et recherché. Désactivable dans les Réglages. Les nouvelles numérisations portent leur date de capture.
+- Enregistrez si vous le souhaitez la couleur de page dans les PDF enregistrés et exportés.
+- Mettez le texte sélectionné en gras, italique ou souligné avec des raccourcis clavier, et stylisez les flèches des bulles indépendamment de leur zone de texte.
+- Tracez des polylignes plus facilement : déplacez la vue pendant le tracé, défilez aux bords et annulez le dernier point. La grille des pages montre où une page va se placer et anime la réorganisation.
+- Appuyez longuement et faites glisser pour tracer un cadre de sélection ; la sélection réagit dès que vous levez le doigt.
+- Les documents utilisant des polices serif non incorporées sont plus fidèles à l'original, le texte garde une ligne de base régulière et les images pivotées restent nettes au zoom.
+- Corrections : documents affichant les images d'un autre document, reconnaissance de texte et connexion pour les signatures numériques, réouverture des fichiers récents après une mise à jour et premier lancement dans une langue non prise en charge.
+- DartPDF vous prévient désormais quand le fichier d'un document récent a été déplacé.
+- Défilement plus fluide.

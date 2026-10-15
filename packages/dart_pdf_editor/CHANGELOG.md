@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` implementations must accept, and forward if they delegate, the new `decodeGate` parameter on `record`. See `doc/MIGRATING-9.0.0.md`.
+- Group annotations so they select, move, resize, rotate, copy and paste as one object, and rotate a selection around its shared centre or each object's own centre.
+- Optionally bake the page colour into saved and exported PDFs and page images (`PdfEditingPreferences.bakePageColor`, `pdfBakePageColor`). Signed documents save unbaked.
+- Toggle bold, italic and underline on selected text with Ctrl/Cmd+B, I and U, and style callout leaders separately from the box outline.
+- Polyline placement supports middle-button pan, edge auto-scroll and Ctrl+Z to remove the last vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag in Select mode draws a selection box, selection happens on lift, and switching tool-sheet tabs arms that tab's first tool.
+- Draw unembedded serif fonts in a serif substitute and fit substituted glyphs to their slots, including level baselines on Impeller.
+- Fix one document showing another's images when both have an image at the same object number, and re-sharpen rotated images on deep zoom.
+- Smoother scrolling: off-screen neighbours no longer render beside the focused page, and large worker replies wait out a wheel scroll before decoding.
+
 ## 8.1.0
 
 - Style dropdown and list-box form fields, including mixed selections with text fields. Add `selectedFormStyleFieldNames` and retain `selectedFormTextFieldNames` as a deprecated alias.
