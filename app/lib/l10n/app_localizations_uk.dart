@@ -356,6 +356,28 @@ class AppLocalizationsUk extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count документа з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      many:
+          '$count документів з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      few:
+          '$count документи з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      one:
+          '$title більше недоступний. Можливо, файл переміщено, перейменовано або видалено.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Не вдалося зберегти $title у вихідне розташування. Можливо, файл переміщено або видалено. Виберіть, куди зберегти.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Не вдалося поставити цифровий підпис: $error';
   }

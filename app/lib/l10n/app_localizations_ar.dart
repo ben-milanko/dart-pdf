@@ -365,6 +365,23 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'لم يعد $count من مستندات جلستك الأخيرة متاحًا. ربما تم نقلها أو إعادة تسميتها أو حذفها.',
+      one: 'لم يعد $title متاحًا. ربما تم نقله أو إعادة تسميته أو حذفه.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'تعذّر حفظ $title في موقعه الأصلي. ربما تم نقله أو حذفه. اختر مكان الحفظ.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'تعذّر التوقيع الرقمي: $error';
   }

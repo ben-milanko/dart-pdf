@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Tidak dapat membuka {url}",
   "editorCouldNotPrint": "Tidak dapat mencetak {title}",
   "editorCouldNotReopen": "Tidak dapat membuka kembali {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.} other{{count} dokumen dari sesi terakhir Anda tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.}}",
+  "editorSaveOriginUnavailable": "Tidak dapat menyimpan {title} ke lokasi aslinya. Mungkin telah dipindahkan atau dihapus. Pilih lokasi penyimpanan.",
   "editorCouldNotSign": "Tidak dapat menandatangani secara digital: {error}",
   "editorDiscard": "Buang",
   "editorDiscardChangesTitle": "Buang perubahan?",

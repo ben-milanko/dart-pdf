@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} açılamadı",
   "editorCouldNotPrint": "{title} yazdırılamadı",
   "editorCouldNotReopen": "{title} yeniden açılamadı",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.} other{Son oturumunuzdaki {count} belge artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilirler.}}",
+  "editorSaveOriginUnavailable": "{title} özgün konumuna kaydedilemedi. Taşınmış veya silinmiş olabilir. Nereye kaydedileceğini seçin.",
   "editorCouldNotSign": "Dijital olarak imzalanamadı: {error}",
   "editorDiscard": "At",
   "editorDiscardChangesTitle": "Değişiklikler atılsın mı?",

@@ -473,6 +473,27 @@
       }
     }
   },
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}",
+  "@editorReopenFilesUnavailable": {
+    "description": "Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorSaveOriginUnavailable": "Couldn't save {title} to its original location. It may have been moved or deleted. Choose where to save it.",
+  "@editorSaveOriginUnavailable": {
+    "description": "Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "editorCouldNotSign": "Could not digitally sign: {error}",
   "@editorCouldNotSign": {
     "description": "Toast shown when digitally signing the document failed, with the error detail.",

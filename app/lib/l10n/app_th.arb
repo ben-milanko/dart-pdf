@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "ไม่สามารถเปิด {url} ได้",
   "editorCouldNotPrint": "ไม่สามารถพิมพ์ {title} ได้",
   "editorCouldNotReopen": "ไม่สามารถเปิด {title} อีกครั้งได้",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} ไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ} other{เอกสาร {count} รายการจากเซสชันล่าสุดไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ}}",
+  "editorSaveOriginUnavailable": "ไม่สามารถบันทึก {title} ไปยังตำแหน่งเดิมได้ อาจถูกย้ายหรือลบ เลือกตำแหน่งที่จะบันทึก",
   "editorCouldNotSign": "ไม่สามารถลงนามดิจิทัลได้: {error}",
   "editorDiscard": "ทิ้ง",
   "editorDiscardChangesTitle": "ทิ้งการเปลี่ยนแปลงหรือไม่",

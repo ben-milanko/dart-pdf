@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "No se pudo abrir {url}",
   "editorCouldNotPrint": "No se pudo imprimir {title}",
   "editorCouldNotReopen": "No se pudo volver a abrir {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} ya no está disponible. Puede que se haya movido, renombrado o eliminado.} other{{count} documentos de tu última sesión ya no están disponibles. Puede que se hayan movido, renombrado o eliminado.}}",
+  "editorSaveOriginUnavailable": "No se pudo guardar {title} en su ubicación original. Puede que se haya movido o eliminado. Elige dónde guardarlo.",
   "editorCouldNotSign": "No se pudo firmar digitalmente: {error}",
   "editorDiscard": "Descartar",
   "editorDiscardChangesTitle": "¿Descartar cambios?",

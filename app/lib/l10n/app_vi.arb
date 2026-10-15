@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Không thể mở {url}",
   "editorCouldNotPrint": "Không thể in {title}",
   "editorCouldNotReopen": "Không thể mở lại {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} không còn khả dụng. Có thể tệp đã bị di chuyển, đổi tên hoặc xóa.} other{{count} tài liệu từ phiên trước không còn khả dụng. Có thể chúng đã bị di chuyển, đổi tên hoặc xóa.}}",
+  "editorSaveOriginUnavailable": "Không thể lưu {title} vào vị trí ban đầu. Có thể tệp đã bị di chuyển hoặc xóa. Chọn nơi lưu.",
   "editorCouldNotSign": "Không thể ký số: {error}",
   "editorDiscard": "Bỏ",
   "editorDiscardChangesTitle": "Bỏ các thay đổi?",

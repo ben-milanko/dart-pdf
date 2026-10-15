@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} नहीं खोल सके",
   "editorCouldNotPrint": "{title} प्रिंट नहीं कर सके",
   "editorCouldNotReopen": "{title} फिर से नहीं खोल सके",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} अब उपलब्ध नहीं है। हो सकता है इसे स्थानांतरित, पुनर्नामित या हटा दिया गया हो।} other{आपके पिछले सत्र के {count} दस्तावेज़ अब उपलब्ध नहीं हैं। हो सकता है उन्हें स्थानांतरित, पुनर्नामित या हटा दिया गया हो।}}",
+  "editorSaveOriginUnavailable": "{title} को उसके मूल स्थान पर सहेजा नहीं जा सका। हो सकता है इसे स्थानांतरित या हटा दिया गया हो। सहेजने का स्थान चुनें।",
   "editorCouldNotSign": "डिजिटल रूप से हस्ताक्षर नहीं कर सके: {error}",
   "editorDiscard": "छोड़ें",
   "editorDiscardChangesTitle": "बदलाव छोड़ें?",

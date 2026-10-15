@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Kan {url} niet openen",
   "editorCouldNotPrint": "Kan {title} niet afdrukken",
   "editorCouldNotReopen": "Kan {title} niet opnieuw openen",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is niet meer beschikbaar. Het is mogelijk verplaatst, hernoemd of verwijderd.} other{{count} documenten uit je vorige sessie zijn niet meer beschikbaar. Ze zijn mogelijk verplaatst, hernoemd of verwijderd.}}",
+  "editorSaveOriginUnavailable": "Kan {title} niet op de oorspronkelijke locatie opslaan. Het is mogelijk verplaatst of verwijderd. Kies waar je het wilt opslaan.",
   "editorCouldNotSign": "Kan niet digitaal ondertekenen: {error}",
   "editorDiscard": "Verwerpen",
   "editorDiscardChangesTitle": "Wijzigingen verwerpen?",

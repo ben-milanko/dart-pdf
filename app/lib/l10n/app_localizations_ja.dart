@@ -346,6 +346,22 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '前回のセッションの $count 件のドキュメントは利用できなくなりました。移動、名前の変更、または削除された可能性があります。',
+      one: '$title は利用できなくなりました。移動、名前の変更、または削除された可能性があります。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title を元の場所に保存できませんでした。移動または削除された可能性があります。保存先を選択してください。';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'デジタル署名できませんでした: $error';
   }

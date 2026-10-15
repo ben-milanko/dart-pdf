@@ -811,7 +811,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Re-opens the file-backed documents that were open when the app last closed.
   /// Runs once at startup, then enables session persistence so this run's open
   /// set is captured for next time. Documents whose file has since moved or been
-  /// deleted are dropped silently rather than surfacing an error tab.
+  /// deleted are dropped with a warning toast rather than an error tab, and the
+  /// rest of the session restores without waiting on them.
   Future<void> _restoreSession() async {
     // Unsaved work comes back first, so a document recovered with its edits
     // wins over the same file restored flat from disk below (the loop skips
@@ -825,6 +826,7 @@ class _EditorScreenState extends State<EditorScreen>
       // start opening. Only the tab left active when restore finishes should
       // materialize (see _buildBody / _materializeDeferredPath).
       _restoringSession = true;
+      final unavailable = <String>[];
       try {
         for (final doc in documents) {
           // Skip anything already open (e.g. an OS file-open that arrived first).
@@ -833,12 +835,13 @@ class _EditorScreenState extends State<EditorScreen>
               _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
             continue;
           }
-          await _reopenSessionDocument(doc);
+          if (!await _reopenSessionDocument(doc)) unavailable.add(doc.title);
           if (!mounted) return;
         }
       } finally {
         _restoringSession = false;
       }
+      if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
       // Let the tab left active materialize now that restore is done.
       if (mounted) setState(() {});
     }
@@ -902,9 +905,29 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
-  Future<void> _reopenSessionDocument(SessionDocument doc) async {
+  /// Warns (without blocking anything) that the documents named by [titles]
+  /// could not be reopened because their file is gone - moved, renamed or
+  /// deleted since it was opened. Deferred a frame so it lands on a mounted
+  /// scaffold during startup restore.
+  void _warnFilesUnavailable(List<String> titles) {
+    if (titles.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _toast(
+        appL10n(context).editorReopenFilesUnavailable(
+            titles.length, pdfDisplayName(titles.first)),
+        duration: const Duration(seconds: 5),
+      );
+    });
+  }
+
+  /// Re-adds one session document. Returns false when its file could not be
+  /// read (moved or deleted) so the caller can warn; a path-only tab reads
+  /// nothing here, so its failure surfaces later, when it is first shown (see
+  /// [_materializeDeferredPath]).
+  Future<bool> _reopenSessionDocument(SessionDocument doc) async {
     final readPath = doc.readPath;
-    if (readPath == null) return;
+    if (readPath == null) return true;
     // Desktop restores by its writable origin; a mobile pick has none and
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
@@ -930,7 +953,7 @@ class _EditorScreenState extends State<EditorScreen>
           path: originPath,
           cachePath: doc.cachePath,
           bookmark: doc.bookmark);
-      return;
+      return true;
     }
 
     // Snapshot-only restore (mobile private cache, or a platform without
@@ -945,7 +968,7 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
+      if (!mounted) return true;
       // Reading the bytes already confirmed the file is still there (a gone
       // file threw and dropped its placeholder above); defer the parse so a
       // multi-document session doesn't open every file at once on launch. The
@@ -967,11 +990,14 @@ class _EditorScreenState extends State<EditorScreen>
             cachePath: doc.cachePath,
             bookmark: doc.bookmark);
       }
+      return true;
     } catch (e) {
-      // The file is gone (moved/deleted): drop the placeholder quietly.
+      // The file is gone (moved/deleted): drop the placeholder and let the
+      // caller warn once for the whole restore.
       AppDevTools.instance.addLog('deferred open failed (file moved?): $e',
           level: DevLogLevel.error);
       if (mounted) await _closeTabs([loading]);
+      return false;
     }
   }
 
@@ -1450,10 +1476,13 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: tab.cachePath,
         into: tab,
         // Session restoration is best-effort. A source that disappeared since
-        // the previous run should vanish quietly rather than leave a permanent
-        // error tab. The fallback closes this clean placeholder when the
-        // callback reports that it handled the failure.
-        onOpenFailed: (_) => true,
+        // the previous run (moved, renamed, deleted) gets a warning toast
+        // rather than a permanent error tab: the fallback closes this clean
+        // placeholder when the callback reports that it handled the failure.
+        onOpenFailed: (_) {
+          _warnFilesUnavailable([tab.title]);
+          return true;
+        },
       );
     });
   }
@@ -3075,7 +3104,16 @@ class _EditorScreenState extends State<EditorScreen>
         : await _saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
-      // The origin couldn't be written (moved, read-only) - offer save-as.
+      // The origin couldn't be written (moved, read-only) - say so, then offer
+      // save-as rather than stopping at the error. The edits stay in the tab
+      // either way.
+      AppDevTools.instance.addLog(
+          'in-place save failed: ${tab.title} - ${result.message}',
+          level: DevLogLevel.error);
+      _toast(
+        appL10n(context).editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
+        duration: const Duration(seconds: 5),
+      );
       result = await _saveAsDocument(context, bytes, tab.title);
       if (!mounted) return;
     }

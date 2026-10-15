@@ -345,6 +345,22 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '지난 세션의 문서 $count개를 더 이상 사용할 수 없습니다. 이동, 이름 변경 또는 삭제되었을 수 있습니다.',
+      one: '$title을(를) 더 이상 사용할 수 없습니다. 이동, 이름 변경 또는 삭제되었을 수 있습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title을(를) 원래 위치에 저장할 수 없습니다. 이동되었거나 삭제되었을 수 있습니다. 저장할 위치를 선택하세요.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return '디지털 서명할 수 없습니다: $error';
   }

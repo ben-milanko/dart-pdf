@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Impossible d'ouvrir {url}",
   "editorCouldNotPrint": "Impossible d'imprimer {title}",
   "editorCouldNotReopen": "Impossible de rouvrir {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} n'est plus disponible. Il a peut-être été déplacé, renommé ou supprimé.} other{{count} documents de la dernière session ne sont plus disponibles. Ils ont peut-être été déplacés, renommés ou supprimés.}}",
+  "editorSaveOriginUnavailable": "Impossible d'enregistrer {title} à son emplacement d'origine. Il a peut-être été déplacé ou supprimé. Choisissez où l'enregistrer.",
   "editorCouldNotSign": "Impossible de signer numériquement : {error}",
   "editorDiscard": "Ignorer",
   "editorDiscardChangesTitle": "Ignorer les modifications ?",

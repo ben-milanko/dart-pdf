@@ -355,6 +355,24 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documentos de tu última sesión ya no están disponibles. Puede que se hayan movido, renombrado o eliminado.',
+      one:
+          '$title ya no está disponible. Puede que se haya movido, renombrado o eliminado.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'No se pudo guardar $title en su ubicación original. Puede que se haya movido o eliminado. Elige dónde guardarlo.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'No se pudo firmar digitalmente: $error';
   }

@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Could not open {url}",
   "editorCouldNotPrint": "Could not print {title}",
   "editorCouldNotReopen": "Could not reopen {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}",
+  "editorSaveOriginUnavailable": "Couldn't save {title} to its original location. It may have been moved or deleted. Choose where to save it.",
   "editorCouldNotSign": "Could not digitally sign: {error}",
   "editorDiscard": "Discard",
   "editorDiscardChangesTitle": "Discard changes?",
