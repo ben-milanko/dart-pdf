@@ -1348,6 +1348,27 @@ class _ViewerScreenState extends State<ViewerScreen> {
     return name;
   }
 
+  /// [bytes] with the page colour painted behind every page when View
+  /// options' "Save page color into file" is on, so other PDF readers show it
+  /// too. Signed documents save as they are (with a toast) - repainting their
+  /// pages would invalidate the signatures - and a bake that fails saves the
+  /// document unbaked. [source] is the revision [bytes] came from, so an
+  /// encrypted document reopens with its keys.
+  Uint8List _withBakedPageColor(Uint8List bytes, {PdfDocument? source}) {
+    final color = _prefs.pageColor;
+    if (!_prefs.bakePageColor || !pdfPageColorNeedsBaking(color)) return bytes;
+    try {
+      if (pdfPageColorBakeBlocked(source ?? PdfDocument.open(bytes))) {
+        _toast(pdfL10n(context).pageColorNotBakedSigned);
+        return bytes;
+      }
+      return pdfBakePageColor(bytes, color, source: source);
+    } catch (e, s) {
+      AppLog.instance.error('Page colour bake failed', error: e, stackTrace: s);
+      return bytes;
+    }
+  }
+
   /// Saves with whatever the platform offers: a save dialog on desktop,
   /// a browser download on the web, the share sheet on phones and
   /// tablets (where apps can't write outside their sandbox directly).
@@ -1456,6 +1477,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
         session.document.page(pageIndex),
         format: format,
         dpi: dpi,
+        // the image carries the page colour when saved PDFs do
+        pageColor:
+            _prefs.bakePageColor ? _prefs.pageColor : const Color(0xFFFFFFFF),
       );
       if (!mounted) return;
       var stem = tab.title.trim();
@@ -1788,7 +1812,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
-                                onSave: (saved) => unawaited(_saveAs(saved)),
+                                onSave: (saved) => unawaited(_saveAs(
+                                    _withBakedPageColor(saved,
+                                        source: tab.session?.document))),
                                 alwaysAllowSave: tab.isExtracted,
                                 onPickPdfToInsert: _pickPdfBytes,
                                 onExportPages: (bytes) =>

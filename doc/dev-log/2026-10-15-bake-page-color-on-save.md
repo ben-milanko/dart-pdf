@@ -36,3 +36,9 @@ reader. It can now be written into the file, opt-in.
 Tests: `pdf_document/test/page_background_test.dart`,
 `dart_pdf_editor/test/page_color_bake_test.dart`,
 `app/test/save_page_color_test.dart`.
+
+The example app (`packages/dart_pdf_editor/example/lib/main.dart`) wires the
+same thing into its `onSave` (`_withBakedPageColor`) and Export as image.
+Its Export pages opens the pages in a new tab rather than writing a file, so
+that tab's own save is where the colour lands. The Cupertino host sample
+doesn't write files, so it has nothing to wire.
