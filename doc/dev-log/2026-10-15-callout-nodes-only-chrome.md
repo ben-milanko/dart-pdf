@@ -12,4 +12,10 @@ be resizable. So the selection rect stays (it positions those handles) and the
 painter's new `selectionOutline` flag drops just the box. Groups and
 multi-selections containing a callout keep the full chrome.
 
+Gotcha from the first cut: `_selectedViewRects` listed a callout by its full
+/Rect (which also encloses the leader) while `_selectedViewRect` uses
+`calloutBox`. The two differed, so the /Rect was painted as an *extra*
+selection box - hidden under the primary outline before, and the only box left
+once that outline went. Both now use `calloutBox ?? rect`.
+
 Test: `editing_callout_test.dart` ("a selected callout shows nodes only").

@@ -2258,8 +2258,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (annotation == null) return null;
     // match _selectedViewRects: a text-markup's primary chrome hugs
     // its first /QuadPoints quad so the rest of the quads line up
-    // against it (the callout branch keeps /Rect - the leader arrow
-    // lives outside the text box and the chrome must enclose it).
+    // against it.
     final quads = annotation.behavior.markupQuads;
     if (quads != null && quads.isNotEmpty) {
       return _geometry.toViewRect(quads.first);
@@ -2315,7 +2314,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           result.add(_geometry.toViewRect(q));
         }
       } else {
-        result.add(_geometry.toViewRect(annotation.rect));
+        // a callout's box is its text box, matching [_selectedViewRect]: the
+        // /Rect also encloses the leader, and a box that differs from the
+        // primary's is painted as an extra selection over the nodes-only
+        // chrome
+        result.add(
+            _geometry.toViewRect(annotation.calloutBox ?? annotation.rect));
       }
     }
     return result;

@@ -398,6 +398,8 @@ void main() {
           .firstWhere(
               (p) => p.runtimeType.toString() == '_EditingPreviewPainter');
       expect(painter.selectionOutline, isFalse);
+      expect(painter.extraSelectionRects, isEmpty,
+          reason: 'no second box around the leader-enclosing /Rect');
       expect(painter.showRotateHandle, isFalse);
       expect(painter.showHandles, isTrue,
           reason: 'the text box still resizes from its handles');
