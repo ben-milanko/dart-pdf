@@ -2341,6 +2341,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   bool get _selectedNodesOnly =>
       _selectedLineFamily && _controller.selectedAnnotationSlots.length == 1;
 
+  /// A lone callout is selected: it gets the same nodes-only chrome as a
+  /// line - its leader nodes plus the text box's resize handles, but no box
+  /// outline and no rotate knob (the leader nodes re-aim it directly).
+  bool get _selectedCalloutNodesOnly =>
+      _controller.primarySelectedGroupBounds == null &&
+      _controller.selectedAnnotationSlots.length == 1 &&
+      _controller.selectedAnnotation?.isCallout == true;
+
   PdfEditTool? get _selectedLineTool {
     final annotation = _controller.selectedAnnotation;
     switch (annotation?.subtype) {
@@ -3372,6 +3380,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
       !_selectedNodesOnly &&
+      !_selectedCalloutNodesOnly &&
       _controller.canRotateSelected &&
       (_controller.selectedAnnotationSlots.length == 1 ||
           _controller.selectedIsSingleGroup) &&
@@ -6875,8 +6884,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _controller.canResizeSelected &&
                         !_selectedLineFamily &&
                         _moveStart == null,
+                    selectionOutline: !_selectedCalloutNodesOnly,
                     showRotateHandle: selected != null &&
                         !_selectedNodesOnly &&
+                        !_selectedCalloutNodesOnly &&
                         _controller.canRotateSelected &&
                         (_controller.selectedAnnotationSlots.length == 1 ||
                             _controller.selectedIsSingleGroup) &&
@@ -8353,6 +8364,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.afterStamp,
     required this.afterPath,
     required this.showHandles,
+    this.selectionOutline = true,
     required this.showRotateHandle,
     required this.vertexHandles,
     required this.elementRect,
@@ -8506,6 +8518,10 @@ class _EditingPreviewPainter extends CustomPainter {
   })? afterPath;
 
   final bool showHandles;
+
+  /// Whether [selectionRect] paints its tinted box; false leaves just the
+  /// handles on it (a callout's nodes-only chrome).
+  final bool selectionOutline;
   final bool showRotateHandle;
   final List<Offset>? vertexHandles;
 
@@ -9139,8 +9155,10 @@ class _EditingPreviewPainter extends CustomPainter {
         ..color = _chrome
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * chromeScale;
-      canvas.drawRect(box, Paint()..color = _chrome.withAlpha(0x1A));
-      canvas.drawRect(box, stroke);
+      if (selectionOutline) {
+        canvas.drawRect(box, Paint()..color = _chrome.withAlpha(0x1A));
+        canvas.drawRect(box, stroke);
+      }
       // the knob's connector line first, so the top-center resize handle
       // paints over it instead of being crossed out
       final rotateKnob = showRotateHandle
@@ -9278,6 +9296,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.afterShape != afterShape ||
       oldDelegate.afterStamp != afterStamp ||
       oldDelegate.showHandles != showHandles ||
+      oldDelegate.selectionOutline != selectionOutline ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
       oldDelegate.elementClean != elementClean ||

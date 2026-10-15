@@ -384,6 +384,36 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('a selected callout shows nodes only: no outline or knob',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      final dynamic painter = tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((w) => w.painter)
+          .firstWhere(
+              (p) => p.runtimeType.toString() == '_EditingPreviewPainter');
+      expect(painter.selectionOutline, isFalse);
+      expect(painter.showRotateHandle, isFalse);
+      expect(painter.showHandles, isTrue,
+          reason: 'the text box still resizes from its handles');
+      expect((painter.vertexHandles as List).length, 2,
+          reason: 'the leader keeps its terminus + base nodes');
+
+      // where the rotate knob would sit above the box, a drag no longer spins
+      final box = editing.document.page(0).annotations.single.calloutBox!;
+      final knob =
+          view((box.left + box.right) / 2, box.top) - const Offset(0, 24);
+      await drag(tester, knob, knob + const Offset(60, 0));
+      expect(editing.document.page(0).annotations.single.appearanceRotation,
+          closeTo(0, 1e-6));
+      await settle(tester);
+    });
+
     testWidgets('each leader has its own terminus handle', (tester) async {
       final editing = await pumpEditor(tester);
       editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
