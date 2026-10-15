@@ -1050,7 +1050,8 @@ class PdfEditingController extends ChangeNotifier {
   /// Whether the document or its visible draft ink differs from the opened one.
   bool get isModified => hasPendingInk || _cursor > 0 || _hardModified;
 
-  bool get canUndo => hasPendingInk || _cursor > _undoFloor;
+  bool get canUndo =>
+      hasPlacementDraft || hasPendingInk || _cursor > _undoFloor;
   bool get canRedo => _undoneInk.isNotEmpty || _cursor < _revisions.length - 1;
 
   /// Diagnostics: how many revisions the session buffer retains (every one is
@@ -1064,7 +1065,34 @@ class PdfEditingController extends ChangeNotifier {
   /// audit notes); watch it when chasing memory growth during editing.
   int get sessionBufferBytes => _used;
 
+  /// The step-back for a multi-click placement still in progress - a
+  /// polyline or polygon whose vertices are on screen but not committed yet.
+  /// [undo] calls it first, so Ctrl+Z drops the last placed vertex instead
+  /// of reverting a document revision the user isn't looking at. The page
+  /// overlay that owns the draft registers it ([setPlacementDraftUndo]) and
+  /// clears it once the draft commits or is dropped.
+  bool Function()? _placementDraftUndo;
+  Object? _placementDraftOwner;
+
+  /// Whether a multi-click placement draft is in progress ([undo] steps it
+  /// back before the document history).
+  bool get hasPlacementDraft => _placementDraftUndo != null;
+
+  /// Registers [undo] as [owner]'s in-progress placement draft, or - with a
+  /// null [undo] - clears it if [owner] still holds it. [undo] returns
+  /// whether it stepped anything back.
+  void setPlacementDraftUndo(Object owner, bool Function()? undo) {
+    if (undo != null) {
+      _placementDraftOwner = owner;
+      _placementDraftUndo = undo;
+    } else if (identical(_placementDraftOwner, owner)) {
+      _placementDraftOwner = null;
+      _placementDraftUndo = null;
+    }
+  }
+
   void undo() {
+    if (_placementDraftUndo?.call() ?? false) return;
     if (hasPendingInk) {
       _inkTimer?.cancel();
       _inkTimer = null;

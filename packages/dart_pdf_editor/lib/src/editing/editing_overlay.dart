@@ -1896,6 +1896,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _selectTapTimer = Timer(kLongPressTimeout, _clearSelectTap);
     }
     if (_polyTool || _hybridPolyTool) {
+      // a press ends the hover's edge auto-scroll; hovering on resumes it
+      if (_polyHoverScrolls) _stopAutoScroll();
       // a second contact while one is down is not a tap
       final fresh = _polyTapPointer == null && event.buttons == kPrimaryButton;
       _polyTapPointer = fresh ? event.pointer : null;
@@ -1906,7 +1908,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           (event.localPosition - last).distance <= kDoubleTapSlop;
     }
     if (_polyTool) {
-      _addPolyPoint(event.localPosition);
+      // only the primary button places a vertex: the middle button pans the
+      // viewer (the hand every document viewer offers) and the secondary one
+      // opens the context menu, and neither may drop a node on the way
+      if (event.kind != PointerDeviceKind.mouse ||
+          event.buttons == kPrimaryMouseButton) {
+        _addPolyPoint(event.localPosition);
+      }
       return;
     }
     if (_drawTool &&
@@ -1979,6 +1987,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         event.kind == PointerDeviceKind.trackpad) {
       _guideCursor = event.localPosition;
       _bumpCursor();
+    }
+    if (event.buttons == kMiddleMouseButton && _polyPoints != null) {
+      // a middle-button pan mid-path: the page slides under the pointer, so
+      // keep the rubber band on it. The event's local position is pinned to
+      // where the page sat at the press; re-derive it from the global one.
+      // The hover's edge auto-scroll stands down while the hand pans.
+      _stopAutoScroll();
+      final box = context.findRenderObject();
+      if (box is RenderBox && box.hasSize) {
+        setState(() => _polyHover = box.globalToLocal(event.position));
+      }
     }
     final pressure = _normalizedPressure(event);
     if (pressure != null) _pointerPressure = pressure;
@@ -2315,6 +2334,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.primarySelectedGroupBounds != null) return false;
     return _controller.selectedAnnotation?.behavior.lineFamily == true;
   }
+
+  /// A lone line, polyline or polygon is selected: its chrome is just its
+  /// vertex handles - no bounding box and no rotate knob, since dragging the
+  /// nodes reshapes (and so turns) it directly.
+  bool get _selectedNodesOnly =>
+      _selectedLineFamily && _controller.selectedAnnotationSlots.length == 1;
 
   PdfEditTool? get _selectedLineTool {
     final annotation = _controller.selectedAnnotation;
@@ -3106,6 +3131,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _activeStrokeRepaint.dispose();
     _cursorRepaint.dispose();
     _autoScrollTicker.dispose();
+    _controller.setPlacementDraftUndo(this, null);
     if (_interaction.isActive &&
         _interaction.state.pageIndex == widget.pageIndex) {
       _interaction.cancel();
@@ -3345,6 +3371,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// Resize handles get first claim (the top-center knob sits close),
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
+      !_selectedNodesOnly &&
       _controller.canRotateSelected &&
       (_controller.selectedAnnotationSlots.length == 1 ||
           _controller.selectedIsSingleGroup) &&
@@ -4456,18 +4483,31 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final snapped = _snapPointToGrid(position);
       setState(() => _dragCurrent =
           _lineDragTool ? _straightSnap(_dragStart!, snapped) : snapped);
+    } else if (_polyHoverScrolls) {
+      // the next edge's rubber band follows the content scrolled under it
+      setState(() => _polyHover = position);
     }
   }
 
   /// Drags whose region keeps growing while the pointer sits against the
   /// viewport edge (and the viewer auto-scrolls under it).
   bool get _autoScrollDragActive =>
+      _polyHoverScrolls ||
       _marqueeStart != null ||
       _moveStart != null ||
       _elementMoveStart != null ||
       _resizeHandle != null ||
       _vertexHandle != null ||
       _dragStart != null;
+
+  /// A poly path is being placed with a hovering mouse: no button is held
+  /// between clicks, but the next vertex may lie past the viewport edge, so
+  /// the hover drives the same edge auto-scroll a held drag does.
+  bool get _polyHoverScrolls =>
+      (_polyTool || _hybridPolyTool) &&
+      _polyPoints != null &&
+      _polyHover != null &&
+      _dragStart == null;
 
   /// Runs the edge auto-scroll ticker for an in-flight region drag. The
   /// ticker runs for the whole drag (not only at the edge) so a manual
@@ -4973,8 +5013,42 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final fixed = _fixedPolyCount;
       reachedFixed = fixed != null && (_polyPoints?.length ?? 0) >= fixed;
     });
+    // Ctrl+Z now steps back through the placed vertices first
+    _controller.setPlacementDraftUndo(this, _undoPolyPoint);
     // angle/arc take exactly three clicks, then commit themselves.
     if (reachedFixed) _finishPolyPath();
+  }
+
+  /// Undo while a poly path is being placed: drops its last vertex (the
+  /// whole draft with the first one) and keeps the rubber band on the
+  /// pointer. Returns false once there is nothing left to step back, so the
+  /// undo falls through to the document history.
+  bool _undoPolyPoint() {
+    final points = _polyPoints;
+    if (!mounted || points == null || points.isEmpty) return false;
+    _polyLastTapTimer?.cancel();
+    _polyLastTap = null; // the next click starts afresh, not a finishing pair
+    if (points.length == 1) {
+      _clearPolyDraft();
+    } else {
+      setState(() {
+        _polyPoints = points.sublist(0, points.length - 1);
+        _polyLastRaw = _polyPoints!.last;
+      });
+    }
+    return true;
+  }
+
+  /// Drops the in-progress poly path (committed or abandoned) and stops
+  /// the edge auto-scroll its hover may be driving.
+  void _clearPolyDraft() {
+    _controller.setPlacementDraftUndo(this, null);
+    setState(() {
+      _polyPoints = null;
+      _polyLastRaw = null;
+      _polyHover = null;
+    });
+    if (!_autoScrollDragActive) _stopAutoScroll();
   }
 
   void _finishPolyPath([Offset? finalPoint]) {
@@ -5015,11 +5089,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_measureKind == PdfMeasurementKind.volume) {
       unawaited(_commitVolume(pagePoints));
       _clearAfterimage();
-      setState(() {
-        _polyPoints = null;
-        _polyLastRaw = null;
-        _polyHover = null;
-      });
+      _clearPolyDraft();
       return;
     }
     if (_tool == PdfEditTool.contentDelete) {
@@ -5028,11 +5098,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // unlike the shape tools below)
       _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
       _clearAfterimage();
-      setState(() {
-        _polyPoints = null;
-        _polyLastRaw = null;
-        _polyHover = null;
-      });
+      _clearPolyDraft();
       return;
     }
     if (_tool == PdfEditTool.snapshot) {
@@ -5041,11 +5107,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       unawaited(_commitSnapshot(
           _boundsOf(simplified), _geometry.toPageRect(_boundsOf(simplified)),
           polygon: simplified, pagePolygon: pagePoints));
-      setState(() {
-        _polyPoints = null;
-        _polyLastRaw = null;
-        _polyHover = null;
-      });
+      _clearPolyDraft();
       return;
     }
     // The cloud tool's click path builds a free-form footprint (its drag
@@ -5058,11 +5120,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (before == _controller.revisionId) return;
     _clearAfterimage();
-    setState(() {
-      _polyPoints = null;
-      _polyLastRaw = null;
-      _polyHover = null;
-    });
+    _clearPolyDraft();
     final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
     final fill = _controller.preferences.shapeFillColor;
     _afterPath = (
@@ -5737,6 +5795,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // builder (see [_straightChain]) so the rubber band tracks the snap
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
+      }
+      if (_polyPoints != null) {
+        // the path may need more room than the viewport shows: resting the
+        // pointer against a viewport edge scrolls the document under it,
+        // exactly like a held region drag (see [_onAutoScrollTick])
+        _autoScrollGlobal = event.position;
+        _autoScrollLastLocal = event.localPosition;
+        _maybeAutoScroll();
       }
       cursor = SystemMouseCursors.precise;
     } else if (_tool == PdfEditTool.content) {
@@ -6436,6 +6502,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _polyPoints = null;
       _polyLastRaw = null;
       _polyHover = null;
+      _controller.setPlacementDraftUndo(this, null);
     }
     // re-derive the editor's view rect through the LIVE geometry: a zoom
     // can re-lay-out the page (_layoutZoom) between open and now, so a
@@ -6746,7 +6813,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     livePath: vertexPreview,
                     selectionRect: _resizeHandle != null
                         ? _resizeRect
-                        : chrome?.$1.shift(moveDelta),
+                        : _selectedNodesOnly
+                            ? null
+                            : chrome?.$1.shift(moveDelta),
                     extraSelectionRects: extraSelected,
                     marqueeRect:
                         _marqueeStart != null && _marqueeCurrent != null
@@ -6807,6 +6876,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         !_selectedLineFamily &&
                         _moveStart == null,
                     showRotateHandle: selected != null &&
+                        !_selectedNodesOnly &&
                         _controller.canRotateSelected &&
                         (_controller.selectedAnnotationSlots.length == 1 ||
                             _controller.selectedIsSingleGroup) &&
