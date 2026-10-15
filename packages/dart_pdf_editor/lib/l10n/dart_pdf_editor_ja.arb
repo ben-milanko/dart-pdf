@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "しおりを含める",
   "insertPagesBookmarkFiles": "ファイルごとにしおりを追加",
   "insertPagesSummary": "{inserted} ページを挿入します。挿入後は {total} ページになります。",
-  "insertPagesConfirm": "挿入"
+  "insertPagesConfirm": "挿入",
+  "shellBakePageColor": "ページの色をファイルに保存",
+  "pageColorNotBakedSigned": "ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。"
 }

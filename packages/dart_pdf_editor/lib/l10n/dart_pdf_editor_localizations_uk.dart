@@ -2509,4 +2509,11 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Вставити';
+
+  @override
+  String get shellBakePageColor => 'Зберігати колір сторінки у файлі';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними.';
 }

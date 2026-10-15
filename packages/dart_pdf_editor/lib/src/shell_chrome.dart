@@ -1519,6 +1519,7 @@ enum _ViewOption {
   scrollbarChapters,
   formHighlight,
   pageColor,
+  bakePageColor,
   editingGuides,
   author,
   shortcuts
@@ -1556,6 +1557,9 @@ Future<void> _selectViewOption(
         preferences.noteRecentColor(color);
         preferences.pageColor = color;
       }
+    case _ViewOption.bakePageColor:
+      if (!pageColor) return;
+      preferences.bakePageColor = !preferences.bakePageColor;
     case _ViewOption.editingGuides:
       await showPdfEditingGuidesDialog(
         context,
@@ -1953,6 +1957,23 @@ Future<void> showPdfShellViewOptionsSheet(
                       setSheetState(() {});
                     },
                   ),
+                if (pageColor)
+                  SwitchListTile(
+                    key: const ValueKey('pdf-shell-bake-page-color'),
+                    secondary: const Icon(Icons.format_color_fill),
+                    title: Text(pdfL10n(context).shellBakePageColor),
+                    value: preferences.bakePageColor,
+                    onChanged: (_) async {
+                      await _selectViewOption(
+                        context,
+                        _ViewOption.bakePageColor,
+                        preferences: preferences,
+                        pageColor: pageColor,
+                        onAuthorPressed: onAuthorPressed,
+                      );
+                      setSheetState(() {});
+                    },
+                  ),
                 if (editingGuides)
                   ListTile(
                     key: const ValueKey('pdf-shell-editing-guides'),
@@ -2289,6 +2310,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               trailing: Text(_hex(preferences.pageColor)),
               contentPadding: EdgeInsets.zero,
             ),
+          ),
+        if (pageColor)
+          CheckedPopupMenuItem(
+            key: const ValueKey('pdf-shell-bake-page-color'),
+            value: _ViewOption.bakePageColor,
+            checked: preferences.bakePageColor,
+            child: Text(pdfL10n(context).shellBakePageColor),
           ),
         if (editingGuides)
           PopupMenuItem(

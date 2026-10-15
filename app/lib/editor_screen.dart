@@ -3062,8 +3062,11 @@ class _EditorScreenState extends State<EditorScreen>
     FocusManager.instance.primaryFocus?.unfocus();
     FocusManager.instance.applyFocusChangesIfNeeded();
     tab.session?.finishInk();
-    final bytes = tab.session?.bytes;
-    if (bytes == null) return;
+    final session = tab.session;
+    if (session == null) return;
+    // the file on disk may carry the page colour; the session never does,
+    // so the next save bakes over the same base again
+    final bytes = _withBakedPageColor(session.bytes, source: session.document);
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
@@ -3118,6 +3121,27 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  /// [bytes] as they should reach a file: with the page colour painted
+  /// behind every page when View options' "Save page color into file" is on,
+  /// so other PDF readers show it too. A signed document is written as it
+  /// is (with a toast) - repainting its pages would invalidate the
+  /// signatures. [source] is the revision [bytes] came from, so an encrypted
+  /// document reopens with its keys; a bake that fails for any reason saves
+  /// the document unbaked rather than not at all.
+  Uint8List _withBakedPageColor(Uint8List bytes, {PdfDocument? source}) {
+    final color = _prefs.pageColor;
+    if (!_prefs.bakePageColor || !pdfPageColorNeedsBaking(color)) return bytes;
+    try {
+      if (pdfPageColorBakeBlocked(source ?? PdfDocument.open(bytes))) {
+        _toast(pdfL10n(context).pageColorNotBakedSigned);
+        return bytes;
+      }
+      return pdfBakePageColor(bytes, color, source: source);
+    } catch (_) {
+      return bytes;
+    }
+  }
+
   /// The Save As backend: the host/test seam when one is injected, otherwise
   /// the platform's own save dialog, browser download, or share sheet.
   Future<SaveResult> _saveAsDocument(
@@ -3139,6 +3163,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// path to adopt, so the tab opens over the exported bytes alone and its
   /// first Save asks where they should go.
   Future<void> _exportPages(DocumentTab tab, Uint8List bytes) async {
+    bytes = _withBakedPageColor(bytes);
     final result = await _saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (result.succeeded) {
@@ -3447,6 +3472,9 @@ class _EditorScreenState extends State<EditorScreen>
         session.document.page(pageIndex),
         format: options.format.rasterFormat,
         dpi: options.dpi,
+        // the image carries the page colour when saved PDFs do
+        pageColor:
+            _prefs.bakePageColor ? _prefs.pageColor : const Color(0xFFFFFFFF),
       );
       if (!mounted) return;
       final name =

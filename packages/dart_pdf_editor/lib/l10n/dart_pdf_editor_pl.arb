@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Uwzględnij zakładki",
   "insertPagesBookmarkFiles": "Dodaj zakładkę dla każdego pliku",
   "insertPagesSummary": "{inserted, plural, =1{Wstawia 1 stronę} few{Wstawia {inserted} strony} many{Wstawia {inserted} stron} other{Wstawia {inserted} strony}} – dokument będzie miał {total, plural, =1{1 stronę} few{{total} strony} many{{total} stron} other{{total} strony}}.",
-  "insertPagesConfirm": "Wstaw"
+  "insertPagesConfirm": "Wstaw",
+  "shellBakePageColor": "Zapisz kolor strony w pliku",
+  "pageColorNotBakedSigned": "Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy."
 }

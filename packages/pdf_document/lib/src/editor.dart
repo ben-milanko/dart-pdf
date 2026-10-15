@@ -55,6 +55,7 @@ part 'header_footer.dart';
 part 'outline_editor.dart';
 part 'page_labels_editor.dart';
 part 'page_annotation_list.dart';
+part 'page_background.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';

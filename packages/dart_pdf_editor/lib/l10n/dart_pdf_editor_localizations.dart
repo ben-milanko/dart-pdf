@@ -4427,6 +4427,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Insert'**
   String get insertPagesConfirm;
+
+  /// Toggle in View options: when on, saving or exporting paints the chosen page (paper) color into the file so other PDF readers show it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Save page color into file'**
+  String get shellBakePageColor;
+
+  /// Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid.
+  ///
+  /// In en, this message translates to:
+  /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
+  String get pageColorNotBakedSigned;
 }
 
 class _DartPdfEditorLocalizationsDelegate

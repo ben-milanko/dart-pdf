@@ -99,6 +99,7 @@ export 'src/image_decoder.dart'
         pdfImageContentKey,
         pdfGpuSoftMaskOf;
 export 'src/ocr.dart';
+export 'src/page_color_bake.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
 export 'src/progressive_source.dart';

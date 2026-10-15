@@ -714,5 +714,7 @@
   "insertPagesIncludeBookmarks": "نیشانەکانیش لەخۆبگرێت",
   "insertPagesBookmarkFiles": "نیشانەیەک بۆ هەر پەڕگەیەک زیاد بکە",
   "insertPagesSummary": "{inserted, plural, =1{1 پەڕە دەخاتە ناوەوە} other{{inserted} پەڕە دەخاتە ناوەوە}} - بەڵگەنامەکە {total, plural, =1{1 پەڕەی} other{{total} پەڕەی}} دەبێت.",
-  "insertPagesConfirm": "خستنەناو"
+  "insertPagesConfirm": "خستنەناو",
+  "shellBakePageColor": "پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا",
+  "pageColorNotBakedSigned": "ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە."
 }

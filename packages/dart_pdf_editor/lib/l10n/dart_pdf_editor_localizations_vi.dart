@@ -2453,4 +2453,11 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Chèn';
+
+  @override
+  String get shellBakePageColor => 'Lưu màu trang vào tệp';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
 }
