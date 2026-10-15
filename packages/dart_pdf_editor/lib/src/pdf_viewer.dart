@@ -2562,6 +2562,12 @@ class _PdfViewerState extends State<PdfViewer>
   Offset? _marqueeCurrent;
   int? _marqueePage;
 
+  /// The global press point of a touch long-press marquee (select tool,
+  /// empty page area - see [_beginTouchMarquee]), or null when the marquee
+  /// in flight (if any) is a mouse one. A release that never dragged opens
+  /// the paste menu here, which is what a still long-press did before.
+  Offset? _touchMarqueeGlobal;
+
   /// A single-selection move drag's floating preview, reported by the
   /// page's editing overlay. The overlay's own layer would clip it behind
   /// the page below once the drag crosses a page boundary, so the viewer
@@ -8289,6 +8295,11 @@ class _PdfViewerState extends State<PdfViewer>
   void _onLongPressStart(LongPressStartDetails details) {
     final range = _wordRangeAt(details.localPosition);
     if (range == null) {
+      // Select tool on empty page area: the held finger rubber-bands a
+      // marquee (touch has no modifier key to ask for one). A press on a
+      // word still selects text, like everywhere else on a phone - start
+      // the box in a margin or between lines to sweep over text.
+      if (_beginTouchMarquee(details)) return;
       // no text under the press: an annotation (or, with something on
       // the clipboard, empty page area) gets the context menu instead -
       // reader mode's touch counterpart of a right-click
@@ -8397,12 +8408,88 @@ class _PdfViewerState extends State<PdfViewer>
     return true;
   }
 
+  /// Starts a touch long-press marquee when the select tool is armed and the
+  /// press (already known to miss text) lands on a page. Annotations never
+  /// reach here: [_selectionLongPressEnabledAt] leaves those presses to the
+  /// overlay, which selects/moves them or opens their menu.
+  bool _beginTouchMarquee(LongPressStartDetails details) {
+    final editing = widget.editing;
+    if (editing == null ||
+        editing.tool != PdfEditTool.select ||
+        editing.isPickingColor) {
+      return false;
+    }
+    final point = _pagePointAt(details.localPosition);
+    if (point == null) return false;
+    HapticFeedback.selectionClick();
+    _clearSelection();
+    _marqueePage = point.$1;
+    _touchMarqueeGlobal = details.globalPosition;
+    setState(() {
+      _marqueeStart = details.localPosition;
+      _marqueeCurrent = details.localPosition;
+    });
+    return true;
+  }
+
+  /// Ends a touch long-press marquee. A box that was dragged out selects
+  /// the annotations it covers; a press that never moved is the plain
+  /// long-press it used to be - the paste menu when there is something to
+  /// paste (the overlay leaves select-tool empty-area presses to this
+  /// recognizer so the two don't race for the same hold).
+  void _endTouchMarquee({required bool cancelled}) {
+    final global = _touchMarqueeGlobal;
+    final page = _marqueePage;
+    final start = _marqueeStart;
+    final current = _marqueeCurrent ?? start;
+    _touchMarqueeGlobal = null;
+    if (cancelled) {
+      setState(() {
+        _marqueeStart = null;
+        _marqueeCurrent = null;
+        _marqueePage = null;
+      });
+      return;
+    }
+    final dragged = start != null &&
+        current != null &&
+        (Rect.fromPoints(start, current).width >= 4 ||
+            Rect.fromPoints(start, current).height >= 4);
+    _commitMarquee();
+    final editing = widget.editing;
+    if (dragged ||
+        editing == null ||
+        global == null ||
+        page == null ||
+        start == null ||
+        !editing.hasAnnotationClipboard) {
+      return;
+    }
+    final point = _pagePointAt(start);
+    if (point == null || point.$1 != page) return;
+    final pagePoint = (point.$2, point.$3);
+    if (!widget.contextMenuEnabled) {
+      _requestContextMenu(global, page,
+          pagePoint: pagePoint, target: PdfContextMenuTarget.emptyPage);
+      return;
+    }
+    unawaited(_showSelectionMenu(global, page, pagePoint: pagePoint));
+  }
+
   void _onLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_touchMarqueeGlobal != null) {
+      setState(() => _marqueeCurrent = details.localPosition);
+      return;
+    }
     if (!_touchSelecting) return;
     _extendWordSelection(details.localPosition);
   }
 
   void _onLongPressEnd({bool cancelled = false}) {
+    if (_touchMarqueeGlobal != null) {
+      _endTouchMarquee(cancelled: cancelled);
+      return;
+    }
     if (!_touchSelecting) return;
     setState(() => _touchSelecting = false);
     if (cancelled && widget.editing?.markupTool != null) {
