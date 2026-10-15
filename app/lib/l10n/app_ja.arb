@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} を開けませんでした",
   "editorCouldNotPrint": "{title} を印刷できませんでした",
   "editorCouldNotReopen": "{title} を再度開けませんでした",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} は利用できなくなりました。移動、名前の変更、または削除された可能性があります。} other{前回のセッションの {count} 件のドキュメントは利用できなくなりました。移動、名前の変更、または削除された可能性があります。}}",
+  "editorSaveOriginUnavailable": "{title} を元の場所に保存できませんでした。移動または削除された可能性があります。保存先を選択してください。",
   "editorCouldNotSign": "デジタル署名できませんでした: {error}",
   "editorDiscard": "破棄",
   "editorDiscardChangesTitle": "変更を破棄しますか?",

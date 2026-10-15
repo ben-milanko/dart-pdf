@@ -354,6 +354,24 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Son oturumunuzdaki $count belge artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilirler.',
+      one:
+          '$title artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title özgün konumuna kaydedilemedi. Taşınmış veya silinmiş olabilir. Nereye kaydedileceğini seçin.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Dijital olarak imzalanamadı: $error';
   }

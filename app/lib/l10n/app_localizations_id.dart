@@ -356,6 +356,24 @@ class AppLocalizationsId extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count dokumen dari sesi terakhir Anda tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.',
+      one:
+          '$title tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Tidak dapat menyimpan $title ke lokasi aslinya. Mungkin telah dipindahkan atau dihapus. Pilih lokasi penyimpanan.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Tidak dapat menandatangani secara digital: $error';
   }

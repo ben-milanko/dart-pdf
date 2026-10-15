@@ -356,6 +356,24 @@ class AppLocalizationsNl extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documenten uit je vorige sessie zijn niet meer beschikbaar. Ze zijn mogelijk verplaatst, hernoemd of verwijderd.',
+      one:
+          '$title is niet meer beschikbaar. Het is mogelijk verplaatst, hernoemd of verwijderd.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Kan $title niet op de oorspronkelijke locatie opslaan. Het is mogelijk verplaatst of verwijderd. Kies waar je het wilt opslaan.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Kan niet digitaal ondertekenen: $error';
   }

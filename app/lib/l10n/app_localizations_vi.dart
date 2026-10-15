@@ -351,6 +351,24 @@ class AppLocalizationsVi extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count tài liệu từ phiên trước không còn khả dụng. Có thể chúng đã bị di chuyển, đổi tên hoặc xóa.',
+      one:
+          '$title không còn khả dụng. Có thể tệp đã bị di chuyển, đổi tên hoặc xóa.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Không thể lưu $title vào vị trí ban đầu. Có thể tệp đã bị di chuyển hoặc xóa. Chọn nơi lưu.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Không thể ký số: $error';
   }

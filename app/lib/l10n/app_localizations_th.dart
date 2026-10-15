@@ -351,6 +351,23 @@ class AppLocalizationsTh extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'เอกสาร $count รายการจากเซสชันล่าสุดไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ',
+      one: '$title ไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'ไม่สามารถบันทึก $title ไปยังตำแหน่งเดิมได้ อาจถูกย้ายหรือลบ เลือกตำแหน่งที่จะบันทึก';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'ไม่สามารถลงนามดิจิทัลได้: $error';
   }

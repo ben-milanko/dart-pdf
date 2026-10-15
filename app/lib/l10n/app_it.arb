@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Impossibile aprire {url}",
   "editorCouldNotPrint": "Impossibile stampare {title}",
   "editorCouldNotReopen": "Impossibile riaprire {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} non è più disponibile. Potrebbe essere stato spostato, rinominato o eliminato.} other{{count} documenti dell'ultima sessione non sono più disponibili. Potrebbero essere stati spostati, rinominati o eliminati.}}",
+  "editorSaveOriginUnavailable": "Impossibile salvare {title} nella posizione originale. Potrebbe essere stato spostato o eliminato. Scegli dove salvarlo.",
   "editorCouldNotSign": "Impossibile firmare digitalmente: {error}",
   "editorDiscard": "Scarta",
   "editorDiscardChangesTitle": "Scartare le modifiche?",

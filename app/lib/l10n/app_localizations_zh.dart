@@ -344,6 +344,22 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '上次会话中的 $count 个文档已不可用，可能已被移动、重命名或删除。',
+      one: '$title 已不可用，可能已被移动、重命名或删除。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '无法将 $title 保存到原位置，它可能已被移动或删除。请选择保存位置。';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return '无法进行数字签名：$error';
   }
@@ -1638,6 +1654,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String editorCouldNotReopen(String title) {
     return '無法重新開啟 $title';
+  }
+
+  @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '上次工作階段中的 $count 份文件已無法使用，可能已被移動、重新命名或刪除。',
+      one: '$title 已無法使用，可能已被移動、重新命名或刪除。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '無法將 $title 儲存到原位置，它可能已被移動或刪除。請選擇儲存位置。';
   }
 
   @override

@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Nie udało się otworzyć {url}",
   "editorCouldNotPrint": "Nie udało się wydrukować {title}",
   "editorCouldNotReopen": "Nie udało się ponownie otworzyć {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{Plik {title} nie jest już dostępny. Mógł zostać przeniesiony, zmieniony lub usunięty.} few{{count} dokumenty z ostatniej sesji nie są już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.} many{{count} dokumentów z ostatniej sesji nie jest już dostępnych. Mogły zostać przeniesione, zmienione lub usunięte.} other{{count} dokumentu z ostatniej sesji nie jest już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.}}",
+  "editorSaveOriginUnavailable": "Nie udało się zapisać {title} w pierwotnej lokalizacji. Plik mógł zostać przeniesiony lub usunięty. Wybierz miejsce zapisu.",
   "editorCouldNotSign": "Nie udało się podpisać cyfrowo: {error}",
   "editorDiscard": "Odrzuć",
   "editorDiscardChangesTitle": "Odrzucić zmiany?",

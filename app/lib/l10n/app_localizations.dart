@@ -657,6 +657,18 @@ abstract class AppLocalizations {
   /// **'Could not reopen {title}'**
   String editorCouldNotReopen(String title);
 
+  /// Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}'**
+  String editorReopenFilesUnavailable(int count, String title);
+
+  /// Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save {title} to its original location. It may have been moved or deleted. Choose where to save it.'**
+  String editorSaveOriginUnavailable(String title);
+
   /// Toast shown when digitally signing the document failed, with the error detail.
   ///
   /// In en, this message translates to:

@@ -353,6 +353,24 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documents from your last session are no longer available. They may have been moved, renamed or deleted.',
+      one:
+          '$title is no longer available. It may have been moved, renamed or deleted.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Couldn\'t save $title to its original location. It may have been moved or deleted. Choose where to save it.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Could not digitally sign: $error';
   }
@@ -1683,6 +1701,24 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documents from your last session are no longer available. They may have been moved, renamed or deleted.',
+      one:
+          '$title is no longer available. It may have been moved, renamed or deleted.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Couldn\'t save $title to its original location. It may have been moved or deleted. Choose where to save it.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Could not digitally sign: $error';
   }
@@ -3010,6 +3046,24 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String editorCouldNotReopen(String title) {
     return 'Could not reopen $title';
+  }
+
+  @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documents from your last session are no longer available. They may have been moved, renamed or deleted.',
+      one:
+          '$title is no longer available. It may have been moved, renamed or deleted.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Couldn\'t save $title to its original location. It may have been moved or deleted. Choose where to save it.';
   }
 
   @override

@@ -365,6 +365,28 @@ class AppLocalizationsPl extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count dokumentu z ostatniej sesji nie jest już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.',
+      many:
+          '$count dokumentów z ostatniej sesji nie jest już dostępnych. Mogły zostać przeniesione, zmienione lub usunięte.',
+      few:
+          '$count dokumenty z ostatniej sesji nie są już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.',
+      one:
+          'Plik $title nie jest już dostępny. Mógł zostać przeniesiony, zmieniony lub usunięty.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Nie udało się zapisać $title w pierwotnej lokalizacji. Plik mógł zostać przeniesiony lub usunięty. Wybierz miejsce zapisu.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Nie udało się podpisać cyfrowo: $error';
   }
