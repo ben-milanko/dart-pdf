@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,11 +22,265 @@ PdfEditingController shapes() => PdfEditingController(buildMultiPagePdf(2))
 void selectPair(PdfEditingController editing) =>
     editing.selectAnnotationSlots([(0, 0), (0, 1)]);
 
+double edgeLength((double, double) a, (double, double) b) =>
+    math.sqrt(math.pow(a.$1 - b.$1, 2) + math.pow(a.$2 - b.$2, 2));
+
+void expectFrame(
+    PdfEditingController editing, double width, double height, double angle) {
+  final quad = editing.primarySelectedGroupQuad!;
+  expect(edgeLength(quad[0], quad[1]), closeTo(width, 0.001));
+  expect(edgeLength(quad[0], quad[3]), closeTo(height, 0.001));
+  expect(editing.primarySelectedGroupRotation, closeTo(angle, 0.00001));
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     PdfAnnotationSnapshotClipboard.instance.clear();
     PdfSnapshotClipboard.instance.clear();
+  });
+
+  test('ink group frame keeps its shape through repeated rotation and reopen',
+      () {
+    final editing = PdfEditingController(buildMultiPagePdf(2));
+    addTearDown(editing.dispose);
+    for (var x = 100.0; x < 300; x += 70) {
+      editing.addInkStroke(0, [(x, 550), (x + 35, 620), (x, 710)]);
+      editing.finishInk();
+    }
+    editing.selectAnnotationSlots([(0, 0), (0, 1), (0, 2)]);
+    editing.groupSelectedAnnotations();
+    final original = editing.primarySelectedGroupQuad!;
+    final w = edgeLength(original[0], original[1]);
+    final h = edgeLength(original[0], original[3]);
+    final center = (
+      (original[0].$1 + original[2].$1) / 2,
+      (original[0].$2 + original[2].$2) / 2
+    );
+    var angle = 0.0;
+    for (final turn in [37.0, 41.0, -19.0, 96.0, -155.0]) {
+      editing.rotateSelected(turn);
+      angle += turn * math.pi / 180;
+      expectFrame(editing, w, h, angle);
+      final quad = editing.primarySelectedGroupQuad!;
+      expect((quad[0].$1 + quad[2].$1) / 2, closeTo(center.$1, 0.001));
+      expect((quad[0].$2 + quad[2].$2) / 2, closeTo(center.$2, 0.001));
+    }
+    editing.undo();
+    editing.selectAnnotation(0, 2);
+    expectFrame(editing, w, h, 155 * math.pi / 180);
+    editing.redo();
+    editing.selectAnnotation(0, 1);
+    editing.rotateSelected(37);
+    final reopened = PdfEditingController(editing.bytes);
+    addTearDown(reopened.dispose);
+    reopened.selectAnnotation(0, 0);
+    expectFrame(reopened, w, h, 37 * math.pi / 180);
+    reopened.copySelectedAnnotations();
+    reopened.pasteAnnotations(1);
+    expectFrame(reopened, w, h, 37 * math.pi / 180);
+    reopened.moveSelectedToPage(0, 10, -10);
+    expectFrame(reopened, w, h, 37 * math.pi / 180);
+  });
+
+  test('a rotated group resizes on its local axes without shearing', () {
+    final editing = shapes();
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.rotateSelected(37);
+    final before = editing.revisionCount;
+    editing.resizeSelectedLocal(const PdfRect(50, 680, 550, 780));
+    expect(editing.revisionCount, before + 1);
+    expectFrame(editing, 500, 100, 37 * math.pi / 180);
+    final quad = editing.primarySelectedGroupQuad!;
+    expect((quad[0].$1 + quad[2].$1) / 2, closeTo(300, 0.001));
+    expect((quad[0].$2 + quad[2].$2) / 2, closeTo(730, 0.001));
+    for (final a in editing.pageAt(0).annotations.take(2)) {
+      final q = a.appearanceQuad!;
+      expect(edgeLength(q[0], q[1]), closeTo(200, 0.001));
+      expect(edgeLength(q[0], q[3]), closeTo(100, 0.001));
+    }
+    editing.rotateSelected(22);
+    expectFrame(editing, 500, 100, 59 * math.pi / 180);
+    editing.resizeSelectedLocal(const PdfRect(50, 680, 550, 780), flipX: true);
+    expectFrame(editing, 500, 100, 59 * math.pi / 180);
+    editing.rotateSelected(-22);
+    expectFrame(editing, 500, 100, 37 * math.pi / 180);
+  });
+
+  test('restyling grouped text retains its selection frame orientation', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addFreeText(0, rectA, 'First')
+      ..addFreeText(0, rectB, 'Second');
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.rotateSelected(37);
+    editing.toggleSelectedTextFormatting(PdfTextFormatting.bold);
+    expectFrame(editing, 250, 50, 37 * math.pi / 180);
+    editing.ungroupSelectedAnnotations();
+    expect(
+        editing
+            .pageAt(0)
+            .annotations
+            .every((a) => a.dict[kPdfAnnotationGroupRotationKey] == null),
+        isTrue);
+  });
+
+  test('replacing text in a mixed group retains the frame on all members', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, rectA)
+      ..addFreeText(0, rectB, 'Second');
+    addTearDown(editing.dispose);
+    selectPair(editing);
+    editing.groupSelectedAnnotations();
+    editing.rotateSelected(37);
+    editing.toggleSelectedTextFormatting(PdfTextFormatting.bold);
+    expectFrame(editing, 250, 50, 37 * math.pi / 180);
+    editing.rotateSelected(21);
+    expectFrame(editing, 250, 50, 58 * math.pi / 180);
+  });
+
+  for (final mode in PdfAnnotationRotationMode.values) {
+    test('foreign group orientation follows a mixed selection in $mode', () {
+      final editing = shapes();
+      addTearDown(editing.dispose);
+      selectPair(editing);
+      editing.groupSelectedAnnotations();
+      // Legacy/foreign groups have only the standard relationship metadata.
+      final updater = CosIncrementalUpdater(editing.document.cos);
+      for (final a in editing.pageAt(0).annotations.take(2)) {
+        a.dict.entries.remove(kPdfAnnotationGroupRotationKey);
+        updater.markChanged(a.dict);
+      }
+      final foreign = PdfEditingController(updater.save());
+      addTearDown(foreign.dispose);
+      foreign.selectAnnotationSlots([(0, 0), (0, 2)]);
+      foreign.rotateSelected(37, mode: mode);
+      foreign.selectAnnotation(0, 1);
+      expectFrame(foreign, 250, 50, 37 * math.pi / 180);
+    });
+  }
+
+  for (final pageRotation in [0, 90, 180, 270]) {
+    testWidgets(
+        'group chrome and handles rotate on a $pageRotation degree page',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final editing = shapes();
+      addTearDown(editing.dispose);
+      if (pageRotation != 0) {
+        editing.apply((e) => e.rotatePage(0, pageRotation));
+      }
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: ListenableBuilder(
+                  listenable: editing,
+                  builder: (context, _) => PdfViewer(
+                      document: editing.document,
+                      editing: editing,
+                      initialFit: PdfViewerFit.width)))));
+      addTearDown(() => tester.pumpWidget(const SizedBox()));
+      selectPair(editing);
+      editing.groupSelectedAnnotations();
+      editing.moveSelected(0, -200);
+      await tester.pumpAndSettle();
+      dynamic preview() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((w) => w.painter)
+          .firstWhere(
+              (p) => p.runtimeType.toString() == '_EditingPreviewPainter');
+      final original = preview().selectionRect as Rect;
+      editing.rotateSelected(37);
+      await tester.pumpAndSettle();
+      final painter = preview();
+      final rect = painter.selectionRect as Rect;
+      final scale = 800 / (pageRotation % 180 == 0 ? 612 : 792);
+      expect(rect.width, closeTo(250 * scale, 0.01));
+      expect(rect.height, closeTo(50 * scale, 0.01));
+      expect(rect.center.dx, closeTo(original.center.dx, 0.01));
+      expect(rect.center.dy, closeTo(original.center.dy, 0.01));
+      final angle = painter.rotation as double;
+      expect(angle.abs(), greaterThan(0.1));
+      expect(painter.extraSelectionRects, isEmpty);
+      // Resize using the rotated top-right handle; the opposite corner stays
+      // anchored and local width grows by 40 pixels, with no shear or jump.
+      Offset rotate(Offset p, double a) => Offset(
+          p.dx * math.cos(a) - p.dy * math.sin(a),
+          p.dx * math.sin(a) + p.dy * math.cos(a));
+      final handle = rect.center + rotate(rect.topRight - rect.center, angle);
+      final delta = rotate(const Offset(40, 0), angle);
+      final gesture =
+          await tester.startGesture(handle, kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(delta);
+      await tester.pump();
+      final during = preview().selectionRect as Rect;
+      await gesture.up();
+      await tester.pumpAndSettle();
+      final after = preview().selectionRect as Rect;
+      expect(after.width, closeTo(during.width, 0.01));
+      expect(after.height, closeTo(during.height, 0.01));
+      expect(after.center.dx, closeTo(during.center.dx, 0.01));
+      expect(after.center.dy, closeTo(during.center.dy, 0.01));
+      expectFrame(editing, 250 + 40 / scale, 50, 37 * math.pi / 180);
+      final beforeTurn = editing.revisionCount;
+      final resting = preview().rotation as double;
+      final knob = after.center +
+          rotate(after.topCenter - after.center - const Offset(0, 22), resting);
+      final turn =
+          await tester.startGesture(knob, kind: PointerDeviceKind.mouse);
+      await turn.moveTo(
+          after.center + rotate(knob - after.center, 23 * math.pi / 180));
+      await tester.pump();
+      final live = preview();
+      final liveRect = live.selectionRect as Rect;
+      final liveAngle = live.rotation as double;
+      expect(liveRect.width, closeTo(after.width, 0.01));
+      expect(liveRect.height, closeTo(after.height, 0.01));
+      await turn.up();
+      await tester.pumpAndSettle();
+      expect(editing.revisionCount, beforeTurn + 1);
+      final committed = preview().selectionRect as Rect;
+      expect(committed.width, closeTo(liveRect.width, 0.01));
+      expect(committed.height, closeTo(liveRect.height, 0.01));
+      expect(committed.center.dx, closeTo(liveRect.center.dx, 0.01));
+      expect(committed.center.dy, closeTo(liveRect.center.dy, 0.01));
+      expect(preview().rotation, closeTo(liveAngle, 0.00001));
+    });
+  }
+
+  testWidgets('single ink retains its selection shape through rotation',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.addInkStroke(0, [(100, 450), (200, 520), (130, 600)]);
+    editing.finishInk();
+    editing.selectAnnotation(0, 0);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ListenableBuilder(
+                listenable: editing,
+                builder: (context, _) => PdfViewer(
+                    document: editing.document,
+                    editing: editing,
+                    initialFit: PdfViewerFit.width)))));
+    addTearDown(() => tester.pumpWidget(const SizedBox()));
+    await tester.pumpAndSettle();
+    dynamic preview() => tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((w) => w.painter)
+        .firstWhere(
+            (p) => p.runtimeType.toString() == '_EditingPreviewPainter');
+    final original = preview().selectionRect as Rect;
+    for (final angle in [0.1, 37.0, 41.0, -78.1]) {
+      editing.rotateSelected(angle);
+      await tester.pumpAndSettle();
+      final rect = preview().selectionRect as Rect;
+      expect(rect.width, closeTo(original.width, 0.001));
+      expect(rect.height, closeTo(original.height, 0.001));
+    }
   });
 
   test('a group resizes, flips, rotates and undoes as one object', () {

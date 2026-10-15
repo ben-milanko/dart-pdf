@@ -5740,14 +5740,18 @@ class PdfEditingController extends ChangeNotifier {
   /// The rects match the chrome the overlay draws: a text markup's first
   /// quad, a callout's text box, otherwise /Rect.
   bool selectionGrabAt(int pageIndex, double x, double y, {double margin = 0}) {
-    final group = selectedGroupBounds;
-    if (selectedPage == pageIndex &&
-        group != null &&
-        x >= group.left - margin &&
-        x <= group.right + margin &&
-        y >= group.bottom - margin &&
-        y <= group.top + margin) {
-      return true;
+    final group = primarySelectedGroupQuad;
+    if (selectedPage == pageIndex && selectedIsSingleGroup && group != null) {
+      final angle = primarySelectedGroupRotation;
+      final c = math.cos(angle), s = math.sin(angle);
+      final local = boundsOfPoints([
+        for (final (px, py) in group) (c * px + s * py, -s * px + c * py),
+      ])!;
+      final lx = c * x + s * y, ly = -s * x + c * y;
+      return lx >= local.left - margin &&
+          lx <= local.right + margin &&
+          ly >= local.bottom - margin &&
+          ly <= local.top + margin;
     }
     for (final slot in _selected) {
       if (slot.$1 != pageIndex) continue;
@@ -5789,6 +5793,19 @@ class PdfEditingController extends ChangeNotifier {
   PdfRect? get primarySelectedGroupBounds => _selected.isEmpty
       ? null
       : annotationGroupBounds(_selected.last.$1, _selected.last.$2);
+
+  /// The primary group's oriented selection frame, including in a mixed
+  /// selection. Its edge lengths remain constant when the group rotates.
+  List<(double, double)>? get primarySelectedGroupQuad => _selected.isEmpty
+      ? null
+      : annotationGroupSelectionQuad(_selected.last.$1, _selected.last.$2);
+
+  List<(double, double)>? annotationGroupSelectionQuad(int page, int index) =>
+      _annotationGroups(page).selectionQuadFor(index);
+
+  double get primarySelectedGroupRotation => _selected.isEmpty
+      ? 0
+      : _annotationGroups(_selected.last.$1).rotationFor(_selected.last.$2);
 
   List<int> annotationGroupSlots(int page, int index) =>
       _annotationGroups(page).slotsFor(index);
@@ -6791,14 +6808,23 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   void _restorePastedGroups(PdfEditor editor, int page, List<List<int>> groups,
-      Map<int, int> pastedSlots) {
+      Map<int, int> pastedSlots,
+      {List<double>? rotations}) {
     final annotations = editor.document.page(page).annotations;
-    for (final group in groups) {
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i];
       final members = [
         for (final index in group)
           if (pastedSlots[index] case final slot?) annotations[slot],
       ];
-      if (members.length > 1) editor.groupAnnotations(page, members);
+      if (members.length > 1) {
+        if (rotations != null) {
+          for (final member in members) {
+            member.dict[kPdfAnnotationGroupRotationKey] = CosReal(rotations[i]);
+          }
+        }
+        editor.groupAnnotations(page, members, preserveRotation: true);
+      }
     }
   }
 
@@ -7784,7 +7810,8 @@ class PdfEditingController extends ChangeNotifier {
           e.pasteAnnotation(targetPage, snapshot!, dx: dx, dy: dy);
         }
         e.groupAnnotations(
-            targetPage, e.document.page(targetPage).annotations.skip(first));
+            targetPage, e.document.page(targetPage).annotations.skip(first),
+            preserveRotation: true);
       })) {
         return false;
       }
@@ -7855,7 +7882,8 @@ class PdfEditingController extends ChangeNotifier {
           to.bottom - sy * from.bottom + (flipY ? to.height : 0));
       final page = _selected.first.$1;
       final targets = [for (final s in _selected) _annotationAt(s)!];
-      apply((e) => e.transformAnnotations(page, targets, matrix));
+      apply((e) => e.transformAnnotations(page, targets, matrix,
+          preserveGroupRotation: primarySelectedGroupRotation.abs() < 1e-7));
       return;
     }
     final annotation = selectedAnnotation;
@@ -8230,7 +8258,32 @@ class PdfEditingController extends ChangeNotifier {
     bool flipY = false,
   }) {
     if (selectedIsSingleGroup) {
-      resizeSelected(localTo, flipX: flipX, flipY: flipY);
+      if (!canResizeSelected ||
+          localTo.width < 1 ||
+          localTo.height < 1 ||
+          !localTo.width.isFinite ||
+          !localTo.height.isFinite) {
+        return;
+      }
+      final quad = primarySelectedGroupQuad!;
+      final cx = (quad[0].$1 + quad[2].$1) / 2;
+      final cy = (quad[0].$2 + quad[2].$2) / 2;
+      double length((double, double) a, (double, double) b) =>
+          math.sqrt(math.pow(a.$1 - b.$1, 2) + math.pow(a.$2 - b.$2, 2));
+      final sx = localTo.width / length(quad[0], quad[1]) * (flipX ? -1 : 1);
+      final sy = localTo.height / length(quad[0], quad[3]) * (flipY ? -1 : 1);
+      final angle = primarySelectedGroupRotation;
+      final c = math.cos(angle), s = math.sin(angle);
+      final transform = PdfMatrix.translation(-cx, -cy)
+          .concat(PdfMatrix(c, -s, s, c, 0, 0))
+          .concat(PdfMatrix.scaled(sx, sy))
+          .concat(PdfMatrix(c, s, -s, c, 0, 0))
+          .concat(PdfMatrix.translation((localTo.left + localTo.right) / 2,
+              (localTo.bottom + localTo.top) / 2));
+      final page = _selected.first.$1;
+      final targets = [for (final slot in _selected) _annotationAt(slot)!];
+      apply((e) => e.transformAnnotations(page, targets, transform,
+          preserveGroupRotation: true));
       return;
     }
     final annotation = selectedAnnotation;
@@ -8497,9 +8550,9 @@ class PdfEditingController extends ChangeNotifier {
     final angle = degrees * math.pi / 180;
     final c = math.cos(angle), s = math.sin(angle);
     if (selectedIsSingleGroup) {
-      final bounds = selectedGroupBounds!;
-      final cx = (bounds.left + bounds.right) / 2;
-      final cy = (bounds.bottom + bounds.top) / 2;
+      final quad = primarySelectedGroupQuad!;
+      final cx = (quad[0].$1 + quad[2].$1) / 2;
+      final cy = (quad[0].$2 + quad[2].$2) / 2;
       final transform =
           PdfMatrix(c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy);
       final page = _selected.first.$1;
@@ -8513,13 +8566,12 @@ class PdfEditingController extends ChangeNotifier {
             if (unit.length == 1) {
               e.rotateAnnotation(entry.key, unit.single, degrees);
             } else {
-              final bounds = unit.map((a) => a.rect).reduce((a, b) => PdfRect(
-                  math.min(a.left, b.left),
-                  math.min(a.bottom, b.bottom),
-                  math.max(a.right, b.right),
-                  math.max(a.top, b.top)));
-              final cx = (bounds.left + bounds.right) / 2;
-              final cy = (bounds.bottom + bounds.top) / 2;
+              final slot = _page(entry.key)
+                  .annotations
+                  .indexWhere((a) => identical(a.dict, unit.first.dict));
+              final quad = _annotationGroups(entry.key).selectionQuadFor(slot)!;
+              final cx = (quad[0].$1 + quad[2].$1) / 2;
+              final cy = (quad[0].$2 + quad[2].$2) / 2;
               e.transformAnnotations(
                   entry.key,
                   unit,
@@ -8536,7 +8588,16 @@ class PdfEditingController extends ChangeNotifier {
             math.max(a.top, b.top)));
         final cx = (bounds.left + bounds.right) / 2;
         final cy = (bounds.bottom + bounds.top) / 2;
-        for (final a in entry.value) {
+        for (final unit in _selectedUnitsOn(entry.key)) {
+          if (unit.length > 1) {
+            e.transformAnnotations(
+                entry.key,
+                unit,
+                PdfMatrix(
+                    c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy));
+            continue;
+          }
+          final a = unit.single;
           final ax = (a.rect.left + a.rect.right) / 2;
           final ay = (a.rect.bottom + a.rect.top) / 2;
           e.rotateAnnotation(entry.key, a, degrees);
@@ -9071,6 +9132,11 @@ class PdfEditingController extends ChangeNotifier {
     }
     final oldSelection = List<(int, int)>.of(_selected);
     final selectedGroups = _snapshotGroups(oldSelection);
+    final selectedGroupRotations = [
+      for (final group in selectedGroups)
+        _annotationGroups(oldSelection[group.first].$1)
+            .rotationFor(oldSelection[group.first].$2),
+    ];
     final nextSelection = <(int, int)>[];
     for (final slot in oldSelection) {
       final replacement = replacementSlots[slot];
@@ -9208,10 +9274,15 @@ class PdfEditingController extends ChangeNotifier {
         }
       }
       for (final page in oldSelection.map((slot) => slot.$1).toSet()) {
-        _restorePastedGroups(e, page, selectedGroups, {
-          for (var i = 0; i < oldSelection.length; i++)
-            if (oldSelection[i].$1 == page) i: nextSelection[i].$2,
-        });
+        _restorePastedGroups(
+            e,
+            page,
+            selectedGroups,
+            {
+              for (var i = 0; i < oldSelection.length; i++)
+                if (oldSelection[i].$1 == page) i: nextSelection[i].$2,
+            },
+            rotations: selectedGroupRotations);
       }
     });
     if (!changed) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -22,6 +23,79 @@ PdfDocument edited(PdfDocument doc, void Function(PdfEditor) edit) {
 }
 
 void main() {
+  test('group frame corners follow rigid transforms without expanding', () {
+    var doc = shapes();
+    doc = edited(
+        doc, (e) => e.groupAnnotations(0, doc.page(0).annotations.take(3)));
+    final original =
+        PdfAnnotationGroups.ofPage(doc.page(0)).selectionQuadFor(1)!;
+    expect(original,
+        [(50.0, 700.0), (450.0, 700.0), (450.0, 750.0), (50.0, 750.0)]);
+    var transform = PdfMatrix.identity;
+    for (final degrees in [37.0, 41.0, -78.0]) {
+      final angle = degrees * math.pi / 180;
+      final c = math.cos(angle), s = math.sin(angle);
+      final turn = PdfMatrix(
+          c, s, -s, c, 250 - c * 250 + s * 725, 725 - s * 250 - c * 725);
+      transform = transform.concat(turn);
+      doc = edited(
+          doc,
+          (e) =>
+              e.transformAnnotations(0, doc.page(0).annotations.take(3), turn));
+      final groups = PdfAnnotationGroups.ofPage(doc.page(0));
+      for (final member in [0, 1, 2]) {
+        final actual = groups.selectionQuadFor(member)!;
+        for (var i = 0; i < 4; i++) {
+          final expected = transform.apply(original[i].$1, original[i].$2);
+          expect(actual[i].$1, closeTo(expected.$1, 0.001));
+          expect(actual[i].$2, closeTo(expected.$2, 0.001));
+        }
+      }
+      expect(groups.selectionQuadFor(3), isNull);
+      expect(groups.selectionQuadFor(-1), isNull);
+    }
+    // Foreign groups without appearances still have a usable square-to-page
+    // frame; malformed optional orientation metadata falls back to that frame.
+    for (final a in doc.page(0).annotations.take(3)) {
+      a.dict.entries.remove('AP');
+      a.dict[kPdfAnnotationGroupRotationKey] = const CosName('invalid');
+    }
+    final foreign = PdfAnnotationGroups.ofPage(doc.page(0));
+    expect(foreign.rotationFor(0), 0);
+    final quad = foreign.selectionQuadFor(0)!;
+    expect(quad[0].$1, closeTo(50, 0.001));
+    expect(quad[0].$2, closeTo(700, 0.001));
+    expect(quad[2].$1, closeTo(450, 0.001));
+    expect(quad[2].$2, closeTo(750, 0.001));
+  });
+
+  test('group orientation survives leader removal and resets when merged', () {
+    var doc = shapes();
+    doc = edited(
+        doc, (e) => e.groupAnnotations(0, doc.page(0).annotations.take(3)));
+    const angle = 37 * math.pi / 180;
+    doc = edited(
+        doc,
+        (e) => e.transformAnnotations(
+            0,
+            doc.page(0).annotations.take(3),
+            PdfMatrix(math.cos(angle), math.sin(angle), -math.sin(angle),
+                math.cos(angle), 400, 0)));
+    doc = edited(
+        doc, (e) => e.removeAnnotation(0, doc.page(0).annotations.first));
+    expect(PdfAnnotationGroups.ofPage(doc.page(0)).rotationFor(0),
+        closeTo(angle, 0.00001));
+    doc = edited(doc, (e) => e.groupAnnotations(0, doc.page(0).annotations));
+    expect(PdfAnnotationGroups.ofPage(doc.page(0)).rotationFor(0), 0);
+    doc = edited(doc, (e) => e.ungroupAnnotations(0, doc.page(0).annotations));
+    expect(
+        doc
+            .page(0)
+            .annotations
+            .every((a) => a.dict[kPdfAnnotationGroupRotationKey] == null),
+        isTrue);
+  });
+
   test('group transforms detach shared appearances and preserve point geometry',
       () {
     final seed = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
