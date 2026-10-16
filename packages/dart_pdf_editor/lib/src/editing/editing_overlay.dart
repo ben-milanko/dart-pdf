@@ -1272,6 +1272,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ui.Picture? _ghost;
   (PdfDocument, int, int)? _ghostKey;
 
+  /// Where [_ghost] last painted at rest (the selection's view rect), so a
+  /// deselect before the page catches up can hold it there
+  /// ([_holdRestingGhost]).
+  Rect? _ghostRestRect;
+
   // attention flash (the annotation sidebar's zoom-to): an amber pulse
   // closing in on the annotation, driven by its own short animation
   late final AnimationController _flashController = AnimationController(
@@ -2968,16 +2973,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         : null;
     final document = _controller.document;
     if (slot == null || slot.$1 != widget.pageIndex) {
+      _holdRestingGhost();
       _ghost?.dispose();
       _ghost = null;
       _ghostKey = null;
+      _ghostRestRect = null;
       return;
     }
     final key = (document, slot.$1, slot.$2);
     if (key == _ghostKey) return;
+    _holdRestingGhost();
     _ghostKey = key;
     _ghost?.dispose();
     _ghost = null;
+    _ghostRestRect = null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return;
     final Future<ui.Picture?> picture;
@@ -3002,6 +3011,37 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // alone would leave it blank until the next pointer move)
       if (_moveStart != null) _reportMovePreview();
     }));
+  }
+
+  /// Keeps the selected annotation's resting ghost painted, as an
+  /// afterimage, when the selection moves off it before this revision's
+  /// page has caught up.
+  ///
+  /// Until then the annotation layer may not draw it at all: a revision
+  /// drops a moved or restyled mark's stale picture at once and re-renders
+  /// it in a paced pass, and only the overlay's ghost stands in meanwhile.
+  /// Deselecting used to dispose that ghost too, so the annotation vanished
+  /// for as long as the layer pass took - indefinitely when the pass is held
+  /// back. Retired like every afterimage: once the page is current, or the
+  /// document moves past this revision.
+  void _holdRestingGhost() {
+    final ghost = _ghost;
+    final rect = _ghostRestRect;
+    final key = _ghostKey;
+    if (ghost == null ||
+        rect == null ||
+        key == null ||
+        widget.rasterCurrent ||
+        _afterRevisionId != null ||
+        !identical(key.$1, _controller.document)) {
+      return;
+    }
+    _clearAfterimage();
+    _ghost = null;
+    _afterGhost = ghost;
+    _afterGhostFrom = rect;
+    _afterGhostTo = rect;
+    _afterRevisionId = _controller.revisionId;
   }
 
   Future<ui.Picture?> _renderGroupGhost(
@@ -6598,6 +6638,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             flipY: false,
           )
         : null;
+    if (restGhost != null) _ghostRestRect = selected;
     final _AfterGhost? afterGhost = _afterGhost != null
         ? (
             picture: _afterGhost!,
