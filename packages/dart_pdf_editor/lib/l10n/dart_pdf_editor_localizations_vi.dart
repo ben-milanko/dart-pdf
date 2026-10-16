@@ -430,6 +430,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Đổi màu…';
 
   @override
+  String get menuSaveAsImage => 'Lưu dưới dạng hình ảnh…';
+
+  @override
   String get menuRemoveNode => 'Xóa nút';
 
   @override

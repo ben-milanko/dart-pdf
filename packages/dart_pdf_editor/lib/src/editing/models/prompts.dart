@@ -54,7 +54,8 @@ class PdfClipboardPdf {
 typedef PdfSystemTextPasteProvider = Future<String?> Function(
     BuildContext context);
 
-/// A selected page-content image exported by the Content tool.
+/// A selected image exported as a PNG: a page-content image picked with the
+/// Content tool, or a pasted vector snapshot saved from its context menu.
 class PdfSelectedContentImage {
   const PdfSelectedContentImage({
     required this.pageIndex,
@@ -72,8 +73,10 @@ class PdfSelectedContentImage {
   final Uint8List pngBytes;
 }
 
-/// Receives a selected content image from the Content tool — typically to
-/// save, share, or download it. Return when the host export is complete.
+/// Receives a selected content image from the Content tool, or a vector
+/// snapshot rendered from the annotation context menu's "Save as image…" —
+/// typically to save, share, or download it. Return when the host export is
+/// complete.
 typedef PdfSelectedContentImageHandler = Future<void> Function(
   BuildContext context,
   PdfSelectedContentImage image,

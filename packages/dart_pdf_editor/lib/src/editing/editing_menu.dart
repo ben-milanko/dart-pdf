@@ -263,7 +263,10 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 /// to [PdfEditingController.pasteAnnotations]' cascade. With nothing
 /// selected the menu still opens when the clipboard has content (the
 /// empty-area right-click), offering Paste alone. [entriesBuilder] rewrites
-/// the rows last (see [PdfAnnotationMenuEntriesBuilder]).
+/// the rows last (see [PdfAnnotationMenuEntriesBuilder]). [onSaveImage],
+/// when supplied, adds "Save as image…" for a single selected vector
+/// snapshot: the snapshot is rendered to a PNG
+/// ([PdfEditingController.exportSelectedSnapshotImage]) and handed to it.
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
@@ -277,6 +280,7 @@ Future<void> showPdfAnnotationMenu({
   VoidCallback? onPaste,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
+  PdfSelectedContentImageHandler? onSaveImage,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
@@ -481,6 +485,21 @@ Future<void> showPdfAnnotationMenu({
           if (picked != null) {
             request.controller.recolorSnapshotSelected(picked);
           }
+        },
+      ),
+    // A pasted snapshot is vector, so it saves as a fresh render at print
+    // resolution rather than as the pixels on screen.
+    if (hasSelection &&
+        onSaveImage != null &&
+        controller.canExportSelectedSnapshotImage)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-snapshot-image'),
+        label: pdfL10n(context).menuSaveAsImage,
+        icon: Icons.download_outlined,
+        onSelected: (request) async {
+          final image = await request.controller.exportSelectedSnapshotImage();
+          if (image == null || !context.mounted) return;
+          await onSaveImage(context, image);
         },
       ),
     if (hasSelection && controller.canApplySelectedStyleAsDefault)

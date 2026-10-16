@@ -629,7 +629,9 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.systemTextPasteProvider].
   final PdfSystemTextPasteProvider? systemTextPasteProvider;
 
-  /// See [PdfEditingToolbar.onExportSelectedContentImage].
+  /// See [PdfEditingToolbar.onExportSelectedContentImage]. Also saves a
+  /// pasted vector snapshot from its context menu's "Save as image…"
+  /// ([PdfViewer.onSaveAnnotationImage]).
   final PdfSelectedContentImageHandler? onExportSelectedContentImage;
 
   /// Host-provided export for user-saved custom stamps in the stock Manage
@@ -1966,6 +1968,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         onAnnotationTap: widget.onAnnotationTap,
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
+                        onSaveAnnotationImage:
+                            widget.onExportSelectedContentImage,
                         textMenuBuilder: widget.textMenuBuilder,
                         annotationMenuEntries: widget.annotationMenuEntries,
                         textMenuEntries: widget.textMenuEntries,

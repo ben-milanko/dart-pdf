@@ -1495,6 +1495,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
+  /// Suggested PNG name for an image saved from the editor - a content
+  /// image or a pasted snapshot - e.g. `report-p3-image.png`.
+  static String _selectedImageFileName(String title, int pageNumber) {
+    var stem = title.trim();
+    if (stem.toLowerCase().endsWith('.pdf')) {
+      stem = stem.substring(0, stem.length - 4).trim();
+    }
+    if (stem.isEmpty) stem = 'image';
+    return '$stem-p$pageNumber-image.png';
+  }
+
   /// Saves a page-image [bytes] as [name] ([mimeType] PNG/JPEG): a save dialog
   /// on desktop, a download on the web, the share sheet on phones.
   Future<void> _saveImageBytes(
@@ -1833,6 +1844,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
                                 onSnapshot: _saveSnapshot,
+                                // the content tool's Save image, and Save as
+                                // image… on a pasted snapshot's context menu
+                                onExportSelectedContentImage:
+                                    (context, image) => _saveImageBytes(
+                                        image.pngBytes,
+                                        _selectedImageFileName(
+                                            tab.title, image.pageIndex + 1),
+                                        'image/png'),
                                 onPlaceSignature: (context,
                                         {required pageIndex,
                                         required pageRect}) =>
