@@ -107,6 +107,39 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-crop-cancel')));
       expect(cancelled, isTrue);
     });
+
+    testWidgets('the chips counter-scale with zoom and sit below the crop',
+        (tester) async {
+      Future<Rect> confirmAt(double chromeScale) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Stack(children: [
+              PdfImageCropOverlay(
+                key: ValueKey(chromeScale),
+                bounds: const Rect.fromLTWH(20, 20, 200, 200),
+                initialCrop: const Rect.fromLTWH(20, 20, 200, 200),
+                chromeScale: chromeScale,
+                accentColor: const Color(0xFF1E88E5),
+                onChanged: (_) {},
+                onCommit: () {},
+                onCancel: () {},
+              ),
+            ]),
+          ),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      final rest = await confirmAt(1);
+      // at 4x zoom the overlay draws in page space, so the chip must shrink
+      // to a quarter in the overlay's own frame to stay constant on screen
+      final zoomed = await confirmAt(0.25);
+      expect(zoomed.width, closeTo(rest.width / 4, 0.5));
+      expect(zoomed.height, closeTo(rest.height / 4, 0.5));
+      // below the crop, not over the image
+      expect(rest.top, greaterThanOrEqualTo(220));
+      expect(zoomed.top, greaterThanOrEqualTo(220));
+    });
   });
 
   group('crop overlay in the viewer', () {

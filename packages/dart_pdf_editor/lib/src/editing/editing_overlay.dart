@@ -6837,11 +6837,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         : null,
                     dashed: _controller.dashedStroke,
                     livePath: vertexPreview,
-                    selectionRect: _resizeHandle != null
-                        ? _resizeRect
-                        : _selectedNodesOnly
-                            ? null
-                            : chrome?.$1.shift(moveDelta),
+                    // while cropping, the crop overlay's frame is the only
+                    // chrome: no selection box, tint, handles or rotate knob
+                    selectionRect: cropping
+                        ? null
+                        : _resizeHandle != null
+                            ? _resizeRect
+                            : _selectedNodesOnly
+                                ? null
+                                : chrome?.$1.shift(moveDelta),
                     extraSelectionRects: extraSelected,
                     marqueeRect:
                         _marqueeStart != null && _marqueeCurrent != null
@@ -6898,10 +6902,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     afterStamp: _afterStamp,
                     afterPath: _afterPath,
                     showHandles: selected != null &&
+                        !cropping &&
                         _controller.canResizeSelected &&
                         !_selectedLineFamily &&
                         _moveStart == null,
                     showRotateHandle: selected != null &&
+                        !cropping &&
                         !_selectedNodesOnly &&
                         _controller.canRotateSelected &&
                         (_controller.selectedAnnotationSlots.length == 1 ||
