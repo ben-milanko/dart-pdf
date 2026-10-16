@@ -231,6 +231,21 @@ void main() {
       expect(cache.peek(0)!.id, 0, reason: 'the old fitting entry is kept');
       expect(dropped, isEmpty, reason: 'nothing was stored, nothing disposed');
     });
+
+    test('putAndClone hands an oversize reject back uncached, not cloned', () {
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 100,
+        rejectOversize: true,
+        cloner: (r) => r.clone(),
+        disposer: (r) => r.disposed = true,
+      );
+      final big = _Res(0, weight: 500);
+      expect(cache.putAndClone(0, big), same(big),
+          reason: 'the caller owns it outright; a clone would leak the master');
+      expect(cache.containsKey(0), isFalse);
+      expect(big.disposed, isFalse);
+    });
   });
 
   group('weight-0 entries', () {
