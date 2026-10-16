@@ -1,6 +1,8 @@
-// A document opens in Select mode: the edit session starts with the Select
-// tool armed, not in Hand mode.
+// A document opens in Select mode on desktop (the edit session starts with
+// the Select tool armed) and in Hand mode on mobile, where a finger on the
+// page should scroll rather than grab.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -19,7 +21,9 @@ void main() {
 
   tearDown(() => preferences.dispose());
 
-  test('a new document tab starts in Select mode', () {
+  test('a new document tab starts in Select mode on desktop', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final tab = DocumentTab.document(
       title: 'reader.pdf',
       bytes: buildMultiPagePdf(1),
@@ -32,7 +36,8 @@ void main() {
     expect(tab.session!.markupTool, isNull);
   });
 
-  testWidgets('the opened document reaches the viewer in Select mode',
+  testWidgets(
+      'the opened document reaches the viewer in Select mode on desktop',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: EditorScreen(
@@ -46,5 +51,40 @@ void main() {
     final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
     expect(viewer.editing!.tool, PdfEditTool.select);
     expect(viewer.editing!.isHandMode, isFalse);
-  });
+  }, variant: TargetPlatformVariant.desktop());
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    test('a new document tab starts in Hand mode on ${platform.name}', () {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final tab = DocumentTab.document(
+        title: 'reader.pdf',
+        bytes: buildMultiPagePdf(1),
+        preferences: preferences,
+      );
+      addTearDown(tab.dispose);
+
+      expect(tab.session!.isHandMode, isTrue);
+      expect(tab.session!.tool, isNull);
+      expect(tab.session!.markupTool, isNull);
+    });
+  }
+
+  testWidgets('the opened document reaches the viewer in Hand mode on mobile',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: preferences,
+        initialDocument: (bytes: buildMultiPagePdf(1), title: 'reader.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
+    expect(viewer.editing!.isHandMode, isTrue);
+    expect(viewer.editing!.tool, isNull);
+  },
+      variant:
+          TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
 }
