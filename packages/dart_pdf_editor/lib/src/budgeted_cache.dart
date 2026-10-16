@@ -240,12 +240,23 @@ class PdfBudgetedCache<K, V> {
   /// the cache may later evict. Requires a [cloner].
   ///
   /// After [dispose] nothing is cached and [value] is returned uncached - the
-  /// caller owns it outright, with no master to stay independent from.
+  /// caller owns it outright, with no master to stay independent from. The
+  /// same holds for a value [put] would reject as oversize.
+  ///
+  /// The copy is taken *before* the store: [put] can evict the value it just
+  /// stored (the [PdfCacheRegistry] ceiling's hard trim may drop the MRU
+  /// entry), and cloning a disposed [ui.Image] throws.
   V putAndClone(K key, V value) {
     assert(_cloner != null, 'putAndClone requires a cloner');
     if (_disposed) return value;
+    if (_rejectOversize &&
+        _hasWeightBudget &&
+        (_weigher?.call(value) ?? 0) > _maxWeight) {
+      return value;
+    }
+    final copy = _cloner!(value);
     put(key, value);
-    return _cloner!(value);
+    return copy;
   }
 
   /// The value for [key], computing and storing it with [ifAbsent] on a miss.

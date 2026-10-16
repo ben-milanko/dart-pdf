@@ -607,6 +607,33 @@ void main() {
           reason: 'multiple viewers cannot each retain one oversize residue');
     });
 
+    test('putAndClone hands back a live copy when the ceiling drops the master',
+        () {
+      // The decoded-image cache's put path: OCR's 216-dpi decode of a scan
+      // can by itself exceed the process ceiling, whose hard trim evicts the
+      // entry just stored. Cloning it afterwards threw "Cannot clone a
+      // disposed image".
+      final registry = PdfCacheRegistry.instance;
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 1000,
+        clearsUnderMemoryPressure: true,
+        cloner: (r) {
+          if (r.disposed) throw StateError('Cannot clone a disposed image.');
+          return r.clone();
+        },
+        disposer: (r) => r.disposed = true,
+      );
+      addTearDown(cache.dispose);
+      registry.maxTotalWeight = registry.totalWeight + 50;
+
+      final master = _Res(0, weight: 80);
+      final handed = cache.putAndClone(0, master);
+      expect(cache.containsKey(0), isFalse, reason: 'the ceiling dropped it');
+      expect(master.disposed, isTrue);
+      expect(handed.disposed, isFalse, reason: 'the caller still gets pixels');
+    });
+
     test('clearLabel targets one reconstructible cache class', () {
       final registry = PdfCacheRegistry.instance;
       final pages = PdfBudgetedCache<int, _Res>(
