@@ -174,6 +174,11 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
 
   @override
   Widget build(BuildContext context) {
+    // A wide layout's bar is just its child: the shells rebuild their header
+    // on every preference tick, and nothing here would ever move. (Crossing
+    // the compact breakpoint remounts the bar's subtree; the search text and
+    // page field live in shell-owned controllers, so nothing is lost.)
+    if (!widget.enabled) return widget.child;
     final top = widget.edge == AxisDirection.up;
     final inset = top ? MediaQuery.paddingOf(context).top : 0.0;
     final child = Focus(
