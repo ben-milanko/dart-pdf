@@ -126,6 +126,7 @@
   "menuLock": "Lock",
   "menuUnlock": "Unlock",
   "menuRecolour": "Recolour…",
+  "menuSaveAsImage": "Save as image…",
   "menuRemoveNode": "Remove node",
   "menuRemoveLeader": "Remove leader",
   "menuSaveToStamps": "Save to stamps",

@@ -162,6 +162,7 @@
   "menuFieldValue": "フィールドの値",
   "menuFlattenForm": "フォームを統合",
   "menuRecolour": "色を変更…",
+  "menuSaveAsImage": "画像として保存…",
   "menuRemoveNode": "頂点を削除",
   "menuRemoveLeader": "引き出し線を削除",
   "menuSaveToStamps": "スタンプに保存",

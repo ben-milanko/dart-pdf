@@ -431,6 +431,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Warnai ulang…';
 
   @override
+  String get menuSaveAsImage => 'Simpan sebagai gambar…';
+
+  @override
   String get menuRemoveNode => 'Hapus simpul';
 
   @override

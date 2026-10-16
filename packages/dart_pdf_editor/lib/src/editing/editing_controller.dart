@@ -7574,6 +7574,77 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Whether exactly one annotation is selected and it is a pasted vector
+  /// snapshot, so [exportSelectedSnapshotImage] can save it as a picture.
+  bool get canExportSelectedSnapshotImage {
+    if (_selected.length != 1) return false;
+    final annotation = _annotationAt(_selected.single);
+    return annotation != null &&
+        PdfEditor(_document).isVectorSnapshotStamp(annotation);
+  }
+
+  /// Renders the selected vector snapshot to a standalone PNG - the
+  /// annotation's own appearance alone (its crop, recolour and rotation
+  /// included) on a transparent background, at [dpi]. Being vector, the
+  /// snapshot is re-rasterized at that resolution rather than reusing the
+  /// screen pixels, so the image stays sharp however it was zoomed.
+  ///
+  /// The whole /Rect is exported even where it hangs past the page edge:
+  /// the snapshot is the subject here, not the page. Returns null when the
+  /// selection isn't a single vector snapshot, its rect is degenerate, or
+  /// the document changed while it rendered.
+  Future<PdfSelectedContentImage?> exportSelectedSnapshotImage({
+    double dpi = 300,
+  }) async {
+    if (dpi <= 0) throw ArgumentError.value(dpi, 'dpi', 'must be positive');
+    if (!canExportSelectedSnapshotImage) return null;
+    final selected = _selected.single;
+    final annotation = _annotationAt(selected)!;
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    final revisionAtStart = _revisionId;
+    final page = _page(selected.$1);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: PdfPageRenderer.pageSize(page, rotation: page.rotation),
+    );
+    final region = geometry.toViewRect(rect);
+    final maxSideRatio = 8192 / math.max(region.width, region.height);
+    final pixelRatio = (dpi / 72).clamp(0.0, maxSideRatio).toDouble();
+    if (region.width * pixelRatio < 1 || region.height * pixelRatio < 1) {
+      return null;
+    }
+
+    final picture = await PdfPageRenderer.renderAnnotationPicture(
+      page,
+      annotation,
+      rotation: page.rotation,
+    );
+    if (picture == null) return null;
+    ui.Image? image;
+    try {
+      image = await PdfPageRenderer.rasterizeRegion(
+        picture,
+        region,
+        pixelRatio,
+      );
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null || revisionAtStart != _revisionId) return null;
+      return PdfSelectedContentImage(
+        pageIndex: selected.$1,
+        pageRect: rect,
+        pngBytes: Uint8List.fromList(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        ),
+      );
+    } finally {
+      image?.dispose();
+      picture.dispose();
+    }
+  }
+
   // ---------------------------------------------------------------------
   // attention flash
 
