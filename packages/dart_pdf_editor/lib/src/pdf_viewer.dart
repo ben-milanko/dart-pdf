@@ -10839,6 +10839,13 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
 
+  /// Whether the editing overlay stays mounted after its reason to be
+  /// (a tool, a selection, ...) has gone, until this page is current again.
+  /// It may be painting an afterimage of the latest edit - the annotation
+  /// layer has not drawn it yet - and unmounting it on a deselect hid the
+  /// annotation until the layer caught up.
+  bool _editingOverlayHeld = false;
+
   /// The editing revision [widget.page] belongs to, read when that page
   /// arrived: once this page's raster and annotation layer are current, the
   /// committed-ink afterimages up to it are on the page itself and are retired
@@ -11128,16 +11135,22 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             // the COS revision generation.
                             identical(
                                 widget.page.document.cos, editing.document.cos);
-                        return editing.tool == null &&
-                                !editing.isPickingColor &&
-                                editing.activeSavedAnnotation == null &&
-                                !editing.hasAnnotationSelection &&
-                                editing.pendingFlash == null &&
-                                !editing.preferences.showVerticalCursorGuide &&
-                                !editing
-                                    .preferences.showHorizontalCursorGuide &&
-                                !editing.preferences.showPageRulers &&
-                                !editing.preferences.showSnapGrid &&
+                        final idle = editing.tool == null &&
+                            !editing.isPickingColor &&
+                            editing.activeSavedAnnotation == null &&
+                            !editing.hasAnnotationSelection &&
+                            editing.pendingFlash == null &&
+                            !editing.preferences.showVerticalCursorGuide &&
+                            !editing.preferences.showHorizontalCursorGuide &&
+                            !editing.preferences.showPageRulers &&
+                            !editing.preferences.showSnapGrid;
+                        // a mounted overlay outlives its reason until the
+                        // page is current: it may hold the last edit's
+                        // afterimage (see [_editingOverlayHeld])
+                        _editingOverlayHeld =
+                            !rasterCurrent && (!idle || _editingOverlayHeld);
+                        return idle &&
+                                !_editingOverlayHeld &&
                                 (rasterCurrent ||
                                     editing
                                         .committedInksOn(widget.index)
