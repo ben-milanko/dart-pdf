@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/design/auto_hide_chrome.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -130,5 +131,84 @@ void main() {
 
     await scroll(tester, -300);
     expect(tester.getRect(header).top, top);
+  });
+
+  group('PdfAutoHideBar', () {
+    Widget bar(PdfChromeAutoHide chrome, {bool enabled = true}) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: PdfAutoHideBar(
+              controller: chrome,
+              edge: AxisDirection.up,
+              enabled: enabled,
+              child: const SizedBox(
+                height: 40,
+                child: Focus(child: SizedBox.expand()),
+              ),
+            ),
+          ),
+        );
+    double height(WidgetTester tester) =>
+        tester.getSize(find.byType(PdfAutoHideBar)).height;
+
+    testWidgets('focus inside the bar keeps it up', (tester) async {
+      final chrome = PdfChromeAutoHide();
+      addTearDown(chrome.dispose);
+      await tester.pumpWidget(bar(chrome));
+      final focus = Focus.of(tester.element(find.byType(SizedBox).last));
+      focus.requestFocus();
+      await tester.pump();
+
+      chrome.hide();
+      await tester.pumpAndSettle();
+      expect(height(tester), 40, reason: 'typing in the bar pins it');
+
+      focus.unfocus();
+      await tester.pumpAndSettle();
+      expect(height(tester), 0, reason: 'losing focus lets it go');
+    });
+
+    testWidgets('a pinned controller ignores hide and toggle', (tester) async {
+      final chrome = PdfChromeAutoHide()..pinned = true;
+      addTearDown(chrome.dispose);
+      chrome.hide();
+      chrome.toggle();
+      expect(chrome.visible, isTrue);
+      chrome.pinned = false;
+      expect(chrome.visible, isTrue, reason: 'unpinning leaves it showing');
+      chrome.toggle();
+      expect(chrome.visible, isFalse);
+    });
+
+    testWidgets('a swapped controller drives the bar', (tester) async {
+      final first = PdfChromeAutoHide();
+      final second = PdfChromeAutoHide();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await tester.pumpWidget(bar(first));
+      await tester.pumpWidget(bar(second));
+
+      first.hide();
+      await tester.pumpAndSettle();
+      expect(height(tester), 40, reason: 'the old controller is detached');
+      second.hide();
+      await tester.pumpAndSettle();
+      expect(height(tester), 0);
+    });
+
+    testWidgets('disabling snaps the bar back without animating',
+        (tester) async {
+      final chrome = PdfChromeAutoHide();
+      addTearDown(chrome.dispose);
+      await tester.pumpWidget(bar(chrome));
+      chrome.hide();
+      await tester.pumpAndSettle();
+      expect(height(tester), 0);
+
+      await tester.pumpWidget(bar(chrome, enabled: false));
+      expect(height(tester), 40);
+    });
   });
 }
