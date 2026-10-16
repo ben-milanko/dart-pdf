@@ -172,6 +172,7 @@ class PdfEditingInteractionHost {
     this.endTextSelection,
     this.clearTextSelection,
     this.activateLinkAt,
+    this.plainTap,
   });
 
   final void Function(Offset delta)? panViewport;
@@ -210,6 +211,10 @@ class PdfEditingInteractionHost {
   /// position, as a click in the reader does. Returns false when there is
   /// none, so the select tool can treat the click as a selection click.
   final bool Function(Offset globalPosition)? activateLinkAt;
+
+  /// A select-tool touch or stylus tap on empty page - no annotation, no
+  /// link - which the viewer reports as [PdfViewer.onPlainTap].
+  final VoidCallback? plainTap;
 }
 
 /// The gesture intent currently owned by an editing page.
