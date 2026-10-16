@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="9.0.0" date="2026-10-15">
+      <description><p>Group annotations, automatically OCR scanned documents, optionally save the page colour into PDFs, and draw serif fonts and rotated images more faithfully.</p></description>
+    </release>
     <release version="8.1.0" date="2026-10-10">
       <description><p>Style dropdown form fields, edit text more reliably, and improve mobile menus and Linux compatibility.</p></description>
     </release>

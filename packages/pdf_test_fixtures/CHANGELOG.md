@@ -1,5 +1,10 @@
 # Changelog
 
+## 9.0.0
+
+- Add `buildScannedPdf`, a fixture of image-only scan pages with optional text and an inline image.
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

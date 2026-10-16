@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+
+- Fit GPU-outlined substituted glyphs to their PDF slots, matching the Canvas backend, and outline unembedded serif fonts with the serif substitute.
+- Key the shared decoded-image cache by document, so the same object number in two files no longer collides.
+- Require the dart-pdf 9.0.0 suite.
+
 ## 0.7.1
 
 - Update dependency constraints for the compatible dart-pdf 8.1.0 suite. No public API changes.

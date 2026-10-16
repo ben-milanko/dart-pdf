@@ -1,5 +1,10 @@
 # Changelog
 
+## 9.0.0
+
+- Add an optional detection pixel-area cap (`PpOcrPipeline.detectionPixelLimit`, `detectionResize(pixelLimit:)`) for memory-bound backends. This fixes browser OCR on iOS.
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

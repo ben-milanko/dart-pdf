@@ -102,6 +102,12 @@ ci:
   repository: ben-milanko/dart-pdf
   ref: main
   repository_token_secret: STOREFLIGHT_REPOSITORY_TOKEN
+  # The CLI lives in its own private repository; the generated jobs check it
+  # out with the read-only deploy key rather than the release repository token.
+  cli:
+    repository: ben-milanko/storeflight
+    ref: main
+    ssh_key_secret: STOREFLIGHT_DEPLOY_KEY
   # flutter_secure_storage_linux needs libsecret and the GTK plugin layer
   # needs jsoncpp; neither is in Flutter's documented prerequisites, so a
   # runner without them fails at pkg_check_modules rather than at configure.

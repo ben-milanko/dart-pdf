@@ -1,8 +1,12 @@
-New in 8.1.0
+New in 9.0.0
 
-- Change the font, size, colour and alignment of dropdown and list-box form fields, including several selected fields together.
-- Use the new phone-friendly menu to create, open, print and sign documents.
-- Edit free text while keeping its original font, line wrapping and baseline. The caret stays aligned after resizing text.
-- The iOS text-selection menu stays clear of the style controls, and inline text opens the keyboard more reliably in iOS browsers.
-- The iOS share sheet shows the document filename.
-- Choose from the full colour palette in the mobile pen and highlighter tune menu.
+- Group annotations so they move, resize, rotate, copy and paste as one. Rotate a selection around its shared centre or each item's own centre.
+- Scanned documents are recognised automatically so their text can be selected and searched. You can turn this off in Settings. New scans are named after the date they were captured.
+- Optionally save the page colour into saved and exported PDFs.
+- Make selected text bold, italic or underlined with keyboard shortcuts, and style callout arrows separately from their text box.
+- Draw polylines more easily: pan while placing, scroll at the edges and undo the last point. The page grid shows where a page will land and animates reordering.
+- Long-press and drag to draw a selection box, and selection now responds as soon as you lift your finger.
+- Documents that use unembedded serif fonts look closer to the original, text keeps a level baseline, and rotated images stay sharp when you zoom in.
+- Fixes for documents showing another document's images, text recognition and sign-in for digital signatures, reopening recent files after an update, and first launch in unsupported languages.
+- DartPDF now tells you when a recent document's file has moved.
+- Smoother scrolling.

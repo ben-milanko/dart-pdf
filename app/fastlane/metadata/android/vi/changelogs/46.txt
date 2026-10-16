@@ -1,0 +1,8 @@
+Có gì mới trong 9.0.0
+
+- Nhóm chú thích để di chuyển, đổi kích thước và xoay cùng nhau.
+- Tự động OCR tài liệu quét để bạn có thể tìm kiếm.
+- Tùy chọn lưu màu trang vào PDF.
+- Phím tắt định dạng văn bản và kiểu riêng cho mũi tên chú thích.
+- Vẽ đường gấp khúc và sắp xếp lại trang dễ hơn.
+- Phông serif đẹp hơn, ảnh xoay sắc nét hơn và cuộn mượt mà hơn.
