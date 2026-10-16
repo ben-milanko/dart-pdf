@@ -261,9 +261,11 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 /// [pagePoint] is where on the page the menu was opened (page space) -
 /// Paste centers the clipboard there; without it the paste falls back
 /// to [PdfEditingController.pasteAnnotations]' cascade. With nothing
-/// selected the menu still opens when the clipboard has content (the
-/// empty-area right-click), offering Paste alone. [entriesBuilder] rewrites
-/// the rows last (see [PdfAnnotationMenuEntriesBuilder]).
+/// selected - the empty-area right-click or long-press - the menu offers
+/// page actions instead: Paste when the clipboard has content, and, when
+/// [pagePoint] is known, Add note here plus Select all (when
+/// [onSelectAllText] is given). [entriesBuilder] rewrites the rows last (see
+/// [PdfAnnotationMenuEntriesBuilder]).
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
@@ -277,6 +279,7 @@ Future<void> showPdfAnnotationMenu({
   VoidCallback? onPaste,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
+  VoidCallback? onSelectAllText,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
@@ -288,7 +291,14 @@ Future<void> showPdfAnnotationMenu({
   // A locked annotation can't be selected, so a right-click on one opens
   // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
   // selection/paste entries.
-  if (!hasSelection && !canPaste && unlockTarget == null) return;
+  //
+  // A press on empty page area always has somewhere to go: the page actions
+  // below. Without them a long-press there looked like it did nothing.
+  final onEmptyPage =
+      !hasSelection && unlockTarget == null && pagePoint != null;
+  if (!hasSelection && !canPaste && !onEmptyPage && unlockTarget == null) {
+    return;
+  }
 
   // The stock entries are grouped so [_menuRowsWithDividers] can rule off
   // each cluster: unlock, clipboard, z-order arrange, node editing,
@@ -362,6 +372,30 @@ Future<void> showPdfAnnotationMenu({
           }
         },
       ),
+  ];
+  final notePoint = onEmptyPage ? pagePoint : null;
+  final page = <PdfAnnotationMenuItem>[
+    if (notePoint != null) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-add-note'),
+        label: pdfL10n(context).menuAddNoteHere,
+        icon: Icons.sticky_note_2_outlined,
+        onSelected: (request) async {
+          final text = await textPrompt(context,
+              title: pdfL10n(context).overlayNote, multiline: true);
+          if (text == null || text.isEmpty) return;
+          request.controller
+              .addNote(pageIndex, notePoint.$1, notePoint.$2, text);
+        },
+      ),
+      if (onSelectAllText != null)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-select-all-text'),
+          label: pdfL10n(context).viewerSelectAll,
+          icon: Icons.select_all,
+          onSelected: (_) => onSelectAllText(),
+        ),
+    ],
   ];
   final arrange = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
@@ -556,7 +590,7 @@ Future<void> showPdfAnnotationMenu({
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
   var entries = _menuRowsWithDividers(
-      [unlock, clipboard, arrange, nodes, recolor, destructive, custom]);
+      [unlock, clipboard, page, arrange, nodes, recolor, destructive, custom]);
   if (entriesBuilder != null) {
     entries = entriesBuilder(context, request, entries);
     if (entries.isEmpty) return;

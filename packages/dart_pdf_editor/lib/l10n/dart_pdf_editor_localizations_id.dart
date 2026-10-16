@@ -437,6 +437,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Hapus garis penunjuk';
 
   @override
+  String get menuAddNoteHere => 'Tambahkan catatan di sini';
+
+  @override
   String get menuSaveToStamps => 'Simpan ke stempel';
 
   @override

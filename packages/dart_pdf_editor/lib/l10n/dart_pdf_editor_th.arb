@@ -164,6 +164,7 @@
   "menuRecolour": "เปลี่ยนสี…",
   "menuRemoveNode": "นำจุดออก",
   "menuRemoveLeader": "นำเส้นชี้ออก",
+  "menuAddNoteHere": "เพิ่มบันทึกที่นี่",
   "menuSaveToStamps": "บันทึกไปยังตราประทับ",
   "menuSetAsDefaultStyle": "ตั้งเป็นสไตล์เริ่มต้น",
   "menuRename": "เปลี่ยนชื่อ…",

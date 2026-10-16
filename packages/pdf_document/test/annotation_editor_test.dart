@@ -176,8 +176,7 @@ void main() {
           d.cos.resolve(a.normalAppearance!.dictionary['Resources'])
               as CosDictionary;
       final xObjects = d.cos.resolve(resources['XObject']) as CosDictionary;
-      final inner =
-          d.cos.resolve(xObjects.entries.values.single) as CosStream;
+      final inner = d.cos.resolve(xObjects.entries.values.single) as CosStream;
       return latin1.decode(d.cos.decodeStreamData(inner));
     }
 
@@ -226,8 +225,7 @@ void main() {
 
     // restyling recovers the pressures through the group wrapper, so a
     // recolor stays per-segment instead of collapsing to a uniform pen
-    final editor = PdfEditor(doc)
-      ..restyleAnnotation(0, ink, color: 0x1E88E5);
+    final editor = PdfEditor(doc)..restyleAnnotation(0, ink, color: 0x1E88E5);
     final out = PdfDocument.open(editor.save());
     final after = out.page(0).annotations.single;
     expect(after.color, 0x1E88E5);
@@ -2276,6 +2274,36 @@ void main() {
       expect((doc.cos.resolve(border[2]) as CosReal).value, 2);
       final content = appearanceText(doc, link);
       expect(content, contains('re'));
+    });
+
+    test('iconColor badges the region with a chain-link icon', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 640, 272, 712)],
+            uri: 'https://example.com',
+            borderColor: 0x0563C1,
+            iconColor: 0x0563C1,
+          ));
+      final link = doc.page(0).annotations.single;
+      final content = appearanceText(doc, link);
+      // white tile, then the two links drawn in a rotated unit cell
+      expect(content, contains('1 1 1 rg'));
+      expect(content, contains(' cm'));
+      expect(content, contains('\nB\n'));
+      // the clickable /Rect is unchanged by the badge
+      expect(link.rect.right, 272);
+      expect(link.rect.top, 712);
+    });
+
+    test('a region too small for the badge leaves it out', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 708)],
+            uri: 'https://example.com',
+            iconColor: 0x0563C1,
+          ));
+      final content = appearanceText(doc, doc.page(0).annotations.single);
+      expect(content, isNot(contains(' cm')));
     });
 
     test('an empty URI is rejected', () {

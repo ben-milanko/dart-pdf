@@ -164,6 +164,7 @@
   "menuRecolour": "색상 변경…",
   "menuRemoveNode": "노드 제거",
   "menuRemoveLeader": "지시선 제거",
+  "menuAddNoteHere": "여기에 메모 추가",
   "menuSaveToStamps": "스탬프에 저장",
   "menuSetAsDefaultStyle": "기본 스타일로 설정",
   "menuRename": "이름 바꾸기…",

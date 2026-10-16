@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Remove leader';
 
   @override
+  String get menuAddNoteHere => 'Add note here';
+
+  @override
   String get menuSaveToStamps => 'Save to stamps';
 
   @override
@@ -2892,6 +2895,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuRemoveLeader => 'Remove leader';
 
   @override
+  String get menuAddNoteHere => 'Add note here';
+
+  @override
   String get menuSaveToStamps => 'Save to stamps';
 
   @override
@@ -5347,6 +5353,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';

@@ -442,6 +442,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Вилучити лінію виноски';
 
   @override
+  String get menuAddNoteHere => 'Додати нотатку тут';
+
+  @override
   String get menuSaveToStamps => 'Зберегти у штампи';
 
   @override

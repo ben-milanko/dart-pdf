@@ -2802,6 +2802,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return bounds == null ? null : _geometry.toViewRect(bounds);
   }
 
+  /// The view rect of the word a text edit of the selected element covers,
+  /// when it spans more than that element - hidden during a move drag.
+  Rect? get _selectedElementWordViewRect {
+    if (_controller.selectedElementPage != widget.pageIndex ||
+        _elementMoveOffset != null) {
+      return null;
+    }
+    final bounds = _controller.selectedElementWordBounds;
+    return bounds == null ? null : _geometry.toViewRect(bounds);
+  }
+
   /// The selected content element's view rect, carried along by a move drag
   /// in flight - this is the chrome the user drags.
   Rect? get _selectedElementViewRect {
@@ -6984,6 +6995,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],
                     elementRect: _selectedElementViewRect,
+                    elementWordRect: _selectedElementWordViewRect,
                     elementClean: _elementMoveOffset != null
                         ? _elementClean
                         : _afterElementClean,
@@ -8457,6 +8469,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.showRotateHandle,
     required this.vertexHandles,
     required this.elementRect,
+    this.elementWordRect,
     this.elementClean,
     this.elementOnly,
     this.elementLiftFrom,
@@ -8617,6 +8630,10 @@ class _EditingPreviewPainter extends CustomPainter {
   /// The selected content element's box - orange, to read as "page
   /// content", distinct from the blue annotation chrome.
   final Rect? elementRect;
+
+  /// The whole word a text edit of the selected element covers, when the
+  /// page draws it as several runs - a fainter box around [elementRect].
+  final Rect? elementWordRect;
 
   /// A content-element move: the page WITHOUT the moved element
   /// ([elementClean]) and that element ALONE on transparent paper
@@ -9294,6 +9311,17 @@ class _EditingPreviewPainter extends CustomPainter {
       }
     }
 
+    final word = elementWordRect;
+    if (word != null) {
+      final box = word.inflate(3 * chromeScale);
+      canvas.drawRect(box, Paint()..color = _elementChrome.withAlpha(0x0D));
+      canvas.drawRect(
+          box,
+          Paint()
+            ..color = _elementChrome.withAlpha(0x80)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * chromeScale);
+    }
     final element = elementRect;
     if (element != null) {
       final box = element.inflate(2 * chromeScale);
@@ -9388,6 +9416,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.selectionOutline != selectionOutline ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
+      oldDelegate.elementWordRect != elementWordRect ||
       oldDelegate.elementClean != elementClean ||
       oldDelegate.elementOnly != elementOnly ||
       oldDelegate.elementLiftFrom != elementLiftFrom ||

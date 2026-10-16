@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => '移除引线';
 
   @override
+  String get menuAddNoteHere => '在此添加注释';
+
+  @override
   String get menuSaveToStamps => '保存到图章';
 
   @override
@@ -2847,6 +2850,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRemoveLeader => '移除引線';
+
+  @override
+  String get menuAddNoteHere => '在此新增註解';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';

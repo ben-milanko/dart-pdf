@@ -437,6 +437,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'لابردنی هێڵی ئاماژە';
 
   @override
+  String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
+
+  @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
 
   @override

@@ -444,6 +444,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'إزالة خط إشارة';
 
   @override
+  String get menuAddNoteHere => 'إضافة ملاحظة هنا';
+
+  @override
   String get menuSaveToStamps => 'حفظ في الأختام';
 
   @override

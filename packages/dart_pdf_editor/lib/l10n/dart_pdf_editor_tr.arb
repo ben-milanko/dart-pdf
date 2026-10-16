@@ -164,6 +164,7 @@
   "menuRecolour": "Yeniden renklendir…",
   "menuRemoveNode": "Düğümü kaldır",
   "menuRemoveLeader": "Gösterge çizgisini kaldır",
+  "menuAddNoteHere": "Buraya not ekle",
   "menuSaveToStamps": "Damgalara kaydet",
   "menuSetAsDefaultStyle": "Varsayılan stil olarak ayarla",
   "menuRename": "Yeniden adlandır…",

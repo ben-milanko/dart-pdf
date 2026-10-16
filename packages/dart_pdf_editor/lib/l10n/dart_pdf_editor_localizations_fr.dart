@@ -438,6 +438,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Supprimer la ligne de repère';
 
   @override
+  String get menuAddNoteHere => 'Ajouter une note ici';
+
+  @override
   String get menuSaveToStamps => 'Enregistrer dans les tampons';
 
   @override

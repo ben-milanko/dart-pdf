@@ -442,6 +442,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Удалить линию выноски';
 
   @override
+  String get menuAddNoteHere => 'Добавить заметку здесь';
+
+  @override
   String get menuSaveToStamps => 'Сохранить в штампы';
 
   @override

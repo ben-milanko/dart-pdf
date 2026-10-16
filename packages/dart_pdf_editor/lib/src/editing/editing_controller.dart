@@ -3247,17 +3247,20 @@ class PdfEditingController extends ChangeNotifier {
   /// external URI or an in-document jump (see [PdfLinkTarget]). [quads] is
   /// one rectangle per line of a text run, or a single box.
   ///
-  /// By default a link over a dragged box is drawn with a visible border so
-  /// it can be seen, while a link over selected text is drawn with a subtle
-  /// underline; override with [borderColor] / [underlineColor] (pass a
-  /// negative value to suppress that decoration and leave the region
-  /// invisible, the Acrobat convention for linking existing text).
+  /// By default a link over a dragged box is drawn with a visible border and
+  /// a chain-link badge in its corner, so it reads as a link rather than an
+  /// empty rectangle, while a link over selected text is drawn with a subtle
+  /// underline; override with [borderColor] / [underlineColor] /
+  /// [iconColor] (pass a negative value to suppress that decoration and
+  /// leave the region invisible, the Acrobat convention for linking existing
+  /// text).
   void addLink(
     int pageIndex,
     List<PdfRect> quads,
     PdfLinkTarget target, {
     int? borderColor,
     int? underlineColor,
+    int? iconColor,
   }) {
     if (quads.isEmpty) return;
     apply((e) => _emitLink(
@@ -3267,6 +3270,7 @@ class PdfEditingController extends ChangeNotifier {
           target,
           borderColor: borderColor,
           underlineColor: underlineColor,
+          iconColor: iconColor,
         ));
   }
 
@@ -3296,9 +3300,10 @@ class PdfEditingController extends ChangeNotifier {
     });
   }
 
-  /// Emits one link annotation for [target] over [quads]. When neither
-  /// decoration is specified a border is drawn (so a bare box link is
-  /// visible); a negative colour clears that decoration.
+  /// Emits one link annotation for [target] over [quads]. When no
+  /// decoration is specified a border and a link badge are drawn (so a bare
+  /// box link is visible and recognisable); a negative colour clears that
+  /// decoration.
   void _emitLink(
     PdfEditor editor,
     int pageIndex,
@@ -3306,12 +3311,18 @@ class PdfEditingController extends ChangeNotifier {
     PdfLinkTarget target, {
     int? borderColor,
     int? underlineColor,
+    int? iconColor,
   }) {
-    final resolvedBorder = borderColor == null && underlineColor == null
+    final bare =
+        borderColor == null && underlineColor == null && iconColor == null;
+    final resolvedBorder = bare
         ? PdfAnnotationEditing.defaultLinkColor
         : (borderColor != null && borderColor >= 0 ? borderColor : null);
     final resolvedUnderline =
         underlineColor != null && underlineColor >= 0 ? underlineColor : null;
+    final resolvedIcon = bare
+        ? PdfAnnotationEditing.defaultLinkColor
+        : (iconColor != null && iconColor >= 0 ? iconColor : null);
     final uri = target.uri;
     if (uri != null) {
       editor.addLinkToUri(
@@ -3320,6 +3331,7 @@ class PdfEditingController extends ChangeNotifier {
         uri: uri,
         borderColor: resolvedBorder,
         underlineColor: resolvedUnderline,
+        iconColor: resolvedIcon,
       );
       return;
     }
@@ -3331,6 +3343,7 @@ class PdfEditingController extends ChangeNotifier {
       destination: destination,
       borderColor: resolvedBorder,
       underlineColor: resolvedUnderline,
+      iconColor: resolvedIcon,
     );
   }
 
@@ -9902,6 +9915,44 @@ class PdfEditingController extends ChangeNotifier {
       selectedElement?.kind == PdfElementKind.text &&
       (selectedElement?.text?.isNotEmpty ?? false);
 
+  /// The text elements that together draw the word the selected content
+  /// element belongs to, in content order. Usually just the element itself;
+  /// a page that draws a word as several show operators - one per glyph is
+  /// common in generated PDFs - yields all of them, so a tap on one letter
+  /// still edits the whole word. Empty when no text element is selected.
+  List<PdfContentElement> get selectedElementWord {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return const [];
+    }
+    return _textWordAround(elementsOn(selected.$1).elements, element);
+  }
+
+  /// The text the content tool's text edits start from: the whole
+  /// [selectedElementWord], or null when no text element is selected.
+  String? get selectedElementEditText {
+    final word = selectedElementWord;
+    return word.isEmpty ? null : word.map((e) => e.text!).join();
+  }
+
+  /// The page-space box of [selectedElementWord] when it spans more than the
+  /// selected element - painted so the user sees what a text edit covers.
+  PdfRect? get selectedElementWordBounds {
+    final word = selectedElementWord;
+    if (word.length < 2) return null;
+    PdfRect? box;
+    for (final element in word) {
+      final b = element.bounds;
+      if (b == null) continue;
+      box = box == null
+          ? b
+          : PdfRect(math.min(box.left, b.left), math.min(box.bottom, b.bottom),
+              math.max(box.right, b.right), math.max(box.top, b.top));
+    }
+    return box;
+  }
+
   /// Resolves a viewer text selection to the one editable page-content text
   /// element underneath all of its [rects]. Returns null for multi-run text,
   /// text inside a Form XObject, or ambiguous overlapping text layers.
@@ -9934,6 +9985,156 @@ class PdfEditingController extends ChangeNotifier {
       });
     }).toList(growable: false);
     return candidates.length == 1 ? candidates.single : null;
+  }
+
+  /// Resolves a single-line viewer text selection to the page-content text
+  /// it covers, as one `(element, find)` part per show operator: the
+  /// [textElementForSelection] run when one run holds it all, otherwise the
+  /// consecutive runs the selected word or phrase is split across (a page
+  /// that draws text a glyph or a fragment at a time). Each part's `find` is
+  /// the slice of the selection that element draws. Whitespace in [text]
+  /// may be absent from the runs - such pages usually space words by
+  /// positioning, not by a space glyph.
+  ///
+  /// Returns null when the selection cannot be pinned to exactly one
+  /// stretch of runs, or a slice occurs twice in its run - the same
+  /// conservative promise as [textElementForSelection]: an edit changes the
+  /// text the user selected or nothing.
+  List<PdfContentTextPart>? textPartsForSelection(
+    int pageIndex,
+    List<PdfRect> rects,
+    String text,
+  ) {
+    final single = textElementForSelection(pageIndex, rects, text);
+    if (single != null) return [(element: single, find: text)];
+    if (text.trim().isEmpty || rects.isEmpty || text.contains('\n')) {
+      return null;
+    }
+    final touched = [
+      for (final element in elementsOn(pageIndex).elements)
+        if (element.kind == PdfElementKind.text &&
+            (element.text?.isNotEmpty ?? false) &&
+            element.bounds != null &&
+            rects.any((rect) {
+              final overlap = element.bounds!.intersect(rect);
+              return overlap.width > 0 && overlap.height > 0;
+            }))
+          element,
+    ];
+    if (touched.length < 2 || touched.length > _maxSelectionParts) return null;
+    final joined = StringBuffer();
+    final owner = <int>[];
+    for (var i = 0; i < touched.length; i++) {
+      final t = touched[i].text!;
+      joined.write(t);
+      owner.addAll(List.filled(t.length, i));
+    }
+    final haystack = joined.toString();
+    (int, int)? match;
+    for (var start = 0; start < haystack.length; start++) {
+      final end = _alignSelection(haystack, start, text);
+      if (end == null) continue;
+      if (match != null) return null; // ambiguous
+      match = (start, end);
+    }
+    if (match == null) return null;
+    final parts = <PdfContentTextPart>[];
+    var from = match.$1;
+    while (from < match.$2) {
+      var to = from;
+      while (to < match.$2 && owner[to] == owner[from]) {
+        to++;
+      }
+      final element = touched[owner[from]];
+      final find = haystack.substring(from, to);
+      final t = element.text!;
+      if (t.indexOf(find) != t.lastIndexOf(find)) return null;
+      parts.add((element: element, find: find));
+      from = to;
+    }
+    return parts;
+  }
+
+  static const int _maxSelectionParts = 256;
+
+  /// Where [text] ends when laid over [haystack] from [start], or null when it
+  /// doesn't fit there. A space in [text] may be missing from [haystack]
+  /// (word gaps drawn by positioning); every other character must match.
+  static int? _alignSelection(String haystack, int start, String text) {
+    var i = start;
+    var j = 0;
+    while (j < text.length) {
+      if (i < haystack.length && haystack.codeUnitAt(i) == text.codeUnitAt(j)) {
+        i++;
+        j++;
+      } else if (i > start && _isSpaceUnit(text.codeUnitAt(j))) {
+        j++;
+      } else {
+        return null;
+      }
+    }
+    return i > start ? i : null;
+  }
+
+  static bool _isSpaceUnit(int unit) =>
+      unit == 0x20 || unit == 0x09 || unit == 0xA0;
+
+  /// Replaces the text [parts] (from [textPartsForSelection] or
+  /// [selectedElementWord], all on [pageIndex] and from the current
+  /// revision's elements) with [replace] as one undoable edit: the first part
+  /// takes the whole replacement, styled with [style], and the rest of the
+  /// parts are removed. Following text holds its position, as with any
+  /// in-line replacement. Returns how many runs changed - 0 when the first
+  /// run's font cannot draw [replace], in which case nothing is touched.
+  int replaceTextInParts(
+    int pageIndex,
+    List<PdfContentTextPart> parts,
+    String replace, {
+    PdfTextStyle? style,
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    if (parts.isEmpty) return 0;
+    final snapshot = elementsOn(pageIndex);
+    for (final part in parts) {
+      final id = part.element.id;
+      if (id < 0 ||
+          id >= snapshot.elements.length ||
+          !identical(snapshot.elements[id], part.element)) {
+        return 0;
+      }
+    }
+    var count = 0;
+    apply((editor) {
+      final first = parts.first;
+      // read before the edit: rewriting a run can splice the snapshot's own
+      // operation list in place
+      final opsBefore = snapshot.operations.length;
+      count = editor.replaceElementText(
+        snapshot,
+        first.element,
+        first.find,
+        replace,
+        fallbackFonts: fallbackFonts,
+        style: style,
+      );
+      if (count == 0 || parts.length == 1) return;
+      // The rewrite of the first run may change how many operations it
+      // takes; everything after it shifts by that much. Remove the other
+      // slices last-first, so each removal leaves the ranges of the ones
+      // still to come untouched.
+      final after = PdfPageElements.of(editor.document, pageIndex);
+      final shift = after.operations.length - opsBefore;
+      final byStart = {
+        for (final element in after.elements)
+          if (element.kind == PdfElementKind.text) element.start: element,
+      };
+      for (final part in parts.skip(1).toList().reversed) {
+        final moved = byStart[part.element.start + shift];
+        if (moved == null || moved.text != part.element.text) continue;
+        count += editor.replaceElementText(after, moved, part.find, '');
+      }
+    });
+    return count;
   }
 
   /// Whether [element]'s current font can accept rich style overrides.
@@ -10250,18 +10451,14 @@ class PdfEditingController extends ChangeNotifier {
         !identical(elements.elements[element.id], element)) {
       return 0;
     }
-    var count = 0;
-    apply(
-      (e) => count = e.replaceElementText(
-        elements,
-        element,
-        element.text!,
-        text,
-        fallbackFonts: fallbackFonts,
-        style: style,
-      ),
+    final word = _textWordAround(elements.elements, element);
+    return replaceTextInParts(
+      selected.$1,
+      [for (final e in word) (element: e, find: e.text!)],
+      text,
+      style: style,
+      fallbackFonts: fallbackFonts,
     );
-    return count;
   }
 
   /// Rewrites [find] only inside [element], the occurrence resolved from a
@@ -10299,10 +10496,10 @@ class PdfEditingController extends ChangeNotifier {
   /// [pageIndex] - with [replace], leaving identical text elsewhere alone.
   ///
   /// Backs the search panel's single "Replace". Returns the number of runs
-  /// rewritten, which is 0 when the hit cannot be pinned to exactly one
-  /// content element (text split across runs, a hit inside a Form XObject,
-  /// overlapping text layers) or when the run's font cannot draw [replace] -
-  /// the same conservative gate [textElementForSelection] applies to the
+  /// rewritten, which is 0 when the hit cannot be pinned to one stretch of
+  /// content runs (a hit inside a Form XObject, overlapping text layers) or
+  /// when the run's font cannot draw [replace] - the same conservative gate
+  /// [textPartsForSelection] applies to the
   /// selection menu, so a replace either lands on the hit the user is looking
   /// at or does nothing at all.
   int replaceMatchText(
@@ -10312,14 +10509,12 @@ class PdfEditingController extends ChangeNotifier {
     String replace, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
   }) {
-    final element = textElementForSelection(pageIndex, rects, find);
-    if (element == null) return 0;
-    return replaceTextInElement(
+    final parts = textPartsForSelection(pageIndex, rects, find);
+    if (parts == null) return 0;
+    return replaceTextInParts(
       pageIndex,
-      element,
-      find,
+      parts,
       replace,
-      const PdfTextStyle(),
       fallbackFonts: fallbackFonts,
     );
   }
@@ -11404,4 +11599,69 @@ class _SignatureCoreJob {
   final int length;
   bool valid = true;
   final Completer<void> done = Completer<void>();
+}
+
+/// One slice of a text edit: the [find] text that page-content text
+/// [element] draws. See [PdfEditingController.textPartsForSelection].
+typedef PdfContentTextPart = ({PdfContentElement element, String find});
+
+/// The run of text [elements] that draws the word [element] is part of, in
+/// content order: [element] plus any neighbouring show operators that sit on
+/// the same line and butt up against it with no space glyph or word gap
+/// between them. Pages that place each glyph (or a few) with its own
+/// operator draw words this way; anywhere else this is just `[element]`.
+List<PdfContentElement> _textWordAround(
+  List<PdfContentElement> elements,
+  PdfContentElement element,
+) {
+  final id = element.id;
+  if (id < 0 || id >= elements.length || !identical(elements[id], element)) {
+    return [element];
+  }
+  var first = id;
+  var last = id;
+  while (first > 0 &&
+      last - first < _maxWordElements &&
+      _textJoins(elements[first - 1], elements[first])) {
+    first--;
+  }
+  while (last + 1 < elements.length &&
+      last - first < _maxWordElements &&
+      _textJoins(elements[last], elements[last + 1])) {
+    last++;
+  }
+  return elements.sublist(first, last + 1);
+}
+
+const int _maxWordElements = 64;
+
+/// Whether text element [b] continues the word [a] ends, on the page: both
+/// text, no whitespace at the seam, on one line, [b] starting where [a] ends
+/// (a gap well under a word space, or a slight kerned overlap).
+bool _textJoins(PdfContentElement a, PdfContentElement b) {
+  final at = a.text;
+  final bt = b.text;
+  final ab = a.bounds;
+  final bb = b.bounds;
+  if (a.kind != PdfElementKind.text ||
+      b.kind != PdfElementKind.text ||
+      at == null ||
+      bt == null ||
+      at.isEmpty ||
+      bt.isEmpty ||
+      ab == null ||
+      bb == null) {
+    return false;
+  }
+  bool space(int unit) =>
+      unit == 0x20 || unit == 0x09 || unit == 0xA0 || unit == 0x0A;
+  if (space(at.codeUnitAt(at.length - 1)) || space(bt.codeUnitAt(0))) {
+    return false;
+  }
+  final height = math.min(ab.height, bb.height);
+  if (height <= 0) return false;
+  final overlap = math.min(ab.top, bb.top) - math.max(ab.bottom, bb.bottom);
+  if (overlap < height * 0.6) return false;
+  final gap = bb.left - ab.right;
+  return bb.left > ab.left && gap > -height * 0.3 && gap < height * 0.15;
 }
