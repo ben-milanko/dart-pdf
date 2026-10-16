@@ -7,7 +7,7 @@ import 'design/material_host.dart';
 import 'pdf_viewer.dart';
 
 /// The classic "page 3 / 12" indicator, with the page number editable:
-/// type a number and press enter to jump there.
+/// type a number and press enter (or tap away) to jump there.
 ///
 /// Follows the viewer while it scrolls; out-of-range numbers clamp to
 /// the document, junk input snaps back. Renders nothing while the
@@ -109,6 +109,17 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
     _focus.unfocus();
   }
 
+  // A tap outside commits what was typed, so the field never depends on
+  // the keyboard having a return key; an untouched field just lets go
+  // rather than re-jumping (which would snap the scroll to the page top).
+  void _commitOnTapOutside(PointerDownEvent _) {
+    if (_field.text.trim() == _displayFor(widget.controller.currentPage)) {
+      _focus.unfocus();
+    } else {
+      _submit(_field.text);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -131,7 +142,14 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
           focusNode: _focus,
           style: style,
           textAlign: TextAlign.center,
-          keyboardType: labelled ? TextInputType.text : TextInputType.number,
+          // iOS's plain number pad has no return key, so there was no
+          // way to submit; `signed` maps to numbers-and-punctuation there
+          // (which has one) and to the same digit pad elsewhere. Digits
+          // stay enforced by the formatter.
+          keyboardType: labelled
+              ? TextInputType.text
+              : const TextInputType.numberWithOptions(signed: true),
+          textInputAction: TextInputAction.go,
           inputFormatters:
               labelled ? const [] : [FilteringTextInputFormatter.digitsOnly],
           decoration: const InputDecoration(
@@ -140,6 +158,7 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
             border: OutlineInputBorder(),
           ),
           onSubmitted: _submit,
+          onTapOutside: _commitOnTapOutside,
           contextMenuBuilder: pdfTextContextMenu,
         ),
       ),

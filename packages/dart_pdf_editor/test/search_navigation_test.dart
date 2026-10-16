@@ -443,6 +443,34 @@ void main() {
       expect(
           tester.widget<TextField>(find.byKey(fieldKey)).controller!.text, '5');
     });
+
+    testWidgets('has a submit key on every platform keyboard', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+
+      // TextInputType.number is iOS's number pad, which has no return key
+      final field = tester.widget<TextField>(find.byKey(fieldKey));
+      expect(field.keyboardType,
+          const TextInputType.numberWithOptions(signed: true));
+      expect(field.textInputAction, TextInputAction.go);
+    });
+
+    testWidgets('tapping outside commits the typed page', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+
+      await tester.enterText(find.byKey(fieldKey), '3');
+      await tester.tapAt(const Offset(400, 400));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.currentPage, 2);
+      final editable =
+          tester.widget<EditableText>(find.byType(EditableText).first);
+      expect(editable.focusNode.hasFocus, isFalse);
+    });
   });
 
   group('PdfSearchField', () {
