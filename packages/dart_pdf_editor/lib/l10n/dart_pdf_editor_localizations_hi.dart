@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'लीडर लाइन हटाएँ';
 
   @override
+  String get menuAddNoteHere => 'यहाँ नोट जोड़ें';
+
+  @override
   String get menuSaveToStamps => 'स्टैम्प में सहेजें';
 
   @override

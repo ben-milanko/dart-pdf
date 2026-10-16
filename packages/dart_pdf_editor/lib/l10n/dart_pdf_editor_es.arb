@@ -164,6 +164,7 @@
   "menuRecolour": "Recolorear…",
   "menuRemoveNode": "Quitar nodo",
   "menuRemoveLeader": "Quitar línea guía",
+  "menuAddNoteHere": "Añadir nota aquí",
   "menuSaveToStamps": "Guardar en sellos",
   "menuSetAsDefaultStyle": "Establecer como estilo predeterminado",
   "menuRename": "Cambiar nombre…",

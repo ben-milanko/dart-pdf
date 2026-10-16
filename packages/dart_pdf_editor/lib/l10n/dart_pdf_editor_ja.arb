@@ -164,6 +164,7 @@
   "menuRecolour": "色を変更…",
   "menuRemoveNode": "頂点を削除",
   "menuRemoveLeader": "引き出し線を削除",
+  "menuAddNoteHere": "ここにメモを追加",
   "menuSaveToStamps": "スタンプに保存",
   "menuSetAsDefaultStyle": "デフォルトのスタイルに設定",
   "menuRename": "名前を変更…",

@@ -436,6 +436,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
 
   @override
+  String get menuAddNoteHere => 'Thêm ghi chú tại đây';
+
+  @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
 
   @override

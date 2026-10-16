@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
 
   @override
+  String get menuAddNoteHere => 'Buraya not ekle';
+
+  @override
   String get menuSaveToStamps => 'Damgalara kaydet';
 
   @override

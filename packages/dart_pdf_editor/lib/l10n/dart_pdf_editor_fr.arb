@@ -164,6 +164,7 @@
   "menuRecolour": "Recoloriser…",
   "menuRemoveNode": "Supprimer le nœud",
   "menuRemoveLeader": "Supprimer la ligne de repère",
+  "menuAddNoteHere": "Ajouter une note ici",
   "menuSaveToStamps": "Enregistrer dans les tampons",
   "menuSetAsDefaultStyle": "Définir comme style par défaut",
   "menuRename": "Renommer…",

@@ -7036,18 +7036,8 @@ class _PdfViewerState extends State<PdfViewer>
                 annotation: hit?.$2);
             return;
           }
-          await showPdfAnnotationMenu(
-            context: _ui,
-            position: details.globalPosition,
-            controller: editing,
-            pageIndex: page,
-            customActions: widget.annotationMenuBuilder,
-            entriesBuilder: widget.annotationMenuEntries,
-            pagePoint: (x, y),
-            onPaste: widget.systemPdfPasteProvider == null
-                ? null
-                : () => _onPaste(pageIndex: page, at: (x, y)),
-          );
+          await _showSelectionMenu(details.globalPosition, page,
+              pagePoint: (x, y));
           return;
         }
         // A locked annotation can't be selected, but a right-click on it
@@ -7281,9 +7271,10 @@ class _PdfViewerState extends State<PdfViewer>
     if (kind != null && mounted) _markupTextSelection(kind);
   }
 
-  /// Opens the rich content-text editor for the exact text element under the
-  /// current viewer selection. Selection is kept on cancel/failure so the
-  /// user can copy or mark it up instead.
+  /// Opens the rich content-text editor for the exact page text under the
+  /// current viewer selection - one run, or the consecutive runs a word is
+  /// split across ([PdfEditingController.textPartsForSelection]). Selection
+  /// is kept on cancel/failure so the user can copy or mark it up instead.
   Future<void> _editTextSelection() async {
     final editing = widget.editing;
     final range = _selRange;
@@ -7295,8 +7286,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     final page = range.$1.$1;
     final rects = _selectionRectsOn(page);
-    final element = editing.textElementForSelection(page, rects, selected);
-    if (element == null) {
+    final parts = editing.textPartsForSelection(page, rects, selected);
+    if (parts == null) {
       _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
       return;
     }
@@ -7312,7 +7303,8 @@ class _PdfViewerState extends State<PdfViewer>
         (result.text == selected && result.style.isEmpty)) {
       return;
     }
-    if (!result.style.isEmpty && !editing.canStyleContentText(page, element)) {
+    if (!result.style.isEmpty &&
+        !editing.canStyleContentText(page, parts.first.element)) {
       _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
       return;
     }
@@ -7322,12 +7314,11 @@ class _PdfViewerState extends State<PdfViewer>
         _controller.selectedText != selected) {
       return;
     }
-    final count = editing.replaceTextInElement(
+    final count = editing.replaceTextInParts(
       page,
-      element,
-      selected,
+      parts,
       result.text,
-      result.style,
+      style: result.style,
       fallbackFonts: fallbacks,
     );
     if (count == 0) {
@@ -7444,10 +7435,12 @@ class _PdfViewerState extends State<PdfViewer>
       pageIndex: pageIndex,
       customActions: widget.annotationMenuBuilder,
       entriesBuilder: widget.annotationMenuEntries,
+      textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       pagePoint: pagePoint,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
+      onSelectAllText: () => _selectAllTextOn(pageIndex),
     );
   }
 
@@ -7654,12 +7647,13 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     final page = range.$1.$1;
-    final element = editing.textElementForSelection(
-        page, _selectionRectsOn(page), selected);
-    if (element == null) {
+    final parts =
+        editing.textPartsForSelection(page, _selectionRectsOn(page), selected);
+    if (parts == null) {
       _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
       return;
     }
+    final element = parts.first.element;
     if (!editing.canStyleContentText(page, element)) {
       _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
       return;
@@ -7676,8 +7670,7 @@ class _PdfViewerState extends State<PdfViewer>
     final style = format == PdfTextFormatting.bold
         ? PdfTextStyle(bold: !font.isBold)
         : PdfTextStyle(italic: !font.isItalic);
-    if (editing.replaceTextInElement(page, element, selected, selected, style) >
-        0) {
+    if (editing.replaceTextInParts(page, parts, selected, style: style) > 0) {
       _clearSelection();
     } else {
       _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
@@ -8328,15 +8321,13 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Touch long-press with no text under the press: an annotation joins
   /// the selection and gets the context menu; empty page area gets the
-  /// paste menu when the clipboard has content. When
+  /// page menu (paste, add a note, select all). When
   /// [widget.contextMenuEnabled] is false the stock menu is suppressed and
   /// the gesture is handed to [widget.onContextMenuRequested] instead -
   /// matching the right-click and editing-overlay long-press paths.
   ///
-  /// Returns whether the gesture was consumed. The host-takeover branch
-  /// answers this the same way the stock branch does: a press with no menu
-  /// target (no annotation, nothing to paste), or one no host is listening
-  /// for, is *not* a menu gesture, so the caller still gets to clear the
+  /// Returns whether the gesture was consumed. A press no host is listening
+  /// for is *not* a menu gesture, so the caller still gets to clear the
   /// text selection.
   bool _maybeAnnotationMenu(LongPressStartDetails details) {
     final editing = widget.editing;
@@ -8366,13 +8357,6 @@ class _PdfViewerState extends State<PdfViewer>
         return true;
       }
       final hit = editing.selectableAnnotationAt(page, x, y);
-      // nothing to act on: not a menu gesture at all
-      if (hit == null &&
-          !editing.hasAnnotationClipboard &&
-          !editing.hasSnapshotClipboard &&
-          widget.systemPdfPasteProvider == null) {
-        return false;
-      }
       // select first, so the host sees the same context the stock menu
       // would have had - and so a press with no listening host still
       // leaves the selection the stock path would have made
@@ -8393,14 +8377,8 @@ class _PdfViewerState extends State<PdfViewer>
 
     if (editing == null) return false;
     final hit = editing.selectableAnnotationAt(page, x, y);
-    if (hit != null) {
-      if (!editing.isAnnotationSelected(page, hit.$1)) {
-        editing.selectAnnotationAt(page, x, y);
-      }
-    } else if (!editing.hasAnnotationClipboard &&
-        !editing.hasSnapshotClipboard &&
-        widget.systemPdfPasteProvider == null) {
-      return false;
+    if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
+      editing.selectAnnotationAt(page, x, y);
     }
     HapticFeedback.selectionClick();
     unawaited(
@@ -8434,9 +8412,10 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Ends a touch long-press marquee. A box that was dragged out selects
   /// the annotations it covers; a press that never moved is the plain
-  /// long-press it used to be - the paste menu when there is something to
-  /// paste (the overlay leaves select-tool empty-area presses to this
-  /// recognizer so the two don't race for the same hold).
+  /// long-press it used to be - the page menu (paste, add a note, select
+  /// all), so a hold always answers (the overlay leaves select-tool
+  /// empty-area presses to this recognizer so the two don't race for the
+  /// same hold).
   void _endTouchMarquee({required bool cancelled}) {
     final global = _touchMarqueeGlobal;
     final page = _marqueePage;
@@ -8451,18 +8430,27 @@ class _PdfViewerState extends State<PdfViewer>
       });
       return;
     }
+    // A finger never holds perfectly still: a hold that drifted less than
+    // the touch slop is a press, not a box (the box it drew is too small to
+    // have meant anything).
     final dragged = start != null &&
         current != null &&
-        (Rect.fromPoints(start, current).width >= 4 ||
-            Rect.fromPoints(start, current).height >= 4);
-    _commitMarquee();
+        (current - start).distance >= kTouchSlop;
+    if (dragged) {
+      _commitMarquee();
+    } else {
+      setState(() {
+        _marqueeStart = null;
+        _marqueeCurrent = null;
+        _marqueePage = null;
+      });
+    }
     final editing = widget.editing;
     if (dragged ||
         editing == null ||
         global == null ||
         page == null ||
-        start == null ||
-        !editing.hasAnnotationClipboard) {
+        start == null) {
       return;
     }
     final point = _pagePointAt(start);

@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'นำเส้นชี้ออก';
 
   @override
+  String get menuAddNoteHere => 'เพิ่มบันทึกที่นี่';
+
+  @override
   String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';
 
   @override

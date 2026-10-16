@@ -436,6 +436,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Verwijslijn verwijderen';
 
   @override
+  String get menuAddNoteHere => 'Notitie hier toevoegen';
+
+  @override
   String get menuSaveToStamps => 'Opslaan bij stempels';
 
   @override

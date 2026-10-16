@@ -549,6 +549,10 @@
   "@menuRemoveLeader": {
     "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
   },
+  "menuAddNoteHere": "Add note here",
+  "@menuAddNoteHere": {
+    "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
+  },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
     "description": "Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection."

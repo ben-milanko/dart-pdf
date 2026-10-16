@@ -906,6 +906,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Remove leader'**
   String get menuRemoveLeader;
 
+  /// Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point.
+  ///
+  /// In en, this message translates to:
+  /// **'Add note here'**
+  String get menuAddNoteHere;
+
   /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
   ///
   /// In en, this message translates to:

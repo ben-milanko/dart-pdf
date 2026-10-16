@@ -164,6 +164,7 @@
   "menuRecolour": "重新着色…",
   "menuRemoveNode": "移除节点",
   "menuRemoveLeader": "移除引线",
+  "menuAddNoteHere": "在此添加注释",
   "menuSaveToStamps": "保存到图章",
   "menuSetAsDefaultStyle": "设为默认样式",
   "menuRename": "重命名…",

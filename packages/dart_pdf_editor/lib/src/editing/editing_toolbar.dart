@@ -766,15 +766,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       );
 
   Future<void> _editElementText(BuildContext context) async {
-    final element = controller.selectedElement;
-    if (element == null) return;
+    final initial = controller.selectedElementEditText;
+    if (initial == null) return;
     final text = await widget.textPrompt(
       context,
       title: pdfL10n(context).tbReplaceText,
-      initial: element.text ?? '',
+      initial: initial,
       multiline: false,
     );
-    if (text == null || text.isEmpty || text == element.text) return;
+    if (text == null || text.isEmpty || text == initial) return;
     // bundled fallbacks let composite (/Type0) edits draw characters the
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
@@ -782,17 +782,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _editElementTextStyle(BuildContext context) async {
-    final element = controller.selectedElement;
-    if (element == null) return;
+    final initial = controller.selectedElementEditText;
+    if (initial == null) return;
     final result = await widget.styledTextPrompt(
       context,
-      initial: element.text ?? '',
+      initial: initial,
       palette: widget.palette,
       pickFont: _pickStyledFont,
     );
     if (result == null) return;
     if (result.text.isEmpty ||
-        (result.text == element.text && result.style.isEmpty)) {
+        (result.text == initial && result.style.isEmpty)) {
       return;
     }
     // bundled fallbacks let composite (/Type0) edits draw characters the

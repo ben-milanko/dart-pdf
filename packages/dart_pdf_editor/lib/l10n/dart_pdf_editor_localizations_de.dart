@@ -436,6 +436,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => 'Führungslinie entfernen';
 
   @override
+  String get menuAddNoteHere => 'Notiz hier hinzufügen';
+
+  @override
   String get menuSaveToStamps => 'In Stempeln speichern';
 
   @override

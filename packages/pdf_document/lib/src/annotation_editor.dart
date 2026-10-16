@@ -649,7 +649,9 @@ extension PdfAnnotationEditing on PdfEditor {
   /// for linking existing text). Pass [underlineColor] to draw a hyperlink
   /// underline beneath each quad, or [borderColor] (with [borderWidth]) to
   /// stroke a box around the region; either one generates an appearance
-  /// stream so the decoration shows in every viewer.
+  /// stream so the decoration shows in every viewer. [iconColor] adds a
+  /// small chain-link badge in the region's top-right corner, so a link
+  /// over a bare box reads as a link rather than an empty rectangle.
   void addLinkToUri(
     int pageIndex,
     List<PdfRect> quads, {
@@ -657,6 +659,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -674,6 +677,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -693,6 +697,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -707,6 +712,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -723,6 +729,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) =>
@@ -733,6 +740,7 @@ extension PdfAnnotationEditing on PdfEditor {
         underlineColor: underlineColor,
         borderColor: borderColor,
         borderWidth: borderWidth,
+        iconColor: iconColor,
         contents: contents,
         name: name,
       );
@@ -751,6 +759,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -775,7 +784,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (contents != null) dict['Contents'] = CosString.fromText(contents);
     dict['NM'] = CosString.fromText(name ?? _generateAnnotationName());
 
-    if (underlineColor != null || hasBorder) {
+    if (underlineColor != null || hasBorder || iconColor != null) {
       final w = ContentWriter();
       if (underlineColor != null) {
         w.strokeColor(underlineColor);
@@ -799,10 +808,55 @@ extension PdfAnnotationEditing on PdfEditor {
             ..stroke();
         }
       }
+      if (iconColor != null) {
+        _linkBadge(w, rect, iconColor, inset: hasBorder ? borderWidth : 0);
+      }
       dict['AP'] = CosDictionary({'N': _updater.addObject(_form(rect, w))});
     }
 
     _linkAnnotation(pageIndex, _updater.addObject(dict));
+  }
+
+  /// Draws the chain-link badge [_addLink]'s `iconColor` asks for: two
+  /// interlocking rounded links at 45 degrees on a white rounded tile,
+  /// tucked into [rect]'s top-right corner (inside a border of width
+  /// [inset]). It scales with the region - up to 18pt, so it stays a badge
+  /// on a large box - and is left out of a region too small to fit one.
+  static void _linkBadge(
+    ContentWriter w,
+    PdfRect rect,
+    int color, {
+    double inset = 0,
+  }) {
+    final room = math.min(rect.width, rect.height) - 2 * inset;
+    final size = math.min(18.0, room * 0.6);
+    if (size < 7) return;
+    final pad = math.min(3.0, size * 0.2);
+    final left = rect.right - inset - pad - size;
+    final bottom = rect.top - inset - pad - size;
+    w
+      ..save()
+      ..fillColor(0xFFFFFF)
+      ..strokeColor(color)
+      ..lineWidth(size * 0.05)
+      ..roundedRect(left, bottom, size, size, size * 0.22)
+      ..fillAndStroke()
+      // a unit cell centred on the tile, turned 45 degrees
+      ..concatMatrix(
+          size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          -size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          left + size / 2,
+          bottom + size / 2)
+      ..roundLines()
+      ..lineWidth(0.085);
+    for (final dx in const [-0.17, 0.17]) {
+      w.roundedRect(dx - 0.22, -0.12, 0.44, 0.24, 0.12);
+    }
+    w
+      ..stroke()
+      ..restore();
   }
 
   /// The indirect reference to page [index], for a /GoTo destination array.

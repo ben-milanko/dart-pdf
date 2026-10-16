@@ -164,6 +164,7 @@
   "menuRecolour": "Перекрасить…",
   "menuRemoveNode": "Удалить узел",
   "menuRemoveLeader": "Удалить линию выноски",
+  "menuAddNoteHere": "Добавить заметку здесь",
   "menuSaveToStamps": "Сохранить в штампы",
   "menuSetAsDefaultStyle": "Задать стилем по умолчанию",
   "menuRename": "Переименовать…",

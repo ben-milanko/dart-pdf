@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => '引き出し線を削除';
 
   @override
+  String get menuAddNoteHere => 'ここにメモを追加';
+
+  @override
   String get menuSaveToStamps => 'スタンプに保存';
 
   @override

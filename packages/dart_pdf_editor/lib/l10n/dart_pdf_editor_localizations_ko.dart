@@ -435,6 +435,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuRemoveLeader => '지시선 제거';
 
   @override
+  String get menuAddNoteHere => '여기에 메모 추가';
+
+  @override
   String get menuSaveToStamps => '스탬프에 저장';
 
   @override
