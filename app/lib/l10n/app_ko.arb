@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.",
   "settingsUpdates": "업데이트",
   "settingsViewSource": "GitHub에서 소스 보기",
+  "settingsEmailFeedback": "이메일로 의견 보내기",
+  "settingsReportIssue": "GitHub에서 문제 신고",
   "undo": "실행 취소",
   "welcomeCopyName": "이름 복사",
   "welcomeCopyPath": "경로 복사",

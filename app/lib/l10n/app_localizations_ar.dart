@@ -988,6 +988,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsViewSource => 'عرض المصدر على GitHub';
 
   @override
+  String get settingsReportIssue => 'الإبلاغ عن مشكلة على GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'إرسال الملاحظات عبر البريد الإلكتروني';
+
+  @override
   String get undo => 'تراجع';
 
   @override

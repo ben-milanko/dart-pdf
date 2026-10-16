@@ -975,6 +975,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get settingsViewSource => 'Quellcode auf GitHub anzeigen';
 
   @override
+  String get settingsReportIssue => 'Problem auf GitHub melden';
+
+  @override
+  String get settingsEmailFeedback => 'Feedback per E-Mail senden';
+
+  @override
   String get undo => 'Rückgängig';
 
   @override

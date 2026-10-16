@@ -1,5 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -51,6 +52,25 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
       content: Text(appL10n(context).settingsCouldNotOpenSystemSettings),
     ));
   }
+}
+
+/// Opens a feedback email in the user's mail client. With no mail client
+/// (common on web and bare desktops) the address goes to the clipboard
+/// instead, so the user can still reach it from whatever mail they use.
+Future<void> _emailFeedback(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final copied = appL10n(context).editorCopiedToClipboard;
+  var opened = false;
+  try {
+    opened = await launchUrl(AppInfo.feedbackMailto(),
+        mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // No handler for mailto: - fall through to the clipboard.
+  }
+  if (opened) return;
+  await Clipboard.setData(const ClipboardData(text: AppInfo.feedbackEmail));
+  messenger.showSnackBar(
+      SnackBar(content: Text('$copied: ${AppInfo.feedbackEmail}')));
 }
 
 Future<void> _showDefaultAppSetup(BuildContext context) {
@@ -313,6 +333,24 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   label: Text(appL10n(context).settingsViewSource),
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-report-issue'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: Text(appL10n(context).settingsReportIssue),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => launchUrl(Uri.parse(AppInfo.feedbackIssueUrl),
+                      mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-email-feedback'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.mail_outline),
+                  title: Text(appL10n(context).settingsEmailFeedback),
+                  subtitle: const Text(AppInfo.feedbackEmail),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => _emailFeedback(context),
                 ),
                 ListTile(
                   key: const ValueKey('settings-whats-new'),

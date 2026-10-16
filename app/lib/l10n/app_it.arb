@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "Ricevi notifiche automatiche per le build di test Windows/macOS non firmate da main.",
   "settingsUpdates": "Aggiornamenti",
   "settingsViewSource": "Visualizza il codice sorgente su GitHub",
+  "settingsEmailFeedback": "Invia un feedback via email",
+  "settingsReportIssue": "Segnala un problema su GitHub",
   "undo": "Annulla",
   "welcomeCopyName": "Copia nome",
   "welcomeCopyPath": "Copia percorso",

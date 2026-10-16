@@ -964,6 +964,12 @@ class AppLocalizationsHi extends AppLocalizations {
   String get settingsViewSource => 'GitHub पर स्रोत देखें';
 
   @override
+  String get settingsReportIssue => 'GitHub पर समस्या रिपोर्ट करें';
+
+  @override
+  String get settingsEmailFeedback => 'ईमेल से प्रतिक्रिया भेजें';
+
+  @override
   String get undo => 'पूर्ववत करें';
 
   @override

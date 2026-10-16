@@ -998,6 +998,12 @@ class AppLocalizationsPl extends AppLocalizations {
   String get settingsViewSource => 'Zobacz kod źródłowy na GitHub';
 
   @override
+  String get settingsReportIssue => 'Zgłoś problem na GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Wyślij opinię e-mailem';
+
+  @override
   String get undo => 'Cofnij';
 
   @override

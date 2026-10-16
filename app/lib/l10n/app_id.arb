@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.",
   "settingsUpdates": "Pembaruan",
   "settingsViewSource": "Lihat sumber di GitHub",
+  "settingsEmailFeedback": "Kirim masukan lewat email",
+  "settingsReportIssue": "Laporkan masalah di GitHub",
   "undo": "Urungkan",
   "welcomeCopyName": "Salin nama",
   "welcomeCopyPath": "Salin jalur",

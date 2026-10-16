@@ -982,6 +982,12 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsViewSource => 'Посмотреть исходный код на GitHub';
 
   @override
+  String get settingsReportIssue => 'Сообщить о проблеме на GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Отправить отзыв по электронной почте';
+
+  @override
   String get undo => 'Отменить';
 
   @override

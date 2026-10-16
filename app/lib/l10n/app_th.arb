@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows/macOS ที่ไม่ได้ลงนามจาก main",
   "settingsUpdates": "การอัปเดต",
   "settingsViewSource": "ดูซอร์สโค้ดบน GitHub",
+  "settingsEmailFeedback": "ส่งความคิดเห็นทางอีเมล",
+  "settingsReportIssue": "รายงานปัญหาบน GitHub",
   "undo": "เลิกทำ",
   "welcomeCopyName": "คัดลอกชื่อ",
   "welcomeCopyPath": "คัดลอกเส้นทาง",
