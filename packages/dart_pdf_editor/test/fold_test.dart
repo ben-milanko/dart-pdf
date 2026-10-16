@@ -82,6 +82,15 @@ void main() {
           EdgeInsets.zero);
     });
 
+    test('content starting inside a tabletop hinge moves below it', () {
+      final hinge = pdfSeparatingFold([
+        _fold(const Rect.fromLTWH(0, 320, 951, 20),
+            type: DisplayFeatureType.hinge),
+      ], _inner)!;
+      expect(pdfFoldInsets(hinge, const Rect.fromLTRB(0, 330, 951, 669)),
+          const EdgeInsets.only(top: 10));
+    });
+
     test('a fold outside the rect leaves it alone', () {
       expect(pdfFoldInsets(book, const Rect.fromLTRB(500, 0, 951, 669)),
           EdgeInsets.zero);
@@ -152,6 +161,43 @@ void main() {
     final resolved = margin.resolve(TextDirection.ltr);
     expect(resolved.left, greaterThanOrEqualTo(475 + 24));
     expect(resolved.right, 24);
+  });
+
+  testWidgets('in RTL the trailing pane is the left one', (tester) async {
+    useInnerDisplay(tester, [_bookCrease]);
+    late EdgeInsetsGeometry margin;
+    await tester.pumpWidget(MaterialApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Builder(builder: (context) {
+          margin = pdfFloatingToastMargin(context, pill: 600);
+          return const SizedBox();
+        }),
+      ),
+    ));
+    final resolved = margin.resolve(TextDirection.rtl);
+    expect(resolved.right, greaterThanOrEqualTo(951 - 475 + 24));
+    expect(resolved.left, 24);
+  });
+
+  testWidgets('a narrow window still keeps the toast off the crease',
+      (tester) async {
+    tester.view.physicalSize = const Size(560, 700);
+    tester.view.devicePixelRatio = 1;
+    tester.view.displayFeatures = [
+      _fold(const Rect.fromLTWH(280, 0, 0, 700)),
+    ];
+    addTearDown(tester.view.reset);
+    late EdgeInsetsGeometry margin;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        margin = pdfFloatingToastMargin(context);
+        return const SizedBox();
+      }),
+    ));
+    final resolved = margin.resolve(TextDirection.ltr);
+    expect(resolved.left, 280 + 16);
+    expect(resolved.right, 16);
   });
 }
 

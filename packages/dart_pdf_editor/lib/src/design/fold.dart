@@ -19,18 +19,6 @@ class PdfDisplayFold {
   /// [Axis.horizontal] when the panes sit side by side (a vertical crease,
   /// book posture), [Axis.vertical] when they stack (tabletop posture).
   final Axis direction;
-
-  @override
-  bool operator ==(Object other) =>
-      other is PdfDisplayFold &&
-      other.bounds == bounds &&
-      other.direction == direction;
-
-  @override
-  int get hashCode => Object.hash(bounds, direction);
-
-  @override
-  String toString() => 'PdfDisplayFold($bounds, $direction)';
 }
 
 /// The fold or hinge splitting a window of [size] into two panes, if any of
