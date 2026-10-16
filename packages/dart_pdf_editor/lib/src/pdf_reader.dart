@@ -704,8 +704,8 @@ class _PdfReaderState extends State<PdfReader> {
                 // rebuilds on session changes too: filling a form produces a
                 // revision, so the viewer must track _session.document, not
                 // the build-time snapshot
-                viewer: NotificationListener<ScrollNotification>(
-                  onNotification: _chrome.handleScrollNotification,
+                viewer: PdfChromeAutoHideListener(
+                  controller: _chrome,
                   child: ListenableBuilder(
                     listenable: _session,
                     builder: (context, _) => reflowActive

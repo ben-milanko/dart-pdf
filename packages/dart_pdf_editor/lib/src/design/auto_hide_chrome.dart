@@ -3,6 +3,10 @@
 // through the document, and come back on a scroll back or a tap on the page
 // - the behaviour readers expect from mobile PDF apps. Widgets-layer only.
 
+import 'dart:async';
+
+import 'package:flutter/gestures.dart'
+    show PointerDownEvent, PointerEvent, PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/widgets.dart';
 
@@ -11,18 +15,38 @@ import 'package:flutter/widgets.dart';
 /// page-settle never flickers the bars.
 const double pdfChromeAutoHideTravel = 24;
 
+/// How long after the last finger lifts (or a wheel tick) scrolling still
+/// counts as the user's: a fling carries on under its own momentum.
+const Duration _kAutoHideSettle = Duration(milliseconds: 900);
+
+/// How long after the chrome is unpinned a page tap is taken as the one that
+/// dismissed what pinned it (a selection), rather than a request to toggle.
+const Duration _kUnpinTapGrace = Duration(milliseconds: 600);
+
 /// Whether the shell's chrome (header, docked toolbar) is showing on a
-/// compact layout. The shells own one and feed it the viewer's scroll
-/// notifications ([handleScrollNotification]) and plain taps ([toggle]);
-/// [PdfAutoHideBar] animates a bar in and out from it.
+/// compact layout. The shells own one, wrap the viewer in
+/// [PdfChromeAutoHideListener] to feed it the user's scrolling, and route
+/// plain page taps to [toggle]; [PdfAutoHideBar] animates a bar in and out
+/// from it.
 ///
 /// Only *user* scrolling moves it: a jump from the page field, a search hit
-/// or a bookmark scrolls programmatically and leaves the chrome alone.
+/// or a bookmark scrolls programmatically and leaves the chrome alone. The
+/// viewer scrolls two ways - the list's own drag (which reports
+/// [UserScrollNotification]s) and, while an editing tool such as Select is
+/// armed, its own touch pan and fling - so a scroll also counts as the
+/// user's while a finger is down, or for a moment after it lifts.
 class PdfChromeAutoHide extends ChangeNotifier {
   bool _shown = true;
   bool _pinned = false;
   bool _userScrolling = false;
   double _travel = 0;
+
+  int _pointers = 0;
+  bool _pinch = false;
+  bool _settling = false;
+  Timer? _settle;
+  bool _swallowToggle = false;
+  Timer? _swallowTimer;
 
   /// Whether the chrome should be on screen.
   bool get visible => _shown || _pinned;
@@ -38,6 +62,11 @@ class PdfChromeAutoHide extends ChangeNotifier {
     if (value) {
       _shown = true;
       _travel = 0;
+    } else {
+      // the tap that just cleared a selection must not also hide the chrome
+      _swallowToggle = true;
+      _swallowTimer?.cancel();
+      _swallowTimer = Timer(_kUnpinTapGrace, () => _swallowToggle = false);
     }
   }
 
@@ -49,7 +78,13 @@ class PdfChromeAutoHide extends ChangeNotifier {
 
   /// What a tap on the page does: hides the chrome when it shows and brings
   /// it back when it doesn't.
-  void toggle() => _set(!visible);
+  void toggle() {
+    if (_swallowToggle) {
+      _swallowToggle = false;
+      return;
+    }
+    _set(!visible);
+  }
 
   void _set(bool shown) {
     _travel = 0;
@@ -59,16 +94,58 @@ class PdfChromeAutoHide extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A finger (or pen, or mouse button) went down on the viewer.
+  void handlePointerDown(PointerDownEvent event) {
+    if (_pointers == 0) {
+      _pinch = false;
+      _travel = 0;
+    }
+    _pointers++;
+    // a second finger is a pinch: zooming moves the scroll offset too
+    if (_pointers > 1) _pinch = true;
+    _settle?.cancel();
+    _settling = false;
+  }
+
+  /// A pointer on the viewer lifted or was cancelled.
+  void handlePointerUp(PointerEvent event) {
+    if (_pointers == 0) return;
+    _pointers--;
+    if (_pointers == 0) _settleFor(_kAutoHideSettle);
+  }
+
+  /// A wheel or trackpad scroll over the viewer.
+  void handlePointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent && _pointers == 0) {
+      _pinch = false;
+      _settleFor(_kAutoHideSettle);
+    }
+  }
+
+  void _settleFor(Duration duration) {
+    _settling = true;
+    _settle?.cancel();
+    _settle = Timer(duration, () => _settling = false);
+  }
+
+  bool get _userDriven =>
+      _userScrolling || ((_pointers > 0 || _settling) && !_pinch);
+
   /// Feed the viewer's scroll notifications through here: a user scroll
   /// forward through the document hides the chrome, one back brings it
   /// back. Always returns false so the notification keeps bubbling.
   bool handleScrollNotification(ScrollNotification notification) {
     if (notification is UserScrollNotification) {
       _userScrolling = notification.direction != ScrollDirection.idle;
-      _travel = 0;
-    } else if (notification is ScrollUpdateNotification && _userScrolling) {
+      if (!_userScrolling) _travel = 0;
+    } else if (notification is ScrollUpdateNotification && _userDriven) {
       final delta = notification.scrollDelta ?? 0;
-      if (delta == 0) return false;
+      // no finger moves half a screen in one frame: that is a jump (a link
+      // followed mid-gesture), not reading
+      if (delta == 0 ||
+          delta.abs() > notification.metrics.viewportDimension / 2) {
+        return false;
+      }
       // a change of direction starts the count again
       if (delta.sign != _travel.sign) _travel = 0;
       _travel += delta;
@@ -80,6 +157,39 @@ class PdfChromeAutoHide extends ChangeNotifier {
     }
     return false;
   }
+
+  @override
+  void dispose() {
+    _settle?.cancel();
+    _swallowTimer?.cancel();
+    super.dispose();
+  }
+}
+
+/// Wraps the viewer slot so [controller] sees the user's scrolling: the
+/// viewer's scroll notifications plus the pointers that drive them. Always
+/// in the tree (a wrapper that came and went would remount the viewer).
+class PdfChromeAutoHideListener extends StatelessWidget {
+  const PdfChromeAutoHideListener({
+    super.key,
+    required this.controller,
+    required this.child,
+  });
+
+  final PdfChromeAutoHide controller;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Listener(
+        onPointerDown: controller.handlePointerDown,
+        onPointerUp: controller.handlePointerUp,
+        onPointerCancel: controller.handlePointerUp,
+        onPointerSignal: controller.handlePointerSignal,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: controller.handleScrollNotification,
+          child: child,
+        ),
+      );
 }
 
 /// A bar that slides off its [edge] when [controller] hides the chrome.

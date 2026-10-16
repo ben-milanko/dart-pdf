@@ -5591,6 +5591,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.clearAnnotationSelection();
         return;
       }
+      // a finger tapping empty page reads as the reader's plain tap (it
+      // shows or hides the phone chrome); the selection still drops
+      if (!_additiveModifier &&
+          (details.kind == PointerDeviceKind.touch ||
+              details.kind == PointerDeviceKind.stylus) &&
+          _host.plainTap != null &&
+          _controller.selectableAnnotationAt(widget.pageIndex, x, y) == null) {
+        _controller.clearAnnotationSelection();
+        _host.plainTap!();
+        return;
+      }
       // shift/⌘-click toggles membership in the selection
       _controller.selectAnnotationAt(widget.pageIndex, x, y,
           toggle: _additiveModifier);

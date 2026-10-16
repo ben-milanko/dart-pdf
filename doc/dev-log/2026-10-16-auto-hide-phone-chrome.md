@@ -32,10 +32,23 @@ On by default; `PdfEditorFeatures.autoHideChrome` /
     is constant at every animation value - a wrapper that came and went
     would remount the header and drop the search field's text/focus. Focus
     inside the bar (search, page-number typing) also pins it.
+- **Select is reading, not a tool.** The app and the example open the
+  editor with `PdfEditTool.select` armed, so the first cut (which pinned on
+  any `tool != null` and listened only for `UserScrollNotification`) never
+  hid anything on a real phone. Three fixes: Select does not pin; with a
+  tool armed the viewer scrolls by its own touch pan/fling
+  (`_touchGrabPanBy` -> `position.jumpTo`, no user-scroll notifications), so
+  `PdfChromeAutoHideListener` also tracks pointers and counts scroll updates
+  while one finger is down or within 900 ms of lift-off (wheel ticks too;
+  two fingers = pinch, ignored; a >half-viewport single update = a jump,
+  ignored); and the select overlay owns empty-page taps, so it reports them
+  through `PdfEditingInteractionHost.plainTap`. A tap that cleared a
+  selection unpins the chrome - the toggle within 600 ms of an unpin is
+  swallowed so that tap doesn't also hide it.
 - `PdfViewer.onPlainTap` - a touch/stylus tap the viewer had no other use
   for: not on an annotation/link, not dismissing a text selection, no tool
-  armed, nothing selected for editing. Double-tap zoom never reaches it
-  (the double-tap recognizer wins the arena). The shells pass
+  armed (Select aside), nothing selected for editing. Double-tap zoom never
+  reaches it (the double-tap recognizer wins the arena). The shells pass
   `_chrome.toggle` only while auto-hide is live.
 
 ## Notes

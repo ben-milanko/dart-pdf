@@ -1953,13 +1953,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 )
               : null;
           // Phone chrome steps aside for reading (scroll on to hide, back or
-          // tap to show) but never while it is in use: a tool armed,
-          // something selected, a sheet up, or the grid it navigates from.
+          // tap to show) but never while it is in use: a drawing/editing
+          // tool armed, something selected, a sheet up, or the grid it
+          // navigates from.
           final autoHide = features.autoHideChrome && compact;
           _chrome.pinned = !autoHide ||
               sheets.isNotEmpty ||
               gridActive ||
-              session.tool != null ||
+              // Select is the resting mode the app opens in - reading, not
+              // a tool in use; a selection it makes pins below
+              (session.tool != null && session.tool != PdfEditTool.select) ||
               session.markupTool != null ||
               session.hasAnnotationSelection ||
               session.selectedElement != null;
@@ -1981,8 +1984,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onHostPanelDock: widget.extraPanels.isEmpty
                     ? null
                     : (panel, dock) => prefs.setExtraPanelDock(panel.id, dock),
-                viewer: NotificationListener<ScrollNotification>(
-                  onNotification: _chrome.handleScrollNotification,
+                viewer: PdfChromeAutoHideListener(
+                  controller: _chrome,
                   child: reflowActive
                       ? PdfReflowView(
                           document: session.document,

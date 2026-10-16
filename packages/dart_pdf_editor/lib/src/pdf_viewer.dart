@@ -1609,7 +1609,8 @@ class PdfViewer extends StatefulWidget {
 
   /// Called for a touch or stylus tap on the viewer that it has no use for
   /// itself: not on an annotation or link, not dismissing a text selection,
-  /// not with a tool armed or anything selected for editing. The shells use
+  /// not with a tool other than Select armed or anything selected for
+  /// editing. The shells use
   /// it to show and hide their chrome on phones, the way mobile readers do.
   /// A double tap (zoom) never reaches it.
   final VoidCallback? onPlainTap;
@@ -6980,7 +6981,9 @@ class _PdfViewerState extends State<PdfViewer>
         tapHit == null &&
         !hadTextSelection &&
         (editing == null ||
-            (editing.tool == null &&
+            // Select is the resting mode: an empty-page tap it ignores
+            // (having just dropped any selection) still falls through here
+            ((editing.tool == null || editing.tool == PdfEditTool.select) &&
                 editing.markupTool == null &&
                 !editing.isPickingColor &&
                 !editing.hasAnnotationSelection &&
@@ -9685,6 +9688,7 @@ class _PdfViewerState extends State<PdfViewer>
                       endTextSelection: _endToolTextSelection,
                       clearTextSelection: _clearToolTextSelection,
                       activateLinkAt: _activateLinkAtGlobal,
+                      plainTap: widget.onPlainTap,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),

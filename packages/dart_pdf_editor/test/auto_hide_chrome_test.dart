@@ -1,4 +1,9 @@
-import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
+import 'package:flutter/gestures.dart'
+    show
+        PointerDownEvent,
+        PointerScrollEvent,
+        PointerUpEvent,
+        kDoubleTapTimeout;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -87,6 +92,32 @@ void main() {
     await tapPage(tester);
     expect(headerShown(tester), isTrue);
     expect(toolbarShown(tester), isTrue);
+  });
+
+  // The app and the example open the editor with Select armed. Select is
+  // reading, not a tool in use - and with it armed the viewer scrolls by its
+  // own touch pan (no UserScrollNotification), so this is its own path.
+  testWidgets('editor with Select armed: scrolling hides, a tap toggles',
+      (tester) async {
+    screen(tester, phone);
+    final editing = PdfEditingController(buildMultiPagePdf(6))
+      ..tool = PdfEditTool.select;
+    addTearDown(editing.dispose);
+    await pump(tester,
+        PdfEditorView(controller: editing, initialFit: PdfViewerFit.width));
+    expect(headerShown(tester), isTrue);
+
+    await scroll(tester, -300);
+    expect(headerShown(tester), isFalse);
+    expect(toolbarShown(tester), isFalse);
+
+    await scroll(tester, 120);
+    expect(headerShown(tester), isTrue);
+
+    await tapPage(tester);
+    expect(headerShown(tester), isFalse);
+    await tapPage(tester);
+    expect(headerShown(tester), isTrue);
   });
 
   testWidgets('editor: an armed tool keeps the chrome up', (tester) async {
@@ -178,6 +209,8 @@ void main() {
       expect(chrome.visible, isTrue);
       chrome.pinned = false;
       expect(chrome.visible, isTrue, reason: 'unpinning leaves it showing');
+      // past the grace for the tap that unpinned it, a tap toggles again
+      await tester.pump(const Duration(seconds: 1));
       chrome.toggle();
       expect(chrome.visible, isFalse);
     });
@@ -209,6 +242,94 @@ void main() {
 
       await tester.pumpWidget(bar(chrome, enabled: false));
       expect(height(tester), 40);
+    });
+  });
+
+  group('PdfChromeAutoHide', () {
+    late BuildContext context;
+    Future<PdfChromeAutoHide> setUp(WidgetTester tester) async {
+      await tester.pumpWidget(Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      }));
+      final chrome = PdfChromeAutoHide();
+      addTearDown(chrome.dispose);
+      return chrome;
+    }
+
+    ScrollUpdateNotification update(double delta) => ScrollUpdateNotification(
+          metrics: FixedScrollMetrics(
+            minScrollExtent: 0,
+            maxScrollExtent: 5000,
+            pixels: 1000,
+            viewportDimension: 600,
+            axisDirection: AxisDirection.down,
+            devicePixelRatio: 1,
+          ),
+          context: context,
+          scrollDelta: delta,
+        );
+    void feed(PdfChromeAutoHide chrome, double delta, {int frames = 4}) {
+      for (var i = 0; i < frames; i++) {
+        chrome.handleScrollNotification(update(delta));
+      }
+    }
+
+    testWidgets('programmatic scrolling leaves the chrome alone',
+        (tester) async {
+      final chrome = await setUp(tester);
+      feed(chrome, 40);
+      expect(chrome.visible, isTrue);
+    });
+
+    testWidgets('a finger-driven scroll and its fling count', (tester) async {
+      final chrome = await setUp(tester);
+      chrome.handlePointerDown(const PointerDownEvent(pointer: 1));
+      feed(chrome, 10);
+      expect(chrome.visible, isFalse);
+      chrome.handlePointerUp(const PointerUpEvent(pointer: 1));
+      // the fling carries on after lift-off
+      feed(chrome, -10);
+      expect(chrome.visible, isTrue);
+      // ...but not forever
+      await tester.pump(const Duration(seconds: 2));
+      feed(chrome, 40);
+      expect(chrome.visible, isTrue);
+    });
+
+    testWidgets('a pinch is a zoom, not a scroll', (tester) async {
+      final chrome = await setUp(tester);
+      chrome.handlePointerDown(const PointerDownEvent(pointer: 1));
+      chrome.handlePointerDown(const PointerDownEvent(pointer: 2));
+      feed(chrome, 20);
+      chrome.handlePointerUp(const PointerUpEvent(pointer: 2));
+      chrome.handlePointerUp(const PointerUpEvent(pointer: 1));
+      feed(chrome, 20);
+      expect(chrome.visible, isTrue);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a wheel scroll counts; a jump never does', (tester) async {
+      final chrome = await setUp(tester);
+      chrome.handlePointerSignal(
+          const PointerScrollEvent(scrollDelta: Offset(0, 40)));
+      chrome.handleScrollNotification(update(400));
+      expect(chrome.visible, isTrue, reason: 'a 400px jump is not reading');
+      feed(chrome, 10);
+      expect(chrome.visible, isFalse);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('the tap that clears a selection does not toggle',
+        (tester) async {
+      final chrome = PdfChromeAutoHide()..pinned = true;
+      addTearDown(chrome.dispose);
+      chrome.pinned = false;
+      chrome.toggle();
+      expect(chrome.visible, isTrue);
+      chrome.toggle();
+      expect(chrome.visible, isFalse, reason: 'only the one tap is swallowed');
+      await tester.pump(const Duration(seconds: 1));
     });
   });
 }
