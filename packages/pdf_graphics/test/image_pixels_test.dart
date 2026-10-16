@@ -1974,6 +1974,112 @@ void main() {
   // dropped the whole image (issue #430 - both images on the Ghent DeviceN
   // page are this shape). Each palette entry runs through the base's tint
   // transform, exactly as the non-indexed Separation/DeviceN path does.
+  group('Indexed palette expansion', () {
+    // Palettes deliberately shorter than 2^bits so some samples are out of
+    // range (they clamp to entry 0).
+    CosArray indexed(CosName base, List<int> lookup, int components) =>
+        CosArray([
+          const CosName('Indexed'),
+          base,
+          CosInteger(lookup.length ~/ components - 1),
+          CosString(Uint8List.fromList(lookup)),
+        ]);
+    final rgbPalette = [0, 0, 0, 255, 0, 0, 0, 200, 10, 30, 60, 250, 9, 9, 9];
+
+    /// Packs [samples] (one row of [width] at a time) at [bits] per sample.
+    List<int> pack(List<int> samples, int width, int bits) {
+      final rowBytes = (width * bits + 7) ~/ 8;
+      final rows = samples.length ~/ width;
+      final out = Uint8List(rowBytes * rows);
+      for (var y = 0; y < rows; y++) {
+        for (var x = 0; x < width; x++) {
+          final bit = x * bits;
+          out[y * rowBytes + (bit >> 3)] |=
+              samples[y * width + x] << (8 - bits - (bit & 7));
+        }
+      }
+      return out;
+    }
+
+    for (final bits in [1, 2, 4, 8]) {
+      test('$bits-bit samples map through the palette per pixel', () {
+        const width = 7, height = 3; // odd width: rows end mid-byte
+        final random = Random(bits);
+        final samples = [
+          for (var i = 0; i < width * height; i++) random.nextInt(1 << bits)
+        ];
+        final stream = flateImage({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': CosInteger(bits),
+          'ColorSpace': indexed(const CosName('DeviceRGB'), rgbPalette, 3),
+          'Mask': CosArray([const CosInteger(1), const CosInteger(1)]),
+        }, pack(samples, width, bits));
+        final pixels = decodePdfImagePixels(cos, stream)!;
+        final count = rgbPalette.length ~/ 3;
+        for (var i = 0; i < samples.length; i++) {
+          final raw = samples[i];
+          final index = raw >= count ? 0 : raw;
+          // color keys compare the raw sample; keyed pixels premultiply to 0
+          final keyed = raw == 1;
+          expect(
+              pixels.rgba.sublist(i * 4, i * 4 + 4),
+              [
+                keyed ? 0 : rgbPalette[index * 3],
+                keyed ? 0 : rgbPalette[index * 3 + 1],
+                keyed ? 0 : rgbPalette[index * 3 + 2],
+                keyed ? 0 : 255,
+              ],
+              reason: 'pixel $i (sample $raw)');
+        }
+      });
+    }
+
+    // (1-bit samples take decodePdfImagePixelsScaled's point-sampled route.)
+    for (final bits in [2, 4, 8]) {
+      for (final base in ['DeviceRGB', 'DeviceCMYK']) {
+        test('$bits-bit $base scaled decode is the full decode box-filtered',
+            () {
+          const width = 37, height = 23;
+          final random = Random(bits * 7 + base.length);
+          final samples = [
+            for (var i = 0; i < width * height; i++) random.nextInt(1 << bits)
+          ];
+          final cmyk = base == 'DeviceCMYK';
+          final stream = flateImage({
+            'Width': const CosInteger(width),
+            'Height': const CosInteger(height),
+            'BitsPerComponent': CosInteger(bits),
+            'ColorSpace': cmyk
+                ? indexed(const CosName('DeviceCMYK'),
+                    [0, 0, 0, 0, 255, 0, 0, 0, 10, 200, 30, 5], 4)
+                : indexed(const CosName('DeviceRGB'), rgbPalette, 3),
+          }, pack(samples, width, bits));
+          final full = decodePdfImagePixels(cos, stream)!;
+          for (final (tw, th) in [
+            (5, 4),
+            (36, 22),
+            (1, 1),
+            (40, 7),
+            (37, 23)
+          ]) {
+            final scaled =
+                decodePdfImage(cos, stream, targetWidth: tw, targetHeight: th)!;
+            final expected = downsamplePdfDecodedPixels(full, tw, th);
+            expect((
+              scaled.width,
+              scaled.height
+            ), (
+              expected.width,
+              expected.height
+            ), reason: 'target ${tw}x$th');
+            expect(scaled.rgba, expected.rgba, reason: 'target ${tw}x$th');
+          }
+        });
+      }
+    }
+  });
+
   group('indexed over a tint base', () {
     /// `[/Indexed [/Separation Spot DeviceCMYK { dup 0.5 mul exch 0.25 mul 0 0 }]
     /// hival lookup]`: one ink per palette entry into DeviceCMYK.

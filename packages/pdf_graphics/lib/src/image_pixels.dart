@@ -332,6 +332,28 @@ PdfImageBase? decodePdfImageBase(
   }
 
   final family = pdfImageColorFamily(cos, dict);
+  // An opaque, unmasked /Indexed image asked for a smaller base is averaged
+  // straight out of its palette: the box filter over the expanded pixels is a
+  // sum of palette entries, so the native RGBA surface (and its second read in
+  // the downsample) never needs to exist. A masked image keeps the native base
+  // its compositing paths expect.
+  if (targetWidth != null &&
+      targetHeight != null &&
+      !isMask &&
+      !colorKeyed &&
+      !luminosityMask &&
+      family == 'Indexed' &&
+      cos.resolve(dict['SMask']) is! CosStream &&
+      cos.resolve(dict['Mask']) is! CosStream) {
+    final colorT0 = PdfPerf.begin();
+    final scaled = _indexedToRgbaDownsampled(
+        cos, dict, data, width, height, bits, targetWidth, targetHeight);
+    PdfPerf.end(PdfPerfPhase.imageColorConvert, colorT0);
+    if (scaled != null) {
+      return PdfImageBase(scaled.rgba, scaled.width, scaled.height,
+          opaque: true);
+    }
+  }
   final alternate = _alternateColorSpaceFor(cos, dict);
   final components = alternate?.channels ??
       switch (family) {
@@ -3710,29 +3732,165 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final palette = paletteInfo.$1;
   final paletteCount = paletteInfo.$2;
   if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
+  if (paletteCount == 0) return null;
 
   final rowBytes = (width * bits + 7) ~/ 8;
   if (data.length < rowBytes * height) return null;
+
+  // Every possible sample resolves to one RGBA pixel, so build that table
+  // once - out-of-range indices clamp to entry 0, and color-key ranges compare
+  // the raw index sample (§8.9.6.4) - and expand each sample with a single
+  // 32-bit store. Read back through the table's own buffer a word is in host
+  // byte order, exactly how a word store lays it into [out]. The per-pixel
+  // palette arithmetic, color-key test and four byte stores this replaces
+  // dominated CAD sheets that tile a drawing into thousands of small
+  // Indexed images.
+  final entryCount = 1 << bits;
+  final table = Uint8List(entryCount * 4);
+  for (var raw = 0; raw < entryCount; raw++) {
+    final index = raw >= paletteCount ? 0 : raw;
+    table[raw * 4] = palette[index * 3];
+    table[raw * 4 + 1] = palette[index * 3 + 1];
+    table[raw * 4 + 2] = palette[index * 3 + 2];
+    table[raw * 4 + 3] =
+        colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
+            ? 0
+            : 255;
+  }
+  final entries = Uint32List.view(table.buffer);
+  final pixels = Uint32List.view(out.buffer, out.offsetInBytes, width * height);
+  var i = 0;
+  if (bits == 8) {
+    for (var y = 0; y < height; y++) {
+      final row = y * rowBytes;
+      for (var x = 0; x < width; x++) {
+        pixels[i++] = entries[data[row + x]];
+      }
+    }
+    return out;
+  }
   final perByte = 8 ~/ bits;
-  final mask = (1 << bits) - 1;
+  final mask = entryCount - 1;
+  final wholeBytes = width ~/ perByte;
   for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final byte = data[y * rowBytes + x ~/ perByte];
+    final row = y * rowBytes;
+    for (var b = 0; b < wholeBytes; b++) {
+      final byte = data[row + b];
+      for (var shift = 8 - bits; shift >= 0; shift -= bits) {
+        pixels[i++] = entries[(byte >> shift) & mask];
+      }
+    }
+    for (var x = wholeBytes * perByte; x < width; x++) {
+      final byte = data[row + x ~/ perByte];
       final shift = 8 - bits * (x % perByte + 1);
-      final raw = (byte >> shift) & mask;
-      final index = raw >= paletteCount ? 0 : raw;
-      final i = (y * width + x) * 4;
-      out[i] = palette[index * 3];
-      out[i + 1] = palette[index * 3 + 1];
-      out[i + 2] = palette[index * 3 + 2];
-      // color-key ranges compare the raw index sample (§8.9.6.4)
-      out[i + 3] =
-          colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
-              ? 0
-              : 255;
+      pixels[i++] = entries[(byte >> shift) & mask];
     }
   }
   return out;
+}
+
+/// [_indexedToRgba] followed by [downsamplePdfDecodedPixels], in one pass and
+/// byte-for-byte identical to it for an opaque (unkeyed) image: the same cell
+/// geometry, no upscale, and each channel the truncated mean of the palette
+/// entries the cell's samples name. Returns null where [_indexedToRgba] would.
+({Uint8List rgba, int width, int height})? _indexedToRgbaDownsampled(
+    CosDocument cos,
+    CosDictionary dict,
+    Uint8List data,
+    int width,
+    int height,
+    int bits,
+    int targetWidth,
+    int targetHeight) {
+  var tw = targetWidth < 1 ? 1 : targetWidth;
+  var th = targetHeight < 1 ? 1 : targetHeight;
+  if (tw >= width && th >= height) return null; // the full decode is the size
+  if (tw > width) tw = width;
+  if (th > height) th = height;
+  if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
+  final paletteInfo =
+      _indexedPalette(cos, dict, intent: _imageRenderingIntent(cos, dict));
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  if (paletteCount == 0) return null;
+  final rowBytes = (width * bits + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+
+  // Per-sample channel tables (out-of-range indices clamp to entry 0).
+  final entryCount = 1 << bits;
+  final reds = Int32List(entryCount);
+  final greens = Int32List(entryCount);
+  final blues = Int32List(entryCount);
+  for (var raw = 0; raw < entryCount; raw++) {
+    final index = raw >= paletteCount ? 0 : raw;
+    reds[raw] = palette[index * 3];
+    greens[raw] = palette[index * 3 + 1];
+    blues[raw] = palette[index * 3 + 2];
+  }
+  // Unpack one source row of samples at a time; 8-bit rows are read in place.
+  final samples = bits == 8 ? null : Uint8List(width);
+  final perByte = 8 ~/ bits;
+  final mask = entryCount - 1;
+  final x0s = Int32List(tw);
+  final x1s = Int32List(tw);
+  for (var tx = 0; tx < tw; tx++) {
+    final sx0 = tx * width ~/ tw;
+    var sx1 = (tx + 1) * width ~/ tw;
+    if (sx1 <= sx0) sx1 = sx0 + 1;
+    x0s[tx] = sx0;
+    x1s[tx] = sx1;
+  }
+  final r = Int32List(tw), g = Int32List(tw), b = Int32List(tw);
+  final out = Uint8List(tw * th * 4);
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = ty * height ~/ th;
+    var sy1 = (ty + 1) * height ~/ th;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    r.fillRange(0, tw, 0);
+    g.fillRange(0, tw, 0);
+    b.fillRange(0, tw, 0);
+    for (var sy = sy0; sy < sy1; sy++) {
+      final row = sy * rowBytes;
+      final Uint8List line;
+      final int base;
+      if (samples == null) {
+        line = data;
+        base = row;
+      } else {
+        for (var x = 0; x < width; x++) {
+          final byte = data[row + x ~/ perByte];
+          samples[x] = (byte >> (8 - bits * (x % perByte + 1))) & mask;
+        }
+        line = samples;
+        base = 0;
+      }
+      for (var tx = 0; tx < tw; tx++) {
+        var cr = 0, cg = 0, cb = 0;
+        final end = base + x1s[tx];
+        for (var i = base + x0s[tx]; i < end; i++) {
+          final raw = line[i];
+          cr += reds[raw];
+          cg += greens[raw];
+          cb += blues[raw];
+        }
+        r[tx] += cr;
+        g[tx] += cg;
+        b[tx] += cb;
+      }
+    }
+    final rows = sy1 - sy0;
+    for (var tx = 0; tx < tw; tx++) {
+      final n = rows * (x1s[tx] - x0s[tx]);
+      out[di] = r[tx] ~/ n;
+      out[di + 1] = g[tx] ~/ n;
+      out[di + 2] = b[tx] ~/ n;
+      out[di + 3] = 255;
+      di += 4;
+    }
+  }
+  return (rgba: out, width: tw, height: th);
 }
 
 (Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict,
