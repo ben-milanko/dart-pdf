@@ -471,6 +471,27 @@ void main() {
           tester.widget<EditableText>(find.byType(EditableText).first);
       expect(editable.focusNode.hasFocus, isFalse);
     });
+
+    testWidgets('tapping outside an untouched field only lets go',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+      unawaited(controller.jumpToPage(1));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final region = controller.visiblePageRegion(1);
+
+      await tester.tap(find.byKey(fieldKey));
+      await tester.pump();
+      await tester.tapAt(const Offset(400, 400));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.currentPage, 1);
+      expect(controller.visiblePageRegion(1), region);
+      final editable =
+          tester.widget<EditableText>(find.byType(EditableText).first);
+      expect(editable.focusNode.hasFocus, isFalse);
+    });
   });
 
   group('PdfSearchField', () {
