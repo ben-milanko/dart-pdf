@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'design/editor_theme.dart';
+import 'design/fold.dart';
 import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
@@ -182,7 +183,9 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       ...widget.leadingPanels,
       Expanded(
         key: const ValueKey('pdf-shell-viewer'),
-        child: viewer,
+        // On a foldable held half open the page sits in one pane rather
+        // than bending over the crease; the floating toolbar goes with it.
+        child: PdfFoldAvoid(child: viewer),
       ),
       ...widget.trailingPanels,
     ]);

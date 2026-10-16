@@ -15,12 +15,21 @@
 #
 #   targets    : app | example          (default: both)
 #   platforms  : ios | macos | android  (default: all three)
+#                ios-duo-outer | ios-duo-inner | duo (= both; opt-in only)
+#                iPhone Duo's two App Store screenshot slots: the outer
+#                display closed (1398x2034) and the inner display open
+#                (2853x2007). simctl has no pose command, so the run pauses
+#                for you to press Closed / Open in the simulator's Device Hub
+#                (or set DUO_POSE_READY=1 to skip the pause when the pose is
+#                already right). A capture at any other size is discarded.
 #   compose    : re-frame existing raw captures only (no device boot/capture)
 #   (tokens may be given in any order, e.g. `screenshots.sh app macos`)
 #
 # Env overrides:
 #   FLUTTER        flutter binary (default: fvm flutter, else flutter)
 #   IOS_DEVICE     simulator name or UDID (default: "iPhone 17 Pro Max")
+#   DUO_DEVICE     iPhone Duo simulator name or UDID (default: "iPhone Duo";
+#                  needs Xcode 27.1+ and its iOS 27.1 runtime)
 #   ANDROID_AVD    AVD name             (default: first `emulator -list-avds`)
 #   KEEP_BOOTED    1 to leave sims/emulators running afterwards
 #
@@ -50,6 +59,7 @@ else
 fi
 
 IOS_DEVICE="${IOS_DEVICE:-iPhone 17 Pro Max}"
+DUO_DEVICE="${DUO_DEVICE:-iPhone Duo}"
 
 log() { printf '\033[1;34m[screenshots]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[screenshots]\033[0m %s\n' "$*" >&2; }
@@ -76,7 +86,8 @@ MODE=capture   # `compose` re-frames existing raw shots without touching devices
 for tok in "$@"; do
   case "$tok" in
     app|example) TARGETS+=("$tok") ;;
-    ios|macos|android) PLATFORMS+=("$tok") ;;
+    ios|macos|android|ios-duo-outer|ios-duo-inner) PLATFORMS+=("$tok") ;;
+    duo) PLATFORMS+=(ios-duo-outer ios-duo-inner) ;;
     compose) MODE=compose ;;
     *) warn "ignoring unknown token '$tok'" ;;
   esac
@@ -84,21 +95,25 @@ done
 [[ ${#TARGETS[@]} -eq 0 ]] && TARGETS=(app example)
 [[ ${#PLATFORMS[@]} -eq 0 ]] && PLATFORMS=(ios macos android)
 
-# capture <target> <flutter-device-id> <SHOT_PLATFORM> <SHOT_DEVICE> <mac-proc>
+# capture <target> <flutter-device-id> <SHOT_PLATFORM> <SHOT_DEVICE> \
+#         [<out-dir> <simctl-display> <expected-sizes>]
 capture() {
   local target="$1" device_id="$2" shot_platform="$3" shot_device="$4"
+  local shot_dir="${5:-$3}" ios_display="${6:-}" expect_sizes="${7:-}"
   local dir entry proc out
   dir="$(target_dir "$target")"
   entry="$(target_entry "$target")"
   proc="$(target_proc "$target")"
   out="$OUT_ROOT/$target"
-  log "[$target] driving $shot_platform on '$device_id' → doc/screenshots/$target/$shot_platform/"
+  log "[$target] driving $shot_platform on '$device_id' → doc/screenshots/$target/$shot_dir/"
   # Path unique to this build, so the macOS crop targets our running instance
   # by pid even if an installed copy of the same-named app is also open.
   local app_hint="$dir/build/macos/Build/Products"
   ( cd "$dir" &&
     FLUTTER="${FLUTTER_CMD[*]}" \
     SHOT_PLATFORM="$shot_platform" SHOT_DEVICE="$shot_device" \
+    SHOT_PLATFORM_DIR="$shot_dir" SHOT_IOS_DISPLAY="$ios_display" \
+    SHOT_EXPECT_SIZES="$expect_sizes" \
     FLUTTER_DEVICE="$device_id" SHOT_ENTRY="$entry" \
     SHOT_MAC_PROCESS="$proc" SHOT_MAC_APP_HINT="$app_hint" SHOT_OUT="$out" \
       "${DART_CMD[@]}" run "$SCRIPT_DIR/capture_screenshots.dart" )
@@ -114,10 +129,22 @@ capture() {
 #                                  2880x1800 are also valid given a Retina shot.)
 #   ios      portrait  1320x2868  (App Store 6.9" display)
 #   android  portrait  1320x2640  (Play phone; 2:1, within Play's limits)
+#   ios-duo-outer portrait  1398x2034 (iPhone Duo outer display, closed)
+#   ios-duo-inner landscape 2853x2007 (iPhone Duo inner display, open - the
+#                                      simulator presents it landscape)
 platform_geom() { case "$1" in
   macos)   echo "landscape 1440 900" ;;
   ios)     echo "portrait 1320 2868" ;;
   android) echo "portrait 1320 2640" ;;
+  ios-duo-outer) echo "portrait 1398 2034" ;;
+  ios-duo-inner) echo "landscape 2853 2007" ;;
+esac; }
+
+# iPhone Duo display per screenshot slot: simctl display, Device Hub pose,
+# and the App Store sizes a raw capture must already be.
+duo_display() { case "$1" in
+  ios-duo-outer) echo "primary Closed 1398x2034,2034x1398" ;;
+  ios-duo-inner) echo "primary-1 Open 2853x2007,2007x2853" ;;
 esac; }
 
 # compose <target> <platform> - frames the raw captures onto the gradient
@@ -166,7 +193,7 @@ fi
 # Each returns "<flutter-device-id>\t<shot-device>" on stdout, or empty to
 # skip. KEEP_BOOTED leaves devices up; otherwise they're shut down at the
 # end of the run.
-IOS_UDID="" ANDROID_SERIAL="" ANDROID_STARTED=0
+IOS_UDID="" DUO_UDID="" ANDROID_SERIAL="" ANDROID_STARTED=0
 
 boot_ios() {
   command -v xcrun >/dev/null || { warn "xcrun not found; skipping iOS"; return 1; }
@@ -191,6 +218,32 @@ boot_ios() {
   open -a Simulator
   xcrun simctl bootstatus "$IOS_UDID" -b || true
   return 0
+}
+
+boot_duo() {
+  [[ -n "$DUO_UDID" ]] && return 0
+  command -v xcrun >/dev/null || { warn "xcrun not found; skipping iPhone Duo"; return 1; }
+  DUO_UDID="$(xcrun simctl list devices available | grep -F "$DUO_DEVICE" \
+    | head -1 | grep -oE '[0-9A-F-]{36}' | head -1 || true)"
+  [[ -z "$DUO_UDID" ]] && {
+    warn "no '$DUO_DEVICE' simulator (needs Xcode 27.1+ with the iOS 27.1 runtime); skipping"
+    return 1; }
+  log "booting iPhone Duo simulator $DUO_DEVICE ($DUO_UDID)"
+  xcrun simctl boot "$DUO_UDID" 2>/dev/null || true
+  open -a Simulator
+  xcrun simctl bootstatus "$DUO_UDID" -b || true
+  # Xcode notes: Duo screenshots can be black for a few minutes after boot.
+  return 0
+}
+
+# duo_pose <pose> - simctl cannot fold the device, so ask for the pose.
+duo_pose() {
+  [[ "${DUO_POSE_READY:-0}" == "1" ]] && return 0
+  if [[ -t 0 ]]; then
+    read -r -p "Set the iPhone Duo simulator to '$1' in Device Hub, then press Enter... " _
+  else
+    warn "not interactive: assuming the iPhone Duo is already '$1' (size check still applies)"
+  fi
 }
 
 ANDROID_ADB=""
@@ -221,6 +274,7 @@ boot_android() {
 cleanup() {
   [[ "${KEEP_BOOTED:-0}" == "1" ]] && return
   [[ -n "$IOS_UDID" ]] && xcrun simctl shutdown "$IOS_UDID" 2>/dev/null || true
+  [[ -n "$DUO_UDID" ]] && xcrun simctl shutdown "$DUO_UDID" 2>/dev/null || true
   [[ "$ANDROID_STARTED" == "1" && -n "$ANDROID_SERIAL" ]] && \
     "$ANDROID_ADB" -s "$ANDROID_SERIAL" emu kill 2>/dev/null || true
 }
@@ -236,6 +290,15 @@ for platform in "${PLATFORMS[@]}"; do
     ios)
       boot_ios || continue
       for t in "${TARGETS[@]}"; do capture "$t" "$IOS_UDID" ios "$IOS_UDID"; compose "$t" ios; done
+      ;;
+    ios-duo-outer|ios-duo-inner)
+      boot_duo || continue
+      read -r duo_disp duo_pose_name duo_sizes <<<"$(duo_display "$platform")"
+      duo_pose "$duo_pose_name"
+      for t in "${TARGETS[@]}"; do
+        capture "$t" "$DUO_UDID" ios "$DUO_UDID" "$platform" "$duo_disp" "$duo_sizes"
+        compose "$t" "$platform"
+      done
       ;;
     android)
       boot_android || continue
