@@ -962,6 +962,12 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsViewSource => 'GitHub\'da kaynağı görüntüle';
 
   @override
+  String get settingsReportIssue => 'GitHub\'da sorun bildir';
+
+  @override
+  String get settingsEmailFeedback => 'E-postayla geri bildirim gönder';
+
+  @override
   String get undo => 'Geri al';
 
   @override

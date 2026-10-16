@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.",
   "settingsUpdates": "Güncellemeler",
   "settingsViewSource": "GitHub'da kaynağı görüntüle",
+  "settingsEmailFeedback": "E-postayla geri bildirim gönder",
+  "settingsReportIssue": "GitHub'da sorun bildir",
   "undo": "Geri al",
   "welcomeCopyName": "Adı kopyala",
   "welcomeCopyPath": "Yolu kopyala",

@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.",
   "settingsUpdates": "التحديثات",
   "settingsViewSource": "عرض المصدر على GitHub",
+  "settingsEmailFeedback": "إرسال الملاحظات عبر البريد الإلكتروني",
+  "settingsReportIssue": "الإبلاغ عن مشكلة على GitHub",
   "undo": "تراجع",
   "welcomeCopyName": "نسخ الاسم",
   "welcomeCopyPath": "نسخ المسار",

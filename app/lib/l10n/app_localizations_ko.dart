@@ -944,6 +944,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settingsViewSource => 'GitHub에서 소스 보기';
 
   @override
+  String get settingsReportIssue => 'GitHub에서 문제 신고';
+
+  @override
+  String get settingsEmailFeedback => '이메일로 의견 보내기';
+
+  @override
   String get undo => '실행 취소';
 
   @override

@@ -243,5 +243,26 @@ void main() {
       expect(find.byKey(const ValueKey('whats-new-dialog')), findsOneWidget);
       expect(find.byKey(const ValueKey('whats-new-unavailable')), findsNothing);
     });
+
+    testWidgets('the About block offers GitHub and email feedback',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      await tester.pump();
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.byKey(const ValueKey('settings-report-issue')), findsOneWidget);
+      final email = find.byKey(const ValueKey('settings-email-feedback'));
+      expect(email, findsOneWidget);
+      // The address is shown, not just linked: it must be reachable without a
+      // mail client.
+      expect(
+          find.descendant(
+              of: email, matching: find.text(AppInfo.feedbackEmail)),
+          findsOneWidget);
+    });
   });
 }

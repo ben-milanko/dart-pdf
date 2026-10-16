@@ -970,6 +970,12 @@ class AppLocalizationsPt extends AppLocalizations {
   String get settingsViewSource => 'Ver código-fonte no GitHub';
 
   @override
+  String get settingsReportIssue => 'Relatar um problema no GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Enviar feedback por e-mail';
+
+  @override
   String get undo => 'Desfazer';
 
   @override

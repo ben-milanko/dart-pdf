@@ -966,6 +966,12 @@ class AppLocalizationsId extends AppLocalizations {
   String get settingsViewSource => 'Lihat sumber di GitHub';
 
   @override
+  String get settingsReportIssue => 'Laporkan masalah di GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Kirim masukan lewat email';
+
+  @override
   String get undo => 'Urungkan';
 
   @override

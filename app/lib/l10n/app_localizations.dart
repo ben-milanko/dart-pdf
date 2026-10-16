@@ -1611,6 +1611,18 @@ abstract class AppLocalizations {
   /// **'View source on GitHub'**
   String get settingsViewSource;
 
+  /// Settings > About link that opens the app feedback issue form on GitHub.
+  ///
+  /// In en, this message translates to:
+  /// **'Report an issue on GitHub'**
+  String get settingsReportIssue;
+
+  /// Settings > About link that opens a feedback email to the developer, for users without a GitHub account. The email address is shown beneath it.
+  ///
+  /// In en, this message translates to:
+  /// **'Email feedback'**
+  String get settingsEmailFeedback;
+
   /// Generic button/tooltip to undo the last change.
   ///
   /// In en, this message translates to:

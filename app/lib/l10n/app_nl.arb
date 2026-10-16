@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "Ontvang automatische updatemeldingen voor niet-ondertekende Windows-/macOS-testbuilds van main.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "Broncode bekijken op GitHub",
+  "settingsEmailFeedback": "Feedback per e-mail sturen",
+  "settingsReportIssue": "Probleem melden op GitHub",
   "undo": "Ongedaan maken",
   "welcomeCopyName": "Naam kopiëren",
   "welcomeCopyPath": "Pad kopiëren",

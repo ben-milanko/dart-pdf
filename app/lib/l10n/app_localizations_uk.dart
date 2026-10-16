@@ -983,6 +983,12 @@ class AppLocalizationsUk extends AppLocalizations {
   String get settingsViewSource => 'Переглянути код на GitHub';
 
   @override
+  String get settingsReportIssue => 'Повідомити про проблему на GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Надіслати відгук електронною поштою';
+
+  @override
   String get undo => 'Відмінити';
 
   @override

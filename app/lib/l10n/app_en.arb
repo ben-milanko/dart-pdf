@@ -1300,6 +1300,14 @@
   "@settingsViewSource": {
     "description": "Link that opens the project's source repository on GitHub."
   },
+  "settingsReportIssue": "Report an issue on GitHub",
+  "@settingsReportIssue": {
+    "description": "Settings > About link that opens the app feedback issue form on GitHub."
+  },
+  "settingsEmailFeedback": "Email feedback",
+  "@settingsEmailFeedback": {
+    "description": "Settings > About link that opens a feedback email to the developer, for users without a GitHub account. The email address is shown beneath it."
+  },
   "undo": "Undo",
   "@undo": {
     "description": "Generic button/tooltip to undo the last change."

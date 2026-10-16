@@ -958,6 +958,12 @@ class AppLocalizationsTh extends AppLocalizations {
   String get settingsViewSource => 'ดูซอร์สโค้ดบน GitHub';
 
   @override
+  String get settingsReportIssue => 'รายงานปัญหาบน GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'ส่งความคิดเห็นทางอีเมล';
+
+  @override
   String get undo => 'เลิกทำ';
 
   @override

@@ -963,6 +963,12 @@ class AppLocalizationsVi extends AppLocalizations {
   String get settingsViewSource => 'Xem mã nguồn trên GitHub';
 
   @override
+  String get settingsReportIssue => 'Báo cáo sự cố trên GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Gửi phản hồi qua email';
+
+  @override
   String get undo => 'Hoàn tác';
 
   @override

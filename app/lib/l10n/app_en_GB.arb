@@ -246,6 +246,8 @@
   "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows and macOS test builds from main.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "View source on GitHub",
+  "settingsReportIssue": "Report an issue on GitHub",
+  "settingsEmailFeedback": "Email feedback",
   "undo": "Undo",
   "welcomeCopyName": "Copy name",
   "welcomeCopyPath": "Copy path",

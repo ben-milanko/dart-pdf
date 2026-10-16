@@ -971,6 +971,12 @@ class AppLocalizationsNl extends AppLocalizations {
   String get settingsViewSource => 'Broncode bekijken op GitHub';
 
   @override
+  String get settingsReportIssue => 'Probleem melden op GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Feedback per e-mail sturen';
+
+  @override
   String get undo => 'Ongedaan maken';
 
   @override

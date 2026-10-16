@@ -946,6 +946,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsViewSource => 'GitHub でソースを表示';
 
   @override
+  String get settingsReportIssue => 'GitHub で問題を報告';
+
+  @override
+  String get settingsEmailFeedback => 'メールでフィードバックを送信';
+
+  @override
   String get undo => '元に戻す';
 
   @override

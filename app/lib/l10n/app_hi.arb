@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "main से बिना हस्ताक्षर वाले Windows/macOS परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।",
   "settingsUpdates": "अपडेट",
   "settingsViewSource": "GitHub पर स्रोत देखें",
+  "settingsEmailFeedback": "ईमेल से प्रतिक्रिया भेजें",
+  "settingsReportIssue": "GitHub पर समस्या रिपोर्ट करें",
   "undo": "पूर्ववत करें",
   "welcomeCopyName": "नाम कॉपी करें",
   "welcomeCopyPath": "पथ कॉपी करें",

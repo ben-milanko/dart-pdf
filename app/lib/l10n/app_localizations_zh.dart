@@ -943,6 +943,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsViewSource => '在 GitHub 上查看源代码';
 
   @override
+  String get settingsReportIssue => '在 GitHub 上报告问题';
+
+  @override
+  String get settingsEmailFeedback => '通过电子邮件发送反馈';
+
+  @override
   String get undo => '撤销';
 
   @override
@@ -2254,6 +2260,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsViewSource => '在 GitHub 上檢視原始碼';
+
+  @override
+  String get settingsReportIssue => '在 GitHub 上回報問題';
+
+  @override
+  String get settingsEmailFeedback => '透過電子郵件傳送意見回饋';
 
   @override
   String get undo => '復原';

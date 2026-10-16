@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。",
   "settingsUpdates": "アップデート",
   "settingsViewSource": "GitHub でソースを表示",
+  "settingsEmailFeedback": "メールでフィードバックを送信",
+  "settingsReportIssue": "GitHub で問題を報告",
   "undo": "元に戻す",
   "welcomeCopyName": "名前をコピー",
   "welcomeCopyPath": "パスをコピー",

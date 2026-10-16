@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "Получайте автоматические уведомления о неподписанных тестовых сборках Windows/macOS из main.",
   "settingsUpdates": "Обновления",
   "settingsViewSource": "Посмотреть исходный код на GitHub",
+  "settingsEmailFeedback": "Отправить отзыв по электронной почте",
+  "settingsReportIssue": "Сообщить о проблеме на GitHub",
   "undo": "Отменить",
   "welcomeCopyName": "Копировать имя",
   "welcomeCopyPath": "Копировать путь",

@@ -961,6 +961,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsViewSource => 'View source on GitHub';
 
   @override
+  String get settingsReportIssue => 'Report an issue on GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Email feedback';
+
+  @override
   String get undo => 'Undo';
 
   @override
@@ -2309,6 +2315,12 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get settingsViewSource => 'View source on GitHub';
 
   @override
+  String get settingsReportIssue => 'Report an issue on GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Email feedback';
+
+  @override
   String get undo => 'Undo';
 
   @override
@@ -3655,6 +3667,12 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get settingsViewSource => 'View source on GitHub';
+
+  @override
+  String get settingsReportIssue => 'Report an issue on GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Email feedback';
 
   @override
   String get undo => 'Undo';
