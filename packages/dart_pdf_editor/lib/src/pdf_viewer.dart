@@ -1384,6 +1384,7 @@ class PdfViewer extends StatefulWidget {
     this.controller,
     this.onAction,
     this.onAnnotationTap,
+    this.onPlainTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.scrollIndicatorBuilder,
@@ -1605,6 +1606,13 @@ class PdfViewer extends StatefulWidget {
   /// enter the editor selection. Use [onLaunchUrl] and [onAction] to control
   /// PDF link/action dispatch.
   final PdfAnnotationTapHandler? onAnnotationTap;
+
+  /// Called for a touch or stylus tap on the viewer that it has no use for
+  /// itself: not on an annotation or link, not dismissing a text selection,
+  /// not with a tool armed or anything selected for editing. The shells use
+  /// it to show and hide their chrome on phones, the way mobile readers do.
+  /// A double tap (zoom) never reaches it.
+  final VoidCallback? onPlainTap;
 
   /// Opens the hyperlink of a tapped /URI action (and of a push button
   /// whose action is a /URI). Defaults to launching well-known external
@@ -6938,6 +6946,7 @@ class _PdfViewerState extends State<PdfViewer>
       _suppressTap = false;
       return;
     }
+    final hadTextSelection = _controller.hasSelection;
     _clearSelection();
     final tapHit = widget.onAnnotationTap == null
         ? null
@@ -6965,6 +6974,18 @@ class _PdfViewerState extends State<PdfViewer>
       if (point != null) {
         editing.selectAnnotationAt(point.$1, point.$2, point.$3);
       }
+    }
+    if (widget.onPlainTap != null &&
+        _lastPointerKind != PointerDeviceKind.mouse &&
+        tapHit == null &&
+        !hadTextSelection &&
+        (editing == null ||
+            (editing.tool == null &&
+                editing.markupTool == null &&
+                !editing.isPickingColor &&
+                !editing.hasAnnotationSelection &&
+                editing.selectedElement == null))) {
+      widget.onPlainTap!();
     }
   }
 

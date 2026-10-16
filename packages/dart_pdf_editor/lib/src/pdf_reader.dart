@@ -25,6 +25,7 @@ import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
+import 'design/auto_hide_chrome.dart';
 import 'design/editor_presenter.dart';
 import 'design/editor_theme.dart';
 import 'design/header_parts.dart';
@@ -41,6 +42,7 @@ class PdfReaderFeatures {
     this.viewOptions = true,
     this.pageColorEditable = true,
     this.fillForms = true,
+    this.autoHideChrome = true,
   });
 
   /// Just the pages: no header bar and no panels.
@@ -90,6 +92,13 @@ class PdfReaderFeatures {
   /// bytes (to save) needs the full [PdfEditorView]. Off makes the
   /// reader strictly display-only.
   final bool fillForms;
+
+  /// Whether, on a compact (phone) layout, the header slides away while the
+  /// user scrolls on through the document and comes back on a scroll back
+  /// or a tap on the page. It stays put while a panel sheet is open or the
+  /// header has focus. Wide layouts never hide it. See
+  /// [PdfEditorFeatures.autoHideChrome].
+  final bool autoHideChrome;
 }
 
 /// A drop-in, view-only PDF widget: the [PdfViewer] plus a slim header
@@ -383,6 +392,10 @@ class PdfReader extends StatefulWidget {
 class _PdfReaderState extends State<PdfReader> {
   late PdfShellSessionLifecycle _shell;
 
+  /// Whether the header shows on a compact layout - see
+  /// [PdfReaderFeatures.autoHideChrome].
+  final _chrome = PdfChromeAutoHide();
+
   PdfEditingController get _session => _shell.session;
   PdfViewerController get _viewer => _shell.viewer;
   PdfEditingPreferences get _prefs => _shell.preferences;
@@ -452,6 +465,7 @@ class _PdfReaderState extends State<PdfReader> {
 
   @override
   void dispose() {
+    _chrome.dispose();
     _ownedViewMode?.dispose();
     if (!_isSource) _shell.dispose();
     super.dispose();
@@ -660,14 +674,24 @@ class _PdfReaderState extends State<PdfReader> {
                     ? null
                     : () => prefs.showBookmarkSidebar = false,
               );
+          final compact = constraints.maxWidth < pdfCompactWidthOf(context);
+          final autoHide = features.autoHideChrome && compact;
+          // the header stays while a panel sheet it opened is up
+          _chrome.pinned = !autoHide ||
+              (useSheets && (showThumbnailsPanel || showBookmarksPanel));
           return Column(children: [
             if (features.headerBar)
-              _buildHeader(
-                context,
-                prefs: prefs,
-                reflowActive: reflowActive,
-                showThumbnails: showThumbnails,
-                compact: constraints.maxWidth < pdfCompactWidthOf(context),
+              PdfAutoHideBar(
+                controller: _chrome,
+                edge: AxisDirection.up,
+                enabled: autoHide,
+                child: _buildHeader(
+                  context,
+                  prefs: prefs,
+                  reflowActive: reflowActive,
+                  showThumbnails: showThumbnails,
+                  compact: compact,
+                ),
               ),
             Expanded(
               child: PdfShellPanelLayout(
@@ -680,53 +704,59 @@ class _PdfReaderState extends State<PdfReader> {
                 // rebuilds on session changes too: filling a form produces a
                 // revision, so the viewer must track _session.document, not
                 // the build-time snapshot
-                viewer: ListenableBuilder(
-                  listenable: _session,
-                  builder: (context, _) => reflowActive
-                      ? PdfReflowView(
-                          document: _session.document,
-                          controller: _viewer,
-                          onShareImage: widget.onShareReflowImage,
-                          backgroundColor: widget.backgroundColor,
-                        )
-                      : PdfViewer(
-                          // PdfViewer binds its controller once, in initState: a host
-                          // handing in a different one (its own in place of ours)
-                          // gets a fresh viewer bound to it, not one left driving
-                          // the replaced controller
-                          key: ObjectKey(_viewer),
-                          document: _session.document,
-                          controller: _viewer,
-                          formController: features.fillForms ? _session : null,
-                          onAction: widget.onAction,
-                          onAnnotationTap: widget.onAnnotationTap,
-                          onLaunchUrl: widget.onLaunchUrl,
-                          pageOverlayBuilder: widget.pageOverlayBuilder,
-                          textMenuBuilder: widget.textMenuBuilder,
-                          textMenuEntries: widget.textMenuEntries,
-                          contextMenuEnabled: widget.contextMenuEnabled,
-                          onContextMenuRequested: widget.onContextMenuRequested,
-                          pageLayout: widget.pageLayout,
-                          initialFit: widget.initialFit,
-                          backgroundColor: widget.backgroundColor,
-                          pageColor: pageColor,
-                          showAnnotations: prefs.showAnnotations,
-                          hiddenAnnotationSubtypes:
-                              prefs.hiddenAnnotationSubtypes,
-                          showScrollbarChapters: prefs.showScrollbarChapters,
-                          highlightFormFields: prefs.highlightFormFields,
-                          renderWorker: _shell.worker,
-                          autoRenderWorker: widget.autoRenderWorker,
-                          performance: _performance,
-                          tileRasterBackend: widget.tileRasterBackend,
-                          rasterCache: widget.rasterCache,
-                          textCache: widget.textCache,
-                          pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
-                          pageRasterCachePolicy: widget.pageRasterCachePolicy,
-                          pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
-                          documentId: _documentKey,
-                          shortcuts: widget.viewerShortcuts,
-                        ),
+                viewer: NotificationListener<ScrollNotification>(
+                  onNotification: _chrome.handleScrollNotification,
+                  child: ListenableBuilder(
+                    listenable: _session,
+                    builder: (context, _) => reflowActive
+                        ? PdfReflowView(
+                            document: _session.document,
+                            controller: _viewer,
+                            onShareImage: widget.onShareReflowImage,
+                            backgroundColor: widget.backgroundColor,
+                          )
+                        : PdfViewer(
+                            // PdfViewer binds its controller once, in initState: a host
+                            // handing in a different one (its own in place of ours)
+                            // gets a fresh viewer bound to it, not one left driving
+                            // the replaced controller
+                            key: ObjectKey(_viewer),
+                            document: _session.document,
+                            controller: _viewer,
+                            formController:
+                                features.fillForms ? _session : null,
+                            onAction: widget.onAction,
+                            onAnnotationTap: widget.onAnnotationTap,
+                            onPlainTap: autoHide ? _chrome.toggle : null,
+                            onLaunchUrl: widget.onLaunchUrl,
+                            pageOverlayBuilder: widget.pageOverlayBuilder,
+                            textMenuBuilder: widget.textMenuBuilder,
+                            textMenuEntries: widget.textMenuEntries,
+                            contextMenuEnabled: widget.contextMenuEnabled,
+                            onContextMenuRequested:
+                                widget.onContextMenuRequested,
+                            pageLayout: widget.pageLayout,
+                            initialFit: widget.initialFit,
+                            backgroundColor: widget.backgroundColor,
+                            pageColor: pageColor,
+                            showAnnotations: prefs.showAnnotations,
+                            hiddenAnnotationSubtypes:
+                                prefs.hiddenAnnotationSubtypes,
+                            showScrollbarChapters: prefs.showScrollbarChapters,
+                            highlightFormFields: prefs.highlightFormFields,
+                            renderWorker: _shell.worker,
+                            autoRenderWorker: widget.autoRenderWorker,
+                            performance: _performance,
+                            tileRasterBackend: widget.tileRasterBackend,
+                            rasterCache: widget.rasterCache,
+                            textCache: widget.textCache,
+                            pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
+                            pageRasterCachePolicy: widget.pageRasterCachePolicy,
+                            pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
+                            documentId: _documentKey,
+                            shortcuts: widget.viewerShortcuts,
+                          ),
+                  ),
                 ),
                 bottomSheets: [
                   if (useSheets && showThumbnailsPanel)
