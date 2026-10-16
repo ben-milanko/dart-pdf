@@ -352,6 +352,24 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'आपके पिछले सत्र के $count दस्तावेज़ अब उपलब्ध नहीं हैं। हो सकता है उन्हें स्थानांतरित, पुनर्नामित या हटा दिया गया हो।',
+      one:
+          '$title अब उपलब्ध नहीं है। हो सकता है इसे स्थानांतरित, पुनर्नामित या हटा दिया गया हो।',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title को उसके मूल स्थान पर सहेजा नहीं जा सका। हो सकता है इसे स्थानांतरित या हटा दिया गया हो। सहेजने का स्थान चुनें।';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'डिजिटल रूप से हस्ताक्षर नहीं कर सके: $error';
   }
@@ -1318,4 +1336,22 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get appMenuMoreTools => 'और टूल';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

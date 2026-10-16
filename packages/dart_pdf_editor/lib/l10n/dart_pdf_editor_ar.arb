@@ -142,6 +142,13 @@
   "menuAddLeader": "إضافة خط إشارة",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{تطبيق التعليق التوضيحي على الصفحات} other{تطبيق التعليقات التوضيحية على الصفحات}}",
   "menuApplyToPages": "التطبيق على الصفحات…",
+  "propLeader": "خط الإشارة",
+  "propOutlineWidth": "عرض الإطار",
+  "menuRotateSelection": "تدوير حول مركز التحديد…",
+  "menuRotateEach": "تدوير كل تعليق توضيحي…",
+  "rotationAngleTitle": "الدوران (درجات، عكس عقارب الساعة)",
+  "menuGroup": "تجميع",
+  "menuUngroup": "إلغاء التجميع",
   "menuBringToFront": "إحضار إلى الأمام",
   "menuCheck": "تحديد",
   "menuChooseValue": "اختيار قيمة…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "تضمين الإشارات المرجعية",
   "insertPagesBookmarkFiles": "إضافة إشارة مرجعية لكل ملف",
   "insertPagesSummary": "{inserted, plural, =1{سيتم إدراج صفحة واحدة} =2{سيتم إدراج صفحتين} few{سيتم إدراج {inserted} صفحات} many{سيتم إدراج {inserted} صفحة} other{سيتم إدراج {inserted} صفحة}} - سيحتوي المستند على {total, plural, =1{صفحة واحدة} =2{صفحتين} few{{total} صفحات} many{{total} صفحة} other{{total} صفحة}}.",
-  "insertPagesConfirm": "إدراج"
+  "insertPagesConfirm": "إدراج",
+  "shellBakePageColor": "حفظ لون الصفحة في الملف",
+  "pageColorNotBakedSigned": "لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته."
 }

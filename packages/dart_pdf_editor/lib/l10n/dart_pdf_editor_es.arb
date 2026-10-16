@@ -142,6 +142,13 @@
   "menuAddLeader": "Añadir línea guía",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Aplicar anotación a páginas} other{Aplicar anotaciones a páginas}}",
   "menuApplyToPages": "Aplicar a páginas…",
+  "propLeader": "Línea guía",
+  "propOutlineWidth": "Grosor del contorno",
+  "menuRotateSelection": "Girar alrededor del centro de la selección…",
+  "menuRotateEach": "Girar cada anotación…",
+  "rotationAngleTitle": "Rotación (grados, sentido antihorario)",
+  "menuGroup": "Agrupar",
+  "menuUngroup": "Desagrupar",
   "menuBringToFront": "Traer al frente",
   "menuCheck": "Marcar",
   "menuChooseValue": "Elegir valor…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Incluir marcadores",
   "insertPagesBookmarkFiles": "Añadir un marcador por archivo",
   "insertPagesSummary": "{inserted, plural, =1{Inserta 1 página} other{Inserta {inserted} páginas}}: el documento tendrá {total, plural, =1{1 página} other{{total} páginas}}.",
-  "insertPagesConfirm": "Insertar"
+  "insertPagesConfirm": "Insertar",
+  "shellBakePageColor": "Guardar el color de página en el archivo",
+  "pageColorNotBakedSigned": "El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas."
 }

@@ -196,6 +196,7 @@ class PdfEditingPreferences extends ChangeNotifier
   List<Color> _recentColors = const [];
   List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
+  bool _bakePageColor = false;
   bool _showAnnotations = true;
   Set<String> _hiddenAnnotationSubtypes = const {};
   bool _showScrollbarChapters = false;
@@ -420,6 +421,8 @@ class PdfEditingPreferences extends ChangeNotifier
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
+      _bakePageColor =
+          store.getBool('${_prefix}bakePageColor') ?? _bakePageColor;
       _showAnnotations =
           store.getBool('${_prefix}showAnnotations') ?? _showAnnotations;
       final hiddenSubtypes =
@@ -1346,6 +1349,19 @@ class PdfEditingPreferences extends ChangeNotifier
     if (value == _pageColor) return;
     _pageColor = value;
     _write((s) => s.setInt('${_prefix}pageColor', value.toARGB32()));
+    notifyListeners();
+  }
+
+  /// Whether saving or exporting paints [pageColor] into the file, so other
+  /// PDF readers show it too (see `pdfBakePageColor`). Off by default -
+  /// [pageColor] then stays a display setting only. A white page colour has
+  /// nothing to bake either way.
+  bool get bakePageColor => _bakePageColor;
+
+  set bakePageColor(bool value) {
+    if (value == _bakePageColor) return;
+    _bakePageColor = value;
+    _write((s) => s.setBool('${_prefix}bakePageColor', value));
     notifyListeners();
   }
 

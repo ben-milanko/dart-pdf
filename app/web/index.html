@@ -196,20 +196,94 @@
         return bytes.buffer;
       }
 
+      // onnxruntime-web asks for its shared wasm memory with a 4 GB maximum
+      // (65536 pages), and iOS WebKit - every iOS browser - can't reserve
+      // that much address space for a shared memory, so the constructor
+      // throws "RangeError: Out of memory" and ORT reports "no available
+      // backend". A smaller maximum still satisfies the module's memory
+      // import (an import may promise less than the declared limit), so a
+      // refused shared memory is retried with halved maxima down to 256 MB.
+      // Only a request that would otherwise have thrown is changed.
+      // cappedHeapBytes records the maximum that was granted, so the app can
+      // size its OCR work to it (__dartPdfOcrHeapLimit; 0 = not capped).
+      var sharedMemoryFallbackInstalled = false;
+      var cappedHeapBytes = 0;
+      window.__dartPdfOcrHeapLimit = function () {
+        return cappedHeapBytes;
+      };
+      function installSharedMemoryFallback() {
+        if (sharedMemoryFallbackInstalled) return;
+        sharedMemoryFallbackInstalled = true;
+        var NativeMemory = WebAssembly.Memory;
+        var floorPages = 4096;
+        var Fallback = function Memory(descriptor) {
+          if (!new.target) {
+            throw new TypeError("Constructor WebAssembly.Memory requires 'new'");
+          }
+          try {
+            return new NativeMemory(descriptor);
+          } catch (e) {
+            if (!(e instanceof RangeError) || !descriptor ||
+                !descriptor.shared || !(descriptor.maximum > floorPages)) {
+              throw e;
+            }
+            var initial = descriptor.initial || 0;
+            var maximum = descriptor.maximum;
+            for (;;) {
+              maximum = Math.max(floorPages, initial, Math.floor(maximum / 2));
+              var smaller = Object.assign({}, descriptor, { maximum: maximum });
+              try {
+                var memory = new NativeMemory(smaller);
+                cappedHeapBytes = maximum * 65536;
+                return memory;
+              } catch (retry) {
+                if (!(retry instanceof RangeError) ||
+                    maximum <= Math.max(floorPages, initial)) {
+                  throw e;
+                }
+              }
+            }
+          }
+        };
+        Fallback.prototype = NativeMemory.prototype;
+        WebAssembly.Memory = Fallback;
+      }
+
+      // Imports onnxruntime-web's WebGPU (asyncify) or WASM-only build.
+      // They are separate modules, so a failed start of one does not stick
+      // to the other the way ORT caches a failed initWasm() within a build.
+      async function importOrt(webgpu) {
+        var ort = await import(ORT_BASE +
+          (webgpu ? 'ort.webgpu.min.mjs' : 'ort.wasm.min.mjs'));
+        ort.env.wasm.wasmPaths = ORT_BASE;
+        // Threads need SharedArrayBuffer, i.e. a cross-origin-isolated
+        // page (firebase.json's COOP/COEP); elsewhere run single-threaded.
+        ort.env.wasm.numThreads = self.crossOriginIsolated ?
+          Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+        return ort;
+      }
+
+      async function createSessions(ort, models, webgpu) {
+        var options = {
+          executionProviders: webgpu ? ['webgpu', 'wasm'] : ['wasm'],
+          graphOptimizationLevel: 'all'
+        };
+        var det = await ort.InferenceSession.create(
+          new Uint8Array(models[0]), options);
+        var rec = await ort.InferenceSession.create(
+          new Uint8Array(models[1]), options);
+        return { det: det, rec: rec };
+      }
+
       var enginePromise = null;
       function engine() {
         if (!enginePromise) {
           enginePromise = (async function () {
+            installSharedMemoryFallback();
             var adapter = await webGpuAdapter();
             // The WebGPU build is twice the WASM-only one; fetch it only when
             // there is an adapter to use it.
-            var ort = await import(ORT_BASE +
-              (adapter ? 'ort.webgpu.min.mjs' : 'ort.wasm.min.mjs'));
-            ort.env.wasm.wasmPaths = ORT_BASE;
-            // Threads need SharedArrayBuffer, i.e. a cross-origin-isolated
-            // page (firebase.json's COOP/COEP); elsewhere run single-threaded.
-            ort.env.wasm.numThreads = self.crossOriginIsolated ?
-              Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+            var ort = await importOrt(!!adapter);
 
             var base = new URL(MODEL_DIR, document.baseURI);
             var names = ['det.onnx', 'rec.onnx'];
@@ -232,15 +306,20 @@
               new URL('dict.txt', base).href, function () {}));
             emitProgress('preparing', 0, 0);
 
-            var options = {
-              executionProviders: adapter ? ['webgpu', 'wasm'] : ['wasm'],
-              graphOptimizationLevel: 'all'
+            var sessions;
+            try {
+              sessions = await createSessions(ort, models, !!adapter);
+            } catch (e) {
+              if (!adapter) throw e;
+              // The WebGPU build failed to start (its larger wasm, or the
+              // adapter itself): run on the WASM-only build instead.
+              ort = await importOrt(false);
+              sessions = await createSessions(ort, models, false);
+            }
+            return {
+              ort: ort, det: sessions.det, rec: sessions.rec,
+              dictionary: dictionary
             };
-            var det = await ort.InferenceSession.create(
-              new Uint8Array(models[0]), options);
-            var rec = await ort.InferenceSession.create(
-              new Uint8Array(models[1]), options);
-            return { ort: ort, det: det, rec: rec, dictionary: dictionary };
           })();
           // A failed load (offline, missing models) can be retried.
           enginePromise.catch(function () {

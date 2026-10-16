@@ -464,6 +464,7 @@ class _DecliningDetailWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (imageDecodeRegion != null) {
       declinedDetailRecords++;
@@ -535,6 +536,7 @@ class _BlockingFirstDetailWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (imageDecodeRegion != null) {
       detailRecords++;

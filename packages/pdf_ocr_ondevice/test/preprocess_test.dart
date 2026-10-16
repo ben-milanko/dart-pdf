@@ -35,6 +35,21 @@ void main() {
       expect(r.scaleX, closeTo(4000 / 960, 1e-9));
     });
 
+    test('also caps the area at the pixel limit', () {
+      // Within the side limit, but 4000 x 2828 = 11.3 MP > 5 MP: scaled by
+      // sqrt(5e6 / 11.312e6) = 0.6648 -> 2659 x 1880 -> 2656 x 1888.
+      final r =
+          detectionResize(4000, 2828, sideLimit: 4000, pixelLimit: 5000000);
+      expect(r.width, 2656);
+      expect(r.height, 1888);
+      expect(r.scaleX, closeTo(4000 / 2656, 1e-9));
+      // The side limit still applies first; a small result is left alone.
+      final small =
+          detectionResize(4000, 2000, sideLimit: 960, pixelLimit: 5000000);
+      expect(small.width, 960);
+      expect(small.height, 480);
+    });
+
     test('never drops below the multiple', () {
       final r = detectionResize(10, 10, sideLimit: 960, multiple: 32);
       expect(r.width, 32);

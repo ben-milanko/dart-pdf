@@ -142,6 +142,13 @@
   "menuAddLeader": "เพิ่มเส้นชี้",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{ใช้คำอธิบายประกอบกับหน้า} other{ใช้คำอธิบายประกอบกับหน้า}}",
   "menuApplyToPages": "ใช้กับหน้า…",
+  "propLeader": "เส้นชี้",
+  "propOutlineWidth": "ความหนาเส้นขอบ",
+  "menuRotateSelection": "หมุนรอบจุดกึ่งกลางของส่วนที่เลือก…",
+  "menuRotateEach": "หมุนคำอธิบายประกอบแต่ละรายการ…",
+  "rotationAngleTitle": "การหมุน (องศา ทวนเข็มนาฬิกา)",
+  "menuGroup": "จัดกลุ่ม",
+  "menuUngroup": "ยกเลิกการจัดกลุ่ม",
   "menuBringToFront": "นำมาไว้ด้านหน้า",
   "menuCheck": "ทำเครื่องหมาย",
   "menuChooseValue": "เลือกค่า…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "รวมบุ๊กมาร์ก",
   "insertPagesBookmarkFiles": "เพิ่มบุ๊กมาร์กสำหรับแต่ละไฟล์",
   "insertPagesSummary": "จะแทรก {inserted} หน้า เอกสารจะมีทั้งหมด {total} หน้า",
-  "insertPagesConfirm": "แทรก"
+  "insertPagesConfirm": "แทรก",
+  "shellBakePageColor": "บันทึกสีหน้าลงในไฟล์",
+  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง"
 }

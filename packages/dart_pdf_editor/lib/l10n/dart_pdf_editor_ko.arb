@@ -142,6 +142,13 @@
   "menuAddLeader": "지시선 추가",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{페이지에 주석 적용} other{페이지에 주석 적용}}",
   "menuApplyToPages": "페이지에 적용…",
+  "propLeader": "지시선",
+  "propOutlineWidth": "윤곽선 두께",
+  "menuRotateSelection": "선택 영역 중심을 기준으로 회전…",
+  "menuRotateEach": "각 주석 회전…",
+  "rotationAngleTitle": "회전 (도, 반시계 방향)",
+  "menuGroup": "그룹화",
+  "menuUngroup": "그룹 해제",
   "menuBringToFront": "맨 앞으로 가져오기",
   "menuCheck": "체크",
   "menuChooseValue": "값 선택…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "책갈피 포함",
   "insertPagesBookmarkFiles": "파일마다 책갈피 추가",
   "insertPagesSummary": "{inserted}페이지를 삽입합니다. 문서는 {total}페이지가 됩니다.",
-  "insertPagesConfirm": "삽입"
+  "insertPagesConfirm": "삽입",
+  "shellBakePageColor": "페이지 색상을 파일에 저장",
+  "pageColorNotBakedSigned": "페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다."
 }

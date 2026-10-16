@@ -3039,12 +3039,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                                     _toggleTool(PdfEditTool.select);
                                     return;
                                   }
+                                  if (g.id == tabId) return;
                                   setSheetState(() => tabId = g.id);
-                                  // markup arms no tool - scope it so its
-                                  // settings row edits markup's own style
-                                  if (g.kind == PdfEditToolGroup.markup) {
-                                    controller.useMarkupStyleScope();
-                                  }
+                                  _armSheetGroupDefault(g);
                                 },
                               ),
                             ),
@@ -3072,6 +3069,50 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     );
   }
+
+  /// Switching the mobile sheet to [group] arms its first tool, so the
+  /// tab's settings row and the page are live without a second tap. A tool
+  /// already armed in [group] is kept, and a first tool that needs a prompt
+  /// first (a measuring scale, a drawn signature) or is a command is left
+  /// for an explicit tap - a tab switch never opens a dialog or edits.
+  void _armSheetGroupDefault(_ToolGroup group) {
+    final entries = group.tools.where(_entryVisible);
+    if (entries.isEmpty) return;
+    final first = entries.first;
+    if (first.markup case final markup?) {
+      if (entries.any((e) => e.markup == controller.markupTool)) return;
+      // set (not applyMarkup): a live text selection is not marked up just
+      // by switching tabs
+      controller.markupTool = markup;
+      controller.useMarkupStyleScope();
+      return;
+    }
+    final tool = first.tool;
+    if (tool == null) return;
+    if (controller.markupTool == null &&
+        entries.any((e) => e.tool != null && e.tool == controller.tool)) {
+      return;
+    }
+    if (_isMeasureTool(tool) && !controller.hasMeasurementScale) return;
+    if (tool == PdfEditTool.signature &&
+        controller.activeSavedSignature == null) {
+      return;
+    }
+    controller.tool = tool;
+    viewerController.clearSelection();
+  }
+
+  static bool _isMeasureTool(PdfEditTool tool) => switch (tool) {
+        PdfEditTool.measureDistance ||
+        PdfEditTool.measurePerimeter ||
+        PdfEditTool.measureArea ||
+        PdfEditTool.measureVolume ||
+        PdfEditTool.measureSlope ||
+        PdfEditTool.measureAngle ||
+        PdfEditTool.measureArc =>
+          true,
+        _ => false,
+      };
 
   Widget _sheetToolGrid(BuildContext context, _ToolGroup group) {
     final entries = group.tools.where(_entryVisible).toList();
@@ -3124,7 +3165,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   _chooseMarkup(entry.markup!);
                   if (context.mounted) Navigator.of(context).pop();
                 } else {
-                  await _armGroupTool(context, entry.tool!);
+                  // arm, not toggle: switching tabs may already have armed
+                  // this tile, and tapping it must not drop it again
+                  await _commands.armTool(context, entry.tool!);
                 }
               },
             ),

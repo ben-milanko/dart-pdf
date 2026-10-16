@@ -1996,7 +1996,8 @@ class _PreviewWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     final request = PdfImageRequest(
       stream: CosStream(CosDictionary(), Uint8List(0)),
@@ -2032,7 +2033,8 @@ class _DeferredImageWorker extends PdfRenderWorker {
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       [PdfDrawImageCommand(request)];
 
   @override
@@ -2058,7 +2060,8 @@ class _BlockingPreviewWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     calls.add(pageIndex);
     await release.future;
     return const [];
@@ -2086,7 +2089,8 @@ class _DecliningWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     calls.add((pageIndex, decodeImages, imagePixelRatio));
     return null;
   }
@@ -2113,7 +2117,8 @@ class _VectorOnlyWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     commandLimits.add(commandLimit);
     return const [PdfSaveCommand(), PdfRestoreCommand()];
   }

@@ -356,6 +356,24 @@ class AppLocalizationsNl extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documenten uit je vorige sessie zijn niet meer beschikbaar. Ze zijn mogelijk verplaatst, hernoemd of verwijderd.',
+      one:
+          '$title is niet meer beschikbaar. Het is mogelijk verplaatst, hernoemd of verwijderd.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Kan $title niet op de oorspronkelijke locatie opslaan. Het is mogelijk verplaatst of verwijderd. Kies waar je het wilt opslaan.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Kan niet digitaal ondertekenen: $error';
   }
@@ -1331,4 +1349,22 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get appMenuMoreTools => 'Meer hulpmiddelen';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

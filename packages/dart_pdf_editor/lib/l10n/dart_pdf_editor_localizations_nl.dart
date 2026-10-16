@@ -364,6 +364,27 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Toepassen op pagina\'s…';
 
   @override
+  String get propLeader => 'Verwijslijn';
+
+  @override
+  String get propOutlineWidth => 'Omtrekdikte';
+
+  @override
+  String get menuRotateSelection => 'Rond het selectiemidden draaien…';
+
+  @override
+  String get menuRotateEach => 'Elke annotatie draaien…';
+
+  @override
+  String get rotationAngleTitle => 'Rotatie (graden, tegen de klok in)';
+
+  @override
+  String get menuGroup => 'Groeperen';
+
+  @override
+  String get menuUngroup => 'Groepering opheffen';
+
+  @override
   String get menuBringToFront => 'Naar voorgrond';
 
   @override
@@ -2444,4 +2465,11 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Invoegen';
+
+  @override
+  String get shellBakePageColor => 'Paginakleur in bestand opslaan';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina\'s zou de handtekeningen ongeldig maken.';
 }

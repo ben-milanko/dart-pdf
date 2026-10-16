@@ -5,11 +5,13 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show pdfPageLooksScanned;
 import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
 import 'l10n/app_l10n.dart';
 import 'ocr_pages.dart';
 import 'ocr_status.dart';
+import 'ocr_web_budget.dart';
 
 export 'ocr_status.dart';
 
@@ -30,6 +32,12 @@ class OnDeviceOcr {
 
   bool _cancelled = false;
 
+  /// Whether the user started browser OCR this session - an automatic run
+  /// then goes ahead without asking again. [_autoDeclined] is the opposite:
+  /// they turned down an automatic run, so later scans stay quiet.
+  bool _approved = false;
+  bool _autoDeclined = false;
+
   /// Web OCR is supported by the browser-local onnxruntime-web bridge.
   static bool get isSupported => true;
 
@@ -45,33 +53,44 @@ class OnDeviceOcr {
   }
 
   /// Starts OCR over [bytes]. The first run confirms the model download, then
-  /// recognition runs entirely in the browser process.
+  /// recognition runs entirely in the browser process. [onComplete],
+  /// [onRecognized] and [automatic] behave as in the native implementation;
+  /// an automatic run skips the confirmation once the user has started
+  /// browser OCR this session.
   Future<void> start(
     BuildContext context, {
     required Uint8List bytes,
     required String title,
     required void Function(String message) onToast,
-    required void Function(Uint8List result) onComplete,
+    void Function(Uint8List result)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
+    bool automatic = false,
   }) async {
     final l10n = appL10n(context);
     if (isBusy) {
-      onToast(l10n.ocrAlreadyRunning);
+      if (!automatic) onToast(l10n.ocrAlreadyRunning);
       return;
     }
     if (!_hasBridge) {
-      onToast(l10n.ocrBrowserInitFailed);
+      if (!automatic) onToast(l10n.ocrBrowserInitFailed);
       return;
     }
 
-    final approved = await showPdfDialog<bool>(
-      context: context,
-      builder: (_) => const _WebOcrConfirmDialog(),
-    );
-    if (approved != true) return;
+    if (!automatic || !_approved) {
+      if (automatic && _autoDeclined) return;
+      final approved = await showPdfDialog<bool>(
+        context: context,
+        builder: (_) => const _WebOcrConfirmDialog(),
+      );
+      if (approved != true) {
+        if (automatic) _autoDeclined = true;
+        return;
+      }
+      _approved = true;
+    }
     _cancelled = false;
 
-    final pipeline = PpOcrPipeline(_BrowserOcrInference());
-    final engine = OcrRunnerEngine(pipeline);
+    OcrRunnerEngine? engine;
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
       // Feed the bridge's model-download progress into the chip. The bridge
@@ -94,31 +113,54 @@ class OnDeviceOcr {
         );
       });
       try {
-        await pipeline.load();
+        await _ocrLoad().toDart;
       } finally {
         _setProgressListener(null);
       }
+      // The bridge is up, so the heap it got is known; size the work to it.
+      final pipeline = browserOcrPipeline(_BrowserOcrInference(),
+          heapBytes: _ocrHeapLimitHook == null ? 0 : _ocrHeapLimit().toDartInt);
+      engine = OcrRunnerEngine(pipeline);
+      await pipeline.load();
       if (_cancelled) {
         onToast(l10n.ocrCancelled);
         return;
       }
 
       final editor = PdfEditor(PdfDocument.open(bytes));
+      void onPage(int i, int count) {
+        void report([double? pageFraction]) => status.value = OcrJobStatus(
+              phase: OcrPhase.recognising,
+              title: title,
+              page: i + 1,
+              pageCount: count,
+              pageFraction: pageFraction,
+            );
+        report();
+        pipeline.onProgress = report;
+      }
+
+      if (onRecognized != null) {
+        final recognized = await recognizeAllPages(
+          editor,
+          engine,
+          isCancelled: () => _cancelled,
+          onPage: onPage,
+          includePage:
+              automatic ? (i) => pdfPageLooksScanned(editor.document, i) : null,
+        );
+        if (_cancelled) {
+          onToast(l10n.ocrCancelled);
+          return;
+        }
+        onRecognized(recognized);
+        return;
+      }
       final spans = await ocrAllPages(
         editor,
         engine,
         isCancelled: () => _cancelled,
-        onPage: (i, count) {
-          void report([double? pageFraction]) => status.value = OcrJobStatus(
-                phase: OcrPhase.recognising,
-                title: title,
-                page: i + 1,
-                pageCount: count,
-                pageFraction: pageFraction,
-              );
-          report();
-          pipeline.onProgress = report;
-        },
+        onPage: onPage,
       );
       if (_cancelled) {
         onToast(l10n.ocrCancelledAfterSpans(spans));
@@ -127,11 +169,11 @@ class OnDeviceOcr {
       status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
       final result = editor.save();
       onToast(l10n.ocrResult(spans));
-      onComplete(result);
+      onComplete?.call(result);
     } catch (e) {
       onToast(l10n.ocrFailed(e.toString()));
     } finally {
-      await engine.dispose();
+      await engine?.dispose();
       status.value = null;
     }
   }
@@ -164,6 +206,14 @@ external void _registerOcrProgress(JSFunction? listener);
 
 @JS('__dartPdfOcrRun')
 external JSAny? get _ocrBridge;
+
+/// The OCR wasm heap's maximum when the bridge had to cap it, else 0. Null
+/// against an older cached `index.html` without the hook.
+@JS('__dartPdfOcrHeapLimit')
+external JSAny? get _ocrHeapLimitHook;
+
+@JS('__dartPdfOcrHeapLimit')
+external JSNumber _ocrHeapLimit();
 
 @JS('__dartPdfOcrLoad')
 external JSPromise<JSString> _ocrLoad();

@@ -473,6 +473,27 @@
       }
     }
   },
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}",
+  "@editorReopenFilesUnavailable": {
+    "description": "Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorSaveOriginUnavailable": "Couldn't save {title} to its original location. It may have been moved or deleted. Choose where to save it.",
+  "@editorSaveOriginUnavailable": {
+    "description": "Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "editorCouldNotSign": "Could not digitally sign: {error}",
   "@editorCouldNotSign": {
     "description": "Toast shown when digitally signing the document failed, with the error detail.",
@@ -1732,5 +1753,25 @@
   "appMenuMoreTools": "More tools",
   "@appMenuMoreTools": {
     "description": "Phone app menu sheet row (and page title) grouping the less common document tools: OCR, compare, insert pages."
+  },
+  "settingsTextRecognition": "Text recognition",
+  "@settingsTextRecognition": {
+    "description": "Section header in Settings for OCR (text recognition) options."
+  },
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "@settingsAutoOcrTitle": {
+    "description": "Settings switch that runs OCR on its own when a scanned document is opened."
+  },
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "@settingsAutoOcrSubtitle": {
+    "description": "Explanation under the Automatically OCR scans switch."
+  },
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "@ocrAutoResult": {
+    "description": "Toast after automatic OCR added a text layer to a scanned document the user opened."
+  },
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
+  "@ocrAutoDocumentChanged": {
+    "description": "Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied."
   }
 }

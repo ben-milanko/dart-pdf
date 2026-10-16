@@ -30,6 +30,7 @@ class _TrimCountingWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async =>
       const <PdfRenderCommand>[];
 

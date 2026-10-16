@@ -221,6 +221,7 @@ class _HeldRefineWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (imageDecodeRegion == null &&
         decodeImages &&

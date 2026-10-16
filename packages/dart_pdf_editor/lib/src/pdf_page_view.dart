@@ -773,11 +773,23 @@ class PdfPageView extends StatefulWidget {
 }
 
 class _PendingWorkerRecord {
-  const _PendingWorkerRecord(this.commands, this.imageRatio, this.waitClock);
+  const _PendingWorkerRecord(
+      this.commands, this.imageRatio, this.waitClock, this.turn);
 
   final Future<List<PdfRenderCommand>?> commands;
   final double imageRatio;
   final Stopwatch? waitClock;
+
+  /// The UI turn the record's decode gate may already have taken.
+  final _DecodeTurn turn;
+}
+
+/// One record reply's UI turn, taken early by a decode gate when the reply
+/// was too big to decode during motion (see
+/// `_PdfPageViewState._motionDecodeGate`) and spent by the replay that
+/// follows.
+class _DecodeTurn {
+  bool granted = false;
 }
 
 class _PdfPageViewState extends State<PdfPageView>
@@ -1024,6 +1036,7 @@ class _PdfPageViewState extends State<PdfPageView>
   void initState() {
     super.initState();
     PdfLivePageRegistry.instance.add(widget.previewIndex);
+    PdfPageViewDiagnostics.instance.register(this, _diagnosticsSnapshot);
     PdfLiveRasterBudget.instance.register(this);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
@@ -1544,6 +1557,7 @@ class _PdfPageViewState extends State<PdfPageView>
   @override
   void dispose() {
     PdfLivePageRegistry.instance.remove(widget.previewIndex);
+    PdfPageViewDiagnostics.instance.unregister(this);
     PdfLiveRasterBudget.instance.unregister(this);
     PdfDebugDetailRegions.instance.report(widget.previewIndex, null);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
@@ -2603,6 +2617,20 @@ class _PdfPageViewState extends State<PdfPageView>
       widget.renderScheduler?.cancel(this);
       return;
     }
+    // The same holds for a neighbour that already paints something (a
+    // preview, a retained picture from an earlier pass). Letting it through
+    // made the jump race #1079 describes: whether an off-screen neighbour
+    // rendered beside the focused page depended on what it happened to hold,
+    // and when it did, the two renders shared the worker and the raster
+    // thread, slowing the page the user asked for. Defer it until it enters
+    // the viewport (didUpdateWidget / the visibility check consume the flag);
+    // preparing neighbours ahead of time is PdfPageRasterWarmPolicy's job.
+    if (widget.focusDistance != 0 && !_isOnScreen()) {
+      _deferredOffscreenRasterRefresh = true;
+      widget.renderScheduler?.cancel(this);
+      _scheduleDeferredVisibilityCheck();
+      return;
+    }
     // Then the persistent tier: a stored raster at exactly this size is the
     // whole page already interpreted and rasterized, so reading and decoding
     // it beats scheduling the render it would replace. A miss costs an
@@ -2783,20 +2811,37 @@ class _PdfPageViewState extends State<PdfPageView>
   Future<bool> _paceWorkerUiWork({
     bool replacePending = true,
     List<PdfRenderCommand>? commands,
+    _DecodeTurn? turn,
   }) async {
-    if (commands != null && !_recordAllowsMotionReplay(commands)) {
-      // The worker already paid the unknown walk/decode away from the UI
-      // isolate. A large replay still must not land in a fast wheel/drag
-      // frame, but it can sharpen during sustained slow motion; waiting the
-      // remaining 500 ms settle insurance after input has stopped is also pure
-      // visible latency.
-      _motionSafePass = PdfPageView.motionSafeRenders
-          ? PdfRenderMotionClass.slow
-          : PdfRenderMotionClass.held;
-      _recordKnownHeld = true;
+    // The decode gate already waited for this reply's turn - spend it rather
+    // than queue for a second one a frame later. A turn that was replaced or
+    // cancelled while it waited falls through to the ordinary wait.
+    if (turn != null && turn.granted) {
+      turn.granted = false;
+      return true;
     }
+    if (commands != null && !_recordAllowsMotionReplay(commands)) {
+      _markRecordMotionHeld();
+    }
+    return _requestUiTurn(replacePending: replacePending);
+  }
+
+  /// A record's buffer has come back too big to replay inside fast input.
+  void _markRecordMotionHeld() {
+    // The worker already paid the unknown walk/decode away from the UI
+    // isolate. A large replay still must not land in a fast wheel/drag
+    // frame, but it can sharpen during sustained slow motion; waiting the
+    // remaining 500 ms settle insurance after input has stopped is also pure
+    // visible latency.
+    _motionSafePass = PdfPageView.motionSafeRenders
+        ? PdfRenderMotionClass.slow
+        : PdfRenderMotionClass.held;
+    _recordKnownHeld = true;
+  }
+
+  Future<bool> _requestUiTurn({required bool replacePending}) {
     final scheduler = widget.renderScheduler;
-    if (scheduler == null) return true;
+    if (scheduler == null) return Future<bool>.value(true);
     // renderPriority includes large visibility boosts (for example -1000),
     // while PdfPageRenderScheduler.focus is a real page index. Comparing the
     // two made completion ordering effectively arbitrary. The state token
@@ -2808,6 +2853,30 @@ class _PdfPageViewState extends State<PdfPageView>
       replacePending: replacePending,
       motion: _motionSafePass,
     );
+  }
+
+  /// A [PdfRecordDecodeGate] for a page record whose buffer will be replayed
+  /// through [_paceWorkerUiWork] with [turn] (#998).
+  ///
+  /// A worker reply is decoded on this isolate before anything can weigh it,
+  /// and a plan sheet's ~70k ops is tens of milliseconds of decode - which
+  /// used to land inside the scroll only for [_recordAllowsMotionReplay] to
+  /// then send the replay to the settle anyway. The command count is in the
+  /// buffer header, so a reply already known to be too big takes its UI turn
+  /// first and decodes inside it. Smaller replies decode at once: their size
+  /// is not the answer yet (image pixels still decide), and their decode is
+  /// cheap. The gate never vetoes - the reply is shared through the caching
+  /// worker - it only moves the decode.
+  PdfRecordDecodeGate? _motionDecodeGate(_DecodeTurn turn) {
+    if (!PdfPageView.motionSafeRenders || widget.renderScheduler == null) {
+      return null;
+    }
+    return (count) async {
+      if (count <= PdfPageView.motionSafeMaxCommands || !mounted) return true;
+      _markRecordMotionHeld();
+      turn.granted = await _requestUiTurn(replacePending: true);
+      return true;
+    };
   }
 
   bool get _usesWebWorkerSurface {
@@ -2866,6 +2935,7 @@ class _PdfPageViewState extends State<PdfPageView>
       // visible region for sharper zoom).
       final imageRatio = pendingWorkerRecord?.imageRatio ?? _imageRatioTarget();
       _pictureImageRatio = imageRatio;
+      final turn = pendingWorkerRecord?.turn ?? _DecodeTurn();
       final commands = await (pendingWorkerRecord?.commands ??
           worker!.record(
             pageIndex,
@@ -2873,6 +2943,7 @@ class _PdfPageViewState extends State<PdfPageView>
             hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             priority: widget.renderPriority,
             imagePixelRatio: imageRatio,
+            decodeGate: _motionDecodeGate(turn),
           ));
       // The wait phase ends when the record reply lands; the build phase is
       // everything after - decoding images that shipped un-decoded and
@@ -2906,7 +2977,7 @@ class _PdfPageViewState extends State<PdfPageView>
         }
 
         if (deferOffscreenReplay()) return null;
-        if (!await _paceWorkerUiWork(commands: commands) ||
+        if (!await _paceWorkerUiWork(commands: commands, turn: turn) ||
             _abandoned(pageIndex)) {
           return null;
         }
@@ -3448,12 +3519,14 @@ class _PdfPageViewState extends State<PdfPageView>
       await _paintEarlyPrefix(generation, pageIndex, worker, priority);
       if (_superseded(generation, pageIndex) || _renderPaused) return null;
     }
+    final turn = _DecodeTurn();
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
       hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: priority,
       decodeImages: false,
+      decodeGate: _motionDecodeGate(turn),
       onPartial: !progressive
           ? null
           : (partial) {
@@ -3470,7 +3543,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // requesting the final UI turn so it cannot wait behind or race another
     // obsolete prefix from its own page.
     _finalizeProgressivePartials(generation);
-    if (!await _paceWorkerUiWork(commands: commands) ||
+    if (!await _paceWorkerUiWork(commands: commands, turn: turn) ||
         _superseded(generation, pageIndex) ||
         _renderPaused) {
       return null;
@@ -3648,6 +3721,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final imageRatio = _imageRatioTarget();
     _pictureImageRatio = imageRatio;
     final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final turn = _DecodeTurn();
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
@@ -3658,9 +3732,10 @@ class _PdfPageViewState extends State<PdfPageView>
         final seq = ++_progressiveSeqCounter;
         _queueProgressivePartial(generation, pageIndex, partial, seq);
       },
+      decodeGate: _motionDecodeGate(turn),
     );
     PdfPerfLog.log('progressive-fused page=$pageIndex');
-    return _PendingWorkerRecord(commands, imageRatio, waitClock);
+    return _PendingWorkerRecord(commands, imageRatio, waitClock, turn);
   }
 
   /// Starts the ordinary page's complete record immediately when the caller
@@ -3676,15 +3751,17 @@ class _PdfPageViewState extends State<PdfPageView>
     final imageRatio = _imageRatioTarget();
     _pictureImageRatio = imageRatio;
     final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final turn = _DecodeTurn();
     final commands = worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
       hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
       priority: widget.renderPriority,
       imagePixelRatio: imageRatio,
+      decodeGate: _motionDecodeGate(turn),
     );
     PdfPerfLog.log('bounded-final-fused page=$pageIndex');
-    return _PendingWorkerRecord(commands, imageRatio, waitClock);
+    return _PendingWorkerRecord(commands, imageRatio, waitClock, turn);
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries
@@ -4236,7 +4313,10 @@ class _PdfPageViewState extends State<PdfPageView>
     _DetailGeometry? detailGeometry,
     VoidCallback? onPaint,
   }) async {
-    if (_renderPaused) return false;
+    if (_renderPaused) {
+      _noteDetail('paused');
+      return false;
+    }
     // The viewer's global transform reaches cache-window neighbours too. They
     // keep a bounded fit-resolution base, but a detail raster is useful only
     // where the page actually intersects the viewport. Building one here made
@@ -4244,12 +4324,16 @@ class _PdfPageViewState extends State<PdfPageView>
     // cost despite none of those pixels being visible.
     if (!widget.onScreen) {
       _dropDetail();
+      _noteDetail('offscreen');
       return true;
     }
     // A narrow edge sliver may keep presenting an already-painted exact patch,
     // just as the tile layer keeps retained tiles, but it must not schedule a
     // fresh region record/raster until it becomes foreground-quality again.
-    if (!widget.qualityVisible) return true;
+    if (!widget.qualityVisible) {
+      _noteDetail('not-quality-visible');
+      return true;
+    }
 
     // A retained/direct picture keeps vector and text commands live under the
     // viewer transform. When its decoded images already have at least one
@@ -4260,6 +4344,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if ((_directPicture != null || _slugPicture != null) &&
         _pictureImagesAreSharpAtZoom()) {
       _dropDetail();
+      _noteDetail('picture-sharp');
       return true;
     }
 
@@ -4274,7 +4359,10 @@ class _PdfPageViewState extends State<PdfPageView>
     // true until the very warm-up this call starts has completed.
     final tightDetail = _awaitingExactDetailPaint;
     if (PdfPageView.tileStoreDetail && !tightDetail) {
-      if (_refreshTileGeometry()) return true;
+      if (_refreshTileGeometry()) {
+        _noteDetail('tiles');
+        return true;
+      }
       // A worker-built grid takes a few hundred milliseconds on the dense CAD
       // pages that need it. Keep the already-visible capped base raster during
       // that one warm-up instead of launching a competing full-viewport detail
@@ -4283,6 +4371,7 @@ class _PdfPageViewState extends State<PdfPageView>
         PdfPerfLog.log(
           'detail waits for region-index page=${widget.previewIndex}',
         );
+        _noteDetail('index-warming');
         return true;
       }
     } else if (tightDetail && _tileFraction != null) {
@@ -4304,6 +4393,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // images, so retain the normal path whenever the scene draws an image.
     if (_slugPicture != null && !_sceneHasImageDraws) {
       _dropDetail();
+      _noteDetail('slug-no-images');
       return true;
     }
     detailGeometry ??= _detailGeometryAt(
@@ -4312,6 +4402,7 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (detailGeometry == null) {
       _dropDetail();
+      _noteDetail('no-geometry');
       return true;
     }
     final fraction = detailGeometry.fraction;
@@ -4341,6 +4432,7 @@ class _PdfPageViewState extends State<PdfPageView>
         'detail reuse page=${widget.previewIndex} '
         'source=visible ratio=${existingRatio.toStringAsFixed(2)}',
       );
+      _noteDetail('reuse');
       return true;
     }
 
@@ -4352,6 +4444,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // was ready in ~1.5 s, but was discarded immediately before rasterization;
     // the user then waited for an 8-9 s, ~70 MB tile-prefetch decode instead.
     final generation = _renderSession.beginDetail();
+    _noteDetail('requested', 'generation=$generation');
 
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
@@ -4424,6 +4517,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (retainedCoversRegion) {
       final cachedPicture = await _picture;
       if (!_acceptsForegroundDetail(generation)) {
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       final retainedImage = await PdfRasterProbe.measure(
@@ -4437,6 +4531,7 @@ class _PdfPageViewState extends State<PdfPageView>
       );
       if (!_acceptsForegroundDetail(generation)) {
         retainedImage.dispose();
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       setState(() {
@@ -4452,6 +4547,7 @@ class _PdfPageViewState extends State<PdfPageView>
         'detail retained page=${widget.previewIndex} complete '
         'elapsed=${detailClock.elapsedMilliseconds}ms',
       );
+      _noteDetail('adopted-retained');
       return true;
     }
 
@@ -4465,6 +4561,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!_acceptsForegroundDetail(generation)) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     if (workerStripImage != null) {
@@ -4477,6 +4574,7 @@ class _PdfPageViewState extends State<PdfPageView>
         detailClock,
         source: 'worker-strip',
       );
+      _noteDetail('adopted-worker-strip');
       return true;
     }
     if (workerPicture != null) {
@@ -4491,6 +4589,7 @@ class _PdfPageViewState extends State<PdfPageView>
       workerPicture.dispose();
       if (!_acceptsForegroundDetail(generation)) {
         image.dispose();
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       setState(() {
@@ -4502,6 +4601,7 @@ class _PdfPageViewState extends State<PdfPageView>
         detailClock,
         source: 'worker-picture',
       );
+      _noteDetail('adopted-worker-picture');
       return true;
     }
 
@@ -4512,6 +4612,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // full record instead of painting a vector-only patch as if it were
     // complete.
     if (_sceneIsVectorOnly) {
+      _noteDetail('worker-declined');
       return _releaseExactDetailToTiles('worker-declined');
     }
 
@@ -4527,9 +4628,13 @@ class _PdfPageViewState extends State<PdfPageView>
           _renderNow,
           motion: _pageAllowsMotionRender(),
         );
+        _noteDetail('awaiting-picture');
         return false;
       }
-      if (widget.renderHold?.value ?? false) return false;
+      if (widget.renderHold?.value ?? false) {
+        _noteDetail('render-hold');
+        return false;
+      }
     }
     final picture =
         await (_picture ??= PdfPageRenderer.renderPictureRecordedWithPlan(
@@ -4537,6 +4642,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _renderPlan,
     ));
     if (!_acceptsForegroundDetail(generation)) {
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
@@ -4558,6 +4664,7 @@ class _PdfPageViewState extends State<PdfPageView>
         region: region,
       );
       if (!_acceptsForegroundDetail(generation)) {
+        _noteDetail('superseded', _detailRejection(generation));
         return false;
       }
       rasterize = () => scene.rasterizeRegionStrips(
@@ -4585,6 +4692,7 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (!_acceptsForegroundDetail(generation)) {
       image.dispose();
+      _noteDetail('superseded', _detailRejection(generation));
       return false;
     }
     setState(() {
@@ -4592,6 +4700,7 @@ class _PdfPageViewState extends State<PdfPageView>
     });
     onPaint?.call();
     _observeDetailPaintAfterFrame(generation, detailClock, source: 'local');
+    _noteDetail('adopted-local');
     return true;
   }
 
@@ -4613,6 +4722,164 @@ class _PdfPageViewState extends State<PdfPageView>
       // post-frame callback (which can otherwise stall while the app is idle).
       _activateTilePanAhead();
     });
+  }
+
+  /// The most recent [_updateDetail] decision, for [_diagnosticsSnapshot]:
+  /// which branch it took ('tiles', 'reuse', 'superseded', 'requested' while
+  /// a request is still awaiting its result, ...), an optional detail, when,
+  /// and how many decisions this state has made.
+  String? _lastDetailOutcome;
+  String? _lastDetailOutcomeDetail;
+  DateTime? _lastDetailOutcomeAt;
+  int _detailOutcomes = 0;
+
+  void _noteDetail(String outcome, [String? detail]) {
+    _lastDetailOutcome = outcome;
+    _lastDetailOutcomeDetail = detail;
+    _lastDetailOutcomeAt = DateTime.now();
+    _detailOutcomes++;
+  }
+
+  /// Which [_acceptsForegroundDetail] condition rejected [generation].
+  String _detailRejection(int generation) => [
+        if (!mounted) 'unmounted',
+        if (!widget.onScreen) 'offscreen',
+        if (!widget.qualityVisible) 'not-quality-visible',
+        if (_renderPaused) 'paused',
+        if (!_renderSession.acceptsDetail(generation)) 'stale-generation',
+      ].join(',');
+
+  static List<double>? _rectJson(Rect? r) => r == null
+      ? null
+      : [
+          for (final v in [r.left, r.top, r.right, r.bottom])
+            double.parse(v.toStringAsFixed(4)),
+        ];
+
+  static double? _ratioJson(double? v) =>
+      v == null ? null : double.parse(v.toStringAsFixed(3));
+
+  /// Support-export view of this page's render state (see
+  /// [PdfPageViewDiagnostics]). Read-only: it neither schedules work nor
+  /// touches cache recency. Rects are page fractions unless named `...Pt`.
+  Map<String, Object?> _diagnosticsSnapshot() {
+    final scene = _scene;
+    final store =
+        PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull;
+    final size = _renderPlan.pageSize(widget.page);
+    final live = mounted && size.width > 0 && size.height > 0
+        ? _detailGeometryAt(widget.scale, inflation: _tileInflation)
+        : null;
+    Map<String, Object?>? coverage;
+    final desired = _tileDesiredRatio;
+    final tileFraction = _tileFraction;
+    if (store != null && desired != null && tileFraction != null) {
+      Map<String, Object?>? cover(Rect fraction) {
+        final c = store.debugExactCoverage(
+          id: _tilePageIdentity,
+          pageSize: size,
+          desiredRatio: desired,
+          visiblePageRect: Rect.fromLTRB(
+            fraction.left * size.width,
+            fraction.top * size.height,
+            fraction.right * size.width,
+            fraction.bottom * size.height,
+          ),
+        );
+        if (c == null) return null;
+        final vetoed = c.missing.where((r) => !_tileRegionRasterizable(r));
+        return {
+          'rung': c.rung,
+          'visible': c.visible,
+          'retained': c.retained,
+          'inFlight': c.inFlight,
+          'missing': c.missing.length,
+          'missingVetoed': vetoed.length,
+          'missingPt': [for (final r in c.missing.take(24)) _rectJson(r)],
+        };
+      }
+
+      coverage = {
+        'tileFraction': cover(tileFraction),
+        // The same tiles over where the page actually is on screen now - a
+        // stale [_tileFraction] shows up as a difference between the two.
+        if (live != null) 'liveViewport': cover(live.visibleFraction),
+      };
+    }
+    return {
+      'pageIndex': widget.previewIndex,
+      'stateIdentity': identityHashCode(this),
+      'tileCacheNamespace': identityHashCode(_effectiveTileCacheNamespace),
+      'widget': {
+        'onScreen': widget.onScreen,
+        'qualityVisible': widget.qualityVisible,
+        'qualityPageCount': widget.qualityPageCount,
+        'focusDistance': widget.focusDistance,
+        'scale': _ratioJson(widget.scale),
+        'transformScale': _ratioJson(widget.transformScale?.value),
+        'settleGeneration': widget.settleGeneration,
+        'renderHold': widget.renderHold?.value,
+        'schedulerBusy': widget.renderScheduler?.busy,
+        'schedulerParked': widget.renderScheduler?.parked,
+        'workerActive': widget.renderWorker?.isActive,
+      },
+      'renderPaused': _renderPaused,
+      'layoutWidth': _ratioJson(_layoutWidth),
+      'pixelRatio': _ratioJson(_pixelRatio),
+      'desiredRatio': _ratioJson(_desiredRatioAt(widget.scale)),
+      'effectiveRatio': _ratioJson(_effectiveRatioAt(widget.scale)),
+      'base': {
+        'image': _image == null ? null : '${_image!.width}x${_image!.height}',
+        'rasteredRatio': _ratioJson(_rasteredRatio),
+        'picture': _picture != null,
+        'directPicture': _directPicture != null,
+        'slugPicture': _slugPicture != null,
+        'pictureImageRatio': _ratioJson(_pictureImageRatio),
+      },
+      'scene': scene == null
+          ? null
+          : {
+              'commands': scene.commands.length,
+              'vectorOnly': _sceneIsVectorOnly,
+              'fromWorker': _sceneFromWorker,
+              'hasImageDraws': _sceneHasImageDraws,
+              'imagesAtNativeResolution': scene.imagesAtNativeResolution,
+              'imageVeto': _tileCanRasterize != null,
+            },
+      'detail': {
+        'image': _detailImage == null
+            ? null
+            : '${_detailImage!.width}x${_detailImage!.height}',
+        'fraction': _rectJson(_detailFraction),
+        'ratio': _ratioJson(_detailPixelRatio),
+        'contentCurrent':
+            _detailImage == null ? null : _detailContentIsCurrent(),
+        'awaitingExactPaint': _awaitingExactDetailPaint,
+        'lastOutcome': _lastDetailOutcome,
+        'lastOutcomeDetail': _lastDetailOutcomeDetail,
+        'lastOutcomeAt': _lastDetailOutcomeAt?.toIso8601String(),
+        'outcomes': _detailOutcomes,
+      },
+      'liveViewportFraction': _rectJson(live?.visibleFraction),
+      'tiles': {
+        'pathStatus': _tilePathStatus,
+        'layerMounted': !_awaitingExactDetailPaint &&
+            _useTilePath &&
+            scene != null &&
+            tileFraction != null &&
+            desired != null,
+        'fraction': _rectJson(tileFraction),
+        'desiredRatio': _ratioJson(desired),
+        'panAheadActive': _tilePanAheadActive,
+        'panAheadScheduled': _tilePanAheadScheduled,
+        'foreground': _tileForeground != null,
+        'imageDetailWanted': _tileDetailWanted,
+        'imageDetailPending': _tileDetailPending != null,
+        'imageDetailRegionPt': _rectJson(_tileDetailRegion),
+        'imageDetailRatio': _ratioJson(_tileDetailRatio),
+        'coverage': coverage,
+      },
+    };
   }
 
   bool _acceptsForegroundDetail(int generation) =>
@@ -5297,14 +5564,7 @@ class _PdfPageViewState extends State<PdfPageView>
       key: foreground ? const ValueKey('pdf-page-sharp-tile-foreground') : null,
       child: PdfTileLayer(
         store: store,
-        identity: PdfTilePageIdentity(
-          cacheNamespace: _effectiveTileCacheNamespace,
-          pageIndex: widget.previewIndex,
-          pageEpoch: widget.pageEpoch,
-          contentStamp: widget.contentStamp,
-          destructiveStamp: widget.destructiveStamp,
-          plan: _renderPlan,
-        ),
+        identity: _tilePageIdentity,
         pageSize: size,
         desiredRatio: desired,
         visibleFraction: fraction,
@@ -5363,6 +5623,16 @@ class _PdfPageViewState extends State<PdfPageView>
       ),
     );
   }
+
+  /// The tile-store identity of this page's current pixels.
+  PdfTilePageIdentity get _tilePageIdentity => PdfTilePageIdentity(
+        cacheNamespace: _effectiveTileCacheNamespace,
+        pageIndex: widget.previewIndex,
+        pageEpoch: widget.pageEpoch,
+        contentStamp: widget.contentStamp,
+        destructiveStamp: widget.destructiveStamp,
+        plan: _renderPlan,
+      );
 
   /// Promotes a completed tile view only when it is a genuine quality upgrade
   /// over the quick exact patch.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 9.0.0
+
+- Group annotations: `groupAnnotations`, `ungroupAnnotations` and `transformAnnotations` treat markups as one set through the standard /RT /Group and /IRT, keeping the group's rotation (`PdfAnnotationGroups`).
+- Style callout leaders separately from the text-box outline: new `addCallout` options, `restyleCalloutLeader` and `PdfAnnotation.calloutLeaderStyle`.
+- Add `fillPageBackground` to bake a solid page colour into the document; running it again replaces the earlier fill.
+- Apply `PdfTextStyle` restyling in `replaceText` to Identity-H composite (Type0) runs.
+- Fix rotation of small or slightly rotated annotations, restyling transformed callouts, comment threads counting grouped markups as replies, and group links after removing or upserting annotations.
+
 ## 8.1.0
 
 - Add `PdfEditor.setChoiceFieldStyle` to change dropdown and list-box fonts, size, colour and alignment while regenerating their appearances.

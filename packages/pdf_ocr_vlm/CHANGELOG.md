@@ -1,5 +1,9 @@
 # Changelog
 
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

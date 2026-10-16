@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dart_pdf_editor_app/app_info.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/update.dart';
 
@@ -91,6 +92,31 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('1.3.0'), findsWidgets);
+  });
+
+  testWidgets('Settings names the running build and its channel',
+      (tester) async {
+    final updates =
+        _fakeService(current: '1.3.0', releases: [_release('app-v1.3.0')]);
+    addTearDown(updates.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(prefs: prefs, updateService: updates),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    final about = find.text('${AppInfo.displayName} ${AppInfo.displayVersion}');
+    await tester.ensureVisible(about);
+    expect(about, findsOneWidget);
+    expect(
+      find.textContaining(AppInfo.displayVersion, findRichText: true),
+      findsWidgets,
+    );
   });
 
   testWidgets('Settings says up to date when nothing is newer', (tester) async {

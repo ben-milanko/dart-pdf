@@ -142,6 +142,13 @@
   "menuAddLeader": "Thêm đường dẫn chú thích",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Áp dụng chú thích vào các trang} other{Áp dụng các chú thích vào các trang}}",
   "menuApplyToPages": "Áp dụng cho các trang…",
+  "propLeader": "Đường dẫn",
+  "propOutlineWidth": "Độ dày đường viền",
+  "menuRotateSelection": "Xoay quanh tâm vùng chọn…",
+  "menuRotateEach": "Xoay từng chú thích…",
+  "rotationAngleTitle": "Góc xoay (độ, ngược chiều kim đồng hồ)",
+  "menuGroup": "Nhóm",
+  "menuUngroup": "Bỏ nhóm",
   "menuBringToFront": "Đưa lên trước",
   "menuCheck": "Đánh dấu chọn",
   "menuChooseValue": "Chọn giá trị…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Bao gồm dấu trang",
   "insertPagesBookmarkFiles": "Thêm dấu trang cho mỗi tệp",
   "insertPagesSummary": "{inserted, plural, =1{Chèn 1 trang} other{Chèn {inserted} trang}} — tài liệu sẽ có {total, plural, =1{1 trang} other{{total} trang}}.",
-  "insertPagesConfirm": "Chèn"
+  "insertPagesConfirm": "Chèn",
+  "shellBakePageColor": "Lưu màu trang vào tệp",
+  "pageColorNotBakedSigned": "Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký."
 }

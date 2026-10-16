@@ -142,6 +142,13 @@
   "menuAddLeader": "Gösterge çizgisi ekle",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Ek açıklamayı sayfalara uygula} other{Ek açıklamaları sayfalara uygula}}",
   "menuApplyToPages": "Sayfalara uygula…",
+  "propLeader": "Kılavuz çizgisi",
+  "propOutlineWidth": "Anahat kalınlığı",
+  "menuRotateSelection": "Seçimin merkezi etrafında döndür…",
+  "menuRotateEach": "Her açıklamayı döndür…",
+  "rotationAngleTitle": "Döndürme (derece, saat yönünün tersine)",
+  "menuGroup": "Grupla",
+  "menuUngroup": "Grubu çöz",
   "menuBringToFront": "Öne getir",
   "menuCheck": "İşaretle",
   "menuChooseValue": "Değer seç…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Yer işaretlerini dahil et",
   "insertPagesBookmarkFiles": "Her dosya için bir yer işareti ekle",
   "insertPagesSummary": "{inserted, plural, =1{1 sayfa eklenecek} other{{inserted} sayfa eklenecek}}; belge {total, plural, =1{1 sayfa} other{{total} sayfa}} olacak.",
-  "insertPagesConfirm": "Ekle"
+  "insertPagesConfirm": "Ekle",
+  "shellBakePageColor": "Sayfa rengini dosyaya kaydet",
+  "pageColorNotBakedSigned": "Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar."
 }

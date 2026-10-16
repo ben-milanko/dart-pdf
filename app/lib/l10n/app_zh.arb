@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "无法打开 {url}",
   "editorCouldNotPrint": "无法打印 {title}",
   "editorCouldNotReopen": "无法重新打开 {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} 已不可用，可能已被移动、重命名或删除。} other{上次会话中的 {count} 个文档已不可用，可能已被移动、重命名或删除。}}",
+  "editorSaveOriginUnavailable": "无法将 {title} 保存到原位置，它可能已被移动或删除。请选择保存位置。",
   "editorCouldNotSign": "无法进行数字签名：{error}",
   "editorDiscard": "放弃",
   "editorDiscardChangesTitle": "放弃更改？",
@@ -340,5 +342,10 @@
   "appMenuRecent": "最近",
   "appMenuSeeAll": "查看全部",
   "appMenuExport": "导出",
-  "appMenuMoreTools": "更多工具"
+  "appMenuMoreTools": "更多工具",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

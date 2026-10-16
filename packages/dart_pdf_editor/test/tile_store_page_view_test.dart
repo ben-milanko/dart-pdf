@@ -1286,6 +1286,7 @@ class _DelayedIndexWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (imageDecodeRegion != null) detailRecords++;
     return inner.record(

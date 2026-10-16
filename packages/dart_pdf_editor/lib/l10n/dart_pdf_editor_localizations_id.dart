@@ -364,6 +364,28 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Terapkan ke halaman…';
 
   @override
+  String get propLeader => 'Garis penunjuk';
+
+  @override
+  String get propOutlineWidth => 'Ketebalan garis tepi';
+
+  @override
+  String get menuRotateSelection => 'Putar di sekitar pusat pilihan…';
+
+  @override
+  String get menuRotateEach => 'Putar setiap anotasi…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Rotasi (derajat, berlawanan arah jarum jam)';
+
+  @override
+  String get menuGroup => 'Kelompokkan';
+
+  @override
+  String get menuUngroup => 'Pisahkan kelompok';
+
+  @override
   String get menuBringToFront => 'Bawa ke depan';
 
   @override
@@ -2442,4 +2464,11 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Sisipkan';
+
+  @override
+  String get shellBakePageColor => 'Simpan warna halaman ke file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.';
 }

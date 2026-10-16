@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Nie udało się otworzyć {url}",
   "editorCouldNotPrint": "Nie udało się wydrukować {title}",
   "editorCouldNotReopen": "Nie udało się ponownie otworzyć {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{Plik {title} nie jest już dostępny. Mógł zostać przeniesiony, zmieniony lub usunięty.} few{{count} dokumenty z ostatniej sesji nie są już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.} many{{count} dokumentów z ostatniej sesji nie jest już dostępnych. Mogły zostać przeniesione, zmienione lub usunięte.} other{{count} dokumentu z ostatniej sesji nie jest już dostępne. Mogły zostać przeniesione, zmienione lub usunięte.}}",
+  "editorSaveOriginUnavailable": "Nie udało się zapisać {title} w pierwotnej lokalizacji. Plik mógł zostać przeniesiony lub usunięty. Wybierz miejsce zapisu.",
   "editorCouldNotSign": "Nie udało się podpisać cyfrowo: {error}",
   "editorDiscard": "Odrzuć",
   "editorDiscardChangesTitle": "Odrzucić zmiany?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Ostatnie",
   "appMenuSeeAll": "Pokaż wszystkie",
   "appMenuExport": "Eksportuj",
-  "appMenuMoreTools": "Więcej narzędzi"
+  "appMenuMoreTools": "Więcej narzędzi",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

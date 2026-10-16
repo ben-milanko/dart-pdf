@@ -75,6 +75,7 @@ class _LoggingWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     hiddenPerRecord.add(hiddenAnnotationSubtypes);
     return _inner.record(

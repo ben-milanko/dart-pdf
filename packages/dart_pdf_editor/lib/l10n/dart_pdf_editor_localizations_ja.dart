@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'ページに適用…';
 
   @override
+  String get propLeader => '引出線';
+
+  @override
+  String get propOutlineWidth => '輪郭線の幅';
+
+  @override
+  String get menuRotateSelection => '選択範囲の中心を軸に回転…';
+
+  @override
+  String get menuRotateEach => '各注釈を回転…';
+
+  @override
+  String get rotationAngleTitle => '回転（度、反時計回り）';
+
+  @override
+  String get menuGroup => 'グループ化';
+
+  @override
+  String get menuUngroup => 'グループ解除';
+
+  @override
   String get menuBringToFront => '最前面へ移動';
 
   @override
@@ -2398,4 +2419,11 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '挿入';
+
+  @override
+  String get shellBakePageColor => 'ページの色をファイルに保存';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。';
 }

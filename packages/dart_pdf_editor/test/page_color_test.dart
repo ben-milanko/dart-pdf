@@ -34,7 +34,8 @@ class _SyncWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     recorded.add(pageIndex);
     final page = _doc.page(pageIndex);
@@ -70,7 +71,8 @@ class _DecliningWorker extends _SyncWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     recorded.add(pageIndex);
     return null;
   }

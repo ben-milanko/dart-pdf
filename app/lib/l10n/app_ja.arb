@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} を開けませんでした",
   "editorCouldNotPrint": "{title} を印刷できませんでした",
   "editorCouldNotReopen": "{title} を再度開けませんでした",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} は利用できなくなりました。移動、名前の変更、または削除された可能性があります。} other{前回のセッションの {count} 件のドキュメントは利用できなくなりました。移動、名前の変更、または削除された可能性があります。}}",
+  "editorSaveOriginUnavailable": "{title} を元の場所に保存できませんでした。移動または削除された可能性があります。保存先を選択してください。",
   "editorCouldNotSign": "デジタル署名できませんでした: {error}",
   "editorDiscard": "破棄",
   "editorDiscardChangesTitle": "変更を破棄しますか?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "最近",
   "appMenuSeeAll": "すべて表示",
   "appMenuExport": "書き出し",
-  "appMenuMoreTools": "その他のツール"
+  "appMenuMoreTools": "その他のツール",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

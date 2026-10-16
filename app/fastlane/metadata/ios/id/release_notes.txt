@@ -1,6 +1,12 @@
-Baru di 8.1.0
+Baru di 9.0.0
 
-- Ubah font dan gaya kolom formulir dropdown dan daftar.
-- Menu ponsel baru untuk membuat, membuka, mencetak dan menandatangani.
-- Pengeditan teks mempertahankan font dan pembungkusan baris. Papan ketik dan menu pilihan iOS diperbaiki.
-- Palet warna lengkap untuk pena dan penyorot seluler.
+- Kelompokkan anotasi agar dapat dipindahkan, diubah ukurannya, diputar, disalin, dan ditempel sebagai satu kesatuan. Putar pilihan di sekitar pusat bersamanya atau pusat masing-masing item.
+- Dokumen hasil pindaian dikenali secara otomatis (OCR) sehingga teksnya dapat dipilih dan dicari. Anda dapat menonaktifkannya di Pengaturan. Pindaian baru diberi nama sesuai tanggal pengambilannya.
+- Secara opsional, simpan warna halaman ke dalam PDF yang disimpan dan diekspor.
+- Tebalkan, miringkan, atau garis bawahi teks yang dipilih dengan pintasan keyboard, dan atur gaya panah callout terpisah dari kotak teksnya.
+- Menggambar polyline lebih mudah: geser tampilan saat menempatkan titik, gulir di tepi, dan urungkan titik terakhir. Kisi halaman menunjukkan posisi tujuan halaman dan menganimasikan penataan ulang.
+- Tekan lama dan seret untuk menggambar kotak pilihan; pilihan kini langsung merespons begitu jari diangkat.
+- Dokumen dengan font serif yang tidak disematkan tampil lebih mirip aslinya, teks tetap pada garis dasar yang rata, dan gambar yang diputar tetap tajam saat diperbesar.
+- Perbaikan untuk dokumen yang menampilkan gambar dari dokumen lain, pengenalan teks dan masuk untuk tanda tangan digital, membuka kembali file terbaru setelah pembaruan, serta peluncuran pertama dalam bahasa yang tidak didukung.
+- DartPDF kini memberi tahu Anda jika file dokumen terbaru telah dipindahkan.
+- Pengguliran lebih mulus.

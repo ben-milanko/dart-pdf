@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
+import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'stamp_template.dart';
 import 'takeoff.dart';
@@ -455,6 +456,33 @@ class PdfAnnotation {
     return leaders;
   }
 
+  /// Leader styling independent of the text-box outline. Older callouts
+  /// inherit their outline stroke until separate styling is recorded.
+  PdfCalloutLeaderStyle? get calloutLeaderStyle {
+    if (!isCallout) return null;
+    final style = freeTextStyle;
+    final raw = document.cos.resolve(dict['DartPdfCalloutLeaderStyle']);
+    final stored = raw is CosDictionary ? raw : null;
+    final color = stored == null ? null : _colorArray(stored['C']);
+    final width =
+        stored == null ? null : _number(document.cos.resolve(stored['W']));
+    final dash = stored == null ? null : document.cos.resolve(stored['D']);
+    return PdfCalloutLeaderStyle(
+      color: color ?? style?.borderColor ?? style?.color ?? 0,
+      width: width != null && width > 0
+          ? width
+          : (style != null && style.borderWidth > 0 ? style.borderWidth : 1),
+      dash: stored == null
+          ? borderDash
+          : dash is CosArray
+              ? [
+                  for (final item in dash.items)
+                    if (_number(document.cos.resolve(item)) case final n?) n,
+                ]
+              : null,
+    );
+  }
+
   /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
   /// distinct from /Rect which also encloses the leader line and arrowhead.
   /// Null when this is not a callout.
@@ -468,13 +496,40 @@ class PdfAnnotation {
   /// which is what this package writes.
   PdfRect? get calloutBox {
     if (!isCallout) return null;
-    final rd = document.cos.resolve(dict['RD']);
+    var rd = document.cos.resolve(dict['RD']);
     double d(int i) {
       if (rd is! CosArray || rd.items.length <= i) return 0;
       return math.max(0, _number(document.cos.resolve(rd.items[i])) ?? 0);
     }
 
-    final r = rect;
+    var r = rect;
+    PdfMatrix? localToPage;
+    final localFlag = document.cos.resolve(dict[kPdfCalloutRDFrameKey]);
+    if (localFlag is CosBoolean && localFlag.value) {
+      final localRd = document.cos.resolve(dict[kPdfCalloutLocalRDKey]);
+      if (localRd is CosArray) rd = localRd;
+      final form = normalAppearance;
+      final bbox = form == null
+          ? null
+          : pdfRectFrom(document.cos, form.dictionary['BBox']);
+      final quad = appearanceQuad;
+      if (bbox != null && bbox.width > 0 && bbox.height > 0 && quad != null) {
+        final a = (quad[1].$1 - quad[0].$1) / bbox.width;
+        final b = (quad[1].$2 - quad[0].$2) / bbox.width;
+        final c = (quad[3].$1 - quad[0].$1) / bbox.height;
+        final d = (quad[3].$2 - quad[0].$2) / bbox.height;
+        localToPage = PdfMatrix(
+            a,
+            b,
+            c,
+            d,
+            quad[0].$1 - a * bbox.left - c * bbox.bottom,
+            quad[0].$2 - b * bbox.left - d * bbox.bottom);
+        r = bbox;
+      }
+    }
+    PdfRect pageBox(PdfRect box) =>
+        localToPage == null ? box : boundsUnderMatrix(localToPage, box);
     PdfRect inset(double bottom, double top) {
       final left = (r.left + d(0)).clamp(r.left, r.right);
       final right = (r.right - d(2)).clamp(left, r.right);
@@ -484,14 +539,16 @@ class PdfAnnotation {
     }
 
     final common = inset(d(1), d(3)); // left, bottom, right, top
-    if (d(1) == d(3)) return common;
+    if (d(1) == d(3)) return pageBox(common);
     final spec = inset(d(3), d(1)); // left, top, right, bottom (§12.5.6.19)
-    final attach = calloutLine?.last;
-    if (attach == null) return common;
-    return _perimeterDistance(spec, attach) + 0.01 <
+    var attach = calloutLine?.last;
+    if (attach == null) return pageBox(common);
+    final inverse = localToPage?.inverted();
+    if (inverse != null) attach = inverse.apply(attach.$1, attach.$2);
+    return pageBox(_perimeterDistance(spec, attach) + 0.01 <
             _perimeterDistance(common, attach)
         ? spec
-        : common;
+        : common);
   }
 
   /// How far [p] is from [box]'s outline (0 on it).
@@ -956,8 +1013,8 @@ class PdfAnnotation {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    // numeric noise within ~0.3° reads as unrotated
-    return angle.abs() < 0.005 ? 0 : angle;
+    // Ignore floating point noise, without flattening deliberate small turns.
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {
@@ -1071,6 +1128,15 @@ typedef PdfCalloutLeader = ({
 /// and read back only by this package.
 const String kPdfCalloutLeadersKey = 'CalloutLeaders';
 
+/// Marks /RD insets that remain in a transformed appearance's local frame.
+const String kPdfCalloutRDFrameKey = 'DartPdfCalloutRDInAppearance';
+
+/// Local insets retained alongside the standard page-space /RD values.
+const String kPdfCalloutLocalRDKey = 'DartPdfCalloutLocalRD';
+
+/// Preserves the authored frame when restyling transformed group artwork.
+const String kPdfAppearanceFrameKey = 'DartPdfPreserveAppearanceFrame';
+
 /// The default free-text line-height multiplier (baseline-to-baseline
 /// distance is `fontSize * lineSpacing`).
 const double kPdfFreeTextDefaultLineSpacing = 1.2;
@@ -1078,9 +1144,17 @@ const double kPdfFreeTextDefaultLineSpacing = 1.2;
 /// The default free-text horizontal glyph scaling, as a percentage.
 const double kPdfFreeTextDefaultHorizontalScale = 100.0;
 
+/// A callout leader's independent color, width, and dash pattern.
+class PdfCalloutLeaderStyle {
+  const PdfCalloutLeaderStyle(
+      {required this.color, required this.width, this.dash});
+  final int color;
+  final double width;
+  final List<double>? dash;
+}
+
 /// A free-text annotation's text and box styling, as recoverable from
-/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
-/// 0xRRGGBB.
+/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are 0xRRGGBB.
 class PdfFreeTextStyle {
   const PdfFreeTextStyle({
     required this.fontName,

@@ -33,7 +33,8 @@ class _NullRenderWorker extends PdfRenderWorker {
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       null;
 
   @override

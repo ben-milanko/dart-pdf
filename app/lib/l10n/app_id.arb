@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Tidak dapat membuka {url}",
   "editorCouldNotPrint": "Tidak dapat mencetak {title}",
   "editorCouldNotReopen": "Tidak dapat membuka kembali {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.} other{{count} dokumen dari sesi terakhir Anda tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.}}",
+  "editorSaveOriginUnavailable": "Tidak dapat menyimpan {title} ke lokasi aslinya. Mungkin telah dipindahkan atau dihapus. Pilih lokasi penyimpanan.",
   "editorCouldNotSign": "Tidak dapat menandatangani secara digital: {error}",
   "editorDiscard": "Buang",
   "editorDiscardChangesTitle": "Buang perubahan?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Terbaru",
   "appMenuSeeAll": "Lihat semua",
   "appMenuExport": "Ekspor",
-  "appMenuMoreTools": "Alat lainnya"
+  "appMenuMoreTools": "Alat lainnya",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

@@ -27,6 +27,7 @@ class PdfAnnotationSnapshotClipboard extends ChangeNotifier {
       PdfAnnotationSnapshotClipboard();
 
   List<PdfAnnotationSnapshot> _snapshots = const [];
+  List<List<int>> _groups = const [];
   Object? _sourceOwner;
   int _sourcePage = -1;
   int _pasteCount = 0;
@@ -34,6 +35,10 @@ class PdfAnnotationSnapshotClipboard extends ChangeNotifier {
   /// The captured annotations waiting to be pasted (empty when the
   /// clipboard is empty).
   List<PdfAnnotationSnapshot> get snapshots => _snapshots;
+
+  /// Snapshot indices belonging to each copied group. These detached indices
+  /// let a paste create independent groups without linking back to the source.
+  List<List<int>> get groups => _groups;
 
   /// How many annotations the clipboard currently holds (0 when empty).
   int get length => _snapshots.length;
@@ -69,8 +74,12 @@ class PdfAnnotationSnapshotClipboard extends ChangeNotifier {
     List<PdfAnnotationSnapshot> snapshots, {
     required Object owner,
     required int sourcePage,
+    List<List<int>> groups = const [],
   }) {
     _snapshots = List.unmodifiable(snapshots);
+    _groups = List.unmodifiable([
+      for (final group in groups) List<int>.unmodifiable(group),
+    ]);
     _sourceOwner = owner;
     _sourcePage = sourcePage;
     _pasteCount = 0;
@@ -92,6 +101,7 @@ class PdfAnnotationSnapshotClipboard extends ChangeNotifier {
   void clear() {
     if (_snapshots.isEmpty) return;
     _snapshots = const [];
+    _groups = const [];
     _sourceOwner = null;
     _sourcePage = -1;
     _pasteCount = 0;

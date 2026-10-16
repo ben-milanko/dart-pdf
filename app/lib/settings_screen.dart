@@ -8,6 +8,8 @@ import 'cached_documents_settings.dart';
 import 'l10n/app_l10n.dart';
 import 'l10n/app_localizations.dart';
 import 'language_names.dart';
+import 'ocr.dart';
+import 'ocr_auto.dart';
 import 'pdf_cache.dart';
 import 'recents.dart';
 import 'signature_trust.dart';
@@ -98,6 +100,7 @@ Future<void> showAppSettings(
   UpdateService? updates,
   UpdateInstaller? updateInstaller,
   VoidCallback? onOpenDevTools,
+  AutoOcrSetting? autoOcr,
 }) {
   return showPdfDialog<void>(
     context: context,
@@ -107,6 +110,7 @@ Future<void> showAppSettings(
       updates: updates,
       updateInstaller: updateInstaller,
       onOpenDevTools: onOpenDevTools,
+      autoOcr: autoOcr ?? AutoOcrSetting.instance,
     ),
   );
 }
@@ -170,12 +174,14 @@ class _SettingsDialog extends StatefulWidget {
     this.updates,
     this.updateInstaller,
     this.onOpenDevTools,
+    required this.autoOcr,
   });
 
   final PdfEditingPreferences prefs;
   final RecentsStore recents;
   final UpdateService? updates;
   final UpdateInstaller? updateInstaller;
+  final AutoOcrSetting autoOcr;
 
   /// Non-null in debug/profile builds: closes the dialog and opens the
   /// developer tools panel (same as F12).
@@ -256,6 +262,10 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   const Divider(height: 32),
                   _SignatureTrustSection(trust: trust, setting: trust.aatl!),
                 ],
+                if (OnDeviceOcr.isSupported) ...[
+                  const Divider(height: 32),
+                  _TextRecognitionSection(setting: widget.autoOcr),
+                ],
                 const Divider(height: 32),
                 Text(appL10n(context).settingsSystem,
                     style: theme.textTheme.titleSmall),
@@ -293,7 +303,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 Text(appL10n(context).settingsAbout,
                     style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
-                Text('${AppInfo.name} ${AppInfo.version}',
+                Text('${AppInfo.displayName} ${AppInfo.displayVersion}',
                     style: theme.textTheme.bodyMedium),
                 Text(AppInfo.tagline, style: theme.textTheme.bodySmall),
                 const SizedBox(height: 4),
@@ -321,8 +331,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => showLicensePage(
                     context: context,
-                    applicationName: AppInfo.name,
-                    applicationVersion: AppInfo.version,
+                    applicationName: AppInfo.displayName,
+                    applicationVersion: AppInfo.displayVersion,
                   ),
                 ),
               ],
@@ -433,12 +443,12 @@ class _UpdateSection extends StatelessWidget {
         Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
           appL10n(context).settingsUpdateAvailable(
-              updates.latest!.displayVersion, AppInfo.version),
+              updates.latest!.displayVersion, AppInfo.displayVersion),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),
       UpdateStatus.upToDate => Text(
-          appL10n(context).settingsUpToDate(AppInfo.version),
+          appL10n(context).settingsUpToDate(AppInfo.displayVersion),
           key: const ValueKey('settings-up-to-date'),
           style: style,
         ),
@@ -448,10 +458,57 @@ class _UpdateSection extends StatelessWidget {
           style: style?.copyWith(color: scheme.error),
         ),
       UpdateStatus.idle => Text(
-          appL10n(context).settingsUpdateIdle(AppInfo.name, AppInfo.version),
+          appL10n(context)
+              .settingsUpdateIdle(AppInfo.displayName, AppInfo.displayVersion),
           style: style,
         ),
     };
+  }
+}
+
+/// The Settings "Text recognition" block: the "Automatically OCR scans"
+/// switch (on by default), shown wherever on-device OCR runs.
+class _TextRecognitionSection extends StatefulWidget {
+  const _TextRecognitionSection({required this.setting});
+
+  final AutoOcrSetting setting;
+
+  @override
+  State<_TextRecognitionSection> createState() =>
+      _TextRecognitionSectionState();
+}
+
+class _TextRecognitionSectionState extends State<_TextRecognitionSection> {
+  @override
+  void initState() {
+    super.initState();
+    // The switch must show the stored choice, not the default, even when
+    // Settings opens before the editor has read it.
+    widget.setting.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.settingsTextRecognition,
+            style: Theme.of(context).textTheme.titleSmall),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.setting,
+          builder: (context, enabled, _) => SwitchListTile(
+            key: const ValueKey('settings-auto-ocr'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.document_scanner_outlined),
+            title: Text(l10n.settingsAutoOcrTitle),
+            subtitle: Text(l10n.settingsAutoOcrSubtitle),
+            value: enabled,
+            onChanged: (value) => widget.setting.save(value),
+          ),
+        ),
+      ],
+    );
   }
 }
 

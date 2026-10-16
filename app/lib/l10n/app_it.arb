@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Impossibile aprire {url}",
   "editorCouldNotPrint": "Impossibile stampare {title}",
   "editorCouldNotReopen": "Impossibile riaprire {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} non è più disponibile. Potrebbe essere stato spostato, rinominato o eliminato.} other{{count} documenti dell'ultima sessione non sono più disponibili. Potrebbero essere stati spostati, rinominati o eliminati.}}",
+  "editorSaveOriginUnavailable": "Impossibile salvare {title} nella posizione originale. Potrebbe essere stato spostato o eliminato. Scegli dove salvarlo.",
   "editorCouldNotSign": "Impossibile firmare digitalmente: {error}",
   "editorDiscard": "Scarta",
   "editorDiscardChangesTitle": "Scartare le modifiche?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Recenti",
   "appMenuSeeAll": "Mostra tutti",
   "appMenuExport": "Esporta",
-  "appMenuMoreTools": "Altri strumenti"
+  "appMenuMoreTools": "Altri strumenti",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

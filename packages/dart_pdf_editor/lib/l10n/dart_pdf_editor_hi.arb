@@ -142,6 +142,13 @@
   "menuAddLeader": "लीडर लाइन जोड़ें",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{एनोटेशन को पृष्ठों पर लागू करें} other{एनोटेशन को पृष्ठों पर लागू करें}}",
   "menuApplyToPages": "पृष्ठों पर लागू करें…",
+  "propLeader": "निर्देशक रेखा",
+  "propOutlineWidth": "बाहरी रेखा की मोटाई",
+  "menuRotateSelection": "चयन के केंद्र के चारों ओर घुमाएँ…",
+  "menuRotateEach": "हर टिप्पणी को घुमाएँ…",
+  "rotationAngleTitle": "घुमाव (डिग्री, वामावर्त)",
+  "menuGroup": "समूह बनाएँ",
+  "menuUngroup": "समूह हटाएँ",
   "menuBringToFront": "सबसे आगे लाएँ",
   "menuCheck": "चेक करें",
   "menuChooseValue": "मान चुनें…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "बुकमार्क शामिल करें",
   "insertPagesBookmarkFiles": "हर फ़ाइल के लिए बुकमार्क जोड़ें",
   "insertPagesSummary": "{inserted, plural, =1{1 पेज डाला जाएगा} other{{inserted} पेज डाले जाएँगे}} — दस्तावेज़ में {total, plural, =1{1 पेज} other{{total} पेज}} होंगे।",
-  "insertPagesConfirm": "डालें"
+  "insertPagesConfirm": "डालें",
+  "shellBakePageColor": "पृष्ठ का रंग फ़ाइल में सहेजें",
+  "pageColorNotBakedSigned": "पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।"
 }

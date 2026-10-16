@@ -1410,6 +1410,7 @@ class PdfViewer extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
@@ -1791,12 +1792,17 @@ class PdfViewer extends StatefulWidget {
   /// clipboard read); return null from the callback to mean "user cancelled".
   final PdfImagePicker? imagePicker;
 
-  /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector
-  /// clipboard is empty. When this returns PNG or JPEG bytes, the image is
+  /// Supplies a clipboard image for ⌘V/Ctrl+V. PNG or JPEG bytes are
   /// placed as a stamp under the cursor, or at the current page center when
-  /// no pointer location is known. When null or when it returns null, paste
-  /// falls back to plain text from Flutter's system clipboard.
+  /// no pointer location is known. With no external image, paste uses the
+  /// in-app clipboard, then plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Reads images before local annotation/vector copies. Enable only when
+  /// [systemImagePasteProvider] tracks clipboard ownership and returns null
+  /// for an app-owned or superseded copy. Readers without that capability
+  /// retain local vector paste, including on mobile and web.
+  final bool systemImagePasteOverridesLocalClipboard;
 
   /// Supplies an external PDF for vector paste before the in-app clipboard.
   /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
@@ -2129,6 +2135,18 @@ class _PdfViewerState extends State<PdfViewer>
   /// True while the scroll velocity is high enough that background preview
   /// warming should record vector/text only and skip image decodes.
   bool _vectorFirstPrefetch = false;
+
+  /// This scroll burst has already rasterized its one in-motion vector
+  /// preview (#998).
+  ///
+  /// The worker records a motion preview off-thread, but its replay and
+  /// CanvasKit readback are UI-thread work - 67-175 ms on a plan sheet, landing
+  /// inside the wheel frames they were meant to protect. Pages entering the
+  /// viewport render through the scroll on their own (motion-safe renders), so
+  /// a motion preview only earns its frame for a page that would otherwise
+  /// arrive with nothing to paint, and only once per burst; everything else
+  /// waits for the settle. Reset when a burst starts and when it settles.
+  bool _motionPreviewSpent = false;
 
   /// The editing controller's [PdfEditingController.pageRenderStamp] for
   /// each page as of the displayed revision - the content the cached
@@ -2543,6 +2561,12 @@ class _PdfViewerState extends State<PdfViewer>
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
   int? _marqueePage;
+
+  /// The global press point of a touch long-press marquee (select tool,
+  /// empty page area - see [_beginTouchMarquee]), or null when the marquee
+  /// in flight (if any) is a mouse one. A release that never dragged opens
+  /// the paste menu here, which is what a still long-press did before.
+  Offset? _touchMarqueeGlobal;
 
   /// A single-selection move drag's floating preview, reported by the
   /// page's editing overlay. The overlay's own layer would clip it behind
@@ -3160,6 +3184,7 @@ class _PdfViewerState extends State<PdfViewer>
     _scrollSettleTimer = null;
     _scrollSamples.clear();
     _vectorFirstPrefetch = false;
+    _motionPreviewSpent = false;
     _renderScheduler.slowMotion = false;
     _setSlowScrollRasterWarmDirection(0);
     // A programmatic jump may have reached its scroll offset before the
@@ -3473,6 +3498,12 @@ class _PdfViewerState extends State<PdfViewer>
                     targetLongestSide: null) !=
                 null;
         final vectorOnly = motionVector || policyVector;
+        // A list scroll in flight: its motion preview is budgeted (see
+        // [_motionPreviewSpent]). Each scroll event re-enters this loop and the
+        // settle restarts it, so returning here drops nothing.
+        final listMotion =
+            motionVector && (_scrollSettleTimer?.isActive ?? false);
+        if (listMotion && _motionPreviewSpent) return;
         if (!vectorOnly &&
             (_renderScheduler.holding ||
                 (_scrollSettleTimer?.isActive ?? false))) {
@@ -3503,7 +3534,9 @@ class _PdfViewerState extends State<PdfViewer>
           // readback (~60-80ms on web); doing that six pages ahead caused
           // visible 50ms scroll frames without helping the active viewport.
           maxDistance: motionVector ? 1 : null,
+          blankOnly: listMotion,
         );
+        if (listMotion && index == null) return;
         // Base coverage always wins: the 200px level is the only one cheap
         // enough to be the immediate fallback everywhere. Once it is covered,
         // promote the near working set one geometric level at a time. Never
@@ -3543,6 +3576,9 @@ class _PdfViewerState extends State<PdfViewer>
         final alsoFill =
             _ladderRungsFor(index, targetLongestSide, vectorOnly: vectorOnly);
         var deferredPreview = false;
+        // This preview has started its replay with the burst's budget.
+        var motionGranted = false;
+        final previewIndex = index;
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
@@ -3561,13 +3597,28 @@ class _PdfViewerState extends State<PdfViewer>
           // and readback would otherwise add 50-80 ms directly in front
           // of the page the user requested. Command-limited vector
           // previews retain their scroll-specific gate because supplying
-          // those pixels while a list scrolls is their purpose.
+          // those pixels while a list scrolls is their purpose - but only
+          // once per burst, for a blank page ([_motionPreviewSpent]).
+          final inListMotion = vectorOnly &&
+              !motionGranted &&
+              (_scrollSettleTimer?.isActive ?? false);
           final defer = !mounted ||
               generation != _previewScheduleGeneration ||
               (vectorOnly
-                  ? _previewUiMustDefer
+                  ? _previewUiMustDefer ||
+                      // The burst's one preview went to another page, or this
+                      // one painted itself while the worker recorded.
+                      (inListMotion &&
+                          (_motionPreviewSpent || _previews.has(previewIndex)))
                   : _renderScheduler.busy || _motionRenderHoldActive);
           deferredPreview |= defer;
+          // The first undeferred check is where the replay starts: spend the
+          // burst's budget there, and let this preview's later checks through
+          // rather than abandon it half-way.
+          if (!defer && inListMotion) {
+            _motionPreviewSpent = true;
+            motionGranted = true;
+          }
           return defer;
         });
         if (targetLongestSide != null &&
@@ -3689,7 +3740,8 @@ class _PdfViewerState extends State<PdfViewer>
       {required bool requireImages,
       required bool allowNearViewport,
       int? maxDistance,
-      double? targetLongestSide}) {
+      double? targetLongestSide,
+      bool blankOnly = false}) {
     if (targetLongestSide != null &&
         (!widget.pagePreviewLodPolicy.enabled ||
             widget.pagePreviewLodPolicy.intermediateWindow == 0 ||
@@ -3746,6 +3798,8 @@ class _PdfViewerState extends State<PdfViewer>
       )) {
         continue;
       }
+      // Any preview, even a stale revision's, is something to paint.
+      if (blankOnly && _previews.has(i)) continue;
       if (distance < bestDistance) {
         bestDistance = distance;
         best = i;
@@ -4139,6 +4193,7 @@ class _PdfViewerState extends State<PdfViewer>
       // hold (see the opening grace below).
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
+      _motionPreviewSpent = false;
       _beginMotionRenderHold();
       _vectorFirstPrefetch = _effectiveRenderWorker?.isActive ?? false;
       return;
@@ -7580,10 +7635,58 @@ class _PdfViewerState extends State<PdfViewer>
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
-  /// cursor. When that clipboard is empty, ask the host for a system
-  /// clipboard image first, then fall back to plain text from Flutter's
-  /// system clipboard and create a FreeText annotation at the same point.
+  void _onToggleTextFormatting(PdfTextFormatting format) {
+    final editing = widget.editing;
+    if (editing == null) return;
+    if (editing.canRestyleSelectedText) {
+      editing.toggleSelectedTextFormatting(format);
+      return;
+    }
+    final range = _selRange;
+    final selected = _controller.selectedText;
+    if (range == null || selected.isEmpty) return;
+    if (range.$1.$1 != range.$2.$1) {
+      _textSelectionToast(pdfL10n(context).viewerEditNeedsSinglePage);
+      return;
+    }
+    if (format == PdfTextFormatting.underline) {
+      _markupTextSelection(PdfMarkupKind.underline);
+      return;
+    }
+    final page = range.$1.$1;
+    final element = editing.textElementForSelection(
+        page, _selectionRectsOn(page), selected);
+    if (element == null) {
+      _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
+      return;
+    }
+    if (!editing.canStyleContentText(page, element)) {
+      _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
+      return;
+    }
+    final cos = editing.document.cos;
+    final fonts = cos.resolve(editing.pageAt(page).resources['Font']);
+    final resource = element.resourceName;
+    final dict = fonts is CosDictionary && resource != null
+        ? cos.resolve(fonts[resource])
+        : null;
+    final name = dict is CosDictionary ? cos.resolve(dict['BaseFont']) : null;
+    final font =
+        PdfStandardFont.fromName(name is CosName ? name.value : 'Helvetica');
+    final style = format == PdfTextFormatting.bold
+        ? PdfTextStyle(bold: !font.isBold)
+        : PdfTextStyle(italic: !font.isItalic);
+    if (editing.replaceTextInElement(page, element, selected, selected, style) >
+        0) {
+      _clearSelection();
+    } else {
+      _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
+    }
+  }
+
+  /// ⌘V/Ctrl+V: prefer an external PDF or new external image, then paste the
+  /// in-app annotation/snapshot clipboard. Otherwise create a FreeText box
+  /// from system clipboard text at the captured paste point.
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
   /// current page's center.
@@ -7597,10 +7700,6 @@ class _PdfViewerState extends State<PdfViewer>
         pageIndex == null && local != null ? _pagePointAt(local) : null;
     final page = pageIndex ?? point?.$1 ?? _controller.currentPage;
     at ??= point == null ? null : (point.$2, point.$3);
-    if (widget.systemPdfPasteProvider == null) {
-      _pasteLocalClipboard(editing, page, at);
-      return;
-    }
     unawaited(_pasteWithExternalPdf(editing, page, at));
   }
 
@@ -7611,7 +7710,7 @@ class _PdfViewerState extends State<PdfViewer>
     try {
       PdfClipboardPdf? pdf;
       try {
-        pdf = await widget.systemPdfPasteProvider!(context);
+        pdf = await widget.systemPdfPasteProvider?.call(context);
       } catch (_) {
         // Missing support or denied clipboard access keeps local paste usable.
       }
@@ -7631,29 +7730,35 @@ class _PdfViewerState extends State<PdfViewer>
         }
         return;
       }
-      _pasteLocalClipboard(editing, page, at);
+      final imageFirst =
+          widget.systemImagePasteOverridesLocalClipboard && !alreadyPasted;
+      if (imageFirst &&
+          await _pasteSystemClipboardImage(editing, page, at, revision)) {
+        return;
+      }
+      if (!mounted ||
+          widget.editing != editing ||
+          editing.revisionId != revision) {
+        return;
+      }
+      if (editing.hasSnapshotClipboard) {
+        editing.pasteSnapshot(page, at: at);
+      } else if (editing.hasAnnotationClipboard) {
+        editing.pasteAnnotations(page, at: at);
+      } else {
+        if (!imageFirst &&
+            await _pasteSystemClipboardImage(editing, page, at, revision)) {
+          return;
+        }
+        await _pasteSystemClipboardText(editing, page, at, revision);
+      }
     } finally {
       _readingPaste = false;
     }
   }
 
-  void _pasteLocalClipboard(
-      PdfEditingController editing, int page, (double, double)? at) {
-    if (editing.hasSnapshotClipboard) {
-      editing.pasteSnapshot(page, at: at);
-    } else if (editing.hasAnnotationClipboard) {
-      editing.pasteAnnotations(page, at: at);
-    } else {
-      unawaited(_pasteSystemClipboard(editing));
-    }
-  }
-
-  Future<void> _pasteSystemClipboard(PdfEditingController editing) async {
-    if (await _pasteSystemClipboardImage(editing)) return;
-    await _pasteSystemClipboardText(editing);
-  }
-
-  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing) async {
+  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing,
+      int page, (double, double)? at, int revision) async {
     final provider = widget.systemImagePasteProvider;
     if (provider == null) return false;
     Uint8List? bytes;
@@ -7663,25 +7768,23 @@ class _PdfViewerState extends State<PdfViewer>
       return false;
     }
     if (bytes == null || bytes.isEmpty) return false;
-    if (!mounted || widget.editing != editing) return false;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      return editing.placeImageAsync(point.$1, point.$2, point.$3, bytes);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
+      return false;
     }
-    if (_pages.isEmpty) return false;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return false;
-    final box = _pages[page].cropBox;
+    if (page < 0 || page >= editing.document.pageCount) return false;
+    final box = editing.pageAt(page).cropBox;
     return editing.placeImageAsync(
       page,
-      (box.left + box.right) / 2,
-      (box.bottom + box.top) / 2,
+      at?.$1 ?? (box.left + box.right) / 2,
+      at?.$2 ?? (box.bottom + box.top) / 2,
       bytes,
     );
   }
 
-  Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
+  Future<void> _pasteSystemClipboardText(PdfEditingController editing, int page,
+      (double, double)? at, int revision) async {
     // Prefer the host's reader (the web build wires one over the browser Async
     // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
     // fall back to Flutter's clipboard when none is injected.
@@ -7694,23 +7797,23 @@ class _PdfViewerState extends State<PdfViewer>
         text = null;
       }
     } else {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      text = data?.text;
+      try {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        text = data?.text;
+      } catch (_) {
+        return;
+      }
     }
     if (text == null || text.trim().isEmpty) return;
-    if (!mounted || widget.editing != editing) return;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      editing.placeFreeText(point.$1, point.$2, point.$3, text);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
       return;
     }
-    if (_pages.isEmpty) return;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return;
-    final box = _pages[page].cropBox;
-    editing.placeFreeText(
-        page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
+    if (page < 0 || page >= editing.document.pageCount) return;
+    final box = editing.pageAt(page).cropBox;
+    editing.placeFreeText(page, at?.$1 ?? (box.left + box.right) / 2,
+        at?.$2 ?? (box.bottom + box.top) / 2, text);
   }
 
   /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
@@ -8192,6 +8295,11 @@ class _PdfViewerState extends State<PdfViewer>
   void _onLongPressStart(LongPressStartDetails details) {
     final range = _wordRangeAt(details.localPosition);
     if (range == null) {
+      // Select tool on empty page area: the held finger rubber-bands a
+      // marquee (touch has no modifier key to ask for one). A press on a
+      // word still selects text, like everywhere else on a phone - start
+      // the box in a margin or between lines to sweep over text.
+      if (_beginTouchMarquee(details)) return;
       // no text under the press: an annotation (or, with something on
       // the clipboard, empty page area) gets the context menu instead -
       // reader mode's touch counterpart of a right-click
@@ -8300,12 +8408,88 @@ class _PdfViewerState extends State<PdfViewer>
     return true;
   }
 
+  /// Starts a touch long-press marquee when the select tool is armed and the
+  /// press (already known to miss text) lands on a page. Annotations never
+  /// reach here: [_selectionLongPressEnabledAt] leaves those presses to the
+  /// overlay, which selects/moves them or opens their menu.
+  bool _beginTouchMarquee(LongPressStartDetails details) {
+    final editing = widget.editing;
+    if (editing == null ||
+        editing.tool != PdfEditTool.select ||
+        editing.isPickingColor) {
+      return false;
+    }
+    final point = _pagePointAt(details.localPosition);
+    if (point == null) return false;
+    HapticFeedback.selectionClick();
+    _clearSelection();
+    _marqueePage = point.$1;
+    _touchMarqueeGlobal = details.globalPosition;
+    setState(() {
+      _marqueeStart = details.localPosition;
+      _marqueeCurrent = details.localPosition;
+    });
+    return true;
+  }
+
+  /// Ends a touch long-press marquee. A box that was dragged out selects
+  /// the annotations it covers; a press that never moved is the plain
+  /// long-press it used to be - the paste menu when there is something to
+  /// paste (the overlay leaves select-tool empty-area presses to this
+  /// recognizer so the two don't race for the same hold).
+  void _endTouchMarquee({required bool cancelled}) {
+    final global = _touchMarqueeGlobal;
+    final page = _marqueePage;
+    final start = _marqueeStart;
+    final current = _marqueeCurrent ?? start;
+    _touchMarqueeGlobal = null;
+    if (cancelled) {
+      setState(() {
+        _marqueeStart = null;
+        _marqueeCurrent = null;
+        _marqueePage = null;
+      });
+      return;
+    }
+    final dragged = start != null &&
+        current != null &&
+        (Rect.fromPoints(start, current).width >= 4 ||
+            Rect.fromPoints(start, current).height >= 4);
+    _commitMarquee();
+    final editing = widget.editing;
+    if (dragged ||
+        editing == null ||
+        global == null ||
+        page == null ||
+        start == null ||
+        !editing.hasAnnotationClipboard) {
+      return;
+    }
+    final point = _pagePointAt(start);
+    if (point == null || point.$1 != page) return;
+    final pagePoint = (point.$2, point.$3);
+    if (!widget.contextMenuEnabled) {
+      _requestContextMenu(global, page,
+          pagePoint: pagePoint, target: PdfContextMenuTarget.emptyPage);
+      return;
+    }
+    unawaited(_showSelectionMenu(global, page, pagePoint: pagePoint));
+  }
+
   void _onLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_touchMarqueeGlobal != null) {
+      setState(() => _marqueeCurrent = details.localPosition);
+      return;
+    }
     if (!_touchSelecting) return;
     _extendWordSelection(details.localPosition);
   }
 
   void _onLongPressEnd({bool cancelled = false}) {
+    if (_touchMarqueeGlobal != null) {
+      _endTouchMarquee(cancelled: cancelled);
+      return;
+    }
     if (!_touchSelecting) return;
     setState(() => _touchSelecting = false);
     if (cancelled && widget.editing?.markupTool != null) {
@@ -9871,6 +10055,12 @@ class _PdfViewerState extends State<PdfViewer>
           enabled: editing),
       PdfRedoIntent: action<PdfRedoIntent>((_) => widget.editing?.redo(),
           enabled: editing),
+      PdfToggleTextFormattingIntent: action<PdfToggleTextFormattingIntent>(
+          (intent) => _onToggleTextFormatting(intent.format),
+          enabled: (_) =>
+              widget.editing != null &&
+              (widget.editing!.canRestyleSelectedText ||
+                  _controller.selectedText.isNotEmpty)),
       PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
           (_) => widget.editing?.autosizeSelectedTextBox(),
           enabled: editing),

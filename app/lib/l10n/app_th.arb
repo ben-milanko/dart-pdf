@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "ไม่สามารถเปิด {url} ได้",
   "editorCouldNotPrint": "ไม่สามารถพิมพ์ {title} ได้",
   "editorCouldNotReopen": "ไม่สามารถเปิด {title} อีกครั้งได้",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} ไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ} other{เอกสาร {count} รายการจากเซสชันล่าสุดไม่พร้อมใช้งานแล้ว อาจถูกย้าย เปลี่ยนชื่อ หรือลบ}}",
+  "editorSaveOriginUnavailable": "ไม่สามารถบันทึก {title} ไปยังตำแหน่งเดิมได้ อาจถูกย้ายหรือลบ เลือกตำแหน่งที่จะบันทึก",
   "editorCouldNotSign": "ไม่สามารถลงนามดิจิทัลได้: {error}",
   "editorDiscard": "ทิ้ง",
   "editorDiscardChangesTitle": "ทิ้งการเปลี่ยนแปลงหรือไม่",
@@ -340,5 +342,10 @@
   "appMenuRecent": "ล่าสุด",
   "appMenuSeeAll": "ดูทั้งหมด",
   "appMenuExport": "ส่งออก",
-  "appMenuMoreTools": "เครื่องมือเพิ่มเติม"
+  "appMenuMoreTools": "เครื่องมือเพิ่มเติม",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

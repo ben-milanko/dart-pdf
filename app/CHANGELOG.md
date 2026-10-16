@@ -1,5 +1,19 @@
 # Changelog
 
+## 9.0.0
+
+- Group annotations so they move, resize, rotate, copy and paste together, and rotate a selection around its shared centre or each object's own centre.
+- Automatically OCR scanned documents so their text can be selected and searched, unless turned off in Settings. Scans are named after their capture date.
+- Optionally save the page colour into saved and exported PDFs.
+- Bold, italic and underline shortcuts for selected text, and separate styling for callout arrows.
+- Polyline placement with middle-button pan, edge scroll and Ctrl+Z to remove a vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag draws a selection box, selection happens on lift, and tool-sheet tabs arm their first tool.
+- Unembedded serif fonts draw in a serif face, substituted text keeps level baselines, and rotated images sharpen on deep zoom.
+- Fixes for documents showing another document's images, OCR and Sigstore sign-in on iOS, iOS Recents after updates, first launch in unsupported languages and the mobile web status bar.
+- Warn when a recent document's file has moved. The Windows installer offers to close and relaunch a running DartPDF.
+- Smoother scrolling past neighbouring pages.
+- Update to the 9.0.0 package suite and app build 46.
+
 ## 8.1.0
 
 - Change dropdown and list-box form fonts, size, colour and alignment.

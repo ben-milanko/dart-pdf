@@ -93,6 +93,21 @@ review**, with managed publishing off (publication follows approval).
 
 ## Keeping it current
 
+Normal Storeflight releases use `release_listing_policy: preserve`. Repository
+copy is not reapplied when shipping a binary. On Apple, a new version carries
+forward the latest live text from the same platform, including promotional text;
+Mac and iOS are read independently. Existing target drafts retain their edits.
+Only the release notes below are refreshed. Google Play listing text is left
+alone; screenshots, previews and native treatments are not replaced by the
+release adapters.
+
+Use the explicit `storeflight metadata --destination ...` workflow for a
+deliberate listing change, after checking any active test. Do not bundle such
+changes into routine release preparation. Storeflight's iOS test guard stops
+submission while an unfinished native product-page test exists; it never cancels
+the test or removes a review item. Schema 2 makes older clients fail rather than
+ignore these protections. See the release checklist below and `storeflight.yaml`.
+
 1. Edit the English source in [`../../store-listing.md`](../../store-listing.md)
    and the matching `en-US` files here, plus the Play `en-GB` listing text.
 2. For a new release, add `android/<locale>/changelogs/<versionCode>.txt` and

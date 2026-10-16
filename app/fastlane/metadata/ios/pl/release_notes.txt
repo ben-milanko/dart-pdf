@@ -1,6 +1,12 @@
-Nowości w 8.1.0
+Nowości w wersji 9.0.0
 
-- Zmieniaj czcionkę i styl pól listy oraz list rozwijanych.
-- Nowe menu telefonu do tworzenia, otwierania, drukowania i podpisywania.
-- Edycja tekstu zachowuje czcionkę i podział wierszy. Ulepszenia klawiatury i menu zaznaczania w iOS.
-- Pełna paleta kolorów pióra i zakreślacza na urządzeniach mobilnych.
+- Grupuj adnotacje, aby przesuwać, zmieniać rozmiar, obracać, kopiować i wklejać je razem. Obracaj zaznaczenie wokół wspólnego środka lub środka każdego elementu.
+- Zeskanowane dokumenty są rozpoznawane automatycznie (OCR), więc ich tekst można zaznaczać i przeszukiwać. Można to wyłączyć w Ustawieniach. Nowe skany otrzymują nazwę z datą wykonania.
+- Opcjonalnie zapisuj kolor strony w zapisanych i eksportowanych plikach PDF.
+- Pogrubiaj, pochylaj i podkreślaj zaznaczony tekst skrótami klawiszowymi, a strzałki objaśnień stylizuj niezależnie od ich pola tekstowego.
+- Łatwiejsze rysowanie linii łamanych: przesuwanie widoku podczas wstawiania, przewijanie przy krawędziach i cofanie ostatniego punktu. Siatka stron pokazuje, gdzie trafi strona, i animuje zmianę kolejności.
+- Przytrzymaj i przeciągnij, aby narysować ramkę zaznaczenia; zaznaczenie reaguje od razu po podniesieniu palca.
+- Dokumenty z nieosadzonymi czcionkami szeryfowymi wyglądają bliżej oryginału, tekst trzyma równą linię bazową, a obrócone obrazy pozostają ostre po powiększeniu.
+- Poprawki: dokumenty pokazujące obrazy z innego dokumentu, rozpoznawanie tekstu i logowanie do podpisów cyfrowych, ponowne otwieranie ostatnich plików po aktualizacji oraz pierwsze uruchomienie w nieobsługiwanych językach.
+- DartPDF informuje teraz, gdy plik ostatnio otwieranego dokumentu został przeniesiony.
+- Płynniejsze przewijanie.

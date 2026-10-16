@@ -356,6 +356,28 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count документа из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      many:
+          '$count документов из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      few:
+          '$count документа из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      one:
+          '$title больше недоступен. Возможно, файл перемещён, переименован или удалён.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Не удалось сохранить $title в исходное место. Возможно, файл перемещён или удалён. Выберите, куда сохранить.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Не удалось поставить цифровую подпись: $error';
   }
@@ -1337,4 +1359,22 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get appMenuMoreTools => 'Другие инструменты';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

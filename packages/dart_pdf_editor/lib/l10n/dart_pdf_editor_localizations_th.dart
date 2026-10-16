@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'ใช้กับหน้า…';
 
   @override
+  String get propLeader => 'เส้นชี้';
+
+  @override
+  String get propOutlineWidth => 'ความหนาเส้นขอบ';
+
+  @override
+  String get menuRotateSelection => 'หมุนรอบจุดกึ่งกลางของส่วนที่เลือก…';
+
+  @override
+  String get menuRotateEach => 'หมุนคำอธิบายประกอบแต่ละรายการ…';
+
+  @override
+  String get rotationAngleTitle => 'การหมุน (องศา ทวนเข็มนาฬิกา)';
+
+  @override
+  String get menuGroup => 'จัดกลุ่ม';
+
+  @override
+  String get menuUngroup => 'ยกเลิกการจัดกลุ่ม';
+
+  @override
   String get menuBringToFront => 'นำมาไว้ด้านหน้า';
 
   @override
@@ -2413,4 +2434,11 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'แทรก';
+
+  @override
+  String get shellBakePageColor => 'บันทึกสีหน้าลงในไฟล์';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
 }

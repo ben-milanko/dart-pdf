@@ -142,6 +142,13 @@
   "menuAddLeader": "Додати лінію виноски",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Застосувати анотацію до сторінок} other{Застосувати анотації до сторінок}}",
   "menuApplyToPages": "Застосувати до сторінок…",
+  "propLeader": "Виноска",
+  "propOutlineWidth": "Товщина контуру",
+  "menuRotateSelection": "Повернути навколо центру виділення…",
+  "menuRotateEach": "Повернути кожну анотацію…",
+  "rotationAngleTitle": "Обертання (градуси, проти годинникової стрілки)",
+  "menuGroup": "Згрупувати",
+  "menuUngroup": "Розгрупувати",
   "menuBringToFront": "На передній план",
   "menuCheck": "Позначити",
   "menuChooseValue": "Вибрати значення…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Додати закладки",
   "insertPagesBookmarkFiles": "Додати закладку для кожного файлу",
   "insertPagesSummary": "{inserted, plural, one{Буде вставлено {inserted} сторінку} few{Буде вставлено {inserted} сторінки} many{Буде вставлено {inserted} сторінок} other{Буде вставлено {inserted} сторінки}} — у документі стане {total, plural, one{{total} сторінка} few{{total} сторінки} many{{total} сторінок} other{{total} сторінки}}.",
-  "insertPagesConfirm": "Вставити"
+  "insertPagesConfirm": "Вставити",
+  "shellBakePageColor": "Зберігати колір сторінки у файлі",
+  "pageColorNotBakedSigned": "Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними."
 }

@@ -18,6 +18,10 @@ export 'image_clipboard_io.dart'
         readImageFromClipboard,
         readTextFromClipboard;
 
+/// Desktop readers can distinguish an external image from the app's own
+/// annotation/vector copy. Mobile and browser readers retain local priority.
+bool get imageClipboardTracksOwnership => supportsPdfClipboard;
+
 /// Writes PNG-encoded image [bytes] to the system clipboard. Returns true on
 /// success, false (or throws) when the running platform can't.
 ///

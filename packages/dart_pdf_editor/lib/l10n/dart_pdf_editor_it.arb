@@ -142,6 +142,13 @@
   "menuAddLeader": "Aggiungi linea di richiamo",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Applica annotazione alle pagine} other{Applica annotazioni alle pagine}}",
   "menuApplyToPages": "Applica alle pagine…",
+  "propLeader": "Linea guida",
+  "propOutlineWidth": "Spessore del contorno",
+  "menuRotateSelection": "Ruota intorno al centro della selezione…",
+  "menuRotateEach": "Ruota ogni annotazione…",
+  "rotationAngleTitle": "Rotazione (gradi, senso antiorario)",
+  "menuGroup": "Raggruppa",
+  "menuUngroup": "Separa",
   "menuBringToFront": "Porta in primo piano",
   "menuCheck": "Seleziona",
   "menuChooseValue": "Scegli valore…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Includi segnalibri",
   "insertPagesBookmarkFiles": "Aggiungi un segnalibro per ogni file",
   "insertPagesSummary": "{inserted, plural, =1{Inserisce 1 pagina} other{Inserisce {inserted} pagine}}: il documento avrà {total, plural, =1{1 pagina} other{{total} pagine}}.",
-  "insertPagesConfirm": "Inserisci"
+  "insertPagesConfirm": "Inserisci",
+  "shellBakePageColor": "Salva il colore della pagina nel file",
+  "pageColorNotBakedSigned": "Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme."
 }

@@ -52,7 +52,8 @@ class _SyncWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     calls.add((pageIndex, priority));
     decodeImageCalls.add(decodeImages);
@@ -967,6 +968,67 @@ void main() {
   });
 
   group('PdfCachingRenderWorker', () {
+    test('a decode gate holds the decode, and the reply is still shared',
+        () async {
+      final inner = _GatedWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      final gate = Completer<bool>();
+      final first = worker.record(0, decodeGate: (_) => gate.future);
+      var delivered = false;
+      unawaited(first.then((_) => delivered = true));
+      unawaited(inner.reply());
+      await pumpEventQueue();
+      expect(inner.gateCounts, [2],
+          reason: "the gate is asked with the reply's command count");
+      expect(inner.decodes, 0);
+      expect(delivered, isFalse);
+
+      gate.complete(true);
+      expect(await first, hasLength(2));
+      expect(inner.decodes, 1);
+      expect(await worker.record(0), hasLength(2));
+      expect(inner.calls, hasLength(1),
+          reason: 'a gated reply is cached like any other');
+    });
+
+    test('a reply parked at its gate outlives the record watchdog', () async {
+      final previous = pdfRenderWorkerRecordTimeout;
+      pdfRenderWorkerRecordTimeout = const Duration(milliseconds: 20);
+      addTearDown(() => pdfRenderWorkerRecordTimeout = previous);
+      final inner = _GatedWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      final gate = Completer<bool>();
+      final result = worker.record(0, decodeGate: (_) => gate.future);
+      unawaited(inner.reply());
+      // A long scroll: well past the watchdog.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(inner.disposed, isFalse,
+          reason: 'the worker answered; only its decode is waiting');
+      gate.complete(true);
+      expect(await result, hasLength(2));
+    });
+
+    test('a dispatch superseded while it waits at the gate is not decoded',
+        () async {
+      final inner = _GatedWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      final gate = Completer<bool>();
+      final warm =
+          worker.record(0, priority: 2, decodeGate: (_) => gate.future);
+      unawaited(inner.reply());
+      await pumpEventQueue();
+      // The visible page joins at a higher priority: the cache re-dispatches
+      // the key, so the parked reply is one it would discard.
+      final visible = worker.record(0, priority: 0);
+      gate.complete(true);
+      await pumpEventQueue();
+      expect(inner.decodes, 0, reason: 'superseded replies skip the decode');
+      await inner.reply();
+      expect(await visible, hasLength(2));
+      expect(await warm, hasLength(2));
+      expect(inner.decodes, 1);
+    });
+
     test('forwards browser page-surface sessions without caching them',
         () async {
       final inner = _SurfaceWorker();
@@ -1406,6 +1468,25 @@ void main() {
   });
 
   group('PdfPooledRenderWorker', () {
+    test('a reply waiting at its decode gate does not count as load', () async {
+      final workers = [_GatedWorker(), _GatedWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      final gate = Completer<bool>();
+      final parked = pool.record(0, decodeGate: (_) => gate.future);
+      expect(workers[0].calls, [(0, 0)]);
+      unawaited(workers[0].reply());
+      await pumpEventQueue();
+      // Page 2 shares page 0's worker. That worker has answered and sits idle,
+      // so the new record must not spill over as if it were busy.
+      final next = pool.record(2);
+      expect(workers[0].calls, [(0, 0), (2, 0)]);
+      expect(workers[1].calls, isEmpty);
+      gate.complete(true);
+      expect(await parked, hasLength(2));
+      await workers[0].reply();
+      expect(await next, hasLength(2));
+    });
+
     test('reports record capacity through the cache wrapper', () {
       final pool = PdfPooledRenderWorker.fromWorkers([
         _CountingWorker(),
@@ -1752,7 +1833,8 @@ class _SeedWorker extends PdfRenderWorker {
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       null;
 
   @override
@@ -1795,7 +1877,8 @@ class _CountingWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -1903,7 +1986,8 @@ class _ManualWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
@@ -1935,6 +2019,65 @@ class _ManualWorker extends PdfRenderWorker {
   }
 }
 
+/// A backend whose replies arrive on [reply] and then honour the caller's
+/// decode gate the way the platform workers do: the gate sees the reply's
+/// command count, and only an admitted reply is "decoded".
+class _GatedWorker extends PdfRenderWorker {
+  final calls = <(int, int)>[];
+  final _pending =
+      <(Completer<List<PdfRenderCommand>?>, PdfRecordDecodeGate?)>[];
+  final gateCounts = <int>[];
+  int decodes = 0;
+  bool disposed = false;
+
+  @override
+  bool get isActive => !disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) {
+    calls.add((pageIndex, priority));
+    final completer = Completer<List<PdfRenderCommand>?>();
+    _pending.add((completer, decodeGate));
+    return completer.future;
+  }
+
+  /// Delivers the oldest outstanding reply.
+  Future<void> reply() async {
+    final (completer, gate) = _pending.removeAt(0);
+    const commands = [PdfSaveCommand(), PdfRestoreCommand()];
+    if (gate != null) {
+      gateCounts.add(commands.length);
+      if (!await gate(commands.length)) {
+        completer.complete(null);
+        return;
+      }
+    }
+    decodes++;
+    completer.complete(commands);
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {
+    disposed = true;
+    for (final (completer, _) in _pending) {
+      if (!completer.isCompleted) completer.complete(null);
+    }
+    _pending.clear();
+  }
+}
+
 class _HangingWorker extends PdfRenderWorker {
   final callsByKey = <(int, int), int>{};
   final cancels = <(int, int)>[];
@@ -1956,7 +2099,8 @@ class _HangingWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) {
     if (!active) return Future.value(null);
     callsByKey[(pageIndex, priority)] =
         (callsByKey[(pageIndex, priority)] ?? 0) + 1;

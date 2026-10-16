@@ -366,6 +366,15 @@ static void image_clipboard_method_call_cb(FlMethodChannel*, FlMethodCall* call,
           delete pending;
         }, new PendingPdfRead{FL_METHOD_CALL(g_object_ref(call)), clipboard_generation});
   } else if (strcmp(method, "readImage") == 0) {
+    FlValue* args = fl_method_call_get_args(call);
+    FlValue* external = args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+        ? fl_value_lookup_string(args, "externalOnly") : nullptr;
+    if (external != nullptr && fl_value_get_type(external) == FL_VALUE_TYPE_BOOL &&
+        fl_value_get_bool(external) &&
+        (local_snapshot != nullptr || local_copy_generation == clipboard_generation)) {
+      fl_method_call_respond_success(call, nullptr, nullptr);
+      return;
+    }
     gtk_clipboard_request_image(clipboard,
         [](GtkClipboard*, GdkPixbuf* image, gpointer user_data) {
           auto* pending = FL_METHOD_CALL(user_data);

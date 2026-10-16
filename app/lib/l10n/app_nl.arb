@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Kan {url} niet openen",
   "editorCouldNotPrint": "Kan {title} niet afdrukken",
   "editorCouldNotReopen": "Kan {title} niet opnieuw openen",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is niet meer beschikbaar. Het is mogelijk verplaatst, hernoemd of verwijderd.} other{{count} documenten uit je vorige sessie zijn niet meer beschikbaar. Ze zijn mogelijk verplaatst, hernoemd of verwijderd.}}",
+  "editorSaveOriginUnavailable": "Kan {title} niet op de oorspronkelijke locatie opslaan. Het is mogelijk verplaatst of verwijderd. Kies waar je het wilt opslaan.",
   "editorCouldNotSign": "Kan niet digitaal ondertekenen: {error}",
   "editorDiscard": "Verwerpen",
   "editorDiscardChangesTitle": "Wijzigingen verwerpen?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Recent",
   "appMenuSeeAll": "Alles weergeven",
   "appMenuExport": "Exporteren",
-  "appMenuMoreTools": "Meer hulpmiddelen"
+  "appMenuMoreTools": "Meer hulpmiddelen",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

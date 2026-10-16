@@ -366,6 +366,27 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Appliquer aux pages…';
 
   @override
+  String get propLeader => 'Ligne de repère';
+
+  @override
+  String get propOutlineWidth => 'Épaisseur du contour';
+
+  @override
+  String get menuRotateSelection => 'Tourner autour du centre de la sélection…';
+
+  @override
+  String get menuRotateEach => 'Tourner chaque annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrés, sens antihoraire)';
+
+  @override
+  String get menuGroup => 'Grouper';
+
+  @override
+  String get menuUngroup => 'Dissocier';
+
+  @override
   String get menuBringToFront => 'Mettre au premier plan';
 
   @override
@@ -2453,4 +2474,12 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Insérer';
+
+  @override
+  String get shellBakePageColor =>
+      'Enregistrer la couleur de page dans le fichier';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'La couleur de page n\'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures.';
 }

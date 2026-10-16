@@ -372,6 +372,27 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'التطبيق على الصفحات…';
 
   @override
+  String get propLeader => 'خط الإشارة';
+
+  @override
+  String get propOutlineWidth => 'عرض الإطار';
+
+  @override
+  String get menuRotateSelection => 'تدوير حول مركز التحديد…';
+
+  @override
+  String get menuRotateEach => 'تدوير كل تعليق توضيحي…';
+
+  @override
+  String get rotationAngleTitle => 'الدوران (درجات، عكس عقارب الساعة)';
+
+  @override
+  String get menuGroup => 'تجميع';
+
+  @override
+  String get menuUngroup => 'إلغاء التجميع';
+
+  @override
   String get menuBringToFront => 'إحضار إلى الأمام';
 
   @override
@@ -2488,4 +2509,11 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'إدراج';
+
+  @override
+  String get shellBakePageColor => 'حفظ لون الصفحة في الملف';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.';
 }

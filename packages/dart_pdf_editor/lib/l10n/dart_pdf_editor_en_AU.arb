@@ -104,6 +104,13 @@
   "menuAddLeader": "Add leader",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Apply annotation to pages} other{Apply annotations to pages}}",
   "menuApplyToPages": "Apply to pages…",
+  "propLeader": "Leader",
+  "propOutlineWidth": "Outline width",
+  "menuRotateSelection": "Rotate around selection centre…",
+  "menuRotateEach": "Rotate each annotation…",
+  "rotationAngleTitle": "Rotation (degrees, counterclockwise)",
+  "menuGroup": "Group",
+  "menuUngroup": "Ungroup",
   "menuBringToFront": "Bring to front",
   "menuCheck": "Check",
   "menuChooseValue": "Choose value…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Include bookmarks",
   "insertPagesBookmarkFiles": "Add a bookmark for each file",
   "insertPagesSummary": "{inserted, plural, =1{Inserts 1 page} other{Inserts {inserted} pages}} - the document will have {total, plural, =1{1 page} other{{total} pages}}.",
-  "insertPagesConfirm": "Insert"
+  "insertPagesConfirm": "Insert",
+  "shellBakePageColor": "Save page colour into file",
+  "pageColorNotBakedSigned": "The page colour wasn't saved into the file: changing the pages would invalidate its signatures."
 }

@@ -189,8 +189,9 @@ Compared with the 23 August checkpoint, open improved (918 → 711 ms, 0.61× �
 0.56×), stable navigation stayed around 2.3× PDFium at p50, and zoom stable
 got worse (22 → 44 ms, 1.97× → 2.32×). Peak RSS still passes, but with less
 headroom (0.99× → 1.15× against the 1.25× budget). The wheel journey p95 of
-919 ms looks like a single slow iteration; the two verification passes below
-put it at 0.46–0.50× PDFium.
+919 ms was first read as a single slow iteration (the two verification passes
+below put it at 0.46–0.50× PDFium); the interleaved A/B in #998 showed it is
+the wheel-cadence regression, not noise.
 
 Scroll cadence is not directly comparable with August. PDFium's wheel rAF p95
 is 16.7–16.8 ms in every Chrome 154 run, where it was 10 ms under Chrome 151,
@@ -218,6 +219,134 @@ PERF_PAGES=2,46 PERF_ZOOMS=1.72 \
 This is a desktop-web result. The rendering architecture is shared across
 platforms, but these ratios do not establish native macOS/Windows/Linux or
 physical iOS/Android performance.
+
+## Off-main-thread raster decision (2026-10-11, #1000)
+
+**Decision: go for SkWasm plus the worker-owned page surface as the web target.
+Do not switch the default to SkWasm alone, and do not build the ImageBitmap
+hybrid (A2) separately.** It is not a default yet: the prerequisites below come
+first, and the hardware run that confirms them.
+
+### What was measured
+
+Current `main` (`4860010c`) was built twice: JS/CanvasKit and `--wasm`
+SkWasm. Four configurations ran interleaved with PDFium in each run:
+
+- the default JS/CanvasKit viewer;
+- SkWasm;
+- SkWasm with `domSurface=1`;
+- JS/CanvasKit with `domSurface=1`. The worker surface does not depend on the
+  backend; it is a DOM canvas the render worker paints.
+
+Every configuration used full-compositor screenshot capture, so all four are
+comparable with each other and with PDFium. They are not comparable with the
+screencast checkpoints above. The browser was **Chrome for Testing
+154.0.8037.92** in a 4-core cloud container. Its GPU is SwiftShader (software),
+so absolute milliseconds run about 4× hardware. In screenshot mode, page and
+zoom *first visual* sit at the capture floor (about 39 ms) for both engines,
+so only stable latency, cadence and memory separate the configurations.
+
+Ratios are DartPDF / PDFium, p50 unless marked. `parity-plan` had 5 runs per
+configuration; `parity-text` and `parity-scan` had 3.
+
+| scenario | metric | JS (default) | SkWasm | SkWasm + surface | JS + surface |
+|---|---|---:|---:|---:|---:|
+| plan | open stable | 1.88× | 1.15× | **0.71×** | 0.96× |
+| plan | page stable p50 / p95 | 1.40× / 5.10× | 1.45× / 2.06× | **0.93×** / 2.36× | 0.86× / 4.69× |
+| plan | wheel journey p50 / p95 | 2.10× / 2.41× | 2.43× / 2.77× | **1.11×** / 1.33× | 1.87× / 2.36× |
+| plan | wheel rAF p95 (median of runs) | 5.99× | **1.00×** | **1.00×** | 3.97× |
+| plan | browser RSS p50 | 1.43× | 1.33× | 1.53× | 1.53× |
+| text | open stable | 2.76× | 1.58× | **0.92×** | 0.44× / 1.52× p95 |
+| text | page stable p50 / p95 | 1.96× / 3.09× | 1.45× / 1.72× | **1.11× / 1.24×** | 1.54× / 1.63× |
+| text | wheel journey p50 | 1.20× | 0.98× | **0.81×** | 1.16× |
+| text | wheel rAF p95 | 4.96× | **0.99×** | **0.99×** | 1.98× |
+| text | browser RSS p50 | 1.08× | 1.00× | 1.07× | 1.10× |
+| scan | open stable | 2.93× | 1.73× | **1.07×** | 0.59× |
+| scan | page stable p50 / p95 | 3.66× / 2.59× | 5.21× / 2.54× | **1.15×** / 1.63× | 4.08× / 2.19× |
+| scan | wheel journey p50 | 1.89× | 1.81× | **0.82×** | 1.41× |
+| scan | wheel rAF p95 | 1.98× | **1.00×** | **1.00×** | 1.98× |
+| scan | browser RSS p50 | 1.27× | 1.24× | 1.51× | 1.57× |
+
+Zoom stable is left out of the decision. In software rendering PDFium refines
+its own zoom late on `parity-plan`, which puts every DartPDF configuration
+below 1× there. On text and scan, every surface configuration shows a second
+zoom change about 120 ms after the first. That is the "zoom refinement"
+prerequisite below.
+
+### Reading
+
+- **SkWasm alone moves cadence and memory, not latency.** Wheel cadence matches
+  PDFium in every scenario, because Flutter's frame no longer rasterizes on the
+  thread that dispatches input. Page stable stays 1.45–5.2× and the wheel
+  journey gets slower, because each new page is still a full raster on the
+  SkWasm surface before it can show.
+- **JS plus the surface moves latency, not cadence.** The worker paints the
+  page, so open and page p50 improve. Flutter's own JS/CanvasKit frame still
+  rasterizes on the main thread, so rAF p95 stays 2–4×. A2, the ImageBitmap
+  hybrid, has the same shape: it moves page painting off the main thread but
+  not Flutter's frame. It is not worth building separately.
+- **Only SkWasm plus the surface moves both.** It met every budget it was
+  checked against on `parity-text` except zoom refinement (see above). On
+  `parity-plan` and `parity-scan` it met open, page p50, wheel p50 and cadence.
+  This agrees with the August experimental checkpoint below, measured on
+  hardware under Chrome 151.
+- **The per-action phase split explains why.** On the default JS viewer,
+  Flutter frames spent 15–42 ms *building* per page jump and 177–1215 ms
+  *rasterizing* (largest frame 76–330 ms) on `parity-plan`. Each zoom leg spent 6–10 ms building
+  and 80–280 ms rasterizing. Interpretation and widget work are not where the
+  gap is; main-thread raster is.
+
+### Prerequisites before it can be a default
+
+1. **Profile coverage.** `pdfBrowserPageSurfaceProfile` gives the page back to
+   the SkWasm renderer for any of these:
+   - embedded glyph outlines (`run.glyphs != null`, which covers most
+     real-world documents);
+   - stroked, gradient or invisible text;
+   - clips, shadings, groups and soft masks, blend modes;
+   - stencil images.
+
+   The checked-in corpora are fully inside the profile: 79–128 surfaces
+   presented per configuration against 15–19 declines, with the declined pages
+   painted by SkWasm. Real documents mostly are not, so on them this
+   configuration falls back to the SkWasm column. Glyph outlines as `Path2D`
+   come first, then clip paths.
+2. **Pixel correctness.** `tool/perf.sh surface-check` against this build:
+   - `parity-text` at 1.5×: foreground coverage is 1.35–1.36× the SkWasm
+     baseline (limit 1.20). Every other text sample passed.
+   - `parity-plan` page 0 at 3×: 1.083 against the 1.08 limit. The rest
+     passed.
+   - `parity-scan`: timed out mirroring page 7 at 2× in this software-GPU
+     container.
+3. **Zoom refinement.** The surface's second zoom change (zoom stable 2.9–3.0×
+   on text and scan) has to go. A sharper first paint at the destination
+   scale, or adopting the existing backing, would do it.
+4. **Memory.** Renderer RSS is 1.5–1.7× PDFium on plan and scan with the
+   surface: SkWasm's raster store and the worker canvases both hold page
+   pixels. One cross-layer pixel budget (M10 in #1001) has to cover both.
+5. **Deployment.**
+   - `tool/web_cache_bust.sh` refuses dart2wasm builds, because the render
+     worker URL can't be rewritten inside a wasm module. The worker needs
+     revalidating cache headers (`WORKER_URL_REVALIDATED=1`).
+   - Browsers without WasmGC get Flutter's JS fallback automatically. The
+     surface still runs there (the JS + surface column), so the fallback keeps
+     the latency win without the cadence win.
+   - `app/firebase.json` already sends COOP/COEP.
+6. **Overlays.** Annotation, selection and editing chrome has to stay above an
+   `HtmlElementView` per page. Each overlay above a platform view costs an
+   extra canvas in SkWasm; editing sessions need to be measured.
+7. **Hardware confirmation.** Re-run the four columns on the parity host
+   (Chrome 154, hardware GPU). Promote only if SkWasm plus the surface passes
+   there with the prerequisites above in.
+
+Reproduce one column (here SkWasm plus the surface; drop `WASM`/`skwasm` for
+JS, drop the query for no surface):
+
+```sh
+WASM=1 PERF_WEB_BACKEND=skwasm PERF_VISUAL_CAPTURE=screenshot \
+  PERF_DART_QUERY=domSurface=1 PERF_EXPECT_CHROME=154 \
+  tool/perf.sh competitive parity-text --iterations 3
+```
 
 ## Historical and experimental checkpoints
 

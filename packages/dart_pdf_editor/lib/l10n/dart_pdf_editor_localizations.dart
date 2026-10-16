@@ -762,6 +762,48 @@ abstract class DartPdfEditorLocalizations {
   /// **'Apply to pages…'**
   String get menuApplyToPages;
 
+  /// Properties section for independently styling callout leader lines.
+  ///
+  /// In en, this message translates to:
+  /// **'Leader'**
+  String get propLeader;
+
+  /// Properties control for the callout text box outline width; zero removes it.
+  ///
+  /// In en, this message translates to:
+  /// **'Outline width'**
+  String get propOutlineWidth;
+
+  /// Annotation menu: rotate multiple annotations around their shared centre.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate around selection center…'**
+  String get menuRotateSelection;
+
+  /// Annotation menu: rotate multiple annotations around their individual centres.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate each annotation…'**
+  String get menuRotateEach;
+
+  /// Prompt for a signed rotation angle in degrees; positive rotates counterclockwise.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation (degrees, counterclockwise)'**
+  String get rotationAngleTitle;
+
+  /// Annotation context menu: make the selected annotations one persistent group.
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get menuGroup;
+
+  /// Annotation context menu: dissolve selected groups while retaining their annotations.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungroup'**
+  String get menuUngroup;
+
   /// Annotation context-menu item that raises the selected annotation to the top of the z-order.
   ///
   /// In en, this message translates to:
@@ -4385,6 +4427,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Insert'**
   String get insertPagesConfirm;
+
+  /// Toggle in View options: when on, saving or exporting paints the chosen page (paper) color into the file so other PDF readers show it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Save page color into file'**
+  String get shellBakePageColor;
+
+  /// Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid.
+  ///
+  /// In en, this message translates to:
+  /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
+  String get pageColorNotBakedSigned;
 }
 
 class _DartPdfEditorLocalizationsDelegate

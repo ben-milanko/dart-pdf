@@ -346,6 +346,22 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '前回のセッションの $count 件のドキュメントは利用できなくなりました。移動、名前の変更、または削除された可能性があります。',
+      one: '$title は利用できなくなりました。移動、名前の変更、または削除された可能性があります。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title を元の場所に保存できませんでした。移動または削除された可能性があります。保存先を選択してください。';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'デジタル署名できませんでした: $error';
   }
@@ -1289,4 +1305,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get appMenuMoreTools => 'その他のツール';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
 }

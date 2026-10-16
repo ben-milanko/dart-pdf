@@ -27,6 +27,7 @@ export 'src/struct_text.dart';
 export 'src/matrix.dart';
 export 'src/mesh.dart';
 export 'src/ocr_coverage.dart';
+export 'src/ocr_scan_detection.dart';
 export 'src/path.dart' hide writePdfPathBlock;
 export 'src/recording_device.dart';
 export 'src/recorded_text.dart';

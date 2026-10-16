@@ -369,6 +369,28 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Застосувати до сторінок…';
 
   @override
+  String get propLeader => 'Виноска';
+
+  @override
+  String get propOutlineWidth => 'Товщина контуру';
+
+  @override
+  String get menuRotateSelection => 'Повернути навколо центру виділення…';
+
+  @override
+  String get menuRotateEach => 'Повернути кожну анотацію…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Обертання (градуси, проти годинникової стрілки)';
+
+  @override
+  String get menuGroup => 'Згрупувати';
+
+  @override
+  String get menuUngroup => 'Розгрупувати';
+
+  @override
   String get menuBringToFront => 'На передній план';
 
   @override
@@ -2487,4 +2509,11 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Вставити';
+
+  @override
+  String get shellBakePageColor => 'Зберігати колір сторінки у файлі';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними.';
 }

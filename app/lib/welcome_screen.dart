@@ -196,24 +196,43 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      if (widget.showHero) ...[
-                        Icon(Icons.picture_as_pdf_outlined,
-                            size: 64, color: theme.colorScheme.primary),
-                        const SizedBox(height: 12),
-                        Text(AppInfo.name,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.headlineSmall),
-                        const SizedBox(height: 24),
-                        Align(
-                          alignment: Alignment.center,
-                          child: FilledButton.icon(
-                            key: const ValueKey('welcome-open-pdf'),
-                            onPressed: widget.onOpen,
-                            icon: const Icon(Icons.folder_open),
-                            label: Text(appL10n(context).welcomeOpenPdf),
+                      if (widget.showHero)
+                        Card.filled(
+                          key: const ValueKey('welcome-start-panel'),
+                          margin: EdgeInsets.zero,
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.picture_as_pdf_outlined,
+                                    size: 64, color: theme.colorScheme.primary),
+                                const SizedBox(height: 12),
+                                Text(AppInfo.displayName,
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.headlineSmall),
+                                if (defaultTargetPlatform ==
+                                        TargetPlatform.linux ||
+                                    defaultTargetPlatform ==
+                                        TargetPlatform.macOS ||
+                                    defaultTargetPlatform ==
+                                        TargetPlatform.windows) ...[
+                                  const SizedBox(height: 12),
+                                  Text(appL10n(context).editorDropToOpen,
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodyLarge),
+                                ],
+                                const SizedBox(height: 24),
+                                FilledButton.icon(
+                                  key: const ValueKey('welcome-open-pdf'),
+                                  onPressed: widget.onOpen,
+                                  icon: const Icon(Icons.folder_open),
+                                  label: Text(appL10n(context).welcomeOpenPdf),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ],
                       if (allItems.isNotEmpty) ...[
                         SizedBox(height: widget.showHero ? 28 : 8),
                         _RecentsHeader(

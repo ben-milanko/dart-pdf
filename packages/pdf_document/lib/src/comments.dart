@@ -187,6 +187,7 @@ class PdfCommentThread {
       byDict[annotation.dict] = annotation;
     }
     CosDictionary? parentDictOf(PdfAnnotation annotation) {
+      if (annotation.replyType == 'Group') return null;
       final irt = cos.resolve(annotation.dict['IRT']);
       return irt is CosDictionary ? irt : null;
     }

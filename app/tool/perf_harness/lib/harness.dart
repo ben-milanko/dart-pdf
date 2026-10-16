@@ -96,6 +96,7 @@
 //   window.__perfBusy() / __perfPageReady(index) / __perfPageVisible(index)
 //   window.__perfGoToPage(index) / __perfCenterPage(index)
 //   window.__perfSetZoom(scale)
+//   window.__perfSetZoomTracked(scale, page) / __perfZoomReadyAt()
 //   window.__perfViewSync() / __perfApplyViewSync(json)
 //   window.__perfSearch(query) / __perfSearchBusy() / __perfSearchQuery()
 //   window.__perfSearchCount()
@@ -834,6 +835,52 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
         ((JSNumber rawZoom) {
           _viewer.setZoom(rawZoom.toDartDouble);
         }).toJS);
+    // Zoom readiness as a historical timestamp (#999). The driver used to poll
+    // "zoom applied, page visible, not busy" about every 20 ms, which put up
+    // to a poll interval of noise on every sample - enough to hide a one-frame
+    // win. A tracked zoom records the first instant that holds instead: on a
+    // render-activity change (a render finishing is exactly when it can turn
+    // true) or at the end of a frame. Never before the first frame after the
+    // zoom, because that frame's build is what asks the pages for the new
+    // geometry - until then the scheduler is idle only because nothing has
+    // asked yet.
+    double? zoomTarget;
+    var zoomPage = -1;
+    var zoomReadyAt = -1.0;
+    var zoomFramed = false;
+    void checkZoomReady() {
+      final target = zoomTarget;
+      if (target == null || !zoomFramed || zoomReadyAt >= 0) return;
+      if ((_viewer.zoom - target).abs() < 0.02 &&
+          !_viewer.isPageRenderBusy &&
+          _viewer.visiblePageRegion(zoomPage) != null) {
+        zoomReadyAt = _browserEpochNow();
+      }
+    }
+
+    void checkZoomReadyEachFrame(Duration _) {
+      if (zoomTarget == null || zoomReadyAt >= 0) return;
+      zoomFramed = true;
+      checkZoomReady();
+      if (zoomReadyAt < 0) {
+        SchedulerBinding.instance.addPostFrameCallback(checkZoomReadyEachFrame);
+      }
+    }
+
+    _viewer.pageRenderActivity.addListener(checkZoomReady);
+    _setGlobal(
+        '__perfSetZoomTracked',
+        ((JSNumber rawZoom, JSNumber rawPage) {
+          zoomTarget = rawZoom.toDartDouble;
+          zoomPage = rawPage.toDartInt;
+          zoomReadyAt = -1;
+          zoomFramed = false;
+          _viewer.setZoom(rawZoom.toDartDouble);
+          SchedulerBinding.instance
+            ..addPostFrameCallback(checkZoomReadyEachFrame)
+            ..ensureVisualUpdate();
+        }).toJS);
+    _setGlobal('__perfZoomReadyAt', (() => zoomReadyAt.toJS).toJS);
     _setGlobal(
         '__perfScrollToNormalized',
         ((JSNumber rawPosition) {

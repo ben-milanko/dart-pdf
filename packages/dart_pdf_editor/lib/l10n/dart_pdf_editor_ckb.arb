@@ -104,6 +104,13 @@
   "menuAddLeader": "زیادکردنی هێڵی ئاماژە",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, one{جێبەجێکردنی تێبینی لەسەر پەڕەکان} other{جێبەجێکردنی تێبینییەکان لەسەر پەڕەکان}}",
   "menuApplyToPages": "جێبەجێکردن لەسەر پەڕەکان…",
+  "propLeader": "هێڵی ئاماژە",
+  "propOutlineWidth": "پانی چوارچێوە",
+  "menuRotateSelection": "سوڕاندن بە دەوری ناوەندی هەڵبژاردن…",
+  "menuRotateEach": "سوڕاندنی هەر تێبینییەک…",
+  "rotationAngleTitle": "سوڕاندن (پلە، پێچەوانەی کاتژمێر)",
+  "menuGroup": "گرووپکردن",
+  "menuUngroup": "هەڵوەشاندنەوەی گرووپ",
   "menuBringToFront": "هێنانە پێشەوە",
   "menuCheck": "دیاریکردن",
   "menuChooseValue": "هەڵبژاردنی نرخ…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "نیشانەکانیش لەخۆبگرێت",
   "insertPagesBookmarkFiles": "نیشانەیەک بۆ هەر پەڕگەیەک زیاد بکە",
   "insertPagesSummary": "{inserted, plural, =1{1 پەڕە دەخاتە ناوەوە} other{{inserted} پەڕە دەخاتە ناوەوە}} - بەڵگەنامەکە {total, plural, =1{1 پەڕەی} other{{total} پەڕەی}} دەبێت.",
-  "insertPagesConfirm": "خستنەناو"
+  "insertPagesConfirm": "خستنەناو",
+  "shellBakePageColor": "پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا",
+  "pageColorNotBakedSigned": "ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە."
 }

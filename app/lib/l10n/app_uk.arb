@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "Не вдалося відкрити {url}",
   "editorCouldNotPrint": "Не вдалося надрукувати {title}",
   "editorCouldNotReopen": "Не вдалося повторно відкрити {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} більше недоступний. Можливо, файл переміщено, перейменовано або видалено.} few{{count} документи з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.} many{{count} документів з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.} other{{count} документа з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.}}",
+  "editorSaveOriginUnavailable": "Не вдалося зберегти {title} у вихідне розташування. Можливо, файл переміщено або видалено. Виберіть, куди зберегти.",
   "editorCouldNotSign": "Не вдалося поставити цифровий підпис: {error}",
   "editorDiscard": "Відхилити",
   "editorDiscardChangesTitle": "Відхилити зміни?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Нещодавні",
   "appMenuSeeAll": "Показати всі",
   "appMenuExport": "Експорт",
-  "appMenuMoreTools": "Інші інструменти"
+  "appMenuMoreTools": "Інші інструменти",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

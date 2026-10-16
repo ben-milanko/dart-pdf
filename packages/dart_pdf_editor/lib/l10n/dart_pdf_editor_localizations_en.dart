@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuApplyToPages => 'Apply to pages…';
 
   @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection center…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
   String get menuBringToFront => 'Bring to front';
 
   @override
@@ -2431,6 +2452,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page color into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2792,6 +2820,27 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuApplyToPages => 'Apply to pages…';
 
   @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
   String get menuBringToFront => 'Bring to front';
 
   @override
@@ -4860,6 +4909,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -5221,6 +5277,27 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get menuApplyToPages => 'Apply to pages…';
 
   @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
   String get menuBringToFront => 'Bring to front';
 
   @override
@@ -7289,4 +7366,11 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }

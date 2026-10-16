@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} açılamadı",
   "editorCouldNotPrint": "{title} yazdırılamadı",
   "editorCouldNotReopen": "{title} yeniden açılamadı",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.} other{Son oturumunuzdaki {count} belge artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilirler.}}",
+  "editorSaveOriginUnavailable": "{title} özgün konumuna kaydedilemedi. Taşınmış veya silinmiş olabilir. Nereye kaydedileceğini seçin.",
   "editorCouldNotSign": "Dijital olarak imzalanamadı: {error}",
   "editorDiscard": "At",
   "editorDiscardChangesTitle": "Değişiklikler atılsın mı?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Son kullanılanlar",
   "appMenuSeeAll": "Tümünü gör",
   "appMenuExport": "Dışa aktar",
-  "appMenuMoreTools": "Diğer araçlar"
+  "appMenuMoreTools": "Diğer araçlar",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

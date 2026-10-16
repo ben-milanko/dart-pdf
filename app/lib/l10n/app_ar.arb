@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "تعذّر فتح {url}",
   "editorCouldNotPrint": "تعذّرت طباعة {title}",
   "editorCouldNotReopen": "تعذّرت إعادة فتح {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{لم يعد {title} متاحًا. ربما تم نقله أو إعادة تسميته أو حذفه.} other{لم يعد {count} من مستندات جلستك الأخيرة متاحًا. ربما تم نقلها أو إعادة تسميتها أو حذفها.}}",
+  "editorSaveOriginUnavailable": "تعذّر حفظ {title} في موقعه الأصلي. ربما تم نقله أو حذفه. اختر مكان الحفظ.",
   "editorCouldNotSign": "تعذّر التوقيع الرقمي: {error}",
   "editorDiscard": "تجاهل",
   "editorDiscardChangesTitle": "تجاهل التغييرات؟",
@@ -340,5 +342,10 @@
   "appMenuRecent": "الأخيرة",
   "appMenuSeeAll": "عرض الكل",
   "appMenuExport": "تصدير",
-  "appMenuMoreTools": "المزيد من الأدوات"
+  "appMenuMoreTools": "المزيد من الأدوات",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

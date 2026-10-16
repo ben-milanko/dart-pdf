@@ -145,6 +145,24 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// content walk.
 typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
 
+/// Admission for decoding a record reply on the calling isolate (#998).
+///
+/// A worker records off-thread, but its reply is still decoded
+/// (`deserializeCommands`) on the isolate that asked - a 70k-op plan sheet is
+/// tens of milliseconds of it. A record given a gate calls it with the reply's
+/// top-level command count (see `serializedCommandCount`) once the reply has
+/// arrived and before decoding, and decodes only once the future completes. A
+/// page view uses this to hold a reply too large to replay during a scroll in
+/// its motion-gated UI turn *before* the decode, rather than decode it inside
+/// the gesture only to then wait for the settle.
+///
+/// Completing false drops the reply: the record returns null without decoding.
+/// A [PdfCachingRenderWorker] shares one reply among every caller of a key, so
+/// a caller's gate should complete true - it delays, it does not veto - and
+/// only the cache itself drops a reply it would discard anyway. The backend's
+/// queue is free while a reply waits; only the decode is held.
+typedef PdfRecordDecodeGate = Future<bool> Function(int commandCount);
+
 /// A browser-owned page canvas bound to one render worker.
 ///
 /// This deliberately carries no `dart:ui`, Flutter, or web types: native
@@ -400,10 +418,11 @@ abstract class PdfRenderWorker {
   ///
   /// [imageDecodeRegion] is a PDF page-space rectangle for a transient
   /// deep-zoom/detail render. When set with [decodeImages] true, the worker
-  /// may decode only the intersecting source pixels of axis-aligned image
-  /// draws and retarget their transforms to that crop. Full-page cached
-  /// renders must leave this null; a region-specific buffer is only correct
-  /// for rasterizing that same visible slice.
+  /// may decode only the intersecting source pixels of each image draw
+  /// (rotated and skewed placements included) and retarget their transforms
+  /// to that crop. Full-page cached renders must leave this null; a
+  /// region-specific buffer is only correct for rasterizing that same visible
+  /// slice.
   ///
   /// [onPartial], when supplied on a full-page decoding record ([decodeImages]
   /// true), receives progressive linework prefixes as the worker walks the page
@@ -411,6 +430,11 @@ abstract class PdfRenderWorker {
   /// (the null fallback, the web worker until its twin lands, and - until the
   /// caching wrapper's shared-stream dedup is in - a [PdfCachingRenderWorker])
   /// simply never call it; the final result is unaffected either way.
+  ///
+  /// [decodeGate], when supplied, is consulted with the reply's command count
+  /// after it arrives and before it is decoded on this isolate - see
+  /// [PdfRecordDecodeGate]. Backends with nothing to decode (the null
+  /// fallback) ignore it.
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
@@ -421,6 +445,7 @@ abstract class PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   });
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
@@ -1058,6 +1083,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final urgent = _urgentWorkerFor(priority);
     if (urgent != null) {
@@ -1071,9 +1097,17 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
         onPartial: onPartial,
+        decodeGate: decodeGate,
       );
     }
     final worker = _lease(pageIndex, priority);
+    var leased = true;
+    void release() {
+      if (!leased) return;
+      leased = false;
+      _release(pageIndex, priority, worker);
+    }
+
     try {
       return await _workers[worker].record(
         pageIndex,
@@ -1085,9 +1119,17 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
         onPartial: onPartial,
+        // A reply waiting at its gate no longer occupies the worker: hand the
+        // lease back so routing does not count a parked decode as load.
+        decodeGate: decodeGate == null
+            ? null
+            : (count) {
+                release();
+                return decodeGate(count);
+              },
       );
     } finally {
-      _release(pageIndex, priority, worker);
+      release();
     }
   }
 
@@ -1575,6 +1617,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (!_inner.isActive) {
       return _inner.record(
@@ -1586,6 +1629,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
+        decodeGate: decodeGate,
       );
     }
     final effectiveCommandLimit = decodeImages ? null : commandLimit;
@@ -1638,6 +1682,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
           imageDecodeRegion: effectiveRegion,
           dispatchEpoch: _epoch,
           streamPartials: onPartial != null,
+          decodeGate: decodeGate,
         );
       }
       return pending.future;
@@ -1660,6 +1705,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       imageDecodeRegion: effectiveRegion,
       dispatchEpoch: _epoch,
       streamPartials: onPartial != null,
+      decodeGate: decodeGate,
     );
     // Clear the slot only if it still holds THIS record. An updateRevision may
     // have dropped the entry mid-decode and a newer request re-populated it; a
@@ -1683,6 +1729,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     required PdfRect? imageDecodeRegion,
     required int dispatchEpoch,
     required bool streamPartials,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     final dispatch = record.beginDispatch(priority);
     _recordAndStore(
@@ -1700,6 +1747,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       // Ask the backend for partials only when the dispatching caller opted
       // in. Promotion preserves all existing subscribers on [record].
       onPartial: streamPartials ? record.emit : null,
+      decodeGate: decodeGate,
     ).then(
       (commands) {
         if (record.isCurrent(dispatch)) record.complete(commands);
@@ -1724,10 +1772,13 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     required int dispatchEpoch,
     required bool Function() isCurrent,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final timeout = pdfRenderWorkerRecordTimeout;
-    final commands = await _inner
-        .record(
+    // Set once the backend's reply has arrived and is waiting at the gate:
+    // the worker answered, so the watchdog below has nothing to catch.
+    var replied = false;
+    final pending = _inner.record(
       pageIndex,
       annotations: annotations,
       hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
@@ -1737,10 +1788,22 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       commandLimit: key.$5,
       imageDecodeRegion: imageDecodeRegion,
       onPartial: onPartial,
-    )
-        .timeout(
+      // Every caller of this key shares the one reply, so the dispatcher's gate
+      // only ever delays its decode. The cache adds the one veto it is sure
+      // of: a dispatch superseded while it waited is discarded below anyway,
+      // so it is not decoded at all.
+      decodeGate: decodeGate == null
+          ? null
+          : (count) async {
+              replied = true;
+              return await decodeGate(count) && isCurrent();
+            },
+    );
+    final commands = await pending.timeout(
       timeout,
       onTimeout: () {
+        // A reply parked at its decode gate (a long scroll) is not a wedge.
+        if (replied) return pending;
         // A promoted low-priority dispatch can outlive the foreground result.
         // Its watchdog must not tear down the healthy worker generation.
         if (!isCurrent()) return null;

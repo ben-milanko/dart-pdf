@@ -8,6 +8,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 
 import 'annotation.dart';
+import 'annotation_groups.dart';
 import 'comments.dart';
 import 'compressor.dart';
 import 'content_elements.dart';
@@ -41,6 +42,7 @@ export 'compressor.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
+part 'annotation_group_editor.dart';
 part 'annotation_sync.dart';
 part 'comment_editor.dart';
 part 'attachment_editor.dart';
@@ -53,6 +55,7 @@ part 'header_footer.dart';
 part 'outline_editor.dart';
 part 'page_labels_editor.dart';
 part 'page_annotation_list.dart';
+part 'page_background.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';

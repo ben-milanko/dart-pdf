@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} konnte nicht geöffnet werden",
   "editorCouldNotPrint": "{title} konnte nicht gedruckt werden",
   "editorCouldNotReopen": "{title} konnte nicht erneut geöffnet werden",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} ist nicht mehr verfügbar. Die Datei wurde möglicherweise verschoben, umbenannt oder gelöscht.} other{{count} Dokumente aus der letzten Sitzung sind nicht mehr verfügbar. Sie wurden möglicherweise verschoben, umbenannt oder gelöscht.}}",
+  "editorSaveOriginUnavailable": "{title} konnte nicht am ursprünglichen Speicherort gespeichert werden. Die Datei wurde möglicherweise verschoben oder gelöscht. Wählen Sie einen Speicherort.",
   "editorCouldNotSign": "Digitale Signatur nicht möglich: {error}",
   "editorDiscard": "Verwerfen",
   "editorDiscardChangesTitle": "Änderungen verwerfen?",
@@ -340,5 +342,10 @@
   "appMenuRecent": "Zuletzt verwendet",
   "appMenuSeeAll": "Alle anzeigen",
   "appMenuExport": "Exportieren",
-  "appMenuMoreTools": "Weitere Werkzeuge"
+  "appMenuMoreTools": "Weitere Werkzeuge",
+  "settingsTextRecognition": "Text recognition",
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
 }

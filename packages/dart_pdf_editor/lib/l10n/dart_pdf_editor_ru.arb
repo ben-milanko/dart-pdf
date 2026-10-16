@@ -142,6 +142,13 @@
   "menuAddLeader": "Добавить линию выноски",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Применить аннотацию к страницам} other{Применить аннотации к страницам}}",
   "menuApplyToPages": "Применить к страницам…",
+  "propLeader": "Выноска",
+  "propOutlineWidth": "Толщина контура",
+  "menuRotateSelection": "Повернуть вокруг центра выделения…",
+  "menuRotateEach": "Повернуть каждую аннотацию…",
+  "rotationAngleTitle": "Поворот (градусы, против часовой стрелки)",
+  "menuGroup": "Сгруппировать",
+  "menuUngroup": "Разгруппировать",
   "menuBringToFront": "На передний план",
   "menuCheck": "Отметить",
   "menuChooseValue": "Выбрать значение…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Включить закладки",
   "insertPagesBookmarkFiles": "Добавить закладку для каждого файла",
   "insertPagesSummary": "{inserted, plural, one{Будет вставлена {inserted} страница} few{Будет вставлено {inserted} страницы} many{Будет вставлено {inserted} страниц} other{Будет вставлено {inserted} страницы}} — в документе станет {total, plural, one{{total} страница} few{{total} страницы} many{{total} страниц} other{{total} страницы}}.",
-  "insertPagesConfirm": "Вставить"
+  "insertPagesConfirm": "Вставить",
+  "shellBakePageColor": "Сохранять цвет страницы в файле",
+  "pageColorNotBakedSigned": "Цвет страницы не сохранён в файле: изменение страниц сделает его подписи недействительными."
 }

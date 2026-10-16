@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_memory.dart';
+import 'build_channel.dart';
 import 'devtools.dart';
 import 'document_tab.dart';
 import 'editor_screen.dart';
@@ -17,6 +18,7 @@ import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 import 'tab_drag.dart';
 import 'trackpad_signature.dart';
+import 'web_safe_area.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -151,7 +153,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   }) {
     return openRegularWindow(
       context,
-      title: 'DartPDF',
+      title: kProductDisplayName,
       builder: (_) => _DartPdfWindow(
         prefs: _prefs,
         tabDragCoordinator: _tabDragCoordinator,
@@ -219,10 +221,18 @@ class _DartPdfWindow extends StatelessWidget {
     return _WindowShellSelector(
       prefs: prefs,
       builder: (context) => MaterialApp(
-        title: 'DartPDF',
-        builder: (context, child) => KeyboardAvailability(child: child!),
+        title: kProductDisplayName,
+        builder: (context, child) =>
+            WebSafeArea(child: KeyboardAvailability(child: child!)),
         localizationsDelegates: appLocalizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
+        // With no matching platform locale (e.g. Linux's C locale), use
+        // English instead of the generated list's first language, Arabic.
+        // Flutter still matches every preferred locale before falling back.
+        supportedLocales: [
+          const Locale('en'),
+          ...AppLocalizations.supportedLocales
+              .where((locale) => locale != const Locale('en')),
+        ],
         // The effective locale (DevTools override, else the persisted Settings
         // choice, else null = "System default") is passed as `locale` rather
         // than only consulted inside the resolution callback. This matters:

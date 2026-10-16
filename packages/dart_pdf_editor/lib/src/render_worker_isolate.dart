@@ -294,7 +294,8 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest.record(
         priority,
@@ -323,6 +324,10 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     _pump();
     final buffers = await request.completer.future;
     if (buffers == null) return null;
+    if (decodeGate != null) {
+      final count = serializedCommandCount(buffers.single);
+      if (count != null && !await decodeGate(count)) return null;
+    }
     try {
       return deserializeCommands(buffers.single);
     } catch (_) {

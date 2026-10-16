@@ -363,6 +363,27 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuApplyToPages => '페이지에 적용…';
 
   @override
+  String get propLeader => '지시선';
+
+  @override
+  String get propOutlineWidth => '윤곽선 두께';
+
+  @override
+  String get menuRotateSelection => '선택 영역 중심을 기준으로 회전…';
+
+  @override
+  String get menuRotateEach => '각 주석 회전…';
+
+  @override
+  String get rotationAngleTitle => '회전 (도, 반시계 방향)';
+
+  @override
+  String get menuGroup => '그룹화';
+
+  @override
+  String get menuUngroup => '그룹 해제';
+
+  @override
   String get menuBringToFront => '맨 앞으로 가져오기';
 
   @override
@@ -2399,4 +2420,11 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '삽입';
+
+  @override
+  String get shellBakePageColor => '페이지 색상을 파일에 저장';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
 }

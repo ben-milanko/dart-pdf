@@ -142,6 +142,13 @@
   "menuAddLeader": "Tambah garis penunjuk",
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Terapkan anotasi ke halaman} other{Terapkan anotasi ke halaman}}",
   "menuApplyToPages": "Terapkan ke halaman…",
+  "propLeader": "Garis penunjuk",
+  "propOutlineWidth": "Ketebalan garis tepi",
+  "menuRotateSelection": "Putar di sekitar pusat pilihan…",
+  "menuRotateEach": "Putar setiap anotasi…",
+  "rotationAngleTitle": "Rotasi (derajat, berlawanan arah jarum jam)",
+  "menuGroup": "Kelompokkan",
+  "menuUngroup": "Pisahkan kelompok",
   "menuBringToFront": "Bawa ke depan",
   "menuCheck": "Centang",
   "menuChooseValue": "Pilih nilai…",
@@ -707,5 +714,7 @@
   "insertPagesIncludeBookmarks": "Sertakan penanda",
   "insertPagesBookmarkFiles": "Tambahkan penanda untuk setiap file",
   "insertPagesSummary": "{inserted, plural, =1{Menyisipkan 1 halaman} other{Menyisipkan {inserted} halaman}}—dokumen akan memiliki {total, plural, =1{1 halaman} other{{total} halaman}}.",
-  "insertPagesConfirm": "Sisipkan"
+  "insertPagesConfirm": "Sisipkan",
+  "shellBakePageColor": "Simpan warna halaman ke file",
+  "pageColorNotBakedSigned": "Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya."
 }
