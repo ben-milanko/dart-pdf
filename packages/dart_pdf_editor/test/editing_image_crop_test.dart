@@ -140,6 +140,37 @@ void main() {
       expect(rest.top, greaterThanOrEqualTo(220));
       expect(zoomed.top, greaterThanOrEqualTo(220));
     });
+    testWidgets('the chips flip above, then inside, when the page runs out',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Future<Rect> confirmFor(Rect bounds) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Stack(children: [
+            PdfImageCropOverlay(
+              key: ValueKey(bounds),
+              bounds: bounds,
+              initialCrop: bounds,
+              chromeScale: 1,
+              accentColor: const Color(0xFF1E88E5),
+              onChanged: (_) {},
+              onCommit: () {},
+              onCancel: () {},
+            ),
+          ]),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      // hugging the page bottom: no room below, so the chips ride above
+      final above = await confirmFor(const Rect.fromLTWH(20, 480, 200, 110));
+      expect(above.bottom, lessThanOrEqualTo(480));
+      // the full page height: no room either side, so they tuck inside
+      final inside = await confirmFor(const Rect.fromLTWH(20, 0, 200, 600));
+      expect(inside.bottom, lessThanOrEqualTo(600));
+      expect(inside.top, greaterThanOrEqualTo(0));
+    });
   });
 
   group('crop overlay in the viewer', () {
