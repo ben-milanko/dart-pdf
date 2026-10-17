@@ -2885,10 +2885,50 @@ class _EditorScreenState extends State<EditorScreen>
         if (written == null) {
           _toast(l10n.ocrAutoDocumentChanged);
         } else if (written > 0) {
-          _toast(l10n.ocrAutoResult);
+          if (_autoOcr.offered) {
+            _toast(l10n.ocrAutoResult);
+          } else {
+            unawaited(_offerAutoOcrChoice());
+          }
         }
       },
     );
+  }
+
+  /// After the first automatic OCR, asks once whether to keep doing it for
+  /// every scan or turn it off. Dismissing the dialog keeps it on; either way
+  /// the question is not asked again (Settings still has the switch).
+  Future<void> _offerAutoOcrChoice() async {
+    unawaited(_autoOcr.markOffered());
+    final keep = await showPdfDialog<bool>(
+      context: context,
+      builder: (context) {
+        final l10n = appL10n(context);
+        return AlertDialog(
+          key: const ValueKey('auto-ocr-offer'),
+          title: Text(l10n.ocrAutoOfferTitle),
+          content: Text(l10n.ocrAutoOfferMessage),
+          actions: [
+            TextButton(
+              key: const ValueKey('auto-ocr-offer-off'),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.ocrAutoOfferTurnOff),
+            ),
+            PdfDialogSubmit.action(
+                onSubmit: () => Navigator.of(context).pop(true),
+                child: FilledButton(
+                  key: const ValueKey('auto-ocr-offer-keep'),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text(l10n.ocrAutoOfferKeepOn),
+                )),
+          ],
+        );
+      },
+    );
+    if (keep == false) {
+      await _autoOcr.save(false);
+      if (mounted) _toast(appL10n(context).ocrAutoTurnedOff);
+    }
   }
 
   /// Closes the tab at [index], confirming first when it has unsaved edits.

@@ -2234,6 +2234,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.'**
   String get ocrAutoDocumentChanged;
+
+  /// Title of the one-time dialog shown after automatic OCR first adds a text layer to a scanned document, asking whether to keep doing it.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep automatic OCR on?'**
+  String get ocrAutoOfferTitle;
+
+  /// Body of the one-time dialog after the first automatic OCR.
+  ///
+  /// In en, this message translates to:
+  /// **'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.'**
+  String get ocrAutoOfferMessage;
+
+  /// Button in the one-time automatic OCR dialog that keeps automatic OCR enabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep on'**
+  String get ocrAutoOfferKeepOn;
+
+  /// Button in the one-time automatic OCR dialog that disables automatic OCR.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off'**
+  String get ocrAutoOfferTurnOff;
+
+  /// Toast after the user turned automatic OCR off from the one-time dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.'**
+  String get ocrAutoTurnedOff;
 }
 
 class _AppLocalizationsDelegate

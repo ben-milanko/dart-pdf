@@ -64,6 +64,24 @@ void main() {
       expect(reloaded.value, isFalse);
     });
 
+    test('the offer counts as made once shown or once the user chose',
+        () async {
+      final setting = AutoOcrSetting();
+      await setting.load();
+      expect(setting.offered, isFalse);
+      await setting.markOffered();
+      final reloaded = AutoOcrSetting();
+      await reloaded.load();
+      expect(reloaded.offered, isTrue);
+
+      SharedPreferences.setMockInitialValues({});
+      final chosen = AutoOcrSetting();
+      await chosen.save(true);
+      final reloadedChosen = AutoOcrSetting();
+      await reloadedChosen.load();
+      expect(reloadedChosen.offered, isTrue);
+    });
+
     test('a choice made while the stored one loads wins', () async {
       SharedPreferences.setMockInitialValues(
           {'dart_pdf_editor_app.ocr.auto': true});
@@ -141,10 +159,10 @@ void main() {
 
   group('EditorScreen', () {
     Future<_FakeOcr> open(WidgetTester tester, Uint8List bytes,
-        {bool enabled = true}) async {
+        {bool enabled = true, AutoOcrSetting? autoOcr}) async {
       final ocr = _FakeOcr();
-      final setting = AutoOcrSetting();
-      await setting.save(enabled);
+      final setting = autoOcr ?? AutoOcrSetting();
+      if (autoOcr == null) await setting.save(enabled);
       await tester.pumpWidget(MaterialApp(
         home: EditorScreen(
           prefs: prefs,
@@ -172,6 +190,35 @@ void main() {
       expect(session(tester).isModified, isTrue);
       expect(
           find.textContaining('this scan is now searchable'), findsOneWidget);
+    });
+
+    testWidgets('the first automatic OCR offers to keep it on', (tester) async {
+      final setting = AutoOcrSetting();
+      await open(tester, buildScannedPdf(), autoOcr: setting);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('auto-ocr-offer')), findsOneWidget);
+      expect(setting.offered, isTrue);
+      await tester.tap(find.byKey(const ValueKey('auto-ocr-offer-keep')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('auto-ocr-offer')), findsNothing);
+      expect(setting.value, isTrue);
+      expect(_pageText(session(tester).document), contains('Invoice'));
+    });
+
+    testWidgets('the first automatic OCR offers to turn it off',
+        (tester) async {
+      final setting = AutoOcrSetting();
+      await open(tester, buildScannedPdf(), autoOcr: setting);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('auto-ocr-offer-off')));
+      await tester.pumpAndSettle();
+      expect(setting.value, isFalse);
+      final reloaded = AutoOcrSetting();
+      await reloaded.load();
+      expect(reloaded.value, isFalse);
+      expect(find.textContaining('Automatic OCR is off'), findsOneWidget);
     });
 
     testWidgets('leaves a born-digital document alone', (tester) async {
