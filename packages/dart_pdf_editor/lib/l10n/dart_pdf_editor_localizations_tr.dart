@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Hacim derinliği';
 
   @override
+  String get measCustomValueTitle => 'Ölçü değeri';
+
+  @override
   String get menuAddNode => 'Düğüm ekle';
+
+  @override
+  String get menuEditMeasurementValue => 'Ölçü değerini düzenle';
 
   @override
   String get menuAddLeader => 'Gösterge çizgisi ekle';
@@ -1703,6 +1709,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Yay uzunluğunu ölç';
+
+  @override
+  String get tbNameMeasureCustom => 'Özel ölçü (değeri yazın)';
 
   @override
   String get tbNameMeasureArea => 'Alan ölç';

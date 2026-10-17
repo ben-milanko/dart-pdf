@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'ความลึกของปริมาตร';
 
   @override
+  String get measCustomValueTitle => 'ค่าการวัด';
+
+  @override
   String get menuAddNode => 'เพิ่มจุด';
+
+  @override
+  String get menuEditMeasurementValue => 'แก้ไขค่าการวัด';
 
   @override
   String get menuAddLeader => 'เพิ่มเส้นชี้';
@@ -1699,6 +1705,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'วัดความยาวส่วนโค้ง';
+
+  @override
+  String get tbNameMeasureCustom => 'การวัดแบบกำหนดเอง (พิมพ์ค่า)';
 
   @override
   String get tbNameMeasureArea => 'วัดพื้นที่';

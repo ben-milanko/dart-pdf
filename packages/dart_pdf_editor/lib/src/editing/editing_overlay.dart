@@ -4184,6 +4184,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.arrow ||
             PdfEditTool.measureDistance ||
             PdfEditTool.measureSlope ||
+            PdfEditTool.measureCustom ||
             PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.callout ||
@@ -4961,14 +4962,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       unawaited(_commitCalibration(start, end));
       return;
     }
+    if (_tool == PdfEditTool.measureCustom) {
+      unawaited(_commitCustomMeasurement(start, end));
+      return;
+    }
     final before = _controller.revisionId;
     _behavior!.commitLineDrag(_controller, widget.pageIndex,
         _geometry.toPagePoint(start), _geometry.toPagePoint(end));
+    _holdLineAfterimage(before, _tool!, start, end);
+  }
+
+  /// Paints the [tool]'s just-committed segment from [start] to [end] (view
+  /// space) until the new raster lands, when the revision moved past
+  /// [before].
+  void _holdLineAfterimage(
+      int before, PdfEditTool tool, Offset start, Offset end) {
     if (before == _controller.revisionId) return;
     _clearAfterimage();
     _afterPath = (
       points: [start, end],
-      tool: _tool!,
+      tool: tool,
       color: _controller.color
           .withValues(alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
       fillColor: null,
@@ -5001,6 +5014,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       pageUnitLabel: existing?.pageUnitLabel ?? pdfDefaultPageUnit(),
     );
     _controller.tool = PdfEditTool.select;
+  }
+
+  /// Finishes a written-value dimension ([PdfEditTool.measureCustom]): asks
+  /// what the drawn segment measures - starting from the scaled length when
+  /// there is a scale - then stamps it with that value as its caption.
+  /// Cancelling, or leaving the value blank, stamps nothing.
+  Future<void> _commitCustomMeasurement(Offset start, Offset end) async {
+    final a = _geometry.toPagePoint(start);
+    final b = _geometry.toPagePoint(end);
+    final page = widget.pageIndex;
+    final tool = _tool!;
+    final value = await PdfEditorPresenter.of(context).text(
+      context,
+      PdfTextRequest(
+        title: pdfL10n(context).measCustomValueTitle,
+        initial: _controller.measuredDistance(a, b) ?? '',
+      ),
+    );
+    if (!mounted || value == null || value.trim().isEmpty) return;
+    // the dialog was this view's to wait on; the geometry may have moved
+    // (a zoom) while it was open, so the afterimage maps back from page space
+    final before = _controller.revisionId;
+    _controller.addMeasurement(page, PdfMeasurementKind.distance, [a, b],
+        valueText: value);
+    _holdLineAfterimage(before, tool, _geometry.toViewOffset(a.$1, a.$2),
+        _geometry.toViewOffset(b.$1, b.$2));
   }
 
   /// Finishes a volume measurement: asks for the extrusion depth (in the

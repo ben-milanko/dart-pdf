@@ -191,6 +191,7 @@ const pdfToolGroups = <PdfToolGroup>[
         PdfToolEntry.tool(PdfEditTool.measureSlope, Icons.trending_up),
         PdfToolEntry.tool(PdfEditTool.measureAngle, Icons.architecture),
         PdfToolEntry.tool(PdfEditTool.measureArc, Icons.gesture),
+        PdfToolEntry.tool(PdfEditTool.measureCustom, Icons.edit_note),
       ],
       kind: PdfEditToolGroup.measure),
   PdfToolGroup(
@@ -249,6 +250,7 @@ String pdfEditToolLabel(BuildContext context, PdfEditTool tool) {
     PdfEditTool.measureSlope => l.tbNameMeasureSlope,
     PdfEditTool.measureAngle => l.tbNameMeasureAngle,
     PdfEditTool.measureArc => l.tbNameMeasureArc,
+    PdfEditTool.measureCustom => l.tbNameMeasureCustom,
     PdfEditTool.calibrate => l.measCalibrate,
     PdfEditTool.freeText => l.tbNameTextBox,
     PdfEditTool.callout => l.tbNameCallout,

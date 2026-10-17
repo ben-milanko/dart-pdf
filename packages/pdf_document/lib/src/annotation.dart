@@ -573,7 +573,8 @@ class PdfAnnotation {
   PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
 
   /// The takeoff metadata (/Takeoff) carried by a count/volume/angle/arc/
-  /// slope/area-cutout measurement, or null for a plain annotation. See
+  /// slope/area-cutout measurement or one with a written value, or null for
+  /// a plain annotation. See
   /// [PdfTakeoffData].
   PdfTakeoffData? get takeoff => PdfTakeoffData.read(this);
 
@@ -619,6 +620,20 @@ class PdfAnnotation {
     final m = measure;
     final t = takeoff;
     final pts = _measurementPoints;
+
+    // a written value stands in for the computed one, scale or not
+    final written = t?.valueText;
+    if (written != null && kind != PdfMeasurementKind.count) {
+      final (value, unit) = pdfParseMeasurementValue(written);
+      return PdfMeasurementResult(
+          kind: kind,
+          value: value ?? 0,
+          unit: value == null || unit.isNotEmpty
+              ? unit
+              : _measurementUnit(kind, m),
+          text: written,
+          isCustom: true);
+    }
 
     switch (kind) {
       case PdfMeasurementKind.count:
@@ -694,6 +709,23 @@ class PdfAnnotation {
                 const PdfNumberFormat(unit: '°', precision: 10).format(deg));
     }
   }
+
+  /// The unit a computed [kind] measurement reports through [m] - what a
+  /// bare written number (`12.5`) is taken to be in.
+  static String _measurementUnit(PdfMeasurementKind kind, PdfMeasure? m) =>
+      switch (kind) {
+        PdfMeasurementKind.angle || PdfMeasurementKind.slope => '°',
+        PdfMeasurementKind.count => '',
+        PdfMeasurementKind.area ||
+        PdfMeasurementKind.areaCutout =>
+          m?.area.first.unit ?? '',
+        PdfMeasurementKind.volume =>
+          (m?.volume?.first ?? m?.area.first)?.unit ?? '',
+        PdfMeasurementKind.distance ||
+        PdfMeasurementKind.perimeter ||
+        PdfMeasurementKind.arc =>
+          m?.distance.first.unit ?? '',
+      };
 
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of

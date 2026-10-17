@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'आयतन गहराई';
 
   @override
+  String get measCustomValueTitle => 'माप का मान';
+
+  @override
   String get menuAddNode => 'नोड जोड़ें';
+
+  @override
+  String get menuEditMeasurementValue => 'माप का मान संपादित करें';
 
   @override
   String get menuAddLeader => 'लीडर लाइन जोड़ें';
@@ -1703,6 +1709,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'चाप लंबाई मापें';
+
+  @override
+  String get tbNameMeasureCustom => 'कस्टम माप (मान लिखें)';
 
   @override
   String get tbNameMeasureArea => 'क्षेत्रफल मापें';

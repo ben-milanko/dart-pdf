@@ -172,6 +172,14 @@ enum PdfEditTool {
   /// depth.
   measureVolume,
 
+  /// Drag a dimension line, then type the value it reads - `12'-6"`,
+  /// `3.2 m`, `TYP.` - instead of the one computed from the scale. Stamped
+  /// as a /Line measurement whose caption is that value (kept in /Takeoff
+  /// /Value), so it works on an uncalibrated sheet and totals like any
+  /// other measurement. With a [PdfEditingController.measurementScale] the
+  /// prompt starts at the scaled length.
+  measureCustom,
+
   /// Drag a straight segment of known real-world length to calibrate the
   /// [PdfEditingController.measurementScale]. On release the editor asks
   /// how long the drawn segment is and derives the scale from it (the
@@ -3629,7 +3637,9 @@ class PdfEditingController extends ChangeNotifier {
   /// Adds a measurement annotation of [kind] through [points] using the
   /// active [preferences.measurementScale] (count needs none). [depth] feeds a volume,
   /// [holes] cut a net-area polygon, [label] buckets the running total.
-  /// A no-op for a scaled kind without a scale.
+  /// [valueText] is a value the user wrote, shown and totalled in place of
+  /// the computed one ([PdfEditTool.measureCustom]); it needs no scale.
+  /// A no-op for a scaled kind with neither a scale nor a written value.
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -3637,9 +3647,13 @@ class PdfEditingController extends ChangeNotifier {
     double? depth,
     List<List<(double, double)>> holes = const [],
     String? label,
+    String? valueText,
   }) {
     final scale = preferences.measurementScale;
-    if (scale == null && kind != PdfMeasurementKind.count) return;
+    final written = valueText?.trim() ?? '';
+    if (scale == null && written.isEmpty && kind != PdfMeasurementKind.count) {
+      return;
+    }
     apply(
       (e) => e.addMeasurement(
         pageIndex,
@@ -3649,6 +3663,7 @@ class PdfEditingController extends ChangeNotifier {
         depth: depth,
         holes: holes,
         label: label,
+        valueText: written.isEmpty ? null : written,
         strokeColor: _colorValue,
         strokeWidth: preferences.strokeWidth,
         fillColor: _rgbOf(preferences.shapeFillColor),
@@ -8511,13 +8526,14 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Whether the single selected annotation is a measurement (a /Line,
-  /// /PolyLine, or /Polygon carrying a /Measure) whose caption font and
-  /// size can be restyled in place ([setSelectedMeasurementCaption]).
+  /// /PolyLine, or /Polygon carrying a /Measure or a written value) whose
+  /// caption font and size can be restyled in place
+  /// ([setSelectedMeasurementCaption]).
   bool get canRestyleMeasurementCaption {
     final annotation = selectedAnnotation;
     return _selected.length == 1 &&
         annotation != null &&
-        annotation.measure != null &&
+        (annotation.measure != null || annotation.takeoff?.valueText != null) &&
         annotation.normalAppearance != null &&
         const {'Line', 'PolyLine', 'Polygon'}.contains(annotation.subtype);
   }
@@ -8528,6 +8544,51 @@ class PdfEditingController extends ChangeNotifier {
   ({PdfStandardFont font, double size})? get selectedMeasurementCaptionStyle {
     if (!canRestyleMeasurementCaption) return null;
     return _freeTextStyleOf(selectedAnnotation!);
+  }
+
+  /// Whether the single selected annotation is a measurement whose value
+  /// can be written over ([setSelectedMeasurementValue]): a /Line,
+  /// /PolyLine, or /Polygon that reads as a measurement, not a count marker.
+  bool get canEditSelectedMeasurementValue {
+    final annotation = selectedAnnotation;
+    if (_selected.length != 1 || annotation == null) return false;
+    if (annotation.isLocked || annotation.normalAppearance == null) {
+      return false;
+    }
+    final kind = annotation.measurementKind;
+    return kind != null &&
+        kind != PdfMeasurementKind.count &&
+        const {'Line', 'PolyLine', 'Polygon'}.contains(annotation.subtype);
+  }
+
+  /// The value the selected measurement shows - the one the user wrote,
+  /// else the computed one - or null when [canEditSelectedMeasurementValue]
+  /// is false. What a value prompt starts from.
+  String? get selectedMeasurementValue {
+    if (!canEditSelectedMeasurementValue) return null;
+    return selectedAnnotation!.measurementText;
+  }
+
+  /// Whether the selected measurement's value was written by the user
+  /// rather than computed from the scale.
+  bool get selectedMeasurementValueIsCustom =>
+      canEditSelectedMeasurementValue &&
+      selectedAnnotation!.takeoff?.valueText != null;
+
+  /// Writes [valueText] as the selected measurement's value - its caption
+  /// and total then read that instead of the computed value - in place: one
+  /// revision, one undo, same /Annots slot. Null or blank goes back to the
+  /// computed value, which only a measurement with its own scale (/Measure)
+  /// has; for one without, that is a no-op.
+  void setSelectedMeasurementValue(String? valueText) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canEditSelectedMeasurementValue) return;
+    final page = _selected.last.$1;
+    final written = valueText?.trim() ?? '';
+    final current = annotation.takeoff?.valueText;
+    if ((written.isEmpty ? null : written) == current) return;
+    if (written.isEmpty && annotation.measure == null) return;
+    apply((e) => e.setMeasurementValue(page, annotation, written));
   }
 
   /// Restyles the selected measurement's caption font and/or size in

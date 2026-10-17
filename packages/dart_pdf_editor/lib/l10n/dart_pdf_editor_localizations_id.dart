@@ -344,7 +344,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Kedalaman volume';
 
   @override
+  String get measCustomValueTitle => 'Nilai ukuran';
+
+  @override
   String get menuAddNode => 'Tambah simpul';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit nilai ukuran';
 
   @override
   String get menuAddLeader => 'Tambah garis penunjuk';
@@ -1708,6 +1714,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Ukur panjang busur';
+
+  @override
+  String get tbNameMeasureCustom => 'Ukuran khusus (ketik nilai)';
 
   @override
   String get tbNameMeasureArea => 'Ukur luas';

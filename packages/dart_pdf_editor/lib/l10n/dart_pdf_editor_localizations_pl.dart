@@ -350,7 +350,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Głębokość objętości';
 
   @override
+  String get measCustomValueTitle => 'Wartość pomiaru';
+
+  @override
   String get menuAddNode => 'Dodaj węzeł';
+
+  @override
+  String get menuEditMeasurementValue => 'Edytuj wartość pomiaru';
 
   @override
   String get menuAddLeader => 'Dodaj linię odniesienia';
@@ -1730,6 +1736,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Zmierz długość łuku';
+
+  @override
+  String get tbNameMeasureCustom => 'Własny wymiar (wpisz wartość)';
 
   @override
   String get tbNameMeasureArea => 'Zmierz powierzchnię';

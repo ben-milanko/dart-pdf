@@ -475,6 +475,35 @@ void main() {
       expect(find.text('Saved to stamps'), findsOneWidget); // the snackbar
     });
 
+    testWidgets('Edit measurement value shows only for a measurement',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      editing.addMeasurement(
+          0, PdfMeasurementKind.distance, const [(100, 450), (300, 450)],
+          valueText: '4 m');
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(200, 450)); // the dimension
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('pdf-text-prompt-field'));
+      expect(tester.widget<TextField>(field).controller!.text, '4 m');
+      await tester.enterText(field, '4.2 m');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(
+          editing.document.page(0).annotations.last.measurementText, '4.2 m');
+    });
+
     testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);
