@@ -2,7 +2,9 @@
 
 ## 0.7.0
 
-- Update dependency constraints for the dart-pdf 10.0.0 suite; no public CLI changes.
+- Report the package release version from `dartpdf --version`, and check it against the manifest in the CLI integration tests.
+
+- Update dependency constraints for the dart-pdf 10.0.0 suite.
 
 ## 0.6.0
 

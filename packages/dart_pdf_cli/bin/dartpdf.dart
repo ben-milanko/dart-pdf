@@ -8,7 +8,7 @@ import 'package:mcp_dart/mcp_dart.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf_cos/pdf_cos.dart';
 
-const _version = '0.1.0';
+const _version = '0.7.0';
 const _usageExit = 64;
 const _dataExit = 65;
 const _inputExit = 66;
