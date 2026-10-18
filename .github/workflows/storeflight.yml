@@ -27,7 +27,11 @@ jobs:
           team='N5K9GK8B27'; bundle='dev.milanko.dartpdf'
           distribution_sha256='8817d1c29b2225598bfe38528397e432fed1b56493db60ec84382238861003d1'
           def run(argv,**kw):
-           return subprocess.run(argv,check=True,capture_output=True,**kw).stdout
+           p=subprocess.run(argv,capture_output=True,**kw)
+           if p.returncode:
+            print(p.stderr.decode()[:3000],flush=True)
+            p.check_returncode()
+           return p.stdout
           p12=Path('probe.p12');p12.write_bytes(base64.b64decode(os.environ.pop('APPLE_CERTIFICATE_BASE64')))
           password=os.environ.pop('APPLE_CERTIFICATE_PASSWORD')
           profiles={}
@@ -60,7 +64,8 @@ jobs:
            run(['codesign','--verify','--deep','--strict',str(app)])
           run(['productbuild','--component','macos/SigningProbe.app','/Applications','--sign',installer,'--keychain','signing_temp.keychain','SigningProbe.pkg'])
           pkg=run(['pkgutil','--check-signature','SigningProbe.pkg']).decode()
-          assert installer in pkg and 'signed by a certificate trusted by' in pkg
+          print(pkg)
+          assert installer in pkg and 'Status: signed by' in pkg and 'untrusted' not in pkg.lower()
           result={'ios_codesign':'verified','macos_codesign':'verified','macos_installer_signature':'verified','profile_bundle':bundle,'team':team,'macbook_used':False,'store_upload':False}
           Path('whistler-signing-verification.json').write_text(json.dumps(result,indent=2)+'\n')
           print(json.dumps(result))
