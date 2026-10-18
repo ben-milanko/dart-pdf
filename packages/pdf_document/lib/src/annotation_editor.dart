@@ -1556,8 +1556,11 @@ extension PdfAnnotationEditing on PdfEditor {
   /// through [measure] (or the document default set by [setMeasurementScale]),
   /// stamped into /Contents, and drawn as a caption at the geometry's
   /// anchor. [depth] feeds a volume, [holes] cut a net-area polygon,
-  /// [label] buckets the running total. Throws a [StateError] when no scale
-  /// is available (count needs none).
+  /// [label] buckets the running total. [valueText] is a value the user
+  /// wrote: it becomes the caption and /Contents in place of the computed
+  /// one, is kept in /Takeoff /Value, and survives later reshapes (see
+  /// [setMeasurementValue]). Throws a [StateError] when no scale is
+  /// available (count, and a measurement given a [valueText], need none).
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -1576,11 +1579,18 @@ extension PdfAnnotationEditing on PdfEditor {
     double? depth,
     List<List<(double, double)>> holes = const [],
     String? label,
+    String? valueText,
     String? author,
     String? name,
   }) {
     final m = measure ?? _defaultMeasure;
-    if (m == null && kind != PdfMeasurementKind.count) {
+    // a count marker has no caption to carry a written value
+    final written = valueText == null ||
+            valueText.trim().isEmpty ||
+            kind == PdfMeasurementKind.count
+        ? null
+        : valueText.trim();
+    if (m == null && written == null && kind != PdfMeasurementKind.count) {
       throw StateError(
         'no measurement scale set - call setMeasurementScale '
         'or pass a measure',
@@ -1666,6 +1676,7 @@ extension PdfAnnotationEditing on PdfEditor {
       m,
       depth: depth,
       holes: holes,
+      valueText: written,
     );
     final PdfRect captionBox;
     if (caption.isEmpty) {
@@ -1728,12 +1739,13 @@ extension PdfAnnotationEditing on PdfEditor {
         '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf',
       );
     if (m != null) dict['Measure'] = m.toCosDictionary();
-    if (!classic || label != null) {
+    if (!classic || label != null || written != null) {
       dict['Takeoff'] = PdfTakeoffData(
         kind: kind,
         depth: depth,
         holes: holes,
         label: label,
+        valueText: written,
       ).toCosDictionary();
     }
     final leArray = CosArray([
@@ -1843,14 +1855,27 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The caption string and its page-space anchor for any takeoff kind. The
   /// anchor is the segment midpoint (distance/slope), the angle/arc vertex,
   /// or the centroid (perimeter/area/volume/cutout). Count returns an empty
-  /// caption (the marker speaks for itself).
+  /// caption (the marker speaks for itself). A written [valueText] is the
+  /// caption as-is, at the same anchor, and needs no [m].
   (String, (double, double)) _takeoffCaption(
     PdfMeasurementKind kind,
     List<(double, double)> points,
     PdfMeasure? m, {
     double? depth,
     List<List<(double, double)>> holes = const [],
+    String? valueText,
   }) {
+    if (valueText != null && kind != PdfMeasurementKind.count) {
+      final anchor = switch (kind) {
+        PdfMeasurementKind.distance || PdfMeasurementKind.slope => (
+            (points.first.$1 + points.last.$1) / 2,
+            (points.first.$2 + points.last.$2) / 2,
+          ),
+        PdfMeasurementKind.angle || PdfMeasurementKind.arc => points[1],
+        _ => _centroid(points),
+      };
+      return (valueText, anchor);
+    }
     String angle(double deg) =>
         m?.formatAngle(deg) ??
         const PdfNumberFormat(unit: '°', precision: 10).format(deg);
@@ -1984,16 +2009,20 @@ extension PdfAnnotationEditing on PdfEditor {
     final kind = annotation.measurementKind;
     if (kind == null) return (rect, null);
     final measure = annotation.measure;
-    if (measure == null && kind != PdfMeasurementKind.count) {
+    final takeoff = annotation.takeoff;
+    final written = takeoff?.valueText;
+    if (measure == null &&
+        written == null &&
+        kind != PdfMeasurementKind.count) {
       return (rect, null);
     }
-    final takeoff = annotation.takeoff;
     final (caption, anchor) = _takeoffCaption(
       kind,
       points,
       measure,
       depth: takeoff?.depth,
       holes: takeoff?.holes ?? const [],
+      valueText: written,
     );
     if (caption.isEmpty) return (rect, null); // count marker: no label
     final (font, size, color) = _measurementCaptionStyle(annotation);
@@ -4403,6 +4432,71 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotationChanged(pageIndex, dict);
   }
 
+  /// Writes [valueText] as the value of a measurement annotation (a /Line,
+  /// /PolyLine, or /Polygon that [PdfAnnotation.measurementKind] reads as
+  /// one), in place: the caption and /Contents show it instead of the value
+  /// computed from the geometry, it is kept in /Takeoff /Value, and later
+  /// reshapes keep it. Null or blank clears it back to the computed value,
+  /// which needs the annotation's own /Measure - without one there is
+  /// nothing to fall back to, so the clear is refused. Returns false (and
+  /// changes nothing) for a non-measurement, a count marker, a refused
+  /// clear, or when the value is unchanged.
+  bool setMeasurementValue(
+    int pageIndex,
+    PdfAnnotation annotation,
+    String? valueText,
+  ) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
+      return false;
+    }
+    final kind = annotation.measurementKind;
+    if (kind == null || kind == PdfMeasurementKind.count) return false;
+    final written =
+        valueText == null || valueText.trim().isEmpty ? null : valueText.trim();
+    final current = annotation.takeoff;
+    if (written == current?.valueText) return false;
+    if (written == null && annotation.measure == null) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    final takeoff = PdfTakeoffData(
+      kind: kind,
+      depth: current?.depth,
+      holes: current?.holes ?? const [],
+      label: current?.label,
+      valueText: written,
+    );
+    // the classic three are recognised by subtype + /Measure, so a cleared
+    // value with nothing else to record drops /Takeoff altogether
+    final classic = kind == PdfMeasurementKind.distance ||
+        kind == PdfMeasurementKind.perimeter ||
+        kind == PdfMeasurementKind.area;
+    final dict = annotation.dict;
+    if (classic &&
+        written == null &&
+        (current?.label == null || current!.label!.isEmpty)) {
+      dict.entries.remove('Takeoff');
+    } else {
+      dict['Takeoff'] = takeoff.toCosDictionary();
+    }
+    // re-wrap: the dict's /Takeoff just changed under the caller's instance,
+    // and reshape reads the caption back through a fresh parse
+    final fresh = PdfAnnotation.fromDict(document, dict);
+    reshapeLineAnnotation(pageIndex, fresh, points);
+    final caption = fresh.measurementText;
+    if (caption != null) dict['Contents'] = CosString.fromText(caption);
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
+  }
+
   /// Sets the /LE line endings of a /Line or /PolyLine in place, keeping
   /// the annotation's object number and /Annots slot. The appearance,
   /// /Rect, and BBox regenerate from the current geometry with the new
@@ -4461,7 +4555,9 @@ extension PdfAnnotationEditing on PdfEditor {
     if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
       return false;
     }
-    if (annotation.measure == null) return false;
+    if (annotation.measure == null && annotation.takeoff?.valueText == null) {
+      return false;
+    }
     final (curFont, curSize, color) = _measurementCaptionStyle(annotation);
     final newFont = font ?? curFont;
     final newSize = size ?? curSize;

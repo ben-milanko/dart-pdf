@@ -446,9 +446,17 @@
   "@measVolumeDepth": {
     "description": "Title of the dialog asking for the extrusion depth of a volume measurement."
   },
+  "measCustomValueTitle": "Measurement value",
+  "@measCustomValueTitle": {
+    "description": "Title of the prompt asking for the value a measurement shows (a written value such as 12'-6\" replacing the computed one)."
+  },
   "menuAddNode": "Add node",
   "@menuAddNode": {
     "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
+  },
+  "menuEditMeasurementValue": "Edit measurement value",
+  "@menuEditMeasurementValue": {
+    "description": "Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value."
   },
   "menuAddLeader": "Add leader",
   "@menuAddLeader": {
@@ -2210,6 +2218,10 @@
   "tbNameMeasureArc": "Measure arc length",
   "@tbNameMeasureArc": {
     "description": "Tool name: measure an arc length."
+  },
+  "tbNameMeasureCustom": "Custom measurement (type value)",
+  "@tbNameMeasureCustom": {
+    "description": "Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale."
   },
   "tbNameMeasureArea": "Measure area",
   "@tbNameMeasureArea": {

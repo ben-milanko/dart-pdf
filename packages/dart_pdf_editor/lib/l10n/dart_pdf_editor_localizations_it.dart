@@ -345,7 +345,13 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Profondità del volume';
 
   @override
+  String get measCustomValueTitle => 'Valore della misura';
+
+  @override
   String get menuAddNode => 'Aggiungi nodo';
+
+  @override
+  String get menuEditMeasurementValue => 'Modifica valore della misura';
 
   @override
   String get menuAddLeader => 'Aggiungi linea di richiamo';
@@ -1708,6 +1714,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Misura lunghezza arco';
+
+  @override
+  String get tbNameMeasureCustom => 'Misura personalizzata (digita il valore)';
 
   @override
   String get tbNameMeasureArea => 'Misura area';

@@ -738,11 +738,23 @@ abstract class DartPdfEditorLocalizations {
   /// **'Volume depth'**
   String get measVolumeDepth;
 
+  /// Title of the prompt asking for the value a measurement shows (a written value such as 12'-6" replacing the computed one).
+  ///
+  /// In en, this message translates to:
+  /// **'Measurement value'**
+  String get measCustomValueTitle;
+
   /// Annotation context-menu item that adds a vertex to a polyline or polygon at the click point.
   ///
   /// In en, this message translates to:
   /// **'Add node'**
   String get menuAddNode;
+
+  /// Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit measurement value'**
+  String get menuEditMeasurementValue;
 
   /// Annotation context-menu item that adds another leader line (arrow) to the selected callout.
   ///
@@ -3167,6 +3179,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Measure arc length'**
   String get tbNameMeasureArc;
+
+  /// Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom measurement (type value)'**
+  String get tbNameMeasureCustom;
 
   /// Tool name: measure an area.
   ///

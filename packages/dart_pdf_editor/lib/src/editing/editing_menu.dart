@@ -474,6 +474,25 @@ Future<void> showPdfAnnotationMenu({
             request.controller.removeSelectedVertexNear(pagePoint),
       ),
     ],
+    // A measurement takes the value the drawing says, typed over the one
+    // the scale computes; a blank answer goes back to the computed value.
+    if (hasSelection && controller.canEditSelectedMeasurementValue)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-measurement-value'),
+        label: pdfL10n(context).menuEditMeasurementValue,
+        icon: Icons.edit_note,
+        onSelected: (request) async {
+          final value = await textPrompt(
+            context,
+            title: pdfL10n(context).measCustomValueTitle,
+            initial: request.controller.selectedMeasurementValue ?? '',
+            multiline: false,
+          );
+          if (value != null) {
+            request.controller.setSelectedMeasurementValue(value);
+          }
+        },
+      ),
     // A callout grows another arrow from the same box (aimed just off the
     // box, ready to drag by its tip) or drops the one nearest the click -
     // the last one when the menu has no click point. One always stays.

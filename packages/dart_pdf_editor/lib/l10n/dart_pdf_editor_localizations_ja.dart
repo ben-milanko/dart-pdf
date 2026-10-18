@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '体積の深さ';
 
   @override
+  String get measCustomValueTitle => '計測値';
+
+  @override
   String get menuAddNode => '頂点を追加';
+
+  @override
+  String get menuEditMeasurementValue => '計測値を編集';
 
   @override
   String get menuAddLeader => '引き出し線を追加';
@@ -1691,6 +1697,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => '弧の長さを計測';
+
+  @override
+  String get tbNameMeasureCustom => 'カスタム寸法（値を入力）';
 
   @override
   String get tbNameMeasureArea => '面積を計測';

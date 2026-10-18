@@ -344,7 +344,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volumediepte';
 
   @override
+  String get measCustomValueTitle => 'Meetwaarde';
+
+  @override
   String get menuAddNode => 'Knooppunt toevoegen';
+
+  @override
+  String get menuEditMeasurementValue => 'Meetwaarde bewerken';
 
   @override
   String get menuAddLeader => 'Verwijslijn toevoegen';
@@ -1708,6 +1714,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Booglengte meten';
+
+  @override
+  String get tbNameMeasureCustom => 'Aangepaste maat (waarde typen)';
 
   @override
   String get tbNameMeasureArea => 'Oppervlakte meten';

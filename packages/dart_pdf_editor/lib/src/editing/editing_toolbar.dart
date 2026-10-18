@@ -3017,7 +3017,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   orElse: () => groups.first);
               return SafeArea(
                 top: false,
-                child: Padding(
+                // sized to its content, scrolling only once a tall group
+                // (the measure grid plus its settings) outgrows the sheet
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
