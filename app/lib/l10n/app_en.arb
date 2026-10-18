@@ -1781,5 +1781,25 @@
   "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
   "@ocrAutoDocumentChanged": {
     "description": "Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied."
+  },
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "@ocrAutoOfferTitle": {
+    "description": "Title of the one-time dialog shown after automatic OCR first adds a text layer to a scanned document, asking whether to keep doing it."
+  },
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "@ocrAutoOfferMessage": {
+    "description": "Body of the one-time dialog after the first automatic OCR."
+  },
+  "ocrAutoOfferKeepOn": "Keep on",
+  "@ocrAutoOfferKeepOn": {
+    "description": "Button in the one-time automatic OCR dialog that keeps automatic OCR enabled."
+  },
+  "ocrAutoOfferTurnOff": "Turn off",
+  "@ocrAutoOfferTurnOff": {
+    "description": "Button in the one-time automatic OCR dialog that disables automatic OCR."
+  },
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "@ocrAutoTurnedOff": {
+    "description": "Toast after the user turned automatic OCR off from the one-time dialog."
   }
 }
