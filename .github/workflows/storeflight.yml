@@ -1,73 +1,72 @@
-name: Provision Whistler release credentials
+name: Verify Whistler Apple signing
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  provision:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 10
     environment: storeflight-production
     env:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
       APPLE_PROVISIONING_PROFILE_MAC_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_MAC_BASE64 }}
     steps:
-      - name: Seal existing credentials to Whistler-only recipient
+      - uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ env.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Validate profiles and sign native iOS, macOS and installer probes
         shell: bash
         run: |
           python3 - <<'PYCODE'
-          import json,os,subprocess
+          import base64,hashlib,json,os,plistlib,subprocess
           from pathlib import Path
-          cert = '''-----BEGIN CERTIFICATE-----
-          MIIFTzCCAzegAwIBAgIUHDHnLHvPd5sM+3REmb7lL/m3yg4wDQYJKoZIhvcNAQEL
-          BQAwNzE1MDMGA1UEAwwsV2hpc3RsZXIgcHJpdmF0ZSByZWxlYXNlIGNyZWRlbnRp
-          YWwgdHJhbnNmZXIwHhcNMjYxMDE4MTI0MzU1WhcNMjYxMDI1MTI0MzU1WjA3MTUw
-          MwYDVQQDDCxXaGlzdGxlciBwcml2YXRlIHJlbGVhc2UgY3JlZGVudGlhbCB0cmFu
-          c2ZlcjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAKbSpnthbZfEeOw1
-          eSAQgIRcZ9zLFga3uHoL0yay2y5GH0dy7E+9MnbB1glPuzhwuz1Zz9U6AXQNWOQE
-          CfYf3x8cGg8oSDT3EvoAC3C418N9qRsmpTZ3fsPXu/kSW7ZPxJo0p2qzByNJjhit
-          LHnVACkjhGOghFxjRZPeCG1LarDu6bc9yeU2jRpENRoHsKnVrwcCGTK3GhCvnrLe
-          ptn7EB92asVnVel0uJVLJYhltXPFzXpV2MtyvyoGe4Ikv52x+bhXmSq2xkZtZ0aa
-          T64/dSkVeXYB5tphuUdI8RebjqeNZ3rq186oiZt0nLfmnIZ9PiZRLsCYBvRLt3rY
-          qvj0nkOFmuyf5a44p1x/iJjbight6H8Rt8nx0nOVxR/LrWpZz8wF2wg94fuz6gux
-          +a5KSFCl/pvKIWDrXz4b75LuqmYt59ixuW0HxNoGvG7ZzbSy1sA/KaAriI2G3Xqh
-          U7t6+mnnupkWaym2IpGZBICZSTC/Igukl/RcGLx6QJgrzf7ojPqTswPZeT4cAsSc
-          wyVzMeNY7c81K0Se/+eyOBhCz17BPe2piNQHnm0BQbppWpLjilmldG9T7X72CU4d
-          tfRFSTYM/nf2WkliFsyMS7tbDHB8LPYgX7CvEelgbkvZrE1GIFz3TznqFKnEu7Cj
-          I0aqscaVQ+y7K9L69gFSL2EwQy1nAgMBAAGjUzBRMB0GA1UdDgQWBBSR/uaj2X/6
-          lnPsT/4yzGH9xbWw4zAfBgNVHSMEGDAWgBSR/uaj2X/6lnPsT/4yzGH9xbWw4zAP
-          BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4ICAQALeFLsWOtMTlBz6sCW
-          3R2TnR6Bj/R/8GbXWoSZEgbbZAYM6lh1gD13K/SdRXJu7ZLPYjsdoLaDb6K6Jx+y
-          k50D2qsELSzo61o9URiQMIlbt8xhxXrfmewb09dgq18m1r+nzYbUPTIkfaYz8Mui
-          DYFwW1PItSZjxPSGQH1maI1sqDeOnxW0fIcGr4UcrK1FIIKkkx+Qi4AmmnXoapNi
-          vYbMReJF1s1B6XrLJs6+FVCJf2ZmHByaLABQMaCHliFbM7IP8iXA59qqQ4nujiNP
-          7aijm3hnoZtMBFgxYKUDHNGZFm4pPSVgLmoOF4gKBKUJ2KI8YxH06FoKuO3h2wuz
-          oOyetSf4dVDQo6lBZ0eJCm6MXycSlymkMh/6VosEZzehRDgjSTjWjs5G/KIuCPKb
-          vDDv5Pb6yMmDylgp0ogFzppx4GxTgQjddSKTblrY4CaxohkEcY1iqTBXDLgCIY6Y
-          Hv26hcSPsd/orD7fOhtydEi+u0KifwsMa5vI6mrhKyRE224DdAU6osHJvMcOeQMc
-          ifaLkCZ+74pnYuAzly6cNB9Y0Nl22VKro+TisIgCod+vIU0WJnuQCZJ30HeoQbrm
-          KL+Nz8fyoBMRiX40QIcTMKShLOs01L35Mq5fzqIUz7HbP8Hnevv1WjKwNCEMV5qb
-          CX7Zqplrbwrlqu4X/p6CWFKahg==
-          -----END CERTIFICATE-----
-          '''
-          names = ['ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'PLAY_STORE_SERVICE_ACCOUNT_JSON', 'ASC_API_KEY_ID', 'ASC_API_ISSUER_ID', 'ASC_API_KEY_P8', 'APPLE_PROVISIONING_PROFILE_BASE64', 'APPLE_PROVISIONING_PROFILE_MAC_BASE64']
-          values = {n: os.environ.pop(n) for n in names}
-          assert all(values.values()), 'An expected release credential is missing'
-          Path('whistler-recipient.pem').write_text(cert)
-          proc=subprocess.run(['openssl','cms','-encrypt','-binary','-aes-256-cbc','-outform','DER','-out','whistler-credentials.cms','whistler-recipient.pem'],input=json.dumps(values).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-          assert proc.returncode == 0, 'Credential sealing failed'
-          print('Sealed '+str(len(values))+' release credential fields for Whistler; no plaintext artifact created.')
+          team='N5K9GK8B27'; bundle='dev.milanko.dartpdf'
+          distribution_sha256='8817d1c29b2225598bfe38528397e432fed1b56493db60ec84382238861003d1'
+          def run(argv,**kw):
+           return subprocess.run(argv,check=True,capture_output=True,**kw).stdout
+          p12=Path('probe.p12');p12.write_bytes(base64.b64decode(os.environ.pop('APPLE_CERTIFICATE_BASE64')))
+          password=os.environ.pop('APPLE_CERTIFICATE_PASSWORD')
+          profiles={}
+          for platform,name in [('ios','APPLE_PROVISIONING_PROFILE_BASE64'),('macos','APPLE_PROVISIONING_PROFILE_MAC_BASE64')]:
+           profile_file=Path(platform+'.profile');profile_file.write_bytes(base64.b64decode(os.environ.pop(name)))
+           profile=plistlib.loads(run(['security','cms','-D','-i',str(profile_file)]))
+           assert profile['TeamIdentifier']==[team]
+           assert distribution_sha256 in [hashlib.sha256(c).hexdigest() for c in profile['DeveloperCertificates']]
+           ent=profile['Entitlements'];app_id=ent.get('application-identifier') or ent.get('com.apple.application-identifier')
+           assert app_id==team+'.'+bundle
+           profiles[platform]=(profile_file,ent)
+          Path('main.c').write_text('int main(void) { return 0; }\n')
+          dist='Apple Distribution: Railway Engineering Solutions Pty Ltd ('+team+')'
+          installer='3rd Party Mac Developer Installer: Railway Engineering Solutions Pty Ltd ('+team+')'
+          for platform,(profile_file,ent) in profiles.items():
+           app=Path(platform)/'SigningProbe.app';contents=app if platform=='ios' else app/'Contents'
+           binary_dir=contents if platform=='ios' else contents/'MacOS'
+           binary_dir.mkdir(parents=True)
+           info={'CFBundleIdentifier':bundle,'CFBundleExecutable':'SigningProbe','CFBundleName':'SigningProbe','CFBundlePackageType':'APPL','CFBundleShortVersionString':'1.0','CFBundleVersion':'1'}
+           (contents/'Info.plist').write_bytes(plistlib.dumps(info))
+           (contents/('embedded.mobileprovision' if platform=='ios' else 'embedded.provisionprofile')).write_bytes(profile_file.read_bytes())
+           if platform=='ios':
+            sdk=run(['xcrun','--sdk','iphoneos','--show-sdk-path']).decode().strip()
+            run(['xcrun','--sdk','iphoneos','clang','-target','arm64-apple-ios15.0','-isysroot',sdk,'main.c','-o',str(binary_dir/'SigningProbe')])
+           else:
+            ent['com.apple.security.app-sandbox']=True
+            run(['xcrun','clang','main.c','-o',str(binary_dir/'SigningProbe')])
+           ent_path=Path(platform+'-entitlements.plist');ent_path.write_bytes(plistlib.dumps(ent))
+           run(['codesign','--force','--sign',dist,'--keychain','signing_temp.keychain','--entitlements',str(ent_path),str(app)])
+           run(['codesign','--verify','--deep','--strict',str(app)])
+          run(['productbuild','--component','macos/SigningProbe.app','/Applications','--sign',installer,'--keychain','signing_temp.keychain','SigningProbe.pkg'])
+          pkg=run(['pkgutil','--check-signature','SigningProbe.pkg']).decode()
+          assert installer in pkg and 'signed by a certificate trusted by' in pkg
+          result={'ios_codesign':'verified','macos_codesign':'verified','macos_installer_signature':'verified','profile_bundle':bundle,'team':team,'macbook_used':False,'store_upload':False}
+          Path('whistler-signing-verification.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result))
           PYCODE
       - uses: actions/upload-artifact@v7
         with:
-          name: whistler-sealed-release-credentials
-          path: whistler-credentials.cms
-          retention-days: 1
+          name: whistler-signing-verification
+          path: whistler-signing-verification.json
+          retention-days: 90
