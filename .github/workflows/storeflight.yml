@@ -403,6 +403,73 @@ jobs:
             "$ANDROID_KEY_ALIAS" \
             "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
             > "$GITHUB_WORKSPACE/app/android/key.properties"
+      - name: Prepare hosted Android plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+          patch_gradle() {
+            local gradle_file="$1"
+            local namespace="${2:-}"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
+
+            python3 - "$gradle_file" "$namespace" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          namespace = sys.argv[2]
+          text = path.read_text()
+          text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+          if namespace and 'namespace ' not in text:
+              text = text.replace('android {\n', f'android {{\n    namespace "{namespace}"\n', 1)
+          path.write_text(text)
+          PY
+          }
+
+          # Patch EVERY match, not just the first: `-print -quit` can return a
+          # plugin's example/android/build.gradle instead of its own (find's
+          # order is filesystem-dependent), which leaves the real plugin
+          # unpatched and fails :onnxruntime:checkReleaseAarMetadata.
+          while IFS= read -r f; do patch_gradle "$f"; done < <(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle')
+          while IFS= read -r f; do patch_gradle "$f" dev.irondash.engine_context; done < <(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle')
+          super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
+          while IFS= read -r f; do patch_gradle "$f" com.superlist.super_native_extensions; done < <(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle')
+
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          text = text.replace('for (project in projects) {', 'for (project in projects.values()) {')
+          text = text.replace('project.value.getPlugins()', 'project.getPlugins()')
+          text = text.replace(
+              'return _findFlutterPlugin(project.value.childProjects);',
+              '''def found = _findFlutterPlugin(project.childProjects);
+                      if (found != null) {
+                          return found;
+                      }''',
+          )
+          if 'projects.values()' not in text or 'project.value.getPlugins()' in text:
+              raise SystemExit("CargoKit plugin patch target not found")
+          path.write_text(text)
+          PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
@@ -927,6 +994,73 @@ jobs:
             "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" \
             "$ANDROID_KEY_ALIAS" "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
             > "$GITHUB_WORKSPACE/app/android/key.properties"
+      - name: Prepare hosted Android plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+          patch_gradle() {
+            local gradle_file="$1"
+            local namespace="${2:-}"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
+
+            python3 - "$gradle_file" "$namespace" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          namespace = sys.argv[2]
+          text = path.read_text()
+          text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+          if namespace and 'namespace ' not in text:
+              text = text.replace('android {\n', f'android {{\n    namespace "{namespace}"\n', 1)
+          path.write_text(text)
+          PY
+          }
+
+          # Patch EVERY match, not just the first: `-print -quit` can return a
+          # plugin's example/android/build.gradle instead of its own (find's
+          # order is filesystem-dependent), which leaves the real plugin
+          # unpatched and fails :onnxruntime:checkReleaseAarMetadata.
+          while IFS= read -r f; do patch_gradle "$f"; done < <(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle')
+          while IFS= read -r f; do patch_gradle "$f" dev.irondash.engine_context; done < <(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle')
+          super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
+          while IFS= read -r f; do patch_gradle "$f" com.superlist.super_native_extensions; done < <(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle')
+
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          text = text.replace('for (project in projects) {', 'for (project in projects.values()) {')
+          text = text.replace('project.value.getPlugins()', 'project.getPlugins()')
+          text = text.replace(
+              'return _findFlutterPlugin(project.value.childProjects);',
+              '''def found = _findFlutterPlugin(project.childProjects);
+                      if (found != null) {
+                          return found;
+                      }''',
+          )
+          if 'projects.values()' not in text or 'project.value.getPlugins()' in text:
+              raise SystemExit("CargoKit plugin patch target not found")
+          path.write_text(text)
+          PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
