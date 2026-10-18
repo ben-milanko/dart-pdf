@@ -1,12 +1,3 @@
-Có gì mới trong 9.0.0
+Mới trong 10.0.0
 
-- Nhóm các chú thích để di chuyển, đổi kích thước, xoay, sao chép và dán chúng như một. Xoay vùng chọn quanh tâm chung hoặc quanh tâm của từng mục.
-- Tài liệu quét được nhận dạng tự động (OCR) để bạn có thể chọn và tìm kiếm văn bản. Bạn có thể tắt tính năng này trong Cài đặt. Bản quét mới được đặt tên theo ngày chụp.
-- Tùy chọn lưu màu trang vào PDF đã lưu và đã xuất.
-- In đậm, in nghiêng hoặc gạch chân văn bản đã chọn bằng phím tắt, và tạo kiểu cho mũi tên chú thích riêng với hộp văn bản.
-- Vẽ đường gấp khúc dễ hơn: kéo khung nhìn khi đặt điểm, cuộn ở mép và hoàn tác điểm cuối. Lưới trang cho thấy trang sẽ nằm ở đâu và tạo hiệu ứng khi sắp xếp lại.
-- Nhấn giữ và kéo để vẽ khung chọn; vùng chọn giờ phản hồi ngay khi bạn nhấc ngón tay.
-- Tài liệu dùng phông serif không được nhúng trông gần với bản gốc hơn, văn bản giữ đường cơ sở ngang bằng và hình ảnh đã xoay vẫn sắc nét khi phóng to.
-- Sửa lỗi tài liệu hiển thị hình ảnh của tài liệu khác, nhận dạng văn bản và đăng nhập cho chữ ký số, mở lại tệp gần đây sau khi cập nhật, và lần khởi chạy đầu tiên ở ngôn ngữ chưa được hỗ trợ.
-- DartPDF giờ thông báo khi tệp của một tài liệu gần đây đã bị di chuyển.
-- Cuộn mượt mà hơn.
+Nhập giá trị đo riêng ngay cả khi chưa đặt tỷ lệ. Sửa cả từ và nhận biết liên kết dễ hơn. Thanh đọc tự ẩn trên điện thoại và tránh nếp gấp màn hình. Chọn có giữ OCR tự động sau lần đầu hay không. Sửa lỗi thoát khi quét lớn, cải thiện hiển thị chú thích và cắt ảnh.

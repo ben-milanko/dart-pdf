@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- Update dependency constraints for the dart-pdf 10.0.0 suite; no public API changes in this package.
+
 ## 0.8.0
 
 - Fit GPU-outlined substituted glyphs to their PDF slots, matching the Canvas backend, and outline unembedded serif fonts with the serif substitute.

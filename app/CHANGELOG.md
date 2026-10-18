@@ -1,5 +1,16 @@
 # Changelog
 
+## 10.0.0
+
+- Type the value shown on a drawing into a measurement, even without setting a scale.
+- Edit whole words when a PDF stores their letters separately. Links over empty regions now have a link badge, and a long press on an empty page offers note and text-selection actions.
+- Keep reading controls clear of display folds. On phones, the header and toolbar hide while reading and return when needed. Documents now open in Hand mode on mobile.
+- Choose whether to keep automatic OCR after its first run, and fix an image-lifetime crash when recognising large scans.
+- Keep edited annotations visible after deselection, improve image-crop handles and simplify callout selection.
+- Add GitHub and email feedback links under Settings > About and improve the welcome panel layout.
+- Speed up Indexed image decoding.
+- Update to the 10.0.0 package suite and app build 47.
+
 ## 9.0.0
 
 - Group annotations so they move, resize, rotate, copy and paste together, and rotate a selection around its shared centre or each object's own centre.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+- Update dependency constraints for the dart-pdf 10.0.0 suite; no public CLI changes.
+
 ## 0.6.0
 
 - Update dependency constraints for the dart-pdf 9.0.0 suite. No public API changes.

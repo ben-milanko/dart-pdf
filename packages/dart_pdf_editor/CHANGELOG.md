@@ -1,5 +1,14 @@
 # Changelog
 
+## 10.0.0
+
+- **BREAKING:** add `PdfEditTool.measureCustom` and four abstract localization getters. Update exhaustive tool switches and custom localization implementations; see `doc/MIGRATING-10.0.0.md`.
+- Add written-value measurements, word-level editing across split glyph runs, link badges and empty-page context-menu actions.
+- Adapt shells and floating controls to separating display folds. Hide compact header and toolbar chrome while reading, with `autoHideChrome: false` available to opt out.
+- Keep edited annotations visible after deselection, remove the pen cursor after a stroke, simplify callout selection and improve image-crop controls.
+- Fix cloning a disposed image when OCR decodes a large scan.
+- Update dependency constraints for the 10.0.0 suite.
+
 ## 9.0.0
 
 - **BREAKING:** custom `PdfRenderWorker` implementations must accept, and forward if they delegate, the new `decodeGate` parameter on `record`. See `doc/MIGRATING-9.0.0.md`.

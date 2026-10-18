@@ -1,12 +1,3 @@
-9.0.0 sürümündeki yenilikler
+10.0.0 yenilikleri
 
-- Ek açıklamaları gruplayarak tek parça gibi taşıyın, yeniden boyutlandırın, döndürün, kopyalayıp yapıştırın. Bir seçimi ortak merkezi ya da her öğenin kendi merkezi etrafında döndürün.
-- Taranmış belgeler otomatik olarak tanınır (OCR); metinleri seçilebilir ve aranabilir. Ayarlar'dan kapatabilirsiniz. Yeni taramalar çekildikleri tarihle adlandırılır.
-- İsterseniz sayfa rengini kaydedilen ve dışa aktarılan PDF'lere ekleyin.
-- Seçili metni klavye kısayollarıyla kalın, italik veya altı çizili yapın; açıklama balonu oklarını metin kutusundan ayrı biçimlendirin.
-- Çoklu çizgileri daha kolay çizin: yerleştirirken görünümü kaydırın, kenarlarda kaydırın ve son noktayı geri alın. Sayfa ızgarası bir sayfanın nereye yerleşeceğini gösterir ve yeniden sıralamayı canlandırır.
-- Seçim kutusu çizmek için basılı tutup sürükleyin; seçim artık parmağınızı kaldırdığınız anda tepki verir.
-- Gömülü olmayan serif yazı tipleri kullanan belgeler aslına daha yakın görünür, metin düz bir taban çizgisinde kalır ve döndürülmüş görseller yakınlaştırınca net kalır.
-- Düzeltmeler: başka bir belgenin görsellerini gösteren belgeler, metin tanıma ve dijital imzalar için oturum açma, güncellemeden sonra son dosyaları yeniden açma ve desteklenmeyen dillerde ilk açılış.
-- DartPDF artık son kullanılan bir belgenin dosyası taşındığında sizi bilgilendiriyor.
-- Daha akıcı kaydırma.
+Ölçek olmadan kendi ölçüm değerlerinizi yazın. Sözcükleri bütün olarak düzenleyin ve bağlantıları kolayca bulun. Okuma çubukları telefonlarda gizlenir, ekran katlarını aşmaz. İlk OCR işleminden sonra otomatik tanımayı sürdürüp sürdürmeyeceğinizi seçin. Büyük taramalardaki çökme düzeltildi; açıklamalar ve kırpma iyileştirildi.
