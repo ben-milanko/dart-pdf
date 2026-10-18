@@ -14,6 +14,18 @@ class AppInfo {
   static const tagline = 'A fully native Flutter PDF editor';
   static const sourceUrl = 'https://github.com/ben-milanko/dart-pdf';
 
+  /// Where the About box sends feedback: the GitHub "App feedback" issue
+  /// form, and an email address for users without a GitHub account.
+  static const feedbackIssueUrl =
+      '$sourceUrl/issues/new?template=app_feedback.yml';
+  static const feedbackEmail = 'ben.milanko@protonmail.com';
+
+  /// A `mailto:` link to [feedbackEmail], its subject naming the build so a
+  /// report says which version it is about. Encoded by hand: [Uri]'s
+  /// `queryParameters` writes spaces as `+`, which mail clients show as-is.
+  static Uri feedbackMailto() => Uri.parse('mailto:$feedbackEmail?subject='
+      '${Uri.encodeComponent('$displayName $displayVersion feedback')}');
+
   /// [name] as the running build presents it: `DartPDF Nightly` for the
   /// rolling nightly, so it is never mistaken for a stable install.
   static const displayName = kProductDisplayName;

@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
 
   @override
   String get menuAddLeader => 'Add leader';
@@ -433,6 +439,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -1701,6 +1710,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Measure arc length';
 
   @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
   String get tbNameMeasureArea => 'Measure area';
 
   @override
@@ -2800,7 +2812,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
 
   @override
   String get menuAddLeader => 'Add leader';
@@ -2890,6 +2908,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -4156,6 +4177,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbNameMeasureArc => 'Measure arc length';
+
+  @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
 
   @override
   String get tbNameMeasureArea => 'Measure area';
@@ -5257,7 +5281,13 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
 
   @override
   String get menuAddLeader => 'Add leader';
@@ -5347,6 +5377,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -6613,6 +6646,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbNameMeasureArc => 'Measure arc length';
+
+  @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
 
   @override
   String get tbNameMeasureArea => 'Measure area';

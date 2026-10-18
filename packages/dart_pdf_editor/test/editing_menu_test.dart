@@ -475,6 +475,35 @@ void main() {
       expect(find.text('Saved to stamps'), findsOneWidget); // the snackbar
     });
 
+    testWidgets('Edit measurement value shows only for a measurement',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      editing.addMeasurement(
+          0, PdfMeasurementKind.distance, const [(100, 450), (300, 450)],
+          valueText: '4 m');
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(200, 450)); // the dimension
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('pdf-text-prompt-field'));
+      expect(tester.widget<TextField>(field).controller!.text, '4 m');
+      await tester.enterText(field, '4.2 m');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(
+          editing.document.page(0).annotations.last.measurementText, '4.2 m');
+    });
+
     testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -497,7 +526,8 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('a paste-only menu draws no dividers', (tester) async {
+    testWidgets('an empty-area menu rules Paste off from the page actions',
+        (tester) async {
       final editing = await pumpViewer(tester);
       editing
         ..selectAnnotation(0, 0)
@@ -505,12 +535,38 @@ void main() {
         ..clearAnnotationSelection();
       await tester.pump();
 
-      // empty-area right-click with a clipboard: the lone Paste group has
-      // nothing to be ruled off from
+      // empty-area right-click with a clipboard: Paste, then the page
+      // actions in their own group
       await rightClick(tester, viewPoint(450, 400));
       expect(
           find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
-      expect(menuDivider, findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-note')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-select-all-text')),
+          findsOneWidget);
+      expect(menuDivider, findsOneWidget);
+    });
+
+    testWidgets('Add note here drops a note at the clicked point',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(450, 400));
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-note')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Check this');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final note = editing.document.page(0).annotations.last;
+      expect(note.subtype, 'Text');
+      expect(note.contents, 'Check this');
+      expect(note.rect.left, closeTo(450, 30));
     });
   });
 

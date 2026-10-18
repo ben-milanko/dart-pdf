@@ -243,5 +243,97 @@ void main() {
       expect(find.byKey(const ValueKey('whats-new-dialog')), findsOneWidget);
       expect(find.byKey(const ValueKey('whats-new-unavailable')), findsNothing);
     });
+
+    testWidgets('the About block offers GitHub and email feedback',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      await tester.pump();
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.byKey(const ValueKey('settings-report-issue')), findsOneWidget);
+      final email = find.byKey(const ValueKey('settings-email-feedback'));
+      expect(email, findsOneWidget);
+      // The address is shown, not just linked: it must be reachable without a
+      // mail client.
+      expect(
+          find.descendant(
+              of: email, matching: find.text(AppInfo.feedbackEmail)),
+          findsOneWidget);
+    });
+
+    group('feedback links', () {
+      const launcher = MethodChannel('plugins.flutter.io/url_launcher');
+      late List<String> launched;
+      late bool mailClient;
+      String? clipboard;
+
+      setUp(() {
+        launched = [];
+        mailClient = true;
+        clipboard = null;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(launcher, (call) async {
+          if (call.method != 'launch') return null;
+          final url = (call.arguments as Map)['url'] as String;
+          if (url.startsWith('mailto:') && !mailClient) return false;
+          launched.add(url);
+          return true;
+        });
+        messenger.setMockMethodCallHandler(SystemChannels.platform,
+            (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboard = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        });
+      });
+
+      tearDown(() {
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(launcher, null);
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      });
+
+      Future<void> tapTile(WidgetTester tester, String key) async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+        await tester.pump();
+        await tester.tap(find.byTooltip('DartPDF menu'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+        final tile = find.byKey(ValueKey(key));
+        await tester.ensureVisible(tile);
+        await tester.pumpAndSettle();
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('report an issue opens the GitHub feedback form',
+          (tester) async {
+        await tapTile(tester, 'settings-report-issue');
+        expect(launched, [AppInfo.feedbackIssueUrl]);
+      });
+
+      testWidgets('email feedback opens the mail client', (tester) async {
+        await tapTile(tester, 'settings-email-feedback');
+        expect(launched, [AppInfo.feedbackMailto().toString()]);
+        expect(clipboard, isNull);
+      });
+
+      testWidgets('with no mail client the address is copied instead',
+          (tester) async {
+        mailClient = false;
+        await tapTile(tester, 'settings-email-feedback');
+        expect(launched, isEmpty);
+        expect(clipboard, AppInfo.feedbackEmail);
+        expect(find.textContaining('Copied to clipboard'), findsOneWidget);
+      });
+    });
   });
 }

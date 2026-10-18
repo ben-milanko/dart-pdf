@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '体积深度';
 
   @override
+  String get measCustomValueTitle => '测量值';
+
+  @override
   String get menuAddNode => '添加节点';
+
+  @override
+  String get menuEditMeasurementValue => '编辑测量值';
 
   @override
   String get menuAddLeader => '添加引线';
@@ -433,6 +439,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => '移除引线';
+
+  @override
+  String get menuAddNoteHere => '在此添加注释';
 
   @override
   String get menuSaveToStamps => '保存到图章';
@@ -1687,6 +1696,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => '测量弧长';
 
   @override
+  String get tbNameMeasureCustom => '自定义测量（输入数值）';
+
+  @override
   String get tbNameMeasureArea => '测量面积';
 
   @override
@@ -2757,7 +2769,13 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get measVolumeDepth => '體積深度';
 
   @override
+  String get measCustomValueTitle => '測量值';
+
+  @override
   String get menuAddNode => '新增節點';
+
+  @override
+  String get menuEditMeasurementValue => '編輯測量值';
 
   @override
   String get menuAddLeader => '新增引線';
@@ -2847,6 +2865,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRemoveLeader => '移除引線';
+
+  @override
+  String get menuAddNoteHere => '在此新增註解';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';
@@ -4099,6 +4120,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbNameMeasureArc => '測量弧長';
+
+  @override
+  String get tbNameMeasureCustom => '自訂測量（輸入數值）';
 
   @override
   String get tbNameMeasureArea => '測量面積';

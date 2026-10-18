@@ -344,7 +344,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Độ sâu thể tích';
 
   @override
+  String get measCustomValueTitle => 'Giá trị đo';
+
+  @override
   String get menuAddNode => 'Thêm nút';
+
+  @override
+  String get menuEditMeasurementValue => 'Sửa giá trị đo';
 
   @override
   String get menuAddLeader => 'Thêm đường dẫn chú thích';
@@ -434,6 +440,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
+
+  @override
+  String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
@@ -1701,6 +1710,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Đo chiều dài cung';
+
+  @override
+  String get tbNameMeasureCustom => 'Số đo tùy chỉnh (nhập giá trị)';
 
   @override
   String get tbNameMeasureArea => 'Đo diện tích';

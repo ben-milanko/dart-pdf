@@ -345,7 +345,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'قووڵیی قەبارە';
 
   @override
+  String get measCustomValueTitle => 'بەهای پێوان';
+
+  @override
   String get menuAddNode => 'زیادکردنی گرێ';
+
+  @override
+  String get menuEditMeasurementValue => 'دەستکاریکردنی بەهای پێوان';
 
   @override
   String get menuAddLeader => 'زیادکردنی هێڵی ئاماژە';
@@ -435,6 +441,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'لابردنی هێڵی ئاماژە';
+
+  @override
+  String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
@@ -1705,6 +1714,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'پێوانەکردنی درێژیی کەوانە';
+
+  @override
+  String get tbNameMeasureCustom => 'پێوانی تایبەت (بەها بنووسە)';
 
   @override
   String get tbNameMeasureArea => 'پێوانەکردنی ڕووبەر';

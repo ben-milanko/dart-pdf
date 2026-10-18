@@ -395,13 +395,14 @@ jobs:
         if: env.ANDROID_KEYSTORE_BASE64 != ''
         shell: bash
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/android/upload-keystore.jks"
-          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' 
-            "$ANDROID_KEYSTORE_PASSWORD" 
-            "$ANDROID_KEY_PASSWORD" 
-            "$ANDROID_KEY_ALIAS" 
-            "$GITHUB_WORKSPACE/android/upload-keystore.jks" 
-            > "$GITHUB_WORKSPACE/android/key.properties"
+          mkdir -p "$GITHUB_WORKSPACE/app/android/app"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks"
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" \
+            "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
+            > "$GITHUB_WORKSPACE/app/android/key.properties"
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
@@ -920,11 +921,12 @@ jobs:
         if: env.ANDROID_KEYSTORE_BASE64 != ''
         shell: bash
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/android/upload-keystore.jks"
+          mkdir -p "$GITHUB_WORKSPACE/app/android/app"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks"
           printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
             "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" \
-            "$ANDROID_KEY_ALIAS" "$GITHUB_WORKSPACE/android/upload-keystore.jks" \
-            > "$GITHUB_WORKSPACE/android/key.properties"
+            "$ANDROID_KEY_ALIAS" "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
+            > "$GITHUB_WORKSPACE/app/android/key.properties"
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8

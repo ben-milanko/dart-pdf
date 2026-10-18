@@ -239,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。",
   "settingsUpdates": "更新",
   "settingsViewSource": "在 GitHub 上檢視原始碼",
+  "settingsEmailFeedback": "透過電子郵件傳送意見回饋",
+  "settingsReportIssue": "在 GitHub 上回報問題",
   "undo": "復原",
   "welcomeCopyName": "複製名稱",
   "welcomeCopyPath": "複製路徑",
@@ -347,5 +349,10 @@
   "settingsAutoOcrTitle": "Automatically OCR scans",
   "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
   "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
-  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "ocrAutoOfferKeepOn": "Keep on",
+  "ocrAutoOfferTurnOff": "Turn off",
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
 }

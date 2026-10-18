@@ -343,7 +343,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '부피 깊이';
 
   @override
+  String get measCustomValueTitle => '측정값';
+
+  @override
   String get menuAddNode => '노드 추가';
+
+  @override
+  String get menuEditMeasurementValue => '측정값 편집';
 
   @override
   String get menuAddLeader => '지시선 추가';
@@ -433,6 +439,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => '지시선 제거';
+
+  @override
+  String get menuAddNoteHere => '여기에 메모 추가';
 
   @override
   String get menuSaveToStamps => '스탬프에 저장';
@@ -1689,6 +1698,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => '호 길이 측정';
+
+  @override
+  String get tbNameMeasureCustom => '사용자 지정 측정 (값 입력)';
 
   @override
   String get tbNameMeasureArea => '면적 측정';

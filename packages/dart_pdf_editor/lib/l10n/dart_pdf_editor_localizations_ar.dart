@@ -352,7 +352,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'عمق الحجم';
 
   @override
+  String get measCustomValueTitle => 'قيمة القياس';
+
+  @override
   String get menuAddNode => 'إضافة عقدة';
+
+  @override
+  String get menuEditMeasurementValue => 'تعديل قيمة القياس';
 
   @override
   String get menuAddLeader => 'إضافة خط إشارة';
@@ -442,6 +448,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'إزالة خط إشارة';
+
+  @override
+  String get menuAddNoteHere => 'إضافة ملاحظة هنا';
 
   @override
   String get menuSaveToStamps => 'حفظ في الأختام';
@@ -1730,6 +1739,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'قياس طول القوس';
+
+  @override
+  String get tbNameMeasureCustom => 'قياس مخصص (اكتب القيمة)';
 
   @override
   String get tbNameMeasureArea => 'قياس المساحة';

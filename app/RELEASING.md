@@ -43,7 +43,10 @@ so platform build files don't hardcode versions.
 
 ## Cutting a release
 
-1. Bump `version:` in `app/pubspec.yaml`.
+1. Bump `version:` in `app/pubspec.yaml`. Add the matching release to
+   `linux/dev.milanko.dartpdf.metainfo.xml`, run
+   `packaging/flatpak/sync-desktop-assets.sh`, and update `releaseNotes` in
+   `packaging/msstore/listing/en-US.json`.
 2. Tag and push: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
 3. `.github/workflows/release-app.yml` builds every platform and attaches the
    artifacts to a **draft** GitHub Release. Review, then publish - the in-app

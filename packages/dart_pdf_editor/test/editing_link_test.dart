@@ -30,6 +30,47 @@ void main() {
       expect(editing.canUndo, isTrue);
     });
 
+    test('a box link carries a link badge; a text link does not', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 640, 272, 735)],
+        const PdfLinkTarget.uri('https://example.com'),
+      );
+      editing.addLinkToSelection(
+        const {
+          0: [PdfRect(72, 500, 272, 520)],
+        },
+        const PdfLinkTarget.uri('https://example.com'),
+      );
+      String appearance(PdfAnnotation link) {
+        return String.fromCharCodes(
+            editing.document.cos.decodeStreamData(link.normalAppearance!));
+      }
+
+      final links = editing.document.page(0).annotations;
+      expect(appearance(links[0]), contains(' cm'));
+      expect(appearance(links[1]), isNot(contains(' cm')));
+    });
+
+    test('iconColor: -1 drops the badge but keeps the border', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 640, 272, 735)],
+        const PdfLinkTarget.uri('https://example.com'),
+        borderColor: PdfAnnotationEditing.defaultLinkColor,
+        iconColor: -1,
+      );
+      final link = editing.document.page(0).annotations.single;
+      final content = String.fromCharCodes(
+          editing.document.cos.decodeStreamData(link.normalAppearance!));
+      expect(content, isNot(contains(' cm')));
+      expect(link.color, PdfAnnotationEditing.defaultLinkColor);
+    });
+
     test('addLink with a page target jumps within the document', () {
       final editing = controller(3);
       addTearDown(editing.dispose);

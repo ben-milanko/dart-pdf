@@ -290,6 +290,60 @@ Uint8List buildTextLinesPdf(List<String> lines, {double size = 12}) {
   return ascii(buffer.toString());
 }
 
+/// Builds a one-page PDF that draws [line] the way many generators do: one
+/// show operator per glyph, each placed by its own `Td`, with no space
+/// glyphs - a word gap is just a wider step. /F1 is Helvetica declared with
+/// a flat 500/1000 width, so at [size] every glyph advances `size / 2`.
+///
+/// The fixture for editing words a page draws a letter at a time.
+Uint8List buildGlyphRunsPdf(String line,
+    {double size = 12, double x = 36, double y = 720}) {
+  final advance = size / 2;
+  final content = StringBuffer('BT /F1 $size Tf $x $y Td\n');
+  var step = 0.0;
+  var first = true;
+  for (final char in line.split('')) {
+    if (char == ' ') {
+      step += advance;
+      continue;
+    }
+    if (!first) content.write('$step 0 Td ');
+    content.write('($char) Tj\n');
+    first = false;
+    step = advance;
+  }
+  content.write('ET\n');
+  final body = content.toString();
+  final widths = List.filled(95, '500').join(' ');
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 '
+        '/Widths [$widths] >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a [pageCount]-page PDF whose page heights cycle 792, 396,
 /// 1008 pt (all 612 wide); page N shows the text "Page N" near its top.
 /// Mixed sizes defeat any uniform-extent estimate, exercising viewers

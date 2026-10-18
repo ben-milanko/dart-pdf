@@ -62,6 +62,7 @@ void main() {
         PdfEditTool.arrow,
         PdfEditTool.measureDistance,
         PdfEditTool.measureSlope,
+        PdfEditTool.measureCustom,
         PdfEditTool.calibrate,
       });
     });
