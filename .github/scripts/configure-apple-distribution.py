@@ -3,12 +3,53 @@
 
 import base64
 import datetime
+import json
 import os
 from pathlib import Path
 import plistlib
 import re
 import subprocess
 import sys
+import tempfile
+
+
+def configure_macos_export(uuid, team, bundle):
+    options = Path(os.environ["RUNNER_TEMP"]) / "dartpdf-macos-export.plist"
+    options.write_bytes(
+        plistlib.dumps(
+            {
+                "method": "app-store-connect",
+                "destination": "export",
+                "teamID": team,
+                "signingStyle": "manual",
+                "signingCertificate": "Apple Distribution",
+                "installerSigningCertificate": "3rd Party Mac Developer Installer",
+                "provisioningProfiles": {bundle: uuid},
+                "uploadSymbols": True,
+            }
+        )
+    )
+    options.chmod(0o600)
+
+    source = Path(os.environ.get("STOREFLIGHT_CONFIG", "storeflight.yaml")).resolve()
+    original = source.read_text()
+    anchor = "build:\n  provider: flutter\n  options:\n    macos:\n"
+    if original.count(anchor) != 1 or "export_options_plist:" in original:
+        raise ValueError("Unexpected Storeflight macOS export configuration")
+    updated = original.replace(
+        anchor,
+        anchor + f"      export_options_plist: {json.dumps(str(options))}\n",
+        1,
+    )
+    # Keep relative paths and every release policy unchanged. The supported
+    # export-options setting is the only change in this runner-local copy.
+    descriptor, name = tempfile.mkstemp(
+        prefix=".storeflight-macos-ci-", suffix=".yaml", dir=source.parent
+    )
+    with os.fdopen(descriptor, "w") as output:
+        output.write(updated)
+    with open(os.environ["GITHUB_ENV"], "a") as output:
+        output.write(f"STOREFLIGHT_CONFIG={name}\n")
 
 
 def configure(platform):
@@ -69,6 +110,8 @@ def configure(platform):
     config.chmod(0o600)
     with open(os.environ["GITHUB_ENV"], "a") as output:
         output.write(f"XCODE_XCCONFIG_FILE={config}\n")
+    if platform == "macos":
+        configure_macos_export(uuid, team, bundle)
     print(f"Configured {platform} App Store distribution signing for {bundle}")
 
 

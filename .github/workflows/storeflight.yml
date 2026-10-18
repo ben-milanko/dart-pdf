@@ -112,6 +112,7 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight.mobileprovision"
       - name: Select App Store distribution signing
+        if: ${{ !inputs.dry_run }}
         run: python3 .github/scripts/configure-apple-distribution.py ios
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
@@ -257,6 +258,7 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight-mac.provisionprofile"
       - name: Select App Store distribution signing
+        if: ${{ !inputs.dry_run }}
         run: python3 .github/scripts/configure-apple-distribution.py macos
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
