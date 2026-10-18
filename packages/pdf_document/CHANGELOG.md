@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0
+
+- Support written measurement values with `PdfTakeoffData.valueText`, `PdfMeasurementResult.isCustom`, `pdfParseMeasurementValue` and `PdfEditor.setMeasurementValue`. Written values survive reshaping and may be used without a drawing scale.
+- Add optional `iconColor` to link creation methods to draw a chain-link badge.
+- Update dependency constraints for the 10.0.0 suite.
+
 ## 9.0.0
 
 - Group annotations: `groupAnnotations`, `ungroupAnnotations` and `transformAnnotations` treat markups as one set through the standard /RT /Group and /IRT, keeping the group's rotation (`PdfAnnotationGroups`).

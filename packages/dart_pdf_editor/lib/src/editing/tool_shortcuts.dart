@@ -72,6 +72,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
     case PdfEditTool.measureAngle:
     case PdfEditTool.measureArc:
     case PdfEditTool.measureVolume:
+    case PdfEditTool.measureCustom:
     case PdfEditTool.calibrate:
       return PdfEditToolGroup.measure;
     case PdfEditTool.content:
@@ -180,6 +181,8 @@ const Map<PdfEditTool, PdfToolShortcut> pdfEditToolShortcuts = {
   PdfEditTool.measureArc: PdfToolShortcut(LogicalKeyboardKey.keyC, shift: true),
   PdfEditTool.measureVolume:
       PdfToolShortcut(LogicalKeyboardKey.keyV, shift: true),
+  PdfEditTool.measureCustom:
+      PdfToolShortcut(LogicalKeyboardKey.keyW, shift: true),
   PdfEditTool.calibrate: PdfToolShortcut(LogicalKeyboardKey.keyM, shift: true),
 
   // Insert group: text box, callout, note, stamp, count, signature, image.

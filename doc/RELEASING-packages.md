@@ -15,6 +15,9 @@ GPU companion only when it has changes. Cutting a release is:
 
 1. Bump `version:` in the eight established packages to the new `X.Y.Z`;
    bump the three independently versioned companions according to their changes.
+   When the CLI changes version, also update `_version` in
+   `packages/dart_pdf_cli/bin/dartpdf.dart`; its integration test checks the
+   executable output against the package manifest.
 2. Roll each `## Unreleased` changelog section into `## X.Y.Z` (add a
    version-bump line for packages with no unreleased entries).
 3. Update inter-package lower bounds to the new version (`pdf_document: ^X.Y.Z`).

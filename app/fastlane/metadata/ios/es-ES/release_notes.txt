@@ -1,12 +1,3 @@
-Novedades de la 9.0.0
+Novedades de 10.0.0
 
-- Agrupa anotaciones para moverlas, cambiar su tamaño, girarlas, copiarlas y pegarlas como una sola. Gira una selección alrededor de su centro común o del centro de cada elemento.
-- Los documentos escaneados se reconocen automáticamente (OCR) para que puedas seleccionar y buscar su texto. Puedes desactivarlo en Ajustes. Los nuevos escaneos se nombran con la fecha de captura.
-- Guarda opcionalmente el color de página en los PDF guardados y exportados.
-- Pon en negrita, cursiva o subrayado el texto seleccionado con atajos de teclado, y da estilo a las flechas de las llamadas por separado de su cuadro de texto.
-- Dibuja polilíneas con más facilidad: desplázate mientras colocas puntos, avanza al llegar a los bordes y deshaz el último punto. La cuadrícula de páginas muestra dónde quedará una página y anima la reordenación.
-- Mantén pulsado y arrastra para dibujar un cuadro de selección; la selección responde en cuanto levantas el dedo.
-- Los documentos con fuentes serif no incrustadas se parecen más al original, el texto mantiene una línea base uniforme y las imágenes giradas siguen nítidas al ampliar.
-- Correcciones: documentos que mostraban imágenes de otro documento, reconocimiento de texto e inicio de sesión para firmas digitales, reapertura de archivos recientes tras una actualización y primer inicio en idiomas no compatibles.
-- DartPDF ahora te avisa cuando el archivo de un documento reciente se ha movido.
-- Desplazamiento más fluido.
+Escribe valores de medida sin una escala. Edita palabras completas y reconoce mejor los enlaces. Los controles de lectura se ocultan en teléfonos y evitan los pliegues de pantalla. Elige si mantener el OCR automático tras usarlo por primera vez. Corregimos un fallo con escaneos grandes y mejoramos las anotaciones y el recorte.

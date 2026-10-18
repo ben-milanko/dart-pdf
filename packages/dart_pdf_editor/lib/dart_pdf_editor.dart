@@ -25,6 +25,7 @@ export 'src/design/editor_presenter.dart'
         pdfPresentDialog;
 export 'src/design/editor_theme.dart'
     show PdfEditorThemeData, pdfShellCompactWidth;
+export 'src/design/fold.dart';
 export 'src/design/header_parts.dart';
 export 'src/design/material_host.dart'
     show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;

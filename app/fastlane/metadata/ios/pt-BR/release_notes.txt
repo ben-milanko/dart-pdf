@@ -1,12 +1,3 @@
-Novidades da 9.0.0
+Novidades da 10.0.0
 
-- Agrupe anotações para movê-las, redimensioná-las, girá-las, copiá-las e colá-las como uma só. Gire uma seleção em torno do centro comum ou do centro de cada item.
-- Documentos digitalizados são reconhecidos automaticamente (OCR), para que você possa selecionar e pesquisar o texto. Dá para desativar em Ajustes. Novas digitalizações recebem o nome da data em que foram feitas.
-- Salve opcionalmente a cor da página nos PDFs salvos e exportados.
-- Deixe o texto selecionado em negrito, itálico ou sublinhado com atalhos de teclado e estilize as setas dos balões separadamente da caixa de texto.
-- Desenhe polilinhas com mais facilidade: mova a visualização enquanto posiciona, role nas bordas e desfaça o último ponto. A grade de páginas mostra onde a página vai ficar e anima a reordenação.
-- Toque e segure e arraste para desenhar uma caixa de seleção; a seleção responde assim que você levanta o dedo.
-- Documentos com fontes serifadas não incorporadas ficam mais próximos do original, o texto mantém a linha de base nivelada e imagens giradas continuam nítidas ao ampliar.
-- Correções: documentos exibindo imagens de outro documento, reconhecimento de texto e login para assinaturas digitais, reabertura de arquivos recentes após uma atualização e primeira abertura em idiomas não suportados.
-- O DartPDF agora avisa quando o arquivo de um documento recente foi movido.
-- Rolagem mais suave.
+Digite valores de medida mesmo sem escala. Edite palavras inteiras e identifique links com facilidade. Os controles se ocultam nos celulares e evitam as dobras da tela. Escolha se deseja manter o OCR automático após o primeiro uso. Corrigimos uma falha em digitalizações grandes e melhoramos anotações e recortes.

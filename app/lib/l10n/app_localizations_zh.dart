@@ -943,6 +943,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsViewSource => '在 GitHub 上查看源代码';
 
   @override
+  String get settingsReportIssue => '在 GitHub 上报告问题';
+
+  @override
+  String get settingsEmailFeedback => '通过电子邮件发送反馈';
+
+  @override
   String get undo => '撤销';
 
   @override
@@ -1315,6 +1321,23 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2256,6 +2279,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsViewSource => '在 GitHub 上檢視原始碼';
 
   @override
+  String get settingsReportIssue => '在 GitHub 上回報問題';
+
+  @override
+  String get settingsEmailFeedback => '透過電子郵件傳送意見回饋';
+
+  @override
   String get undo => '復原';
 
   @override
@@ -2629,4 +2658,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

@@ -1,0 +1,3 @@
+10.0.0 yenilikleri
+
+Ölçek olmadan kendi ölçüm değerlerinizi yazın. Sözcükleri bütün olarak düzenleyin ve bağlantıları kolayca bulun. Okuma çubukları telefonlarda gizlenir, ekran katlarını aşmaz. İlk OCR işleminden sonra otomatik tanımayı sürdürüp sürdürmeyeceğinizi seçin. Büyük taramalardaki çökme düzeltildi; açıklamalar ve kırpma iyileştirildi.

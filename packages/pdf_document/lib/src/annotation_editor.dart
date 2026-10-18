@@ -649,7 +649,9 @@ extension PdfAnnotationEditing on PdfEditor {
   /// for linking existing text). Pass [underlineColor] to draw a hyperlink
   /// underline beneath each quad, or [borderColor] (with [borderWidth]) to
   /// stroke a box around the region; either one generates an appearance
-  /// stream so the decoration shows in every viewer.
+  /// stream so the decoration shows in every viewer. [iconColor] adds a
+  /// small chain-link badge in the region's top-right corner, so a link
+  /// over a bare box reads as a link rather than an empty rectangle.
   void addLinkToUri(
     int pageIndex,
     List<PdfRect> quads, {
@@ -657,6 +659,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -674,6 +677,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -693,6 +697,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -707,6 +712,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -723,6 +729,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) =>
@@ -733,6 +740,7 @@ extension PdfAnnotationEditing on PdfEditor {
         underlineColor: underlineColor,
         borderColor: borderColor,
         borderWidth: borderWidth,
+        iconColor: iconColor,
         contents: contents,
         name: name,
       );
@@ -751,6 +759,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -775,7 +784,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (contents != null) dict['Contents'] = CosString.fromText(contents);
     dict['NM'] = CosString.fromText(name ?? _generateAnnotationName());
 
-    if (underlineColor != null || hasBorder) {
+    if (underlineColor != null || hasBorder || iconColor != null) {
       final w = ContentWriter();
       if (underlineColor != null) {
         w.strokeColor(underlineColor);
@@ -799,10 +808,55 @@ extension PdfAnnotationEditing on PdfEditor {
             ..stroke();
         }
       }
+      if (iconColor != null) {
+        _linkBadge(w, rect, iconColor, inset: hasBorder ? borderWidth : 0);
+      }
       dict['AP'] = CosDictionary({'N': _updater.addObject(_form(rect, w))});
     }
 
     _linkAnnotation(pageIndex, _updater.addObject(dict));
+  }
+
+  /// Draws the chain-link badge [_addLink]'s `iconColor` asks for: two
+  /// interlocking rounded links at 45 degrees on a white rounded tile,
+  /// tucked into [rect]'s top-right corner (inside a border of width
+  /// [inset]). It scales with the region - up to 18pt, so it stays a badge
+  /// on a large box - and is left out of a region too small to fit one.
+  static void _linkBadge(
+    ContentWriter w,
+    PdfRect rect,
+    int color, {
+    double inset = 0,
+  }) {
+    final room = math.min(rect.width, rect.height) - 2 * inset;
+    final size = math.min(18.0, room * 0.6);
+    if (size < 7) return;
+    final pad = math.min(3.0, size * 0.2);
+    final left = rect.right - inset - pad - size;
+    final bottom = rect.top - inset - pad - size;
+    w
+      ..save()
+      ..fillColor(0xFFFFFF)
+      ..strokeColor(color)
+      ..lineWidth(size * 0.05)
+      ..roundedRect(left, bottom, size, size, size * 0.22)
+      ..fillAndStroke()
+      // a unit cell centred on the tile, turned 45 degrees
+      ..concatMatrix(
+          size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          -size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          left + size / 2,
+          bottom + size / 2)
+      ..roundLines()
+      ..lineWidth(0.085);
+    for (final dx in const [-0.17, 0.17]) {
+      w.roundedRect(dx - 0.22, -0.12, 0.44, 0.24, 0.12);
+    }
+    w
+      ..stroke()
+      ..restore();
   }
 
   /// The indirect reference to page [index], for a /GoTo destination array.
@@ -1502,8 +1556,11 @@ extension PdfAnnotationEditing on PdfEditor {
   /// through [measure] (or the document default set by [setMeasurementScale]),
   /// stamped into /Contents, and drawn as a caption at the geometry's
   /// anchor. [depth] feeds a volume, [holes] cut a net-area polygon,
-  /// [label] buckets the running total. Throws a [StateError] when no scale
-  /// is available (count needs none).
+  /// [label] buckets the running total. [valueText] is a value the user
+  /// wrote: it becomes the caption and /Contents in place of the computed
+  /// one, is kept in /Takeoff /Value, and survives later reshapes (see
+  /// [setMeasurementValue]). Throws a [StateError] when no scale is
+  /// available (count, and a measurement given a [valueText], need none).
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -1522,11 +1579,18 @@ extension PdfAnnotationEditing on PdfEditor {
     double? depth,
     List<List<(double, double)>> holes = const [],
     String? label,
+    String? valueText,
     String? author,
     String? name,
   }) {
     final m = measure ?? _defaultMeasure;
-    if (m == null && kind != PdfMeasurementKind.count) {
+    // a count marker has no caption to carry a written value
+    final written = valueText == null ||
+            valueText.trim().isEmpty ||
+            kind == PdfMeasurementKind.count
+        ? null
+        : valueText.trim();
+    if (m == null && written == null && kind != PdfMeasurementKind.count) {
       throw StateError(
         'no measurement scale set - call setMeasurementScale '
         'or pass a measure',
@@ -1612,6 +1676,7 @@ extension PdfAnnotationEditing on PdfEditor {
       m,
       depth: depth,
       holes: holes,
+      valueText: written,
     );
     final PdfRect captionBox;
     if (caption.isEmpty) {
@@ -1674,12 +1739,13 @@ extension PdfAnnotationEditing on PdfEditor {
         '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf',
       );
     if (m != null) dict['Measure'] = m.toCosDictionary();
-    if (!classic || label != null) {
+    if (!classic || label != null || written != null) {
       dict['Takeoff'] = PdfTakeoffData(
         kind: kind,
         depth: depth,
         holes: holes,
         label: label,
+        valueText: written,
       ).toCosDictionary();
     }
     final leArray = CosArray([
@@ -1789,14 +1855,27 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The caption string and its page-space anchor for any takeoff kind. The
   /// anchor is the segment midpoint (distance/slope), the angle/arc vertex,
   /// or the centroid (perimeter/area/volume/cutout). Count returns an empty
-  /// caption (the marker speaks for itself).
+  /// caption (the marker speaks for itself). A written [valueText] is the
+  /// caption as-is, at the same anchor, and needs no [m].
   (String, (double, double)) _takeoffCaption(
     PdfMeasurementKind kind,
     List<(double, double)> points,
     PdfMeasure? m, {
     double? depth,
     List<List<(double, double)>> holes = const [],
+    String? valueText,
   }) {
+    if (valueText != null && kind != PdfMeasurementKind.count) {
+      final anchor = switch (kind) {
+        PdfMeasurementKind.distance || PdfMeasurementKind.slope => (
+            (points.first.$1 + points.last.$1) / 2,
+            (points.first.$2 + points.last.$2) / 2,
+          ),
+        PdfMeasurementKind.angle || PdfMeasurementKind.arc => points[1],
+        _ => _centroid(points),
+      };
+      return (valueText, anchor);
+    }
     String angle(double deg) =>
         m?.formatAngle(deg) ??
         const PdfNumberFormat(unit: '°', precision: 10).format(deg);
@@ -1930,16 +2009,20 @@ extension PdfAnnotationEditing on PdfEditor {
     final kind = annotation.measurementKind;
     if (kind == null) return (rect, null);
     final measure = annotation.measure;
-    if (measure == null && kind != PdfMeasurementKind.count) {
+    final takeoff = annotation.takeoff;
+    final written = takeoff?.valueText;
+    if (measure == null &&
+        written == null &&
+        kind != PdfMeasurementKind.count) {
       return (rect, null);
     }
-    final takeoff = annotation.takeoff;
     final (caption, anchor) = _takeoffCaption(
       kind,
       points,
       measure,
       depth: takeoff?.depth,
       holes: takeoff?.holes ?? const [],
+      valueText: written,
     );
     if (caption.isEmpty) return (rect, null); // count marker: no label
     final (font, size, color) = _measurementCaptionStyle(annotation);
@@ -4349,6 +4432,71 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotationChanged(pageIndex, dict);
   }
 
+  /// Writes [valueText] as the value of a measurement annotation (a /Line,
+  /// /PolyLine, or /Polygon that [PdfAnnotation.measurementKind] reads as
+  /// one), in place: the caption and /Contents show it instead of the value
+  /// computed from the geometry, it is kept in /Takeoff /Value, and later
+  /// reshapes keep it. Null or blank clears it back to the computed value,
+  /// which needs the annotation's own /Measure - without one there is
+  /// nothing to fall back to, so the clear is refused. Returns false (and
+  /// changes nothing) for a non-measurement, a count marker, a refused
+  /// clear, or when the value is unchanged.
+  bool setMeasurementValue(
+    int pageIndex,
+    PdfAnnotation annotation,
+    String? valueText,
+  ) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
+      return false;
+    }
+    final kind = annotation.measurementKind;
+    if (kind == null || kind == PdfMeasurementKind.count) return false;
+    final written =
+        valueText == null || valueText.trim().isEmpty ? null : valueText.trim();
+    final current = annotation.takeoff;
+    if (written == current?.valueText) return false;
+    if (written == null && annotation.measure == null) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    final takeoff = PdfTakeoffData(
+      kind: kind,
+      depth: current?.depth,
+      holes: current?.holes ?? const [],
+      label: current?.label,
+      valueText: written,
+    );
+    // the classic three are recognised by subtype + /Measure, so a cleared
+    // value with nothing else to record drops /Takeoff altogether
+    final classic = kind == PdfMeasurementKind.distance ||
+        kind == PdfMeasurementKind.perimeter ||
+        kind == PdfMeasurementKind.area;
+    final dict = annotation.dict;
+    if (classic &&
+        written == null &&
+        (current?.label == null || current!.label!.isEmpty)) {
+      dict.entries.remove('Takeoff');
+    } else {
+      dict['Takeoff'] = takeoff.toCosDictionary();
+    }
+    // re-wrap: the dict's /Takeoff just changed under the caller's instance,
+    // and reshape reads the caption back through a fresh parse
+    final fresh = PdfAnnotation.fromDict(document, dict);
+    reshapeLineAnnotation(pageIndex, fresh, points);
+    final caption = fresh.measurementText;
+    if (caption != null) dict['Contents'] = CosString.fromText(caption);
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
+  }
+
   /// Sets the /LE line endings of a /Line or /PolyLine in place, keeping
   /// the annotation's object number and /Annots slot. The appearance,
   /// /Rect, and BBox regenerate from the current geometry with the new
@@ -4407,7 +4555,9 @@ extension PdfAnnotationEditing on PdfEditor {
     if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
       return false;
     }
-    if (annotation.measure == null) return false;
+    if (annotation.measure == null && annotation.takeoff?.valueText == null) {
+      return false;
+    }
     final (curFont, curSize, color) = _measurementCaptionStyle(annotation);
     final newFont = font ?? curFont;
     final newSize = size ?? curSize;
