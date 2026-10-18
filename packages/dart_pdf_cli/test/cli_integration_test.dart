@@ -19,6 +19,21 @@ void main() {
     if (await temporary.exists()) await temporary.delete(recursive: true);
   });
 
+  test('version output matches the package release version', () async {
+    final version = RegExp(r'^version:\s*(\S+)', multiLine: true)
+        .firstMatch(File('pubspec.yaml').readAsStringSync())!
+        .group(1);
+    final result = await Process.run(
+      Platform.resolvedExecutable,
+      ['run', 'bin/dartpdf.dart', '--version'],
+      workingDirectory: Directory.current.path,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+    expect(result.stderr, isEmpty);
+    expect((result.stdout as String).trim(), 'dartpdf $version');
+  });
+
   test('inspect command emits compact JSON and keeps diagnostics off stdout',
       () async {
     final result = await Process.run(

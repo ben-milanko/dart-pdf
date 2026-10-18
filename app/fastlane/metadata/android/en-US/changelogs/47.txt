@@ -1,0 +1,3 @@
+New in 10.0.0
+
+Type your own measurement values, even without a scale. Edit whole words and spot links more easily. Reading controls hide on phones and avoid display folds. Choose whether to keep automatic OCR after its first run. Fix a large-scan crash and improve annotation visibility and image cropping.

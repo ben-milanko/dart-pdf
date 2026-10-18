@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="10.0.0" date="2026-10-18">
+      <description><p>Type custom measurement values, edit whole words, find links more easily, and improve image cropping and annotation visibility. Reading controls avoid display folds and hide on phones. Choose whether to keep automatic OCR after its first run.</p></description>
+    </release>
     <release version="9.0.0" date="2026-10-15">
       <description><p>Group annotations, automatically OCR scanned documents, optionally save the page colour into PDFs, and draw serif fonts and rotated images more faithfully.</p></description>
     </release>

@@ -1,0 +1,3 @@
+Neu in 10.0.0
+
+Eigene Messwerte auch ohne Maßstab eingeben. Ganze Wörter bearbeiten und Links leichter erkennen. Lesesteuerungen blenden sich auf Telefonen aus und umgehen Displayfalten. Nach der ersten OCR entscheiden, ob sie automatisch aktiv bleibt. Absturz bei großen Scans behoben; Anmerkungen und Bildzuschnitt verbessert.

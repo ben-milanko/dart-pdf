@@ -1,5 +1,10 @@
 # Changelog
 
+## 10.0.0
+
+- Speed up Indexed image decoding with a palette lookup table and direct box-filter downsampling.
+- Update dependency constraints for the 10.0.0 suite.
+
 ## 9.0.0
 
 - Add `pdfPageLooksScanned` and `pdfDocumentLooksScanned` to decide when a document needs OCR.
