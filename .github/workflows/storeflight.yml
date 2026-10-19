@@ -123,6 +123,14 @@ jobs:
           merge-multiple: true
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
+      - name: Coordinate the preserved draft for iOS 10.0.0 only
+        env:
+          COORDINATED_RESUME_RUN: ${{ inputs.resume_run_id }}
+          COORDINATED_PLATFORMS: ${{ inputs.platforms }}
+          COORDINATED_DESTINATIONS: ${{ inputs.destinations }}
+          COORDINATED_UNTIL: ${{ inputs.until }}
+          COORDINATED_DRY_RUN: ${{ inputs.dry_run }}
+        run: node .github/scripts/coordinate-ios-experiment.cjs
       - name: Submit to review
         if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
         shell: bash
