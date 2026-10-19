@@ -318,7 +318,7 @@ void main() {
           findsNothing);
     });
 
-    testWidgets('Recolour… opens the picker and retints the snapshot',
+    testWidgets('Recolour… opens full find/replace scoped to snapshots',
         (tester) async {
       final editing = await pumpViewer(tester);
       editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
@@ -330,11 +330,22 @@ void main() {
       await tester
           .tap(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')));
       await tester.pumpAndSettle();
-      // the colour dialog is up; accept the default ink
-      await tester.tap(find.text('OK'));
+      expect(find.byKey(const ValueKey('pdf-color-process-find-picker')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-replace-picker')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-tolerance')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-whole-document')),
+          findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-process-apply')));
+      await tester.pump();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100 && identical(editing.document, before); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
       await tester.pumpAndSettle();
-
-      // a new revision landed - the snapshot was recoloured
       expect(identical(editing.document, before), isFalse);
     });
 
