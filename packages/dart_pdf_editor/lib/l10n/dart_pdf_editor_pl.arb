@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Wyrównanie w pionie",
+  "textAlignTop": "Wyrównaj tekst do góry",
+  "textAlignMiddle": "Wyśrodkuj tekst w pionie",
+  "textAlignBottom": "Wyrównaj tekst do dołu",
   "@@locale": "pl",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

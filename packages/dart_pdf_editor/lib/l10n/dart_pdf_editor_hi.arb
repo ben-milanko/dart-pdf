@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "लंबवत संरेखण",
+  "textAlignTop": "पाठ ऊपर संरेखित करें",
+  "textAlignMiddle": "पाठ बीच में संरेखित करें",
+  "textAlignBottom": "पाठ नीचे संरेखित करें",
   "@@locale": "hi",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

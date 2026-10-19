@@ -9,16 +9,16 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
+  String get textVerticalAlign => 'المحاذاة الرأسية';
 
   @override
-  String get textAlignTop => 'Align text to top';
+  String get textAlignTop => 'محاذاة النص إلى الأعلى';
 
   @override
-  String get textAlignMiddle => 'Align text to middle';
+  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
 
   @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
 
   @override
   String get add => 'إضافة';

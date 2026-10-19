@@ -9,16 +9,16 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
+  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
 
   @override
-  String get textAlignTop => 'Align text to top';
+  String get textAlignTop => 'จัดข้อความชิดบน';
 
   @override
-  String get textAlignMiddle => 'Align text to middle';
+  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
 
   @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get textAlignBottom => 'จัดข้อความชิดล่าง';
 
   @override
   String get add => 'เพิ่ม';

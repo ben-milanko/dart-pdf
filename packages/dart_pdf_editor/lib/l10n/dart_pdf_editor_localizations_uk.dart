@@ -9,16 +9,16 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
+  String get textVerticalAlign => 'Вертикальне вирівнювання';
 
   @override
-  String get textAlignTop => 'Align text to top';
+  String get textAlignTop => 'Вирівняти текст за верхнім краєм';
 
   @override
-  String get textAlignMiddle => 'Align text to middle';
+  String get textAlignMiddle => 'Вирівняти текст по центру';
 
   @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
 
   @override
   String get add => 'Додати';

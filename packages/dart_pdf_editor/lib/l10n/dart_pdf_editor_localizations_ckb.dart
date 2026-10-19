@@ -9,16 +9,16 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
+  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
 
   @override
-  String get textAlignTop => 'Align text to top';
+  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
 
   @override
-  String get textAlignMiddle => 'Align text to middle';
+  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
 
   @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
 
   @override
   String get add => 'زیادکردن';

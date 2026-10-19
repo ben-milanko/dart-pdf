@@ -9,16 +9,16 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
+  String get textVerticalAlign => 'Вертикальное выравнивание';
 
   @override
-  String get textAlignTop => 'Align text to top';
+  String get textAlignTop => 'Выровнять текст по верхнему краю';
 
   @override
-  String get textAlignMiddle => 'Align text to middle';
+  String get textAlignMiddle => 'Выровнять текст по центру';
 
   @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get textAlignBottom => 'Выровнять текст по нижнему краю';
 
   @override
   String get add => 'Добавить';

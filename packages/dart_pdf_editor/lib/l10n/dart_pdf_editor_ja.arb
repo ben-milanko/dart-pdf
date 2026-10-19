@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "縦方向の配置",
+  "textAlignTop": "文字を上揃え",
+  "textAlignMiddle": "文字を中央揃え",
+  "textAlignBottom": "文字を下揃え",
   "@@locale": "ja",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
