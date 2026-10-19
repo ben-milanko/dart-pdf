@@ -1,5 +1,7 @@
 // One-release coordination authorized by Ben: preserve the draft, release
-// 10.0.0, then start the test against the released version. Never merge this
+// 10.0.0, then start the test against the released version. Ben subsequently
+// authorized completing the SDK-26 rebuild after Apple rejected the old IPA.
+// Never merge this
 // operational branch into main or change the tracked protection policy.
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -7,7 +9,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 async function main() {
-  assert.equal(process.env.COORDINATED_RESUME_RUN, '39165248171');
+  assert.equal(process.env.COORDINATED_RESUME_RUN, '39207384278');
+  assert.equal(process.env.COORDINATED_FROM_STEP, 'build.ios');
   assert.equal(process.env.COORDINATED_PLATFORMS, 'ios');
   assert.equal(process.env.COORDINATED_DESTINATIONS, 'apple');
   assert.equal(process.env.COORDINATED_UNTIL, 'review');
@@ -22,7 +25,7 @@ async function main() {
   assert.equal(ledger.artifacts.ios.sha256, digest);
   const artifact = [path.resolve('app', ledger.artifacts.ios.relative_path),
     path.resolve('app/build/ios/ipa/DartPDF.ipa')].find(p => fs.existsSync(p));
-  assert.ok(artifact, 'The existing signed IPA must be restored; do not rebuild');
+  assert.ok(artifact, 'Restore the rejected IPA to verify the original build provenance');
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(artifact)).digest('hex'), digest);
 
   const encode = x => Buffer.from(JSON.stringify(x)).toString('base64url');
@@ -31,6 +34,33 @@ async function main() {
   const signature = crypto.sign('sha256', Buffer.from(unsigned), {
     key: process.env.ASC_API_KEY_P8, dsaEncoding: 'ieee-p1363'
   }).toString('base64url');
+  const headers = {Authorization: `Bearer ${unsigned}.${signature}`};
+  async function inventory(url) {
+    const rows = [];
+    const included = [];
+    const visited = new Set();
+    while (url) {
+      assert.equal(new URL(url).origin, 'https://api.appstoreconnect.apple.com');
+      assert.ok(!visited.has(url));
+      visited.add(url);
+      const response = await fetch(url, {headers, signal: AbortSignal.timeout(30000)});
+      assert.ok(response.ok, `Apple inventory HTTP ${response.status}`);
+      const page = await response.json();
+      rows.push(...page.data);
+      included.push(...(page.included || []));
+      url = page.links?.next;
+    }
+    return {rows, included};
+  }
+  const nativeBuilds = await inventory('https://api.appstoreconnect.apple.com/v1/builds?filter[app]=6780083686&filter[version]=47&include=preReleaseVersion&limit=200');
+  for (const build of nativeBuilds.rows) {
+    const preReleaseId = build.relationships?.preReleaseVersion?.data?.id;
+    const preRelease = nativeBuilds.included.find(x => x.type === 'preReleaseVersions' && x.id === preReleaseId);
+    assert.ok(preRelease, 'Every build must have a known platform');
+    assert.notEqual(preRelease.attributes.platform, 'IOS', 'An iOS build 47 already exists; reconcile it instead of rebuilding');
+  }
+  const versions = await inventory('https://api.appstoreconnect.apple.com/v1/apps/6780083686/appStoreVersions?filter[platform]=IOS&filter[versionString]=10.0.0&limit=200');
+  assert.equal(versions.rows.length, 0, 'An iOS 10.0.0 version already exists; reconcile its submission first');
   const tests = [];
   let url = 'https://api.appstoreconnect.apple.com/v1/apps/6780083686/appStoreVersionExperimentsV2?limit=200';
   const visited = new Set();
@@ -38,7 +68,7 @@ async function main() {
     assert.equal(new URL(url).origin, 'https://api.appstoreconnect.apple.com');
     assert.ok(!visited.has(url));
     visited.add(url);
-    const response = await fetch(url, {headers: {Authorization: `Bearer ${unsigned}.${signature}`}, signal: AbortSignal.timeout(30000)});
+    const response = await fetch(url, {headers, signal: AbortSignal.timeout(30000)});
     assert.ok(response.ok, `Experiment inventory HTTP ${response.status}`);
     const page = await response.json();
     tests.push(...page.data);
@@ -59,7 +89,7 @@ async function main() {
   fs.writeFileSync(target, source.replace('protect_product_page_tests: true', 'protect_product_page_tests: false'), {mode: 0o600});
   fs.appendFileSync(process.env.GITHUB_ENV, `STOREFLIGHT_CONFIG=${target}\n`);
   fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'ios-experiment-preserved-before.json'), JSON.stringify({checkedAt: new Date().toISOString(), tests}, null, 2));
-  console.log('Coordinated iOS 10.0.0 submission: existing signed IPA verified; exact draft preserved; tracked protection unchanged.');
+  console.log('Coordinated iOS 10.0.0 SDK-26 rebuild: rejected IPA provenance verified; no accepted iOS build; exact draft preserved; tracked protection unchanged.');
 }
 
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
