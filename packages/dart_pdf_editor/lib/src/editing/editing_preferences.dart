@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:archive/archive.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfEmbeddedFont, PdfLineEnding, PdfStandardFont, PdfTextAlign;
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -171,6 +173,8 @@ class PdfEditingPreferences extends ChangeNotifier
   double _gridSpacing = 10;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
+  String? _embeddedFontData;
+  PdfEmbeddedFont? _embeddedFont;
   PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
@@ -311,6 +315,7 @@ class PdfEditingPreferences extends ChangeNotifier
         _fontFamily =
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
+      _embeddedFontData = store.getString('${_prefix}embeddedFont');
       final textAlign = store.getString('${_prefix}textAlign');
       if (textAlign != null) {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
@@ -940,6 +945,51 @@ class PdfEditingPreferences extends ChangeNotifier
 
   /// Font family for free-text annotations - one of the standard PDF
   /// text fonts (sans-serif, serif, monospace).
+  /// The embedded face used for new text annotations across documents and
+  /// restarts. Its font program is compressed in the device preferences, so
+  /// the original PDF or uploaded font file is not needed to restore it.
+  /// Parsed lazily on first use; an invalid saved font falls back to the
+  /// standard [fontFamily]. Hosts can supply their own [PdfPreferencesStore].
+  PdfEmbeddedFont? get embeddedFont {
+    if (_embeddedFont != null || _embeddedFontData == null) {
+      return _embeddedFont;
+    }
+    try {
+      final bytes = GZipDecoder().decodeBytes(base64Decode(_embeddedFontData!));
+      _embeddedFont = PdfEmbeddedFont.parse(Uint8List.fromList(bytes));
+    } catch (_) {
+      _embeddedFontData = null;
+    }
+    return _embeddedFont;
+  }
+
+  set embeddedFont(PdfEmbeddedFont? value) {
+    if (identical(value, _embeddedFont) &&
+        (value != null || _embeddedFontData == null)) {
+      return;
+    }
+    _embeddedFont = value;
+    final data = value == null
+        ? null
+        : base64Encode(GZipEncoder().encode(value.fontBytes));
+    _embeddedFontData = data;
+    Future<Object?> write(PdfPreferencesStore store) => data == null
+        ? store.remove('${_prefix}embeddedFont')
+        : store.setString('${_prefix}embeddedFont', data);
+    _modified = true;
+    if (_store != null) {
+      _write(write);
+    } else {
+      // A font picked while preferences are loading must be saved as well as
+      // winning the in-memory load race.
+      unawaited(ready.then((_) async {
+        final store = _store;
+        if (store != null) await write(store);
+      }));
+    }
+    notifyListeners();
+  }
+
   PdfStandardFont get fontFamily => _fontFamily;
 
   set fontFamily(PdfStandardFont value) {
