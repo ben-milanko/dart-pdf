@@ -3154,6 +3154,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final name = annotation.name;
     _resizeCleanFor = key;
     final revisionAtStart = _controller.revisionId;
+    // Let the first resize preview paint before the clean-page render starts
+    // parsing/interpreting a potentially large drawing on the UI isolate.
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted ||
+        !identical(_resizeCleanFor, key) ||
+        revisionAtStart != _controller.revisionId) {
+      return;
+    }
     try {
       final picture = await PdfPageRenderer.renderPicture(
         _controller.pageAt(widget.pageIndex),
