@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get add => 'Dodaj';
 
   @override

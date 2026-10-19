@@ -809,6 +809,8 @@ class _PdfAnnotationPropertiesPanelState
     ];
     final alignments = _common<PdfTextAlign>(
         [for (final value in freeStyles) value.alignment]);
+    final verticalAlignments = _common<PdfTextVerticalAlign>(
+        [for (final value in freeStyles) value.verticalAlignment]);
     final underlines =
         _common<bool>([for (final value in freeStyles) value.underline]);
     final lineSpacings =
@@ -855,6 +857,18 @@ class _PdfAnnotationPropertiesPanelState
             keyPrefix: 'pdf-prop-text-align',
             align: alignments.value,
             onChanged: (align) => _controller.restyleSelectedText(align: align),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          Expanded(child: Text(pdfL10n(context).textVerticalAlign)),
+          TextVerticalAlignToggles(
+            keyPrefix: 'pdf-prop-text-vertical-align',
+            align: verticalAlignments.value,
+            onChanged: (align) =>
+                _controller.restyleSelectedText(verticalAlign: align),
           ),
         ]),
       ),

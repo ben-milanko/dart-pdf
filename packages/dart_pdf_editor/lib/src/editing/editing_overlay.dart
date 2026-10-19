@@ -1095,6 +1095,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // null means "follow the text direction" (left for LTR, right for RTL) -
   // a box with no explicit /Q, matching TextField's TextAlign.start
   PdfTextAlign? _textEditAlign;
+  PdfTextVerticalAlign _textEditVerticalAlign = PdfTextVerticalAlign.top;
   double _textEditLineSpacing = kPdfFreeTextDefaultLineSpacing;
   double _textEditCharSpacing = 0;
   bool _textEditStyleMenuOpen = false;
@@ -1254,6 +1255,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool washed,
     double rotation,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign,
     bool underline,
     double lineSpacing,
   })? _afterText;
@@ -2715,6 +2717,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     Color? fill,
     double opacity,
     PdfTextAlign align,
+    PdfTextVerticalAlign verticalAlign,
     bool underline,
     double lineSpacing,
   })? get _textResizeStyle {
@@ -2745,6 +2748,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : null,
       opacity: annotation.appearanceOpacity,
       align: parsed.alignment,
+      verticalAlign: parsed.verticalAlignment,
       underline: parsed.underline,
       lineSpacing: parsed.lineSpacing,
     );
@@ -3283,20 +3287,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_textEditRect == null) return;
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
-    if (!_textEditExisting) {
+    if (_textEditExisting) {
+      final align = _controller.selectedTextVerticalAlign;
+      if (align != null && align != _textEditVerticalAlign) {
+        setState(() => _textEditVerticalAlign = align);
+      }
+    } else {
       final align = _controller.preferences.textAlign;
+      final verticalAlign = _controller.preferences.textVerticalAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
       final ul = _controller.textUnderline;
       final opacity = _controller.preferences.opacity;
       final defaultUnderline = _textEditText.defaultStyle.underline;
       if (align != _textEditAlign ||
+          verticalAlign != _textEditVerticalAlign ||
           ls != _textEditLineSpacing ||
           cs != _textEditCharSpacing ||
           opacity != _textEditOpacity ||
           (ul != defaultUnderline && !_textEditText.hasRichStyles)) {
         setState(() {
           _textEditAlign = align;
+          _textEditVerticalAlign = verticalAlign;
           _textEditLineSpacing = ls;
           _textEditCharSpacing = cs;
           _textEditOpacity = opacity;
@@ -3716,6 +3728,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditColor = defaultColor;
       _textEditAlign =
           existing ? parsed?.alignment : _controller.preferences.textAlign;
+      _textEditVerticalAlign = existing
+          ? parsed?.verticalAlignment ?? PdfTextVerticalAlign.top
+          : _controller.preferences.textVerticalAlign;
       _textEditLineSpacing = existing
           ? (parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing)
           : _controller.lineSpacing;
@@ -3949,6 +3964,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       washed: existing,
       rotation: rotation,
       align: _textEditAlign,
+      verticalAlign: _textEditVerticalAlign,
       underline: _textEditText.defaultStyle.underline,
       lineSpacing: _textEditLineSpacing,
     );
@@ -4810,6 +4826,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             washed: liftClean == null,
             rotation: resizeAngle,
             align: wrapStyle.align,
+            verticalAlign: wrapStyle.verticalAlign,
             underline: wrapStyle.underline,
             lineSpacing: wrapStyle.lineSpacing,
           );
@@ -6560,6 +6577,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     double opacity = 1,
     required double rotation,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     bool underline = false,
     double lineSpacing = kPdfFreeTextDefaultLineSpacing,
   }) {
@@ -6612,7 +6630,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       key: key,
       color: background,
       padding: EdgeInsets.fromLTRB(pad, math.max(0.0, baselineShift), pad, pad),
-      alignment: columnAlign,
+      alignment: Alignment(
+          columnAlign.x,
+          switch (verticalAlign) {
+            PdfTextVerticalAlign.top => -1,
+            PdfTextVerticalAlign.center => 0,
+            PdfTextVerticalAlign.bottom => 1,
+          }),
       child: Directionality(textDirection: direction, child: label),
     );
     final faded = opacity >= 1
@@ -7144,6 +7168,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   opacity: wrapResize.opacity,
                   rotation: _resizeAngle,
                   align: wrapResize.align,
+                  verticalAlign: wrapResize.verticalAlign,
                   underline: wrapResize.underline,
                   lineSpacing: wrapResize.lineSpacing,
                 ),
@@ -7164,6 +7189,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   opacity: after.opacity,
                   rotation: after.rotation,
                   align: after.align,
+                  verticalAlign: after.verticalAlign,
                   underline: after.underline,
                   lineSpacing: after.lineSpacing,
                 ),
@@ -7348,7 +7374,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   textAlign: _textEditAlign != null
                                       ? _flutterTextAlign(_textEditAlign!)
                                       : TextAlign.start,
-                                  textAlignVertical: TextAlignVertical.top,
+                                  textAlignVertical: switch (
+                                      _textEditVerticalAlign) {
+                                    PdfTextVerticalAlign.top =>
+                                      TextAlignVertical.top,
+                                    PdfTextVerticalAlign.center =>
+                                      TextAlignVertical.center,
+                                    PdfTextVerticalAlign.bottom =>
+                                      TextAlignVertical.bottom,
+                                  },
                                   strutStyle: strut,
                                   cursorColor: _textEditColor,
                                   cursorWidth: 2 * _chromeScale,

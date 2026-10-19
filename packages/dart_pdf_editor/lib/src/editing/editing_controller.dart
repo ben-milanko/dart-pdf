@@ -3792,6 +3792,7 @@ class PdfEditingController extends ChangeNotifier {
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -3824,6 +3825,7 @@ class PdfEditingController extends ChangeNotifier {
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           // the box outline and leader share one stroke; fall back to the
@@ -3847,6 +3849,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
@@ -3891,6 +3894,7 @@ class PdfEditingController extends ChangeNotifier {
         fontSize: fontSize,
         font: _activeFont ?? preferences.fontFamily,
         align: preferences.textAlign,
+        verticalAlign: preferences.textVerticalAlign,
         color: _colorValue,
         fillColor: _rgbOf(preferences.textFillColor),
         borderColor: _rgbOf(preferences.textBorderColor),
@@ -7432,6 +7436,8 @@ class PdfEditingController extends ChangeNotifier {
       values['fontFamily'] = text.font.name;
       final align = annotation.freeTextStyle?.alignment;
       values['textAlign'] = align?.name;
+      values['textVerticalAlign'] =
+          annotation.freeTextStyle?.verticalAlignment.name;
       // for a text box /C is the background and /DA border colour is separate;
       // the box's tint is its text colour, already captured as `color`
       values['textFillColor'] = argb(style.fillColor);
@@ -9077,6 +9083,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfStandardFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -9085,6 +9092,7 @@ class PdfEditingController extends ChangeNotifier {
       font: font,
       size: size,
       align: align,
+      verticalAlign: verticalAlign,
       fill: fill,
       border: border,
       borderWidth: borderWidth,
@@ -9134,6 +9142,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfTextFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -9147,6 +9156,7 @@ class PdfEditingController extends ChangeNotifier {
     if (font == null &&
         size == null &&
         align == null &&
+        verticalAlign == null &&
         fill == null &&
         border == null &&
         borderWidth == null &&
@@ -9272,6 +9282,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9300,6 +9313,9 @@ class PdfEditingController extends ChangeNotifier {
                 ),
             ],
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
             borderWidth: effectiveBorderWidth,
@@ -9319,6 +9335,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9373,6 +9392,17 @@ class PdfEditingController extends ChangeNotifier {
   void setSelectedTextAlign(PdfTextAlign align) {
     preferences.textAlign = align; // the new default either way
     if (canRestyleSelectedText) restyleSelectedText(align: align);
+  }
+
+  /// The selected text box's vertical placement, or null without a text box.
+  PdfTextVerticalAlign? get selectedTextVerticalAlign =>
+      selectedFreeTextStyle?.verticalAlignment;
+
+  /// Applies vertical placement to selected text boxes in one undo step and
+  /// remembers it for new boxes. Horizontal alignment is unchanged.
+  void setSelectedTextVerticalAlign(PdfTextVerticalAlign align) {
+    preferences.textVerticalAlign = align;
+    if (canRestyleSelectedText) restyleSelectedText(verticalAlign: align);
   }
 
   /// Rewrites every selected free-text annotation in [font] - a base-14 face
@@ -9637,6 +9667,7 @@ class PdfEditingController extends ChangeNotifier {
     required double fontSize,
     required PdfTextFont font,
     required PdfTextAlign align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -9660,6 +9691,7 @@ class PdfEditingController extends ChangeNotifier {
       fontSize: fontSize,
       font: font,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       strokeColor: shape.style.color,
@@ -9725,6 +9757,8 @@ class PdfEditingController extends ChangeNotifier {
               fontSize: size ?? style.size,
               font: font ?? style.font,
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9761,6 +9795,8 @@ class PdfEditingController extends ChangeNotifier {
               font: font ?? style.font,
               // keep the box's own alignment unless this edit changes it
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9860,6 +9896,8 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: first.fontSize,
             font: first.font,
             align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+            verticalAlign:
+                parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
             color: first.color,
             fillColor: parsed?.fillColor,
             borderColor: parsed?.borderColor,
@@ -9884,6 +9922,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+          verticalAlign: parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: parsed?.borderWidth ?? 1,

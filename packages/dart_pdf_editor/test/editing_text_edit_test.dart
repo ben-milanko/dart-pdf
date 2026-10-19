@@ -1684,6 +1684,7 @@ void main() {
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
       await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(splashFactory: NoSplash.splashFactory),
         home: Scaffold(
           body: const SizedBox.expand(),
           bottomNavigationBar: PdfEditingToolbar(
@@ -1712,6 +1713,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-text-align-right')));
       await tester.pump();
       expect(editing.preferences.textAlign, PdfTextAlign.right);
+      await tester.ensureVisible(
+          find.byKey(const ValueKey('pdf-text-vertical-align-bottom')));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-text-vertical-align-bottom')));
+      await tester.pump();
+      expect(
+          editing.preferences.textVerticalAlign, PdfTextVerticalAlign.bottom);
     });
 
     testWidgets('the style menu sets text colour, fill, and border defaults',
@@ -1742,21 +1750,28 @@ void main() {
       await tester.pumpAndSettle();
 
       // foreground red is slot 0, marker yellow is slot 1, blue is slot 3
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-text-color-0')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-color-0')));
       await tester.pump();
       expect(editing.color, PdfEditingToolbar.defaultPalette[0]);
       expect(find.byKey(const ValueKey('pdf-text-color-none')), findsNothing);
 
+      await tester.ensureVisible(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.pump();
       expect(editing.preferences.textFillColor,
           PdfEditingToolbar.defaultPalette[1]);
 
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-text-border-3')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-border-3')));
       await tester.pump();
       expect(editing.preferences.textBorderColor,
           PdfEditingToolbar.defaultPalette[3]);
 
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-text-fill-none')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-none')));
       await tester.pump();
       expect(editing.preferences.textFillColor, isNull);
@@ -1792,10 +1807,15 @@ void main() {
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-text-border-0')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-border-0')));
       await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-text-color-3')));
       await tester.tap(find.byKey(const ValueKey('pdf-text-color-3')));
       await tester.pumpAndSettle();
 
