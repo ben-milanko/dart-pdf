@@ -125,24 +125,30 @@ class PdfStampPickerDialog extends StatelessWidget {
                     subtitle: _stampDetail(stamp) == null
                         ? null
                         : Text(_stampDetail(stamp)!),
-                    trailing: controller.isSavedCustomStamp(stamp)
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined),
-                                tooltip: pdfL10n(context).stampEditStamp,
-                                onPressed: () => _edit(context, stamp),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline),
-                                tooltip: pdfL10n(context).stampDeleteStamp,
-                                onPressed: () =>
-                                    controller.removeCustomStamp(stamp),
-                              ),
-                            ],
-                          )
-                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.copy_all_outlined),
+                          tooltip: pdfL10n(context).duplicate,
+                          onPressed: () =>
+                              controller.duplicateCustomStamp(stamp),
+                        ),
+                        if (controller.isSavedCustomStamp(stamp)) ...[
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: pdfL10n(context).stampEditStamp,
+                            onPressed: () => _edit(context, stamp),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            tooltip: pdfL10n(context).stampDeleteStamp,
+                            onPressed: () =>
+                                controller.removeCustomStamp(stamp),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 const Divider(height: 24),
                 _StampDateTimeFormatControls(controller: controller),
@@ -876,6 +882,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
     _commitSize();
     final initial = widget.initial;
     Navigator.of(context).pop(PdfCustomStamp(
+      id: initial?.id,
       text: _caption,
       color: _primaryColor,
       template: _template,

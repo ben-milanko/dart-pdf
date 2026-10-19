@@ -1,4 +1,5 @@
 {
+  "duplicate": "Nhân bản",
   "@@locale": "vi",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

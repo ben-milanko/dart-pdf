@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
+  String get duplicate => 'دووبارەکردنەوە';
+
+  @override
   String get add => 'زیادکردن';
 
   @override

@@ -1,4 +1,5 @@
 {
+  "duplicate": "複製",
   "@@locale": "ja",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

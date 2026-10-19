@@ -138,6 +138,12 @@ abstract class DartPdfEditorLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// Duplicate a library item or selected annotation as an independent copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicate;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:

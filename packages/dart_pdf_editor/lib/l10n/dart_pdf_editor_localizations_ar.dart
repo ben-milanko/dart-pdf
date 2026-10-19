@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get duplicate => 'تكرار';
+
+  @override
   String get add => 'إضافة';
 
   @override

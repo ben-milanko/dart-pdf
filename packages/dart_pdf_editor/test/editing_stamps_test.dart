@@ -1660,6 +1660,129 @@ void main() {
       expect(border.height, greaterThan(64));
     });
 
+    test('duplicated library stamps persist and edit independently', () async {
+      final store = PdfMemoryPreferencesStore();
+      final preferences = PdfEditingPreferences(store: store);
+      addTearDown(preferences.dispose);
+      await preferences.ready;
+      final editing =
+          PdfEditingController(buildMultiPagePdf(1), preferences: preferences);
+      addTearDown(editing.dispose);
+      final original = PdfCustomStamp(
+          text: 'APPROVED {{date}}',
+          color: 0xC03030,
+          template: PdfStampTemplate.text('APPROVED {{date}}', 0xC03030),
+          type: 'Audit',
+          tags: const ['site']);
+      editing.saveCustomStamp(original);
+      final copy = editing.duplicateCustomStamp(original);
+      expect(copy, isNot(original));
+      expect(copy.id, isNotNull);
+      expect(copy.template, original.template);
+      expect(identical(copy.template, original.template), isFalse);
+      expect(copy.tags, original.tags);
+      expect(copy.type, original.type);
+      expect(editing.activeStamp, copy);
+      editing.tool = PdfEditTool.stamp;
+      editing.color = const ui.Color(0xFF0000FF);
+      expect(editing.savedCustomStamps.first, original);
+      expect(editing.savedCustomStamps.last.id, copy.id);
+      expect(editing.savedCustomStamps.last.color, 0x0000FF);
+      final restored = PdfEditingPreferences(store: store);
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.customStamps, editing.savedCustomStamps);
+      editing.removeCustomStamp(editing.savedCustomStamps.last);
+      expect(editing.savedCustomStamps, [original]);
+    });
+
+    test('placed stamp duplicate keeps artwork and leaves clipboards alone',
+        () {
+      final clipboard = PdfAnnotationSnapshotClipboard();
+      final snapshots = PdfSnapshotClipboard();
+      final editing = PdfEditingController(buildMultiPagePdf(1),
+          annotationClipboard: clipboard, snapshotClipboard: snapshots)
+        ..addStamp(0, const PdfRect(100, 500, 200, 550), 'APPROVED')
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      editing.copySelectedAnnotations();
+      final sourceClipboard = clipboard.snapshots;
+      final source = editing.document.page(0).annotations.single;
+      expect(editing.duplicateSelectedStamp(), isTrue);
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(2));
+      expect(annotations.last.name, isNot(source.name));
+      expect(annotations.last.contents, source.contents);
+      expect(annotations.last.rect, const PdfRect(112, 488, 212, 538));
+      expect(editing.selectedAnnotationSlots, [(0, 1)]);
+      expect(identical(clipboard.snapshots, sourceClipboard), isTrue);
+      expect(clipboard.pasteCount, 0);
+      expect(annotations.last.normalAppearance, isNotNull);
+      editing.undo();
+      expect(editing.document.page(0).annotations, hasLength(1));
+      editing.redo();
+      final reopened = PdfDocument.open(editing.bytes);
+      expect(reopened.page(0).annotations, hasLength(2));
+      expect(reopened.page(0).annotations.last.contents, source.contents);
+    });
+
+    for (final rotation in [0, 90, 180, 270]) {
+      test('stamp duplicate cascades down-right on a $rotation-degree page',
+          () {
+        final editing = PdfEditingController(buildMultiPagePdf(1))
+          ..rotatePages([0], rotation)
+          ..addStamp(0, const PdfRect(200, 300, 300, 350), 'DUPLICATE')
+          ..selectAnnotation(0, 0);
+        addTearDown(editing.dispose);
+        final page = editing.document.page(0);
+        final geometry = PdfPageGeometry(
+            cropBox: page.cropBox,
+            rotation: page.rotation,
+            viewSize: rotation == 90 || rotation == 270
+                ? const ui.Size(792, 612)
+                : const ui.Size(612, 792));
+        final before = geometry.toViewRect(editing.selectedAnnotation!.rect);
+        expect(editing.duplicateSelectedStamp(), isTrue);
+        final after = geometry.toViewRect(editing.selectedAnnotation!.rect);
+        expect(after.left - before.left, closeTo(12, 1e-6));
+        expect(after.top - before.top, closeTo(12, 1e-6));
+        expect(after.size, before.size);
+        expect(editing.tool, PdfEditTool.select);
+      });
+    }
+
+    testWidgets('the picker duplicates a stamp and edits only the copy',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      const original = PdfCustomStamp(text: 'APPROVED', color: 0xC03030);
+      editing.saveCustomStamp(original);
+      await tester.pumpWidget(MaterialApp(
+          home: Builder(
+              builder: (context) => Center(
+                    child: FilledButton(
+                        onPressed: () =>
+                            showPdfStampPicker(context, controller: editing),
+                        child: const Text('open')),
+                  ))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Duplicate'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfStampPreview), findsNWidgets(2));
+      final copy = editing.savedCustomStamps.last;
+      expect(copy.id, isNotNull);
+      await tester.tap(find.byTooltip('Edit stamp').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-stamp-text')), 'REVISED');
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
+      await tester.pumpAndSettle();
+      expect(editing.savedCustomStamps.first, original);
+      expect(editing.savedCustomStamps.last.text, 'REVISED');
+      expect(editing.savedCustomStamps.last.id, copy.id);
+    });
+
     testWidgets('the picker lists and deletes saved stamps', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);

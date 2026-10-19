@@ -4325,6 +4325,25 @@ class PdfEditingController extends ChangeNotifier {
   void saveCustomStamp(PdfCustomStamp stamp) =>
       preferences.customStamps = [...preferences.customStamps, stamp];
 
+  /// Saves an independent copy of a library stamp, preserving its artwork,
+  /// fields and metadata, and selects the copy for placement.
+  PdfCustomStamp duplicateCustomStamp(PdfCustomStamp stamp) {
+    final detached = PdfCustomStamp.decode(stamp.encode())!;
+    final copy = PdfCustomStamp(
+      id: 'copy-${DateTime.now().microsecondsSinceEpoch}-${_stampCopySequence++}',
+      text: detached.text,
+      color: detached.color,
+      template: detached.template,
+      type: detached.type,
+      tags: detached.tags,
+    );
+    saveCustomStamp(copy);
+    activeStamp = copy;
+    return copy;
+  }
+
+  static int _stampCopySequence = 0;
+
   /// Replaces a user-saved stamp with [next]. If [stamp] is active, the
   /// edited stamp remains active. Returns false for app-supplied stamps.
   bool replaceCustomStamp(PdfCustomStamp stamp, PdfCustomStamp next) {
@@ -4445,6 +4464,7 @@ class PdfEditingController extends ChangeNotifier {
     if (active == null) return;
     final rgb = color.toARGB32() & 0xFFFFFF;
     final next = PdfCustomStamp(
+      id: active.id,
       text: active.text,
       color: rgb,
       template: active.template == null
@@ -6790,6 +6810,44 @@ class PdfEditingController extends ChangeNotifier {
   /// Whether [pasteAnnotations] has anything to paste - including a copy
   /// made in another document tab, since [annotationClipboard] is shared.
   bool get hasAnnotationClipboard => annotationClipboard.isNotEmpty;
+
+  /// Whether a single editable placed stamp can be duplicated in place.
+  bool get canDuplicateSelectedStamp =>
+      _selected.length == 1 &&
+      selectedAnnotation?.subtype == 'Stamp' &&
+      isAnnotationEditable(selectedAnnotation!);
+
+  /// Duplicates a placed stamp without changing either clipboard. The copy
+  /// keeps the captured appearance and receives a new annotation identity.
+  /// One undo removes it; the source remains selected only until the copy lands.
+  bool duplicateSelectedStamp() {
+    if (!canDuplicateSelectedStamp) return false;
+    final slot = _selected.single;
+    final page = _page(slot.$1);
+    final annotation = _annotationAt(slot)!;
+    final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+        sourcePageRotation: page.rotation);
+    if (snapshot == null) return false;
+    var (dx, dy) = switch (page.rotation) {
+      90 => (12.0, 12.0),
+      180 => (-12.0, 12.0),
+      270 => (-12.0, -12.0),
+      _ => (12.0, -12.0),
+    };
+    final r = snapshot.rect, box = page.cropBox;
+    dx += _tetherShift(r.left + dx, r.right + dx, box.left, box.right);
+    dy += _tetherShift(r.bottom + dy, r.top + dy, box.bottom, box.top);
+    if (!apply((e) => e.pasteAnnotation(slot.$1, snapshot, dx: dx, dy: dy))) {
+      return false;
+    }
+    final last = _page(slot.$1).annotations.length - 1;
+    tool = PdfEditTool.select;
+    _selected
+      ..clear()
+      ..add((slot.$1, last));
+    notifyListeners();
+    return true;
+  }
 
   /// Copies the selected annotations to the in-app [annotationClipboard]
   /// as detached snapshots - they survive edits, undo, and closing the

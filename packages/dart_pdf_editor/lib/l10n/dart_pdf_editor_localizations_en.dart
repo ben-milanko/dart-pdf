@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get duplicate => 'Duplicate';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -2478,6 +2481,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnAu() : super('en_AU');
 
   @override
+  String get duplicate => 'Duplicate';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -4945,6 +4951,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 /// The translations for English, as used in the United Kingdom (`en_GB`).
 class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnGb() : super('en_GB');
+
+  @override
+  String get duplicate => 'Duplicate';
 
   @override
   String get add => 'Add';

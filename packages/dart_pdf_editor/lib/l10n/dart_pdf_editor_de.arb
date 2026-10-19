@@ -1,4 +1,5 @@
 {
+  "duplicate": "Duplizieren",
   "@@locale": "de",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

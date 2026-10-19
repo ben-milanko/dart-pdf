@@ -1,4 +1,6 @@
 {
+  "duplicate": "Duplicate",
+  "@duplicate": {"description": "Duplicate a library item or selected annotation as an independent copy."},
   "@@locale": "en",
   "add": "Add",
   "@add": {

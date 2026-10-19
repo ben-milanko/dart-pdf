@@ -1,4 +1,5 @@
 {
+  "duplicate": "製作副本",
   "@@locale": "zh_Hant",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

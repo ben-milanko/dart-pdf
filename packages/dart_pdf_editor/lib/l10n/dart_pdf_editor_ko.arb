@@ -1,4 +1,5 @@
 {
+  "duplicate": "복제",
   "@@locale": "ko",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

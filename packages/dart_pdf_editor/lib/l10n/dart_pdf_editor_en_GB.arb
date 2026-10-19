@@ -1,4 +1,5 @@
 {
+  "duplicate": "Duplicate",
   "@@locale": "en_GB",
   "add": "Add",
   "annotCaret": "Caret",

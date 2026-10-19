@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get duplicate => 'ทำสำเนา';
+
+  @override
   String get add => 'เพิ่ม';
 
   @override

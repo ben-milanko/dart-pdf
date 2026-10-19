@@ -1,4 +1,5 @@
 {
+  "duplicate": "Дублювати",
   "@@locale": "uk",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

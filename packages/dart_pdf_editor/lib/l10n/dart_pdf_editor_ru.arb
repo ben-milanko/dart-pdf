@@ -1,4 +1,5 @@
 {
+  "duplicate": "Дублировать",
   "@@locale": "ru",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

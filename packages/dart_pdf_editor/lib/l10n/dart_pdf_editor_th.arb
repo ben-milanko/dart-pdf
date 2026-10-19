@@ -1,4 +1,5 @@
 {
+  "duplicate": "ทำสำเนา",
   "@@locale": "th",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

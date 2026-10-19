@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get duplicate => 'डुप्लिकेट बनाएँ';
+
+  @override
   String get add => 'जोड़ें';
 
   @override

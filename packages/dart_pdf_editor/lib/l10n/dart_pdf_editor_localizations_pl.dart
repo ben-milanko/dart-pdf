@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
+  String get duplicate => 'Duplikuj';
+
+  @override
   String get add => 'Dodaj';
 
   @override

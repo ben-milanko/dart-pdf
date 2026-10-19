@@ -1,4 +1,5 @@
 {
+  "duplicate": "Çoğalt",
   "@@locale": "tr",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
