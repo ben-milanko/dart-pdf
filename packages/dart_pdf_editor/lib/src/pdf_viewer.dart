@@ -10036,12 +10036,23 @@ class _PdfViewerState extends State<PdfViewer>
     _keyBindingsEditing = editing;
     _keyBindingsCanRotate = canRotate;
     if (!editing || tools.isEmpty) return _keyBindingsCache = base;
+    final rotationOnR = canRotate &&
+        base.entries.any((entry) {
+          final key = entry.key;
+          return entry.value is PdfRotateSelectionIntent &&
+              key is SingleActivator &&
+              key.trigger == LogicalKeyboardKey.keyR &&
+              !key.shift &&
+              !key.control &&
+              !key.meta &&
+              !key.alt;
+        });
     final bindings = <ShortcutActivator, Intent>{...base};
     for (final entry in tools.entries) {
       final shortcut = entry.value;
       // With a rotatable selection, the stock R rectangle key yields to
       // selection rotation. Explicit custom tools retain their precedence.
-      if (canRotate &&
+      if (rotationOnR &&
           entry.key == PdfEditTool.rectangle &&
           shortcut == const PdfToolShortcut(LogicalKeyboardKey.keyR)) {
         continue;

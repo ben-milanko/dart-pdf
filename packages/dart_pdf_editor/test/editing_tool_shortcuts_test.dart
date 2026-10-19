@@ -108,6 +108,7 @@ void main() {
       WidgetTester tester, {
       Map<PdfEditTool, PdfToolShortcut> toolShortcuts = pdfEditToolShortcuts,
       int pageRotation = 0,
+      Map<ShortcutActivator, Intent>? viewerShortcuts,
     }) async {
       final document = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)))
         ..rotatePages([0], pageRotation);
@@ -126,6 +127,7 @@ void main() {
               controller: viewer,
               editing: editing,
               toolShortcuts: toolShortcuts,
+              shortcuts: viewerShortcuts,
             ),
           ),
         ),
@@ -196,6 +198,19 @@ void main() {
         expect(editing.tool, PdfEditTool.rectangle);
       });
     }
+
+    testWidgets('disabling viewer commands keeps the configured rectangle key',
+        (tester) async {
+      final editing = await pumpEditor(tester, viewerShortcuts: const {});
+      await focusViewer(tester);
+      pasteSnapshot(editing);
+      await tester.pump();
+      final before = editing.bytes.toList();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.rectangle);
+      expect(editing.bytes, before);
+    });
 
     testWidgets('a custom R tool binding wins over selection rotation',
         (tester) async {
