@@ -1,14 +1,127 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/temporary_pan.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final panning in [false, true]) {
+    testWidgets('cached hit targets and transformed events (pan=$panning)',
+        (tester) async {
+      final received = <Offset>[];
+      final pans = <PointerEvent>[];
+      const key = ValueKey('target');
+      await tester.pumpWidget(Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+              child: SizedBox(
+                  width: 300,
+                  height: 300,
+                  child: PdfTemporaryPanRegion(
+                      wantsPan: (_) => panning,
+                      onDown: pans.add,
+                      onMove: pans.add,
+                      onEnd: pans.add,
+                      child: Transform.scale(
+                          scale: 1.5,
+                          child: Listener(
+                              key: key,
+                              behavior: HitTestBehavior.opaque,
+                              onPointerDown: (e) =>
+                                  received.add(e.localPosition),
+                              onPointerMove: (e) =>
+                                  received.add(e.localPosition),
+                              onPointerUp: (e) => received.add(e.localPosition),
+                              child: const SizedBox.expand())))))));
+      final target = find.byKey(key);
+      expect(target.hitTestable(), findsOneWidget);
+      final box = tester.renderObject<RenderBox>(target);
+      final position = box.localToGlobal(const Offset(120, 100));
+      final result = HitTestResult();
+      tester.binding.hitTestInView(result, position, tester.view.viewId);
+      final targets = result.path.map((entry) => entry.target).toList();
+      for (final event in <PointerEvent>[
+        PointerDownEvent(
+            pointer: 10,
+            position: position,
+            kind: PointerDeviceKind.mouse,
+            buttons: kPrimaryMouseButton),
+        PointerMoveEvent(
+            pointer: 10,
+            position: position + const Offset(15, 30),
+            delta: const Offset(15, 30),
+            kind: PointerDeviceKind.mouse,
+            buttons: kPrimaryMouseButton),
+        PointerUpEvent(
+            pointer: 10,
+            position: position + const Offset(15, 30),
+            kind: PointerDeviceKind.mouse),
+      ]) {
+        tester.binding.dispatchEvent(event, result);
+        expect(
+            result.path.map((entry) => entry.target), orderedEquals(targets));
+      }
+      expect(pans.length, panning ? 3 : 0);
+      expect(
+          received,
+          panning
+              ? isEmpty
+              : [
+                  const Offset(120, 100),
+                  const Offset(130, 120),
+                  const Offset(130, 120)
+                ]);
+    });
+  }
+  testWidgets('ordinary form targets retain their hit-test identity',
+      (tester) async {
+    final editing = PdfEditingController(buildAcroFormPdf());
+    final viewer = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+        home: Material(
+            child: PdfViewer(
+                editing: editing,
+                controller: viewer,
+                initialFit: PdfViewerFit.width))));
+    await tester.pumpAndSettle();
+    final target = find.byKey(const ValueKey('pdf-form-field-0-name-0'));
+    expect(target, findsOneWidget);
+    expect(target.hitTestable(), findsOneWidget);
+    for (final name in [
+      'address-0',
+      'agree-0',
+      'color-0',
+      'color-1',
+      'size-0'
+    ]) {
+      expect(find.byKey(ValueKey('pdf-form-field-0-$name')).hitTestable(),
+          findsOneWidget);
+    }
+    await tester.tap(target.hitTestable(), kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    final editor = find.byType(EditableText);
+    expect(editor, findsOneWidget);
+    await tester.enterText(editor, 'Jane Smith');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(editing.acroForm!.fieldNamed('name')!.value, 'Jane Smith');
+    expect(target.hitTestable(), findsOneWidget);
+    final checkbox = find.byKey(const ValueKey('pdf-form-field-0-agree-0'));
+    expect(checkbox.hitTestable(), findsOneWidget);
+    await tester.tap(checkbox.hitTestable());
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(editing.acroForm!.fieldNamed('agree')!.isChecked, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    editing.dispose();
+    viewer.dispose();
+  });
   testWidgets(
       'search typing never arms Space; focus loss and cancel release hand',
       (tester) async {

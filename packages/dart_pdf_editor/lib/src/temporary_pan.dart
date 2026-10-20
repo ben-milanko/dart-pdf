@@ -54,13 +54,14 @@ class _PanRegion extends RenderMouseRegion {
         hitTest: (result, _) {
           // Mouse annotations must stay visible to MouseTracker. RenderMouseRegion
           // handles no raw button events, so it is safe to leave them unwrapped.
-          result.add(HitTestEntry(entry.target is RenderMouseRegion
-              ? entry.target
-              : _GatedTarget(gate, entry)));
+          result.add(entry.target is RenderMouseRegion
+              ? HitTestEntry(entry.target)
+              : _GatedEntry(gate, entry));
           return true;
         },
       );
     }
+    result.add(HitTestEntry(_DispatchEnd(gate)));
     return true;
   }
 }
@@ -69,8 +70,10 @@ class _PanGate implements HitTestTarget {
   _PanGate(this.widget);
   final PdfTemporaryPanRegion widget;
   bool panning = false;
+  bool dispatching = false;
   @override
   void handleEvent(PointerEvent event, HitTestEntry entry) {
+    dispatching = true;
     if (event is PointerDownEvent) {
       panning = widget.wantsPan(event);
       if (panning) widget.onDown(event);
@@ -80,6 +83,28 @@ class _PanGate implements HitTestTarget {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       widget.onEnd(event);
     }
+  }
+}
+
+/// Expose the actual render target to hit-test consumers, including form
+/// finders. Only event dispatch uses the proxy,
+/// which forwards the original entry with its original type and transform.
+class _GatedEntry extends HitTestEntry<HitTestTarget> {
+  _GatedEntry(this.gate, HitTestEntry entry)
+      : _delegate = _GatedTarget(gate, entry),
+        super(entry.target);
+  final _PanGate gate;
+  final _GatedTarget _delegate;
+  @override
+  HitTestTarget get target => gate.dispatching ? _delegate : super.target;
+}
+
+class _DispatchEnd implements HitTestTarget {
+  _DispatchEnd(this.gate);
+  final _PanGate gate;
+  @override
+  void handleEvent(PointerEvent event, HitTestEntry entry) {
+    gate.dispatching = false;
   }
 }
 
