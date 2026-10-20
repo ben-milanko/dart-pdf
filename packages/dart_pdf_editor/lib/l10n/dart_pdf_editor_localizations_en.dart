@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -2507,6 +2519,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnAu() : super('en_AU');
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -5003,6 +5027,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 /// The translations for English, as used in the United Kingdom (`en_GB`).
 class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnGb() : super('en_GB');
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 
   @override
   String get add => 'Add';

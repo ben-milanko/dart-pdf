@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'लंबवत संरेखण';
+
+  @override
+  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+
+  @override
+  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+
+  @override
+  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+
+  @override
   String get add => 'जोड़ें';
 
   @override

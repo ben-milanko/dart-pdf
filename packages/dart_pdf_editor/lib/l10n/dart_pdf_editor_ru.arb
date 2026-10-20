@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Вертикальное выравнивание",
+  "textAlignTop": "Выровнять текст по верхнему краю",
+  "textAlignMiddle": "Выровнять текст по центру",
+  "textAlignBottom": "Выровнять текст по нижнему краю",
   "@@locale": "ru",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

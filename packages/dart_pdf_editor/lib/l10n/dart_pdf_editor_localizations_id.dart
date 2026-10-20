@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Perataan vertikal';
+
+  @override
+  String get textAlignTop => 'Ratakan teks ke atas';
+
+  @override
+  String get textAlignMiddle => 'Ratakan teks ke tengah secara vertikal';
+
+  @override
+  String get textAlignBottom => 'Ratakan teks ke bawah';
+
+  @override
   String get add => 'Tambah';
 
   @override

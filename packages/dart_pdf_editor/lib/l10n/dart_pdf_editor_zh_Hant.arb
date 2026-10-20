@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "垂直對齊",
+  "textAlignTop": "文字靠上對齊",
+  "textAlignMiddle": "文字垂直置中",
+  "textAlignBottom": "文字靠下對齊",
   "@@locale": "zh_Hant",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

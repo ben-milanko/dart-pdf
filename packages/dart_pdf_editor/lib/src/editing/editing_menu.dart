@@ -7,6 +7,7 @@ import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_table.dart';
+import 'editing_color_processing.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
@@ -550,24 +551,25 @@ Future<void> showPdfAnnotationMenu({
     ],
   ];
   final recolor = <PdfAnnotationMenuItem>[
+    if (hasSelection && controller.canCropSelected)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-crop-snapshot'),
+        label: pdfL10n(context).tbCropImage,
+        icon: Icons.crop,
+        onSelected: (request) => request.controller.beginImageCrop(),
+      ),
     if (hasSelection && controller.canRecolorSnapshotSelected)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
         label: pdfL10n(context).menuRecolour,
         icon: Icons.palette_outlined,
         onSelected: (request) async {
-          final picked = await pdfPresentColor(
+          await showPdfColorProcessingDialog(
             context,
-            PdfColorRequest(
-              initial: request.controller.color,
-              format: request.controller.preferences.colorPickerFormat,
-              onFormatChanged: (format) =>
-                  request.controller.preferences.colorPickerFormat = format,
-            ),
+            controller: request.controller,
+            preferences: request.controller.preferences,
+            annotationSlots: request.slots,
           );
-          if (picked != null) {
-            request.controller.recolorSnapshotSelected(picked);
-          }
         },
       ),
     if (hasSelection && controller.canApplySelectedStyleAsDefault)

@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Vertical alignment",
+  "textAlignTop": "Align text to top",
+  "textAlignMiddle": "Align text to middle",
+  "textAlignBottom": "Align text to bottom",
   "@@locale": "en_AU",
   "add": "Add",
   "annotCaret": "Caret",

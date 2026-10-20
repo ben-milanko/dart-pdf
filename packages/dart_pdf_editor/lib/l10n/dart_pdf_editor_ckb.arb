@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "ڕێکخستنی ستوونی",
+  "textAlignTop": "ڕێکخستنی دەق لە سەرەوە",
+  "textAlignMiddle": "ڕێکخستنی دەق لە ناوەڕاست",
+  "textAlignBottom": "ڕێکخستنی دەق لە خوارەوە",
   "@@locale": "ckb",
   "add": "زیادکردن",
   "annotCaret": "نیشانەی تێخستن",

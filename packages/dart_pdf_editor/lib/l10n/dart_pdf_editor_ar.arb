@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "المحاذاة الرأسية",
+  "textAlignTop": "محاذاة النص إلى الأعلى",
+  "textAlignMiddle": "محاذاة النص إلى الوسط",
+  "textAlignBottom": "محاذاة النص إلى الأسفل",
   "@@locale": "ar",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

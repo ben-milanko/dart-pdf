@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Dikey hizalama",
+  "textAlignTop": "Metni üste hizala",
+  "textAlignMiddle": "Metni dikey ortala",
+  "textAlignBottom": "Metni alta hizala",
   "@@locale": "tr",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

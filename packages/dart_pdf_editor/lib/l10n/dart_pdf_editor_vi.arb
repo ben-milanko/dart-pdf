@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Căn dọc",
+  "textAlignTop": "Căn văn bản lên trên",
+  "textAlignMiddle": "Căn giữa văn bản theo chiều dọc",
+  "textAlignBottom": "Căn văn bản xuống dưới",
   "@@locale": "vi",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

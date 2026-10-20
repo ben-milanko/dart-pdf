@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Вертикальне вирівнювання",
+  "textAlignTop": "Вирівняти текст за верхнім краєм",
+  "textAlignMiddle": "Вирівняти текст по центру",
+  "textAlignBottom": "Вирівняти текст за нижнім краєм",
   "@@locale": "uk",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

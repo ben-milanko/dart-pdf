@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Căn dọc';
+
+  @override
+  String get textAlignTop => 'Căn văn bản lên trên';
+
+  @override
+  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
+
+  @override
+  String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
   String get add => 'Thêm';
 
   @override

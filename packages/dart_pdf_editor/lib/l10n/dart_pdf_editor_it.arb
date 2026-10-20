@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Allineamento verticale",
+  "textAlignTop": "Allinea il testo in alto",
+  "textAlignMiddle": "Centra il testo verticalmente",
+  "textAlignBottom": "Allinea il testo in basso",
   "@@locale": "it",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
