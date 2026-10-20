@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Wyrównanie w pionie';
+
+  @override
+  String get textAlignTop => 'Wyrównaj tekst do góry';
+
+  @override
+  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
+
+  @override
+  String get textAlignBottom => 'Wyrównaj tekst do dołu';
+
+  @override
   String get add => 'Dodaj';
 
   @override
@@ -350,7 +362,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Głębokość objętości';
 
   @override
+  String get measCustomValueTitle => 'Wartość pomiaru';
+
+  @override
   String get menuAddNode => 'Dodaj węzeł';
+
+  @override
+  String get menuEditMeasurementValue => 'Edytuj wartość pomiaru';
 
   @override
   String get menuAddLeader => 'Dodaj linię odniesienia';
@@ -444,6 +462,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Usuń linię odniesienia';
+
+  @override
+  String get menuAddNoteHere => 'Dodaj notatkę tutaj';
 
   @override
   String get menuSaveToStamps => 'Zapisz w stemplach';
@@ -1730,6 +1751,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Zmierz długość łuku';
+
+  @override
+  String get tbNameMeasureCustom => 'Własny wymiar (wpisz wartość)';
 
   @override
   String get tbNameMeasureArea => 'Zmierz powierzchnię';

@@ -61,16 +61,28 @@ class DocumentHandoff {
 /// while the full bytes stream in, an [error] placeholder, or a two-file
 /// [comparison].
 class DocumentTab {
-  /// A document opens in Select mode, so a click picks, moves and resizes
-  /// what is on the page straight away. Hand mode (drag-to-pan) and every
-  /// other tool stay one toolbar click away.
-  static PdfEditingController _selectModeController(
+  /// Whether a new document opens in Hand mode rather than Select mode.
+  ///
+  /// On a phone or tablet (Android/iOS, native or mobile web) a finger on
+  /// the page should scroll and pinch, not grab what is under it, so the
+  /// document opens in Hand mode. Everywhere else it opens in Select mode,
+  /// so a click picks, moves and resizes what is on the page straight away.
+  /// Either way the other mode and every tool stay one toolbar tap away.
+  static bool get opensInHandMode =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  static PdfEditingController _initialModeController(
     Uint8List bytes,
     PdfEditingPreferences preferences,
   ) {
     final controller = PdfEditingController(bytes,
-        preferences: preferences, formSecretStore: appFormSecretStore)
-      ..tool = PdfEditTool.select;
+        preferences: preferences, formSecretStore: appFormSecretStore);
+    if (opensInHandMode) {
+      controller.activateHandMode();
+    } else {
+      controller.tool = PdfEditTool.select;
+    }
     // Off-web: live revocation checks + EU trusted list roots for the
     // signature panel (see signature_trust.dart).
     SignatureTrust.platformDefault?.attach(controller);
@@ -101,7 +113,7 @@ class DocumentTab {
     this.cachePath,
     bool initiallyDirty = false,
     int? savedLength,
-  })  : session = _selectModeController(bytes, preferences),
+  })  : session = _initialModeController(bytes, preferences),
         viewer = PdfViewerController(),
         // Normally the opened bytes *are* the saved baseline. Crash recovery is
         // the exception: it reopens a document at the revision that was in

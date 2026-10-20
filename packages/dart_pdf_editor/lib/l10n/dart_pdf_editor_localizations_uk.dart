@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Вертикальне вирівнювання';
+
+  @override
+  String get textAlignTop => 'Вирівняти текст за верхнім краєм';
+
+  @override
+  String get textAlignMiddle => 'Вирівняти текст по центру';
+
+  @override
+  String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
+
+  @override
   String get add => 'Додати';
 
   @override
@@ -349,7 +361,13 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Глибина об’єму';
 
   @override
+  String get measCustomValueTitle => 'Значення вимірювання';
+
+  @override
   String get menuAddNode => 'Додати вузол';
+
+  @override
+  String get menuEditMeasurementValue => 'Змінити значення вимірювання';
 
   @override
   String get menuAddLeader => 'Додати лінію виноски';
@@ -443,6 +461,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Вилучити лінію виноски';
+
+  @override
+  String get menuAddNoteHere => 'Додати нотатку тут';
 
   @override
   String get menuSaveToStamps => 'Зберегти у штампи';
@@ -1729,6 +1750,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Виміряти довжину дуги';
+
+  @override
+  String get tbNameMeasureCustom => 'Власний розмір (ввести значення)';
 
   @override
   String get tbNameMeasureArea => 'Виміряти площу';

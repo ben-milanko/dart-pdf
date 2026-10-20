@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPt([String locale = 'pt']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Alinhamento vertical';
+
+  @override
+  String get textAlignTop => 'Alinhar texto em cima';
+
+  @override
+  String get textAlignMiddle => 'Centralizar texto verticalmente';
+
+  @override
+  String get textAlignBottom => 'Alinhar texto embaixo';
+
+  @override
   String get add => 'Adicionar';
 
   @override
@@ -345,7 +357,13 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Profundidade do volume';
 
   @override
+  String get measCustomValueTitle => 'Valor da medida';
+
+  @override
   String get menuAddNode => 'Adicionar nó';
+
+  @override
+  String get menuEditMeasurementValue => 'Editar valor da medida';
 
   @override
   String get menuAddLeader => 'Adicionar linha de chamada';
@@ -438,6 +456,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Remover linha de chamada';
+
+  @override
+  String get menuAddNoteHere => 'Adicionar nota aqui';
 
   @override
   String get menuSaveToStamps => 'Salvar nos carimbos';
@@ -1707,6 +1728,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Medir comprimento de arco';
+
+  @override
+  String get tbNameMeasureCustom => 'Medida personalizada (digitar valor)';
 
   @override
   String get tbNameMeasureArea => 'Medir área';

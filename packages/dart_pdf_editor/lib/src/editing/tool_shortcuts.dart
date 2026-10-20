@@ -72,6 +72,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
     case PdfEditTool.measureAngle:
     case PdfEditTool.measureArc:
     case PdfEditTool.measureVolume:
+    case PdfEditTool.measureCustom:
     case PdfEditTool.calibrate:
       return PdfEditToolGroup.measure;
     case PdfEditTool.content:
@@ -141,6 +142,8 @@ class PdfToolShortcut {
 ///
 /// Pressing a tool's key arms it; pressing it again drops back to
 /// [PdfEditTool.select], mirroring the toolbar chips.
+/// With a rotatable selection, the stock R rectangle binding yields to
+/// clockwise selection rotation; Shift+R rotates counterclockwise.
 ///
 /// Every tool is covered. The common ones sit on plain letters; a group's
 /// less-common variants (the poly / cloud shapes, the extra measurement
@@ -180,6 +183,8 @@ const Map<PdfEditTool, PdfToolShortcut> pdfEditToolShortcuts = {
   PdfEditTool.measureArc: PdfToolShortcut(LogicalKeyboardKey.keyC, shift: true),
   PdfEditTool.measureVolume:
       PdfToolShortcut(LogicalKeyboardKey.keyV, shift: true),
+  PdfEditTool.measureCustom:
+      PdfToolShortcut(LogicalKeyboardKey.keyW, shift: true),
   PdfEditTool.calibrate: PdfToolShortcut(LogicalKeyboardKey.keyM, shift: true),
 
   // Insert group: text box, callout, note, stamp, count, signature, image.

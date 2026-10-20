@@ -129,9 +129,13 @@ void main() {
       ];
       expect(gap, isNotEmpty, reason: 'the shapes must not be stretched flush');
       expect(columns.first, closeTo(23, 1.5));
-      expect(gap.first - columns.first, lessThanOrEqualTo(21),
+      // 22.8 to 43.2 touches columns 22 through 43: whether the 0.2px of
+      // coverage at each edge counts as ink is the rasterizer's call (Skia on
+      // Linux drops it, macOS keeps it), so allow both edge columns. A glyph
+      // stretched to its 26pt slot would still read 26 or more.
+      expect(gap.first - columns.first, lessThanOrEqualTo(22),
           reason: 'a 20pt glyph may widen by 2% at most');
-      expect(columns.last - gap.last, lessThanOrEqualTo(21));
+      expect(columns.last - gap.last, lessThanOrEqualTo(22));
       expect(columns.last, closeTo(69, 1.5));
     });
   });

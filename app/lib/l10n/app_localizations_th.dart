@@ -958,6 +958,12 @@ class AppLocalizationsTh extends AppLocalizations {
   String get settingsViewSource => 'ดูซอร์สโค้ดบน GitHub';
 
   @override
+  String get settingsReportIssue => 'รายงานปัญหาบน GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'ส่งความคิดเห็นทางอีเมล';
+
+  @override
   String get undo => 'เลิกทำ';
 
   @override
@@ -1343,4 +1349,21 @@ class AppLocalizationsTh extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

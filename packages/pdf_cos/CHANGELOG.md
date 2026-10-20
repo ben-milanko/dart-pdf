@@ -1,5 +1,13 @@
 # Changelog
 
+## 10.0.0
+
+- Release with the 10.0.0 package suite; no public API changes in this package.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite. No public API changes.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Verticaal uitlijnen';
+
+  @override
+  String get textAlignTop => 'Tekst boven uitlijnen';
+
+  @override
+  String get textAlignMiddle => 'Tekst verticaal centreren';
+
+  @override
+  String get textAlignBottom => 'Tekst onder uitlijnen';
+
+  @override
   String get add => 'Toevoegen';
 
   @override
@@ -344,7 +356,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volumediepte';
 
   @override
+  String get measCustomValueTitle => 'Meetwaarde';
+
+  @override
   String get menuAddNode => 'Knooppunt toevoegen';
+
+  @override
+  String get menuEditMeasurementValue => 'Meetwaarde bewerken';
 
   @override
   String get menuAddLeader => 'Verwijslijn toevoegen';
@@ -437,6 +455,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Verwijslijn verwijderen';
+
+  @override
+  String get menuAddNoteHere => 'Notitie hier toevoegen';
 
   @override
   String get menuSaveToStamps => 'Opslaan bij stempels';
@@ -1708,6 +1729,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Booglengte meten';
+
+  @override
+  String get tbNameMeasureCustom => 'Aangepaste maat (waarde typen)';
 
   @override
   String get tbNameMeasureArea => 'Oppervlakte meten';

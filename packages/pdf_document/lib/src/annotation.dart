@@ -573,7 +573,8 @@ class PdfAnnotation {
   PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
 
   /// The takeoff metadata (/Takeoff) carried by a count/volume/angle/arc/
-  /// slope/area-cutout measurement, or null for a plain annotation. See
+  /// slope/area-cutout measurement or one with a written value, or null for
+  /// a plain annotation. See
   /// [PdfTakeoffData].
   PdfTakeoffData? get takeoff => PdfTakeoffData.read(this);
 
@@ -619,6 +620,20 @@ class PdfAnnotation {
     final m = measure;
     final t = takeoff;
     final pts = _measurementPoints;
+
+    // a written value stands in for the computed one, scale or not
+    final written = t?.valueText;
+    if (written != null && kind != PdfMeasurementKind.count) {
+      final (value, unit) = pdfParseMeasurementValue(written);
+      return PdfMeasurementResult(
+          kind: kind,
+          value: value ?? 0,
+          unit: value == null || unit.isNotEmpty
+              ? unit
+              : _measurementUnit(kind, m),
+          text: written,
+          isCustom: true);
+    }
 
     switch (kind) {
       case PdfMeasurementKind.count:
@@ -694,6 +709,23 @@ class PdfAnnotation {
                 const PdfNumberFormat(unit: '°', precision: 10).format(deg));
     }
   }
+
+  /// The unit a computed [kind] measurement reports through [m] - what a
+  /// bare written number (`12.5`) is taken to be in.
+  static String _measurementUnit(PdfMeasurementKind kind, PdfMeasure? m) =>
+      switch (kind) {
+        PdfMeasurementKind.angle || PdfMeasurementKind.slope => '°',
+        PdfMeasurementKind.count => '',
+        PdfMeasurementKind.area ||
+        PdfMeasurementKind.areaCutout =>
+          m?.area.first.unit ?? '',
+        PdfMeasurementKind.volume =>
+          (m?.volume?.first ?? m?.area.first)?.unit ?? '',
+        PdfMeasurementKind.distance ||
+        PdfMeasurementKind.perimeter ||
+        PdfMeasurementKind.arc =>
+          m?.distance.first.unit ?? '',
+      };
 
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
@@ -853,6 +885,13 @@ class PdfAnnotation {
       alignment: q is CosInteger
           ? PdfTextAlign.fromQuadding(q.value)
           : cssAlign ?? PdfTextAlign.left,
+      verticalAlignment: switch (
+          cos.resolve(dict[kPdfFreeTextVerticalAlignKey])) {
+        CosName(:final value) =>
+          PdfTextVerticalAlign.values.asNameMap()[value] ??
+              PdfTextVerticalAlign.top,
+        _ => PdfTextVerticalAlign.top,
+      },
       lineSpacing: number(kPdfFreeTextLineSpacingKey) ??
           cssLineSpacing ??
           kPdfFreeTextDefaultLineSpacing,
@@ -1111,6 +1150,7 @@ const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
 const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
 const String kPdfFreeTextHScaleKey = 'HScale';
 const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+const String kPdfFreeTextVerticalAlignKey = 'DartPdfTextVerticalAlignment';
 
 /// One leader of a callout: the page-space point its arrow points at, and
 /// optionally where it meets the text box (snapped onto the box perimeter;
@@ -1164,6 +1204,7 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.verticalAlignment = PdfTextVerticalAlign.top,
     this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
     this.charSpacing = 0,
     this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
@@ -1187,6 +1228,11 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// Placement of the wrapped block within the padded box. The generated
+  /// appearance preserves this in other PDF viewers; the private dictionary
+  /// preference lets later dart-pdf edits regenerate the same placement.
+  final PdfTextVerticalAlign verticalAlignment;
 
   /// The line-height multiplier (baseline-to-baseline distance is
   /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].

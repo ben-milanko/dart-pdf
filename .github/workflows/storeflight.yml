@@ -19,15 +19,6 @@ on:
         description: Validate store access without builds, uploads, or releases
         default: false
         type: boolean
-      resume_run_id:
-        description: Prior workflow run ID to resume; blank starts a release
-        default: ''
-        required: false
-        type: string
-      allow_source_drift:
-        description: Allow packaging-only repairs when resuming Flatpak
-        default: false
-        type: boolean
       destinations:
         description: Comma-separated store destinations; blank selects all unless deliveries is set
         default: ''
@@ -39,6 +30,21 @@ on:
       platforms:
         description: Comma-separated platforms; blank selects all
         default: ''
+        type: string
+      resume_run_id:
+        description: Prior workflow run ID to resume; blank starts a release
+        default: ''
+        required: false
+        type: string
+      allow_source_drift:
+        description: Let a resume run at a commit other than the release's, if no app inputs changed
+        default: false
+        required: false
+        type: boolean
+      from_step:
+        description: Step a resume restarts from, in the lanes that plan it; blank resumes where each lane stopped
+        default: ''
+        required: false
         type: string
 
 permissions:
@@ -54,20 +60,537 @@ env:
   STOREFLIGHT_CONFIG: storeflight.yaml
 
 jobs:
+  apple_ios:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',apple,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',ios,'))
+    name: Apple iOS
+    runs-on: macos-15
+    timeout-minutes: 120
+    environment: storeflight-production
+    env:
+      # macos-15 defaults to Xcode 16; App Store iOS uploads require SDK 26+.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_PROVISIONING_PROFILE_MAC_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_MAC_BASE64 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify App Store iOS SDK requirements
+        shell: bash
+        run: |
+          xcodebuild -version
+          sdk_version=$(xcrun --sdk iphoneos --show-sdk-version)
+          test "${sdk_version%%.*}" -ge 26
+          echo "Selected iOS SDK $sdk_version"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+      - uses: apple-actions/import-codesign-certs@v7
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        with:
+          p12-file-base64: ${{ env.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Install iOS provisioning profile
+        if: env.APPLE_PROVISIONING_PROFILE_BASE64 != ''
+        shell: bash
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight.mobileprovision"
+      - name: Select App Store distribution signing
+        if: ${{ !inputs.dry_run }}
+        run: python3 .github/scripts/configure-apple-distribution.py ios
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-ios-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Submit to review
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --destination apple
+          --platform ios
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      - name: Resume interrupted release
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      # Uploaded before any post-job cleanup, so a waiting client can read
+      # the store's answer while caches are still being saved.
+      - name: Publish native submission receipts
+        if: always() && !inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: storeflight-receipt-ios-${{ github.run_id }}
+          path: '**/.storeflight/receipts/**'
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-ios-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-ios-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  apple_macos:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',apple,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',macos,'))
+    name: Apple macOS
+    runs-on: macos-15
+    timeout-minutes: 120
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_PROVISIONING_PROFILE_MAC_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_MAC_BASE64 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - uses: apple-actions/import-codesign-certs@v7
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        with:
+          p12-file-base64: ${{ env.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Install macOS provisioning profile
+        if: env.APPLE_PROVISIONING_PROFILE_MAC_BASE64 != ''
+        shell: bash
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight-mac.provisionprofile"
+      - name: Select App Store distribution signing
+        if: ${{ !inputs.dry_run }}
+        run: python3 .github/scripts/configure-apple-distribution.py macos
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-macos-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Submit to review
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --destination apple
+          --platform macos
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      - name: Resume interrupted release
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      # Uploaded before any post-job cleanup, so a waiting client can read
+      # the store's answer while caches are still being saved.
+      - name: Publish native submission receipts
+        if: always() && !inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: storeflight-receipt-macos-${{ github.run_id }}
+          path: '**/.storeflight/receipts/**'
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-macos-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-macos-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  google_play:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',google_play,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',android,'))
+    name: Google Play
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install Android upload key
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/app/android/app"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks"
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" \
+            "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
+            > "$GITHUB_WORKSPACE/app/android/key.properties"
+      - name: Prepare hosted Android plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+          patch_gradle() {
+            local gradle_file="$1"
+            local namespace="${2:-}"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
+
+            python3 - "$gradle_file" "$namespace" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          namespace = sys.argv[2]
+          text = path.read_text()
+          text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+          if namespace and 'namespace ' not in text:
+              text = text.replace('android {\n', f'android {{\n    namespace "{namespace}"\n', 1)
+          path.write_text(text)
+          PY
+          }
+
+          # Patch EVERY match, not just the first: `-print -quit` can return a
+          # plugin's example/android/build.gradle instead of its own (find's
+          # order is filesystem-dependent), which leaves the real plugin
+          # unpatched and fails :onnxruntime:checkReleaseAarMetadata.
+          while IFS= read -r f; do patch_gradle "$f"; done < <(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle')
+          while IFS= read -r f; do patch_gradle "$f" dev.irondash.engine_context; done < <(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle')
+          super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
+          while IFS= read -r f; do patch_gradle "$f" com.superlist.super_native_extensions; done < <(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle')
+
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          text = text.replace('for (project in projects) {', 'for (project in projects.values()) {')
+          text = text.replace('project.value.getPlugins()', 'project.getPlugins()')
+          text = text.replace(
+              'return _findFlutterPlugin(project.value.childProjects);',
+              '''def found = _findFlutterPlugin(project.childProjects);
+                      if (found != null) {
+                          return found;
+                      }''',
+          )
+          if 'projects.values()' not in text or 'project.value.getPlugins()' in text:
+              raise SystemExit("CargoKit plugin patch target not found")
+          path.write_text(text)
+          PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-google_play-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Submit to review
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --destination google_play
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      - name: Resume interrupted release
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.dry_run && '--validate-access' || '' }}
+      # Uploaded before any post-job cleanup, so a waiting client can read
+      # the store's answer while caches are still being saved.
+      - name: Publish native submission receipts
+        if: always() && !inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: storeflight-receipt-google_play-${{ github.run_id }}
+          path: '**/.storeflight/receipts/**'
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-google_play-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-google_play-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
   microsoft_store:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',microsoft_store,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',windows,'))
     name: Microsoft Store
-    if: (inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',microsoft_store,')
     runs-on: windows-latest
     timeout-minutes: 300
     environment: storeflight-production
     env:
       SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
-      MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
-      MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
-      MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
-      MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
       MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
       MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
+      MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+      MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+      MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
       MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
       MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
       MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
@@ -105,7 +628,8 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Submit to review
-        if: inputs.resume_run_id == ''
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
         run: >-
           dart pub global run storeflight:storeflight submit
           --ci github
@@ -118,15 +642,31 @@ jobs:
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.dry_run && '--validate-access' || '' }}
       - name: Resume interrupted release
-        if: inputs.resume_run_id != ''
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
         run: >-
           dart pub global run storeflight:storeflight resume
           --ci github
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --wait
           --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.dry_run && '--validate-access' || '' }}
+      # Uploaded before any post-job cleanup, so a waiting client can read
+      # the store's answer while caches are still being saved.
+      - name: Publish native submission receipts
+        if: always() && !inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: storeflight-receipt-microsoft_store-${{ github.run_id }}
+          path: '**/.storeflight/receipts/**'
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 90
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -137,7 +677,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -149,7 +691,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
             **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
@@ -159,6 +703,8 @@ jobs:
             **/*.snap
             **/*.flatpak
             **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
             **/*.zip
           if-no-files-found: warn
           include-hidden-files: true
@@ -166,8 +712,8 @@ jobs:
           retention-days: 90
 
   snap:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',snap,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',snap,'))
     name: Snap Store
-    if: (inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',snap,')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment: storeflight-production
@@ -212,7 +758,8 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Submit to review
-        if: inputs.resume_run_id == ''
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
         run: >-
           dart pub global run storeflight:storeflight submit
           --ci github
@@ -225,15 +772,31 @@ jobs:
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.dry_run && '--validate-access' || '' }}
       - name: Resume interrupted release
-        if: inputs.resume_run_id != ''
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
         run: >-
           dart pub global run storeflight:storeflight resume
           --ci github
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --wait
           --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.dry_run && '--validate-access' || '' }}
+      # Uploaded before any post-job cleanup, so a waiting client can read
+      # the store's answer while caches are still being saved.
+      - name: Publish native submission receipts
+        if: always() && !inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: storeflight-receipt-snap-${{ github.run_id }}
+          path: '**/.storeflight/receipts/**'
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 90
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -244,7 +807,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -256,7 +821,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
             **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
@@ -266,6 +833,588 @@ jobs:
             **/*.snap
             **/*.flatpak
             **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  flatpak:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',flatpak,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',flatpak,'))
+    name: Flatpak
+    runs-on: ubuntu-latest
+    needs: [github_release_android, github_release_ios, github_release_macos, github_release_windows, github_release_snap, github_release_flatpak, github_release_web]
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-flatpak_flatpak-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery flatpak
+          --platform flatpak
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-flatpak_flatpak-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-flatpak_flatpak-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  github_release_android:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',android,'))
+    name: GitHub Release · android
+    runs-on: ubuntu-latest
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install Android upload key
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/app/android/app"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks"
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" "$GITHUB_WORKSPACE/app/android/app/upload-keystore.jks" \
+            > "$GITHUB_WORKSPACE/app/android/key.properties"
+      - name: Prepare hosted Android plugins
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+          patch_gradle() {
+            local gradle_file="$1"
+            local namespace="${2:-}"
+            if [[ -z "$gradle_file" ]]; then
+              echo "No matching hosted Android Gradle file found; skipping patch."
+              return 0
+            fi
+
+            python3 - "$gradle_file" "$namespace" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          namespace = sys.argv[2]
+          text = path.read_text()
+          text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+          if namespace and 'namespace ' not in text:
+              text = text.replace('android {\n', f'android {{\n    namespace "{namespace}"\n', 1)
+          path.write_text(text)
+          PY
+          }
+
+          # Patch EVERY match, not just the first: `-print -quit` can return a
+          # plugin's example/android/build.gradle instead of its own (find's
+          # order is filesystem-dependent), which leaves the real plugin
+          # unpatched and fails :onnxruntime:checkReleaseAarMetadata.
+          while IFS= read -r f; do patch_gradle "$f"; done < <(find "$HOME/.pub-cache" -path '*/onnxruntime-*/android/build.gradle')
+          while IFS= read -r f; do patch_gradle "$f" dev.irondash.engine_context; done < <(find "$HOME/.pub-cache" -path '*/irondash_engine_context-*/android/build.gradle')
+          super_native_gradle="$(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle' -print -quit)"
+          while IFS= read -r f; do patch_gradle "$f" com.superlist.super_native_extensions; done < <(find "$HOME/.pub-cache" -path '*/super_native_extensions-*/android/build.gradle')
+
+          if [[ -n "$super_native_gradle" ]]; then
+            cargokit_gradle="$(dirname "$super_native_gradle")/../cargokit/gradle/plugin.gradle"
+          else
+            cargokit_gradle=""
+          fi
+
+          if [[ -n "$cargokit_gradle" && -f "$cargokit_gradle" ]]; then
+            python3 - "$cargokit_gradle" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          text = text.replace('for (project in projects) {', 'for (project in projects.values()) {')
+          text = text.replace('project.value.getPlugins()', 'project.getPlugins()')
+          text = text.replace(
+              'return _findFlutterPlugin(project.value.childProjects);',
+              '''def found = _findFlutterPlugin(project.childProjects);
+                      if (found != null) {
+                          return found;
+                      }''',
+          )
+          if 'projects.values()' not in text or 'project.value.getPlugins()' in text:
+              raise SystemExit("CargoKit plugin patch target not found")
+          path.write_text(text)
+          PY
+          else
+            echo "No CargoKit Gradle plugin found; skipping patch."
+          fi
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-github_release_android-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery github_release
+          --platform android
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-github_release_android-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-github_release_android-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  github_release_ios:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',ios,'))
+    name: GitHub Release · ios
+    runs-on: macos-latest
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_PROVISIONING_PROFILE_MAC_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_MAC_BASE64 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - uses: apple-actions/import-codesign-certs@v7
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        with:
+          p12-file-base64: ${{ env.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Install Apple provisioning profile
+        shell: bash
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          if [ "ios" = ios ] && [ -n "$APPLE_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight.mobileprovision"
+          fi
+          if [ "ios" = macos ] && [ -n "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" ]; then
+            echo "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight-mac.provisionprofile"
+          fi
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-github_release_ios-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery github_release
+          --platform ios
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-github_release_ios-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-github_release_ios-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  github_release_macos:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',macos,'))
+    name: GitHub Release · macos
+    runs-on: macos-latest
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_PROVISIONING_PROFILE_MAC_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_MAC_BASE64 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - uses: apple-actions/import-codesign-certs@v7
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        with:
+          p12-file-base64: ${{ env.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Install Apple provisioning profile
+        shell: bash
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          if [ "macos" = ios ] && [ -n "$APPLE_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight.mobileprovision"
+          fi
+          if [ "macos" = macos ] && [ -n "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" ]; then
+            echo "$APPLE_PROVISIONING_PROFILE_MAC_BASE64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/storeflight-mac.provisionprofile"
+          fi
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-github_release_macos-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery github_release
+          --platform macos
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-github_release_macos-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-github_release_macos-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
             **/*.zip
           if-no-files-found: warn
           include-hidden-files: true
@@ -273,10 +1422,10 @@ jobs:
           retention-days: 90
 
   github_release_windows:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',windows,'))
     name: GitHub Release · windows
-    if: inputs.destinations == '' && inputs.deliveries == ''
     runs-on: windows-latest
-    needs: [microsoft_store, snap]
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
     timeout-minutes: 180
     environment: storeflight-production
     env:
@@ -319,7 +1468,8 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Run delivery
-        if: inputs.resume_run_id == ''
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
         run: >-
           dart pub global run storeflight:storeflight submit
           --ci github
@@ -332,13 +1482,18 @@ jobs:
           --yes
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - name: Resume interrupted delivery
-        if: inputs.resume_run_id != ''
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
         run: >-
           dart pub global run storeflight:storeflight resume
           --ci github
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --wait
           --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - uses: actions/upload-artifact@v7
         if: always()
@@ -350,7 +1505,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -362,7 +1519,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
             **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
@@ -372,6 +1531,8 @@ jobs:
             **/*.snap
             **/*.flatpak
             **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
             **/*.zip
           if-no-files-found: warn
           include-hidden-files: true
@@ -379,10 +1540,10 @@ jobs:
           retention-days: 90
 
   github_release_snap:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',snap,'))
     name: GitHub Release · snap
-    if: inputs.destinations == '' && inputs.deliveries == ''
     runs-on: ubuntu-latest
-    needs: [microsoft_store, snap]
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
     timeout-minutes: 180
     environment: storeflight-production
     env:
@@ -426,7 +1587,8 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Run delivery
-        if: inputs.resume_run_id == ''
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
         run: >-
           dart pub global run storeflight:storeflight submit
           --ci github
@@ -439,13 +1601,18 @@ jobs:
           --yes
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - name: Resume interrupted delivery
-        if: inputs.resume_run_id != ''
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
         run: >-
           dart pub global run storeflight:storeflight resume
           --ci github
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --wait
           --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - uses: actions/upload-artifact@v7
         if: always()
@@ -457,7 +1624,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
@@ -469,7 +1638,9 @@ jobs:
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
             **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
@@ -479,30 +1650,21 @@ jobs:
             **/*.snap
             **/*.flatpak
             **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
             **/*.zip
           if-no-files-found: warn
           include-hidden-files: true
           compression-level: 0
           retention-days: 90
 
-  flatpak:
-    name: Flatpak
-    if: >-
-      always() && (
-        (inputs.destinations == '' && inputs.deliveries == '' &&
-          needs.microsoft_store.result == 'success' &&
-          needs.snap.result == 'success') ||
-        contains(format(',{0},', inputs.deliveries), ',flatpak,')
-      )
+  github_release_flatpak:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',flatpak,'))
+    name: GitHub Release · flatpak
     runs-on: ubuntu-latest
-    # The Flatpak plan also publishes its Linux archive to GitHub. Keeping
-    # both steps in one job prevents a second build overwriting that asset.
-    needs: [microsoft_store, snap]
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
     timeout-minutes: 180
     environment: storeflight-production
-    permissions:
-      contents: write
-      actions: write
     env:
       SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
       GH_TOKEN: ${{ github.token }}
@@ -531,31 +1693,35 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev flatpak
+          sudo apt-get install --yes clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
       - name: Restore resumable release state
         if: inputs.resume_run_id != ''
         uses: actions/download-artifact@v8
         with:
-          pattern: storeflight-state-flatpak_flatpak-${{ inputs.resume_run_id }}
+          pattern: storeflight-state-github_release_flatpak-${{ inputs.resume_run_id }}
           path: .
           merge-multiple: true
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
       - name: Run delivery
-        if: inputs.resume_run_id == ''
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
         run: >-
           dart pub global run storeflight:storeflight submit
           --ci github
           --config "${{ env.STOREFLIGHT_CONFIG }}"
           --profile "${{ inputs.profile }}"
-          --delivery flatpak
+          --delivery github_release
           --platform flatpak
           --until "${{ inputs.until }}"
           --wait
           --yes
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - name: Resume interrupted delivery
-        if: inputs.resume_run_id != ''
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
         run: >-
           dart pub global run storeflight:storeflight resume
           --ci github
@@ -563,30 +1729,35 @@ jobs:
           --wait
           --yes
           ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
           ${{ inputs.dry_run && '--dry-run' || '' }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: storeflight-ledger-flatpak_flatpak-${{ github.run_id }}
+          name: storeflight-ledger-github_release_flatpak-${{ github.run_id }}
           # upload-artifact globs through @actions/glob, which has no brace
           # expansion: a {a,b} pattern matches nothing at all, and only warns.
           path: |
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 90
       - uses: actions/upload-artifact@v7
         if: always() && !inputs.dry_run
         with:
-          name: storeflight-state-flatpak_flatpak-${{ github.run_id }}
+          name: storeflight-state-github_release_flatpak-${{ github.run_id }}
           path: |
             **/.storeflight/plans/**
             **/.storeflight/releases/**
             **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
             **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
             **/.storeflight/artifacts/**
             **/*.aab
             **/*.ipa
@@ -596,15 +1767,359 @@ jobs:
             **/*.snap
             **/*.flatpak
             **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
             **/*.zip
           if-no-files-found: warn
           include-hidden-files: true
           compression-level: 0
           retention-days: 90
+
+  github_release_web:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',github_release,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',web,'))
+    name: GitHub Release · web
+    runs-on: ubuntu-latest
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap]
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-github_release_web-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery github_release
+          --platform web
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-github_release_web-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-github_release_web-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  pub_dev:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',pub_dev,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',pub,'))
+    name: pub.dev packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-pub_dev_pub-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery pub_dev
+          --platform pub
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-pub_dev_pub-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-pub_dev_pub-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  web:
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.deliveries == '' && inputs.destinations == '') || contains(format(',{0},', inputs.deliveries), ',web,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',web,'))
+    name: Web deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: storeflight-production
+    env:
+      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+          pub-cache: true
+      - name: Check out Storeflight
+        uses: actions/checkout@v7
+        with:
+          repository: ben-milanko/storeflight
+          ref: main
+          ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
+          path: .storeflight-cli
+      - name: Install Storeflight
+        shell: bash
+        run: |
+          echo '.storeflight-cli/' >> .git/info/exclude
+          dart pub global activate --source path .storeflight-cli
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+      - name: Restore resumable release state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: storeflight-state-web_web-${{ inputs.resume_run_id }}
+          path: .
+          merge-multiple: true
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run delivery
+        if: inputs.resume_run_id == '' || hashFiles('**/.storeflight/releases/latest') == ''
+        shell: bash
+        run: >-
+          dart pub global run storeflight:storeflight submit
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --profile "${{ inputs.profile }}"
+          --delivery web
+          --platform web
+          --until "${{ inputs.until }}"
+          --wait
+          --yes
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Resume interrupted delivery
+        if: inputs.resume_run_id != '' && hashFiles('**/.storeflight/releases/latest') != ''
+        shell: bash
+        env:
+          STOREFLIGHT_FROM_STEP: ${{ inputs.from_step }}
+        run: >-
+          dart pub global run storeflight:storeflight resume
+          --ci github
+          --config "${{ env.STOREFLIGHT_CONFIG }}"
+          --wait
+          --yes
+          ${{ inputs.allow_source_drift && '--allow-source-drift' || '' }}
+          ${STOREFLIGHT_FROM_STEP:+--from-if-planned "$STOREFLIGHT_FROM_STEP"}
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storeflight-ledger-web_web-${{ github.run_id }}
+          # upload-artifact globs through @actions/glob, which has no brace
+          # expansion: a {a,b} pattern matches nothing at all, and only warns.
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always() && !inputs.dry_run
+        with:
+          name: storeflight-state-web_web-${{ github.run_id }}
+          path: |
+            **/.storeflight/plans/**
+            **/.storeflight/releases/**
+            **/.storeflight/progress/**
+            **/.storeflight/diagnostics/**
+            **/.storeflight/certifications/**
+            **/.storeflight/receipts/**
+            **/.storeflight/artifacts/**
+            **/*.aab
+            **/*.ipa
+            **/*.pkg
+            **/*.msix
+            **/*.msixupload
+            **/*.snap
+            **/*.flatpak
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.appimage
+            **/*.zip
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
   summary:
     name: Release summary
     if: always()
-    needs: [microsoft_store, snap, github_release_windows, github_release_snap, flatpak]
+    needs: [apple_ios, apple_macos, google_play, microsoft_store, snap, flatpak, github_release_android, github_release_ios, github_release_macos, github_release_windows, github_release_snap, github_release_flatpak, github_release_web, pub_dev, web]
     runs-on: ubuntu-latest
     environment: storeflight-production
     steps:
@@ -634,12 +2149,22 @@ jobs:
       - name: Build consolidated release receipt
         if: always()
         shell: bash
-        run: >-
-          dart pub global run storeflight:storeflight report
-          --config "${{ env.STOREFLIGHT_CONFIG }}"
-          --ledger-directory ledgers
-          --format markdown
+        env:
+          STOREFLIGHT_UNTIL: ${{ inputs.until }}
+        run: |
+          set +e
+          dart pub global run storeflight:storeflight report \
+          --config "${{ env.STOREFLIGHT_CONFIG }}" \
+          --ledger-directory ledgers \
+          --format markdown \
           --output storeflight-release-report.md
+          report_status=$?
+          set -e
+          if [[ "$report_status" == 75 && ("$STOREFLIGHT_UNTIL" == build || "$STOREFLIGHT_UNTIL" == upload) ]]; then
+            echo "Requested $STOREFLIGHT_UNTIL phase recorded; final release completion is still pending."
+            exit 0
+          fi
+          exit "$report_status"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -652,4 +2177,4 @@ jobs:
         shell: bash
         env:
           STOREFLIGHT_NEEDS: ${{ toJson(needs) }}
-        run: echo "$STOREFLIGHT_NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
+        run: echo "$STOREFLIGHT_NEEDS" | jq -e 'any(.[]; .result == "success") and all(.[]; .result == "success" or .result == "skipped")'

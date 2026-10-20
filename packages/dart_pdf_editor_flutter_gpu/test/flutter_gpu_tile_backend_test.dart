@@ -308,11 +308,15 @@ void main() {
           final warm = await active.rasterizeRegion(region, pixelRatio: 1);
           await _pixels(warm);
           warm.dispose();
+          // Pixel readback need not deliver the Dart completion callback that
+          // returns the transient attachments to their pool.
+          await _waitForGpuCompletions(backend.stats);
 
           backend.stats.reset();
           final replay = await active.rasterizeRegion(region, pixelRatio: 1);
           await _pixels(replay);
           replay.dispose();
+          await _waitForGpuCompletions(backend.stats);
           expect(backend.stats.failedSubmissions, 0);
           if (budget == 0) {
             expect(
@@ -373,6 +377,9 @@ void main() {
         final warm = await active.rasterizeRegion(region, pixelRatio: 1);
         await _pixels(warm);
         warm.dispose();
+        // Reuse is guaranteed after the route's completion callback, not just
+        // after its image is readable.
+        await _waitForGpuCompletions(backend.stats);
 
         final attachmentsPerTile =
             gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
@@ -386,6 +393,7 @@ void main() {
         final replay = await active.rasterizeRegion(region, pixelRatio: 1);
         await _pixels(replay);
         replay.dispose();
+        await _waitForGpuCompletions(backend.stats);
         expect(backend.stats.failedSubmissions, 0);
         expect(backend.stats.transientAttachmentTextures, 0);
         expect(

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:test/test.dart';
 
 Uint8List _pdf(List<String> pageContents,
@@ -41,6 +42,89 @@ String _content(Uint8List bytes, int page) =>
     latin1.decode(PdfDocument.open(bytes).page(page).contentBytes());
 
 void main() {
+  test('annotation replacement keeps fill, geometry, identity and styles', () {
+    var document = PdfDocument.open(_pdf(['']));
+    var editor = PdfEditor(document)
+      ..addSquare(0, const PdfRect(10, 10, 50, 50),
+          strokeColor: 0xFF0000,
+          fillColor: 0x00FF00,
+          name: 'shape',
+          author: 'Author');
+    document = PdfDocument.open(editor.save());
+    editor = PdfEditor(document);
+    final annotation = document.page(0).annotations.single;
+    expect(editor.annotationColors(0, annotation).map((c) => c.rgb).toSet(),
+        {0xFF0000, 0x00FF00});
+    expect(
+        editor.replaceAnnotationColors(0, annotation,
+            find: 0xFF0000, replace: 0x0000FF, fill: false),
+        greaterThan(0));
+    expect(editor.impact.annotationPages, contains(0));
+    expect(editor.impact.contentPages, isEmpty);
+    document = PdfDocument.open(editor.save());
+    final changed = document.page(0).annotations.single;
+    expect(changed.color, 0x0000FF);
+    expect(changed.interiorColor, 0x00FF00);
+    expect(changed.rect, const PdfRect(10, 10, 50, 50));
+    expect(changed.name, 'shape');
+    expect(changed.author, 'Author');
+    expect(
+        latin1.decode(document.cos.decodeStreamData(changed.normalAppearance!)),
+        contains('0 0 1 RG'));
+    editor = PdfEditor(document)
+      ..resizeAnnotation(0, changed, const PdfRect(10, 10, 70, 70));
+    final reopened = PdfDocument.open(editor.save());
+    expect(reopened.page(0).annotations.single.color, 0x0000FF);
+    expect(reopened.page(0).annotations.single.interiorColor, 0x00FF00);
+  });
+
+  test(
+      'mixed rich text replaces only matching runs and keeps editable metadata',
+      () {
+    var document = PdfDocument.open(_pdf(['']));
+    var editor = PdfEditor(document)
+      ..addFreeTextRich(0, const PdfRect(5, 5, 95, 50), const [
+        PdfFreeTextRun('red ', color: 0xFF0000),
+        PdfFreeTextRun('green color:#ff0000', color: 0x00FF00),
+      ]);
+    document = PdfDocument.open(editor.save());
+    editor = PdfEditor(document);
+    expect(
+        editor.replaceAnnotationColors(0, document.page(0).annotations.single,
+            find: 0xFF0000, replace: 0x0000FF),
+        greaterThan(0));
+    document = PdfDocument.open(editor.save());
+    final changed = document.page(0).annotations.single;
+    expect(changed.freeTextStyle!.color, 0x0000FF);
+    final runs =
+        PdfAnnotationEditing.parseFreeTextRichContent(changed.richContent!);
+    expect(runs.map((r) => r.color), [0x0000FF, 0x00FF00]);
+    expect(changed.contents, 'red green color:#ff0000');
+    expect(changed.richContent, contains('green color:#ff0000'));
+  });
+
+  test('transparent annotation fill leaves its stroke and records no interior',
+      () {
+    var document = PdfDocument.open(_pdf(['']));
+    var editor = PdfEditor(document)
+      ..addSquare(0, const PdfRect(10, 10, 50, 50),
+          strokeColor: 0x00FF00, fillColor: 0xFF0000);
+    document = PdfDocument.open(editor.save());
+    editor = PdfEditor(document);
+    expect(
+        editor.replaceAnnotationColors(0, document.page(0).annotations.single,
+            find: 0xFF0000, transparent: true),
+        greaterThan(0));
+    document = PdfDocument.open(editor.save());
+    final changed = document.page(0).annotations.single;
+    expect(changed.interiorColor, isNull);
+    expect(changed.color, 0x00FF00);
+    final ops = ContentStreamParser.parse(
+        document.cos.decodeStreamData(changed.normalAppearance!));
+    expect(ops.map((o) => o.operator), isNot(contains('B')));
+    expect(ops.map((o) => o.operator), contains('S'));
+  });
+
   test('lists explicit page-content colors by frequency', () {
     final editor = PdfEditor(PdfDocument.open(_pdf([
       '1 0 0 rg 0 0 10 10 re f\n'

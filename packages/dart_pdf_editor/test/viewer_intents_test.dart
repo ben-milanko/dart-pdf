@@ -64,6 +64,7 @@ void main() {
           PdfRedoIntent,
           PdfDeleteSelectionIntent,
           PdfAutosizeTextBoxIntent,
+          PdfRotateSelectionIntent,
           PdfNudgeSelectionIntent,
         ]));
     expect(

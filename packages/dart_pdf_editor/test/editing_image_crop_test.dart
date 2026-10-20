@@ -107,6 +107,70 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-crop-cancel')));
       expect(cancelled, isTrue);
     });
+
+    testWidgets('the chips counter-scale with zoom and sit below the crop',
+        (tester) async {
+      Future<Rect> confirmAt(double chromeScale) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Stack(children: [
+              PdfImageCropOverlay(
+                key: ValueKey(chromeScale),
+                bounds: const Rect.fromLTWH(20, 20, 200, 200),
+                initialCrop: const Rect.fromLTWH(20, 20, 200, 200),
+                chromeScale: chromeScale,
+                accentColor: const Color(0xFF1E88E5),
+                onChanged: (_) {},
+                onCommit: () {},
+                onCancel: () {},
+              ),
+            ]),
+          ),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      final rest = await confirmAt(1);
+      // at 4x zoom the overlay draws in page space, so the chip must shrink
+      // to a quarter in the overlay's own frame to stay constant on screen
+      final zoomed = await confirmAt(0.25);
+      expect(zoomed.width, closeTo(rest.width / 4, 0.5));
+      expect(zoomed.height, closeTo(rest.height / 4, 0.5));
+      // below the crop, not over the image
+      expect(rest.top, greaterThanOrEqualTo(220));
+      expect(zoomed.top, greaterThanOrEqualTo(220));
+    });
+    testWidgets('the chips flip above, then inside, when the page runs out',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Future<Rect> confirmFor(Rect bounds) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Stack(children: [
+            PdfImageCropOverlay(
+              key: ValueKey(bounds),
+              bounds: bounds,
+              initialCrop: bounds,
+              chromeScale: 1,
+              accentColor: const Color(0xFF1E88E5),
+              onChanged: (_) {},
+              onCommit: () {},
+              onCancel: () {},
+            ),
+          ]),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      // hugging the page bottom: no room below, so the chips ride above
+      final above = await confirmFor(const Rect.fromLTWH(20, 480, 200, 110));
+      expect(above.bottom, lessThanOrEqualTo(480));
+      // the full page height: no room either side, so they tuck inside
+      final inside = await confirmFor(const Rect.fromLTWH(20, 0, 200, 600));
+      expect(inside.bottom, lessThanOrEqualTo(600));
+      expect(inside.top, greaterThanOrEqualTo(0));
+    });
   });
 
   group('crop overlay in the viewer', () {

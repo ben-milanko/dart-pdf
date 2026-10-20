@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'लंबवत संरेखण';
+
+  @override
+  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+
+  @override
+  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+
+  @override
+  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+
+  @override
   String get add => 'जोड़ें';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'आयतन गहराई';
 
   @override
+  String get measCustomValueTitle => 'माप का मान';
+
+  @override
   String get menuAddNode => 'नोड जोड़ें';
+
+  @override
+  String get menuEditMeasurementValue => 'माप का मान संपादित करें';
 
   @override
   String get menuAddLeader => 'लीडर लाइन जोड़ें';
@@ -436,6 +454,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'लीडर लाइन हटाएँ';
+
+  @override
+  String get menuAddNoteHere => 'यहाँ नोट जोड़ें';
 
   @override
   String get menuSaveToStamps => 'स्टैम्प में सहेजें';
@@ -1703,6 +1724,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'चाप लंबाई मापें';
+
+  @override
+  String get tbNameMeasureCustom => 'कस्टम माप (मान लिखें)';
 
   @override
   String get tbNameMeasureArea => 'क्षेत्रफल मापें';

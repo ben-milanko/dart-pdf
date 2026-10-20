@@ -1,6 +1,3 @@
-8.1.0 yenilikleri
+10.0.0 yenilikleri
 
-- Açılır menü ve liste form alanlarının yazı tipini ve stilini değiştirin.
-- Oluşturma, açma, yazdırma ve imzalama için yeni telefon menüsü.
-- Metin düzenlerken yazı tipi ve satır kaydırma korunur. iOS klavyesi ve seçim menüleri iyileştirildi.
-- Mobil kalem ve vurgulayıcı için tam renk paleti.
+Ölçek olmadan kendi ölçüm değerlerinizi yazın. Sözcükleri bütün olarak düzenleyin ve bağlantıları kolayca bulun. Okuma çubukları telefonlarda gizlenir, ekran katlarını aşmaz. İlk OCR işleminden sonra otomatik tanımayı sürdürüp sürdürmeyeceğinizi seçin. Büyük taramalardaki çökme düzeltildi; açıklamalar ve kırpma iyileştirildi.

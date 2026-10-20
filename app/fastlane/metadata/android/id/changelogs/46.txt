@@ -1,0 +1,8 @@
+Baru di 9.0.0
+
+- Kelompokkan anotasi untuk memindahkan, mengubah ukuran, dan memutarnya bersama.
+- OCR otomatis pada dokumen hasil pindaian agar dapat dicari.
+- Opsi menyimpan warna halaman ke dalam PDF.
+- Pintasan format teks dan gaya panah callout tersendiri.
+- Menggambar polyline dan menata ulang halaman lebih mudah.
+- Font serif lebih baik, gambar diputar lebih tajam, dan pengguliran lebih mulus.
