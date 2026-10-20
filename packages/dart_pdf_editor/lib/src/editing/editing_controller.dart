@@ -40,15 +40,31 @@ Map<String, Object?> _replaceDocumentColorsOnWorker(
     password: message['password']! as String,
   );
   final editor = PdfEditor(document);
-  final count = editor.replaceColorsOnPages(
-    (message['pages']! as List).cast<int>(),
-    finds: (message['finds']! as List).cast<int>(),
-    replace: message['replace']! as int,
-    tolerance: message['tolerance']! as int,
-    fill: message['fill']! as bool,
-    stroke: message['stroke']! as bool,
-    transparent: message['transparent']! as bool,
-  );
+  var count = message['includePageContent'] == false
+      ? 0
+      : editor.replaceColorsOnPages(
+          (message['pages']! as List).cast<int>(),
+          finds: (message['finds']! as List).cast<int>(),
+          replace: message['replace']! as int,
+          tolerance: message['tolerance']! as int,
+          fill: message['fill']! as bool,
+          stroke: message['stroke']! as bool,
+          transparent: message['transparent']! as bool,
+        );
+  for (final slot in (message['annotations'] as List? ?? const [])) {
+    final page = (slot as List)[0] as int;
+    final annotation = document.page(page).annotations[slot[1] as int];
+    count += editor.replaceAnnotationColors(
+      page,
+      annotation,
+      finds: (message['finds']! as List).cast<int>(),
+      replace: message['replace']! as int,
+      tolerance: message['tolerance']! as int,
+      fill: message['fill']! as bool,
+      stroke: message['stroke']! as bool,
+      transparent: message['transparent']! as bool,
+    );
+  }
   if (count == 0 || !editor.hasChanges) {
     return const {'count': 0};
   }
@@ -5236,24 +5252,58 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
-    final targets = (pages ??
-            Iterable<int>.generate(_document.pageCount, (index) => index))
-        .where((index) => index >= 0 && index < _document.pageCount)
+    final targets = (pages ?? Iterable<int>.generate(_document.pageCount))
+        .where((i) => i >= 0 && i < _document.pageCount)
         .toSet()
         .toList()
       ..sort();
-    if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
-    return [
-      for (final color in editor.contentColorsOnPages(
-        targets,
-        fill: fill,
-        stroke: stroke,
-      ))
-        Color(0xFF000000 | color.rgb),
-    ];
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final counts = <int, int>{};
+    for (final page in targets) {
+      final colors = [
+        if (includePageContent)
+          ...editor.contentColors(page, fill: fill, stroke: stroke),
+        for (final slot in slots.where((s) => s.$1 == page))
+          ...editor.annotationColors(page, _annotationAt(slot)!,
+              fill: fill, stroke: stroke),
+      ];
+      for (final color in colors) {
+        counts.update(color.rgb, (n) => n + color.uses,
+            ifAbsent: () => color.uses);
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final uses = b.value.compareTo(a.value);
+        return uses != 0 ? uses : a.key.compareTo(b.key);
+      });
+    return [for (final entry in entries) Color(0xFF000000 | entry.key)];
   }
+
+  List<(int, int)> _colorProcessingSlots(
+          List<int> pages, Iterable<(int, int)>? slots) =>
+      [
+        for (final slot in (slots ??
+                [
+                  for (final page in pages)
+                    for (var i = 0; i < _page(page).annotations.length; i++)
+                      (page, i),
+                ])
+            .toSet())
+          if (pages.contains(slot.$1))
+            if (_annotationAt(slot) case final a?
+                when isAnnotationEditable(a) &&
+                    !a.isLockedContents &&
+                    !const ['Widget', 'Popup', 'Link'].contains(a.subtype))
+              slot,
+      ];
 
   /// Asynchronously scans page-content colors, yielding between pages.
   ///
@@ -5265,6 +5315,9 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
     bool Function()? isCancelled,
     void Function(int completed, int total)? onProgress,
     Future<void> Function()? yieldAfterPage,
@@ -5277,14 +5330,21 @@ class PdfEditingController extends ChangeNotifier {
       ..sort();
     if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final annotations = {for (final slot in slots) slot: _annotationAt(slot)!};
     final uses = <int, List<int>>{};
     for (var i = 0; i < targets.length; i++) {
       if (isCancelled?.call() ?? false) return const [];
-      final pageColors = editor.contentColors(
-        targets[i],
-        fill: fill,
-        stroke: stroke,
-      );
+      final pageColors = [
+        if (includePageContent)
+          ...editor.contentColors(targets[i], fill: fill, stroke: stroke),
+        for (final entry
+            in annotations.entries.where((e) => e.key.$1 == targets[i]))
+          ...editor.annotationColors(targets[i], entry.value,
+              fill: fill, stroke: stroke),
+      ];
       for (final color in pageColors) {
         final counts = uses.putIfAbsent(color.rgb, () => [0, 0]);
         counts[0] += color.fillUses;
@@ -5341,8 +5401,10 @@ class PdfEditingController extends ChangeNotifier {
   /// ignored. Pass [findColors] to replace several source colors in one pass.
   /// [replace] may be omitted only when [transparent] is true. [tolerance] is
   /// an 8-bit per-channel tolerance. This is an undoable edit over page
-  /// content streams (text/vector colors), not annotation styling or raster
-  /// image pixel editing.
+  /// content streams (text/vector colors), optionally including annotation
+  /// styles and appearances with [includeAnnotations]. Raster pixels are not
+  /// edited. [annotationSlots] limits annotation processing to those slots;
+  /// protected annotations are always skipped.
   int replaceDocumentColors({
     Color? find,
     Iterable<Color>? findColors,
@@ -5352,6 +5414,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5370,17 +5435,31 @@ class PdfEditingController extends ChangeNotifier {
     if (!transparent && replace == null) {
       throw ArgumentError.notNull('replace');
     }
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
     var count = 0;
     final changed = apply((editor) {
-      count = editor.replaceColorsOnPages(
-        targets,
-        finds: finds,
-        replace: replace?.toARGB32() ?? 0,
-        tolerance: tolerance,
-        fill: fill,
-        stroke: stroke,
-        transparent: transparent,
-      );
+      count = !includePageContent
+          ? 0
+          : editor.replaceColorsOnPages(
+              targets,
+              finds: finds,
+              replace: replace?.toARGB32() ?? 0,
+              tolerance: tolerance,
+              fill: fill,
+              stroke: stroke,
+              transparent: transparent,
+            );
+      for (final slot in slots) {
+        count += editor.replaceAnnotationColors(slot.$1, _annotationAt(slot)!,
+            finds: finds,
+            replace: replace?.toARGB32() ?? 0,
+            tolerance: tolerance,
+            fill: fill,
+            stroke: stroke,
+            transparent: transparent);
+      }
     });
     return changed ? count : 0;
   }
@@ -5402,6 +5481,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) async {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5421,6 +5503,11 @@ class PdfEditingController extends ChangeNotifier {
       throw ArgumentError.notNull('replace');
     }
 
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final beforeRevision = _revisionId;
+    final beforePredicate = _canEditAnnotation;
     final beforeCursor = _cursor;
     final beforeLength = _revisions[_cursor];
     final result = await compute<Map<String, Object?>, Map<String, Object?>>(
@@ -5435,13 +5522,22 @@ class PdfEditingController extends ChangeNotifier {
         'fill': fill,
         'stroke': stroke,
         'transparent': transparent,
+        'includePageContent': includePageContent,
+        'annotations': [
+          for (final slot in slots) [slot.$1, slot.$2]
+        ],
       },
       debugLabel: 'PDF color processing',
     );
     final count = result['count'] as int? ?? 0;
     final saved = result['bytes'] as Uint8List?;
     if (count == 0 || saved == null) return 0;
-    if (_cursor != beforeCursor || _revisions[_cursor] != beforeLength) {
+    if (_disposed ||
+        _revisionId != beforeRevision ||
+        _colorProcessingSlots(targets, slots).length != slots.length ||
+        !identical(_canEditAnnotation, beforePredicate) ||
+        _cursor != beforeCursor ||
+        _revisions[_cursor] != beforeLength) {
       return 0;
     }
 
