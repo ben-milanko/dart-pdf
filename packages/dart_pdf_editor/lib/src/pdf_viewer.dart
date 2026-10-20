@@ -402,6 +402,15 @@ class PdfViewerController extends ChangeNotifier {
   _PdfViewerState? _state;
   bool _disposed = false;
 
+  /// Returns keyboard shortcuts to the page after a host/toolbar arms a tool.
+  /// Safe before mounting and after disposal; does not open or change a PDF.
+  void requestKeyboardFocus() {
+    final state = _state;
+    if (!_disposed && state != null && state.mounted) {
+      state._focusNode.requestFocus();
+    }
+  }
+
   /// Set while a text reflow view drives navigation in place of a mounted
   /// page viewer; a mounted [PdfViewer] ([_state]) always wins.
   PdfReflowBackend? _reflow;
@@ -7905,6 +7914,11 @@ class _PdfViewerState extends State<PdfViewer>
       }
       if (editing.isCroppingImage) {
         editing.cancelImageCrop();
+        return;
+      }
+      if (editing.tool == PdfEditTool.signatureBox) {
+        editing.tool = PdfEditTool.select;
+        _clearSelection();
         return;
       }
       if (editing.activeSavedAnnotation != null) {
