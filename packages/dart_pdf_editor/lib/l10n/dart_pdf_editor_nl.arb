@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Verticaal uitlijnen",
+  "textAlignTop": "Tekst boven uitlijnen",
+  "textAlignMiddle": "Tekst verticaal centreren",
+  "textAlignBottom": "Tekst onder uitlijnen",
   "@@locale": "nl",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",

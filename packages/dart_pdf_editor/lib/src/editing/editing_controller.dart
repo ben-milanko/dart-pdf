@@ -40,15 +40,31 @@ Map<String, Object?> _replaceDocumentColorsOnWorker(
     password: message['password']! as String,
   );
   final editor = PdfEditor(document);
-  final count = editor.replaceColorsOnPages(
-    (message['pages']! as List).cast<int>(),
-    finds: (message['finds']! as List).cast<int>(),
-    replace: message['replace']! as int,
-    tolerance: message['tolerance']! as int,
-    fill: message['fill']! as bool,
-    stroke: message['stroke']! as bool,
-    transparent: message['transparent']! as bool,
-  );
+  var count = message['includePageContent'] == false
+      ? 0
+      : editor.replaceColorsOnPages(
+          (message['pages']! as List).cast<int>(),
+          finds: (message['finds']! as List).cast<int>(),
+          replace: message['replace']! as int,
+          tolerance: message['tolerance']! as int,
+          fill: message['fill']! as bool,
+          stroke: message['stroke']! as bool,
+          transparent: message['transparent']! as bool,
+        );
+  for (final slot in (message['annotations'] as List? ?? const [])) {
+    final page = (slot as List)[0] as int;
+    final annotation = document.page(page).annotations[slot[1] as int];
+    count += editor.replaceAnnotationColors(
+      page,
+      annotation,
+      finds: (message['finds']! as List).cast<int>(),
+      replace: message['replace']! as int,
+      tolerance: message['tolerance']! as int,
+      fill: message['fill']! as bool,
+      stroke: message['stroke']! as bool,
+      transparent: message['transparent']! as bool,
+    );
+  }
   if (count == 0 || !editor.hasChanges) {
     return const {'count': 0};
   }
@@ -3792,6 +3808,7 @@ class PdfEditingController extends ChangeNotifier {
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -3824,6 +3841,7 @@ class PdfEditingController extends ChangeNotifier {
           fontSize: preferences.fontSize,
           font: _activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           // the box outline and leader share one stroke; fall back to the
@@ -3847,6 +3865,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
@@ -3891,6 +3910,7 @@ class PdfEditingController extends ChangeNotifier {
         fontSize: fontSize,
         font: _activeFont ?? preferences.fontFamily,
         align: preferences.textAlign,
+        verticalAlign: preferences.textVerticalAlign,
         color: _colorValue,
         fillColor: _rgbOf(preferences.textFillColor),
         borderColor: _rgbOf(preferences.textBorderColor),
@@ -5232,24 +5252,58 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
-    final targets = (pages ??
-            Iterable<int>.generate(_document.pageCount, (index) => index))
-        .where((index) => index >= 0 && index < _document.pageCount)
+    final targets = (pages ?? Iterable<int>.generate(_document.pageCount))
+        .where((i) => i >= 0 && i < _document.pageCount)
         .toSet()
         .toList()
       ..sort();
-    if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
-    return [
-      for (final color in editor.contentColorsOnPages(
-        targets,
-        fill: fill,
-        stroke: stroke,
-      ))
-        Color(0xFF000000 | color.rgb),
-    ];
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final counts = <int, int>{};
+    for (final page in targets) {
+      final colors = [
+        if (includePageContent)
+          ...editor.contentColors(page, fill: fill, stroke: stroke),
+        for (final slot in slots.where((s) => s.$1 == page))
+          ...editor.annotationColors(page, _annotationAt(slot)!,
+              fill: fill, stroke: stroke),
+      ];
+      for (final color in colors) {
+        counts.update(color.rgb, (n) => n + color.uses,
+            ifAbsent: () => color.uses);
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final uses = b.value.compareTo(a.value);
+        return uses != 0 ? uses : a.key.compareTo(b.key);
+      });
+    return [for (final entry in entries) Color(0xFF000000 | entry.key)];
   }
+
+  List<(int, int)> _colorProcessingSlots(
+          List<int> pages, Iterable<(int, int)>? slots) =>
+      [
+        for (final slot in (slots ??
+                [
+                  for (final page in pages)
+                    for (var i = 0; i < _page(page).annotations.length; i++)
+                      (page, i),
+                ])
+            .toSet())
+          if (pages.contains(slot.$1))
+            if (_annotationAt(slot) case final a?
+                when isAnnotationEditable(a) &&
+                    !a.isLockedContents &&
+                    !const ['Widget', 'Popup', 'Link'].contains(a.subtype))
+              slot,
+      ];
 
   /// Asynchronously scans page-content colors, yielding between pages.
   ///
@@ -5261,6 +5315,9 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
     bool Function()? isCancelled,
     void Function(int completed, int total)? onProgress,
     Future<void> Function()? yieldAfterPage,
@@ -5273,14 +5330,21 @@ class PdfEditingController extends ChangeNotifier {
       ..sort();
     if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final annotations = {for (final slot in slots) slot: _annotationAt(slot)!};
     final uses = <int, List<int>>{};
     for (var i = 0; i < targets.length; i++) {
       if (isCancelled?.call() ?? false) return const [];
-      final pageColors = editor.contentColors(
-        targets[i],
-        fill: fill,
-        stroke: stroke,
-      );
+      final pageColors = [
+        if (includePageContent)
+          ...editor.contentColors(targets[i], fill: fill, stroke: stroke),
+        for (final entry
+            in annotations.entries.where((e) => e.key.$1 == targets[i]))
+          ...editor.annotationColors(targets[i], entry.value,
+              fill: fill, stroke: stroke),
+      ];
       for (final color in pageColors) {
         final counts = uses.putIfAbsent(color.rgb, () => [0, 0]);
         counts[0] += color.fillUses;
@@ -5337,8 +5401,10 @@ class PdfEditingController extends ChangeNotifier {
   /// ignored. Pass [findColors] to replace several source colors in one pass.
   /// [replace] may be omitted only when [transparent] is true. [tolerance] is
   /// an 8-bit per-channel tolerance. This is an undoable edit over page
-  /// content streams (text/vector colors), not annotation styling or raster
-  /// image pixel editing.
+  /// content streams (text/vector colors), optionally including annotation
+  /// styles and appearances with [includeAnnotations]. Raster pixels are not
+  /// edited. [annotationSlots] limits annotation processing to those slots;
+  /// protected annotations are always skipped.
   int replaceDocumentColors({
     Color? find,
     Iterable<Color>? findColors,
@@ -5348,6 +5414,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5366,17 +5435,31 @@ class PdfEditingController extends ChangeNotifier {
     if (!transparent && replace == null) {
       throw ArgumentError.notNull('replace');
     }
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
     var count = 0;
     final changed = apply((editor) {
-      count = editor.replaceColorsOnPages(
-        targets,
-        finds: finds,
-        replace: replace?.toARGB32() ?? 0,
-        tolerance: tolerance,
-        fill: fill,
-        stroke: stroke,
-        transparent: transparent,
-      );
+      count = !includePageContent
+          ? 0
+          : editor.replaceColorsOnPages(
+              targets,
+              finds: finds,
+              replace: replace?.toARGB32() ?? 0,
+              tolerance: tolerance,
+              fill: fill,
+              stroke: stroke,
+              transparent: transparent,
+            );
+      for (final slot in slots) {
+        count += editor.replaceAnnotationColors(slot.$1, _annotationAt(slot)!,
+            finds: finds,
+            replace: replace?.toARGB32() ?? 0,
+            tolerance: tolerance,
+            fill: fill,
+            stroke: stroke,
+            transparent: transparent);
+      }
     });
     return changed ? count : 0;
   }
@@ -5398,6 +5481,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) async {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5417,6 +5503,11 @@ class PdfEditingController extends ChangeNotifier {
       throw ArgumentError.notNull('replace');
     }
 
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final beforeRevision = _revisionId;
+    final beforePredicate = _canEditAnnotation;
     final beforeCursor = _cursor;
     final beforeLength = _revisions[_cursor];
     final result = await compute<Map<String, Object?>, Map<String, Object?>>(
@@ -5431,13 +5522,22 @@ class PdfEditingController extends ChangeNotifier {
         'fill': fill,
         'stroke': stroke,
         'transparent': transparent,
+        'includePageContent': includePageContent,
+        'annotations': [
+          for (final slot in slots) [slot.$1, slot.$2]
+        ],
       },
       debugLabel: 'PDF color processing',
     );
     final count = result['count'] as int? ?? 0;
     final saved = result['bytes'] as Uint8List?;
     if (count == 0 || saved == null) return 0;
-    if (_cursor != beforeCursor || _revisions[_cursor] != beforeLength) {
+    if (_disposed ||
+        _revisionId != beforeRevision ||
+        _colorProcessingSlots(targets, slots).length != slots.length ||
+        !identical(_canEditAnnotation, beforePredicate) ||
+        _cursor != beforeCursor ||
+        _revisions[_cursor] != beforeLength) {
       return 0;
     }
 
@@ -7186,22 +7286,37 @@ class PdfEditingController extends ChangeNotifier {
     }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
-    double left, bottom;
+    final page = _page(pageIndex);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize:
+          ui.Size(_visualPageWidth(pageIndex), _visualPageHeight(pageIndex)),
+    );
+    final ui.Rect visualTarget;
     if (at != null) {
-      left = at.$1 - w / 2;
-      bottom = at.$2 - h / 2;
+      visualTarget = ui.Rect.fromCenter(
+        center: geometry.toViewOffset(at.$1, at.$2),
+        width: w,
+        height: h,
+      );
     } else {
       final cascade = 12.0 * _snapshotPasteCount;
-      left = snapshot.region.left + cascade;
-      bottom = snapshot.region.bottom - cascade;
+      final anchor = geometry.toViewRect(snapshot.region).topLeft;
+      visualTarget =
+          ui.Rect.fromLTWH(anchor.dx + cascade, anchor.dy + cascade, w, h);
     }
+    final pageTarget = geometry.toPageRect(visualTarget);
+    var left = pageTarget.left, bottom = pageTarget.bottom;
     if (at == null) {
       // as in [pasteAnnotations]: only the point-less cascade is tethered
-      final box = _page(pageIndex).cropBox;
-      left += _tetherShift(left, left + w, box.left, box.right);
-      bottom += _tetherShift(bottom, bottom + h, box.bottom, box.top);
+      final box = page.cropBox;
+      left += _tetherShift(left, left + pageTarget.width, box.left, box.right);
+      bottom +=
+          _tetherShift(bottom, bottom + pageTarget.height, box.bottom, box.top);
     }
-    final target = PdfRect(left, bottom, left + w, bottom + h);
+    final target = PdfRect(
+        left, bottom, left + pageTarget.width, bottom + pageTarget.height);
     int? captured;
     final pasted = apply(
       (e) {
@@ -7432,6 +7547,8 @@ class PdfEditingController extends ChangeNotifier {
       values['fontFamily'] = text.font.name;
       final align = annotation.freeTextStyle?.alignment;
       values['textAlign'] = align?.name;
+      values['textVerticalAlign'] =
+          annotation.freeTextStyle?.verticalAlignment.name;
       // for a text box /C is the background and /DA border colour is separate;
       // the box's tint is its text colour, already captured as `color`
       values['textFillColor'] = argb(style.fillColor);
@@ -8890,7 +9007,16 @@ class PdfEditingController extends ChangeNotifier {
     // leader + arrow: anchor at the box's top-left so the arrow stays put.
     // The anchor is where the user left the box, so a box sitting at (or
     // over) the page edge grows from there rather than sliding inward.
-    final anchor = annotation.calloutBox ?? annotation.rect;
+    // Measure and anchor in displayed page points: /Rotate 90 and 270 swap
+    // the text box's width/height, and 180 reverses its top-left corner.
+    final page = _page(_selected.last.$1);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: PdfPageRenderer.pageSize(page),
+    );
+    final anchor =
+        geometry.toViewRect(annotation.calloutBox ?? annotation.rect);
     var lines = normalized.split('\n');
     final double width;
     // Text that already wraps inside the box is a paragraph laid out at the
@@ -8925,13 +9051,14 @@ class PdfEditingController extends ChangeNotifier {
           size * (_freeTextAscent(font) + _freeTextDescent(font)) / 1000 +
           math.max(0, lines.length - 1) * size * lineSpacing,
     );
-    return PdfRect(
-        anchor.left, anchor.top - height, anchor.left + width, anchor.top);
+    return geometry
+        .toPageRect(ui.Rect.fromLTWH(anchor.left, anchor.top, width, height));
   }
 
   /// Shrinks or grows the selected free-text annotation to the natural
   /// bounds of its contents. Explicit newlines are preserved and the box is
-  /// anchored at its current top-left corner - it grows off the page edge
+  /// anchored at its current visible top-left corner, including on rotated
+  /// pages - it grows off the page edge
   /// rather than sliding inward to fit. Text that already wraps at the box's
   /// width keeps that width and only the height is fitted to the wrapped
   /// lines; otherwise the box takes the width of its longest line.
@@ -9077,6 +9204,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfStandardFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -9085,6 +9213,7 @@ class PdfEditingController extends ChangeNotifier {
       font: font,
       size: size,
       align: align,
+      verticalAlign: verticalAlign,
       fill: fill,
       border: border,
       borderWidth: borderWidth,
@@ -9134,6 +9263,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfTextFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -9147,6 +9277,7 @@ class PdfEditingController extends ChangeNotifier {
     if (font == null &&
         size == null &&
         align == null &&
+        verticalAlign == null &&
         fill == null &&
         border == null &&
         borderWidth == null &&
@@ -9272,6 +9403,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9300,6 +9434,9 @@ class PdfEditingController extends ChangeNotifier {
                 ),
             ],
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
             borderWidth: effectiveBorderWidth,
@@ -9319,6 +9456,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9373,6 +9513,17 @@ class PdfEditingController extends ChangeNotifier {
   void setSelectedTextAlign(PdfTextAlign align) {
     preferences.textAlign = align; // the new default either way
     if (canRestyleSelectedText) restyleSelectedText(align: align);
+  }
+
+  /// The selected text box's vertical placement, or null without a text box.
+  PdfTextVerticalAlign? get selectedTextVerticalAlign =>
+      selectedFreeTextStyle?.verticalAlignment;
+
+  /// Applies vertical placement to selected text boxes in one undo step and
+  /// remembers it for new boxes. Horizontal alignment is unchanged.
+  void setSelectedTextVerticalAlign(PdfTextVerticalAlign align) {
+    preferences.textVerticalAlign = align;
+    if (canRestyleSelectedText) restyleSelectedText(verticalAlign: align);
   }
 
   /// Rewrites every selected free-text annotation in [font] - a base-14 face
@@ -9637,6 +9788,7 @@ class PdfEditingController extends ChangeNotifier {
     required double fontSize,
     required PdfTextFont font,
     required PdfTextAlign align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -9660,6 +9812,7 @@ class PdfEditingController extends ChangeNotifier {
       fontSize: fontSize,
       font: font,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       strokeColor: shape.style.color,
@@ -9725,6 +9878,8 @@ class PdfEditingController extends ChangeNotifier {
               fontSize: size ?? style.size,
               font: font ?? style.font,
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9761,6 +9916,8 @@ class PdfEditingController extends ChangeNotifier {
               font: font ?? style.font,
               // keep the box's own alignment unless this edit changes it
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9860,6 +10017,8 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: first.fontSize,
             font: first.font,
             align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+            verticalAlign:
+                parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
             color: first.color,
             fillColor: parsed?.fillColor,
             borderColor: parsed?.borderColor,
@@ -9884,6 +10043,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+          verticalAlign: parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: parsed?.borderWidth ?? 1,

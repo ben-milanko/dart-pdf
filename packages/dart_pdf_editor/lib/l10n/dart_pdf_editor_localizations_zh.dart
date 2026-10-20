@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
+
+  @override
   String get add => '添加';
 
   @override
@@ -2433,6 +2445,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
 
   @override
   String get add => '新增';

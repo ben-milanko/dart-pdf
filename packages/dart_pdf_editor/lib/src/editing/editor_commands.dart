@@ -420,6 +420,9 @@ class PdfEditorCommands extends ChangeNotifier {
   void toggleToolNow(PdfEditTool tool) {
     _controller.tool = _controller.tool == tool ? PdfEditTool.select : tool;
     viewerController.clearSelection();
+    // The toolbar/menu may own focus. Re-arm the viewer's Escape and tool
+    // shortcuts immediately, without requiring a click that could place it.
+    viewerController.requestKeyboardFocus();
   }
 
   /// Arms the stamp tool for its picker menu (no toggle).

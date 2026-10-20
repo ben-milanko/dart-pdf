@@ -29,6 +29,271 @@ class _ContentColorAccumulator {
 /// Page-content color processing: find a device color and replace it with
 /// another across content streams.
 extension PdfColorProcessing on PdfEditor {
+  /// Device colours in an annotation's normal appearance (including nested
+  /// forms and implicit default-black painting) and editable style dictionaries. Raster pixels, patterns
+  /// and shading functions are not scanned.
+  List<PdfContentColor> annotationColors(
+    int index,
+    PdfAnnotation annotation, {
+    bool fill = true,
+    bool stroke = true,
+  }) {
+    final collector = _ColorCollector(
+      editor: this,
+      page: document.page(index),
+      fill: fill,
+      stroke: stroke,
+    );
+    final visiting = <CosStream>{};
+    void scan(
+        CosStream form, CosDictionary inherited, _ColorGraphicsState state) {
+      if (!visiting.add(form)) return;
+      final resources = document.cos.resolve(form.dictionary['Resources']);
+      final effective = resources is CosDictionary ? resources : inherited;
+      final operations =
+          ContentStreamParser.parse(document.cos.decodeStreamData(form));
+      final nested = _ColorCollector(
+        editor: this,
+        page: document.page(index),
+        fill: fill,
+        stroke: stroke,
+        resources: effective,
+        initialState: state,
+        includeImplicit: true,
+      );
+      final xObjects = document.cos.resolve(effective['XObject']);
+      for (final op in operations) {
+        nested.scan([op]);
+        if (op.operator != 'Do' || xObjects is! CosDictionary) continue;
+        final name = op.operands.firstOrNull;
+        if (name is! CosName) continue;
+        final child = document.cos.resolve(xObjects[name.value]);
+        if (child is CosStream &&
+            document.cos.resolve(child.dictionary['Subtype']) ==
+                const CosName('Form')) {
+          scan(child, effective, nested._state);
+        }
+      }
+      collector.merge(nested.colors());
+      visiting.remove(form);
+    }
+
+    final appearance = annotation.normalAppearance;
+    if (appearance != null) {
+      scan(appearance, document.page(index).resources,
+          const _ColorGraphicsState());
+    }
+    collector.scan(_annotationStyleColors(annotation));
+    return collector.colors();
+  }
+
+  /// Replaces only matching colours in one annotation, cloning appearance
+  /// forms before changing them so other annotations sharing artwork survive.
+  /// Returns changed colour operators/style entries (paint sides in transparent
+  /// mode). Geometry, identity and unrelated colours are retained.
+  int replaceAnnotationColors(
+    int index,
+    PdfAnnotation annotation, {
+    int? find,
+    Iterable<int>? finds,
+    int replace = 0,
+    int tolerance = 0,
+    bool fill = true,
+    bool stroke = true,
+    bool transparent = false,
+  }) {
+    final colors = _findColors(find, finds);
+    if (colors.isEmpty || (!fill && !stroke)) return 0;
+    _ColorProcessor processor(
+            [CosDictionary? resources, _ColorGraphicsState? state]) =>
+        _ColorProcessor(
+          editor: this,
+          page: document.page(index),
+          resources: resources,
+          finds: colors,
+          replace: replace & 0xFFFFFF,
+          tolerance: tolerance.clamp(0, 255),
+          fill: fill,
+          stroke: stroke,
+          transparent: transparent,
+          initialState: state,
+          includeImplicit: state != null,
+        );
+    var count = 0;
+    final visiting = <CosStream>{};
+    final done = <(CosStream, _ColorGraphicsState), CosObject>{};
+    CosObject rewrite(
+        CosStream form, CosDictionary inherited, _ColorGraphicsState state) {
+      final key = (form, state);
+      if (done[key] case final cached?) return cached;
+      if (!visiting.add(form)) return form;
+      final resources = document.cos.resolve(form.dictionary['Resources']);
+      final effective = resources is CosDictionary ? resources : inherited;
+      final operations =
+          ContentStreamParser.parse(document.cos.decodeStreamData(form));
+      final p = processor(effective, state);
+      final rewritten = <ContentOperation>[];
+      final xObjects = document.cos.resolve(effective['XObject']);
+      CosDictionary? changedObjects;
+      final formUses = <String, int>{};
+      for (final op in operations) {
+        if (op.operator == 'Do') {
+          if (op.operands.firstOrNull case final CosName name) {
+            formUses.update(name.value, (n) => n + 1, ifAbsent: () => 1);
+          }
+        }
+      }
+      for (final op in operations) {
+        if (op.operator != 'Do' || xObjects is! CosDictionary) {
+          rewritten.addAll(p._rewriteWithImplicit(op));
+          continue;
+        }
+        final name = op.operands.firstOrNull;
+        final child =
+            name is CosName ? document.cos.resolve(xObjects[name.value]) : null;
+        if (child is! CosStream ||
+            document.cos.resolve(child.dictionary['Subtype']) !=
+                const CosName('Form')) {
+          rewritten.add(op);
+          continue;
+        }
+        final result = rewrite(child, effective, p._state);
+        if (identical(result, child)) {
+          rewritten.add(op);
+          continue;
+        }
+        changedObjects ??= CosDictionary({...xObjects.entries});
+        var childName = (formUses[(name as CosName).value] == 1)
+            ? name.value
+            : 'ColorForm${changedObjects.entries.length}';
+        if (childName != name.value) {
+          while (changedObjects.containsKey(childName)) {
+            childName = '${childName}_';
+          }
+        }
+        changedObjects[childName] = result;
+        rewritten.add(ContentOperation('Do', [CosName(childName)]));
+      }
+      count += p.count;
+      visiting.remove(form);
+      if (p.count == 0 && changedObjects == null) return done[key] = form;
+      final bytes = ContentStreamSerializer.serialize(rewritten);
+      final dict = CosDictionary({...form.dictionary.entries})
+        ..entries.remove('Filter')
+        ..entries.remove('DecodeParms')
+        ..entries.remove('DP')
+        ..['Length'] = CosInteger(bytes.length);
+      if (changedObjects != null) {
+        dict['Resources'] = CosDictionary({...effective.entries})
+          ..['XObject'] = changedObjects;
+      }
+      return done[key] = _updater.addObject(CosStream(dict, bytes));
+    }
+
+    final appearance = annotation.normalAppearance;
+    if (appearance != null) {
+      final result = rewrite(appearance, document.page(index).resources,
+          const _ColorGraphicsState());
+      if (!identical(result, appearance)) {
+        final ap = document.cos.resolve(annotation.dict['AP']);
+        // Non-widget normal appearances may still be state dictionaries.
+        final normal =
+            ap is CosDictionary ? document.cos.resolve(ap['N']) : null;
+        CosObject newNormal = result;
+        if (normal is CosDictionary) {
+          final state = document.cos.resolve(annotation.dict['AS']);
+          final name =
+              state is CosName ? state.value : normal.entries.keys.single;
+          newNormal = CosDictionary({...normal.entries})..[name] = result;
+        }
+        annotation.dict['AP'] = CosDictionary({
+          if (ap is CosDictionary) ...ap.entries,
+          'N': newNormal,
+        });
+      }
+    }
+    // Keep style metadata in step with the appearance, so subsequent edits
+    // and other PDF viewers use the new colours too.
+    for (final entry in _annotationColorEntries(annotation).entries) {
+      final p = processor();
+      final op = entry.value;
+      final out = p.rewrite([
+        op,
+        ContentOperation(
+          op.operator == 'RG' ? 'S' : 'f',
+          const [],
+        )
+      ]);
+      if (p.count == 0) continue;
+      count += p.count;
+      annotation.dict[entry.key] =
+          transparent ? CosArray([]) : CosArray(out.first.operands);
+    }
+    final da = annotation.defaultAppearance;
+    if (da != null) {
+      final p = processor();
+      final out = p.rewrite(
+          ContentStreamParser.parse(Uint8List.fromList(latin1.encode(da))));
+      if (p.count > 0) {
+        annotation.dict['DA'] = CosString.fromText(
+            latin1.decode(ContentStreamSerializer.serialize(out)));
+        count += p.count;
+      }
+    }
+    if (fill && !transparent) {
+      // CSS declarations only: never replace a matching hex string in text.
+      final cssColor = RegExp(
+          r'((?:^|;)\s*color\s*:\s*)#([0-9a-f]{6}|[0-9a-f]{3})(?![0-9a-f])',
+          caseSensitive: false);
+      final p = processor();
+      String replaceCss(String css) => css.replaceAllMapped(cssColor, (m) {
+            var hex = m[2]!;
+            if (hex.length == 3) hex = hex.split('').map((c) => '$c$c').join();
+            if (!p._matches(int.parse(hex, radix: 16))) return m[0]!;
+            count++;
+            return '${m[1]}#${(replace & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+          });
+      final styleAttribute = RegExp(r'''(\bstyle\s*=\s*["'])([^"']*)(["'])''',
+          caseSensitive: false);
+      for (final key in const ['RC', 'DS']) {
+        final value = document.cos.resolve(annotation.dict[key]);
+        if (value is! CosString) continue;
+        final text = key == 'DS'
+            ? replaceCss(value.text)
+            : value.text.replaceAllMapped(
+                styleAttribute, (m) => '${m[1]}${replaceCss(m[2]!)}${m[3]}');
+        if (text != value.text) annotation.dict[key] = CosString.fromText(text);
+      }
+    }
+    if (count > 0) _markAnnotationChanged(index, annotation.dict);
+    return count;
+  }
+
+  Map<String, ContentOperation> _annotationColorEntries(PdfAnnotation a) => {
+        if (!isVectorSnapshotStamp(a))
+          if (a.color case final rgb?)
+            'C': ContentOperation(
+              const ['Ink', 'Line', 'PolyLine', 'Polygon', 'Square', 'Circle']
+                      .contains(a.subtype)
+                  ? 'RG'
+                  : 'rg',
+              _rgbColorOperands(rgb),
+            ),
+        if (a.interiorColor case final rgb?)
+          'IC': ContentOperation('rg', _rgbColorOperands(rgb)),
+      };
+
+  List<ContentOperation> _annotationStyleColors(PdfAnnotation annotation) => [
+        ..._annotationColorEntries(annotation).values,
+        if (annotation.defaultAppearance case final da?)
+          ...ContentStreamParser.parse(Uint8List.fromList(latin1.encode(da))),
+      ];
+
+  List<CosObject> _rgbColorOperands(int rgb) => [
+        for (final shift in const [16, 8, 0])
+          CosReal(((rgb >> shift) & 255) / 255),
+      ];
+
   /// Returns the device colors explicitly set on page [index], sorted by
   /// frequency descending and then by RGB value.
   ///
@@ -190,6 +455,8 @@ class _ColorGraphicsState {
     this.transparentFill = false,
     this.transparentStroke = false,
     this.textRenderingMode = 0,
+    this.fillDefined = false,
+    this.strokeDefined = false,
   });
 
   final _DeviceColorSpace fillSpace;
@@ -197,6 +464,8 @@ class _ColorGraphicsState {
   final bool transparentFill;
   final bool transparentStroke;
   final int textRenderingMode;
+  final bool fillDefined;
+  final bool strokeDefined;
 
   _ColorGraphicsState copyWith({
     _DeviceColorSpace? fillSpace,
@@ -204,6 +473,8 @@ class _ColorGraphicsState {
     bool? transparentFill,
     bool? transparentStroke,
     int? textRenderingMode,
+    bool? fillDefined,
+    bool? strokeDefined,
   }) =>
       _ColorGraphicsState(
         fillSpace: fillSpace ?? this.fillSpace,
@@ -211,6 +482,8 @@ class _ColorGraphicsState {
         transparentFill: transparentFill ?? this.transparentFill,
         transparentStroke: transparentStroke ?? this.transparentStroke,
         textRenderingMode: textRenderingMode ?? this.textRenderingMode,
+        fillDefined: fillDefined ?? this.fillDefined,
+        strokeDefined: strokeDefined ?? this.strokeDefined,
       );
 }
 
@@ -220,15 +493,37 @@ abstract class _ColorScannerBase {
     required this.page,
     required this.fill,
     required this.stroke,
-  });
+    this.resources,
+    this.includeImplicit = false,
+    _ColorGraphicsState? initialState,
+  }) : _state = initialState ?? const _ColorGraphicsState();
 
   final PdfEditor editor;
   final PdfPage page;
   final bool fill;
   final bool stroke;
+  final CosDictionary? resources;
 
-  _ColorGraphicsState _state = const _ColorGraphicsState();
+  final bool includeImplicit;
+  _ColorGraphicsState _state;
   final List<_ColorGraphicsState> _stack = [];
+
+  Iterable<ContentOperation> _implicitColors(ContentOperation op) sync* {
+    if (!includeImplicit) return;
+    final text = const ['Tj', 'TJ', "'", '"'].contains(op.operator);
+    final usesFill =
+        const ['f', 'F', 'f*', 'B', 'B*', 'b', 'b*'].contains(op.operator) ||
+            (text && const [0, 2, 4, 6].contains(_state.textRenderingMode));
+    final usesStroke =
+        const ['S', 's', 'B', 'B*', 'b', 'b*'].contains(op.operator) ||
+            (text && const [1, 2, 5, 6].contains(_state.textRenderingMode));
+    if (fill && usesFill && !_state.fillDefined) {
+      yield ContentOperation('g', [CosInteger(0)]);
+    }
+    if (stroke && usesStroke && !_state.strokeDefined) {
+      yield ContentOperation('G', [CosInteger(0)]);
+    }
+  }
 
   void _trackOperation(ContentOperation op) {
     switch (op.operator) {
@@ -241,12 +536,14 @@ abstract class _ColorScannerBase {
       case 'cs':
         _state = _state.copyWith(
           fillSpace: _spaceFromOperands(op.operands),
+          fillDefined: true,
           transparentFill: false,
         );
         return;
       case 'CS':
         _state = _state.copyWith(
           strokeSpace: _spaceFromOperands(op.operands),
+          strokeDefined: true,
           transparentStroke: false,
         );
         return;
@@ -305,8 +602,8 @@ abstract class _ColorScannerBase {
 
   void _setSpace(_PaintSide side, _DeviceColorSpace space) {
     _state = side == _PaintSide.fill
-        ? _state.copyWith(fillSpace: space)
-        : _state.copyWith(strokeSpace: space);
+        ? _state.copyWith(fillSpace: space, fillDefined: true)
+        : _state.copyWith(strokeSpace: space, strokeDefined: true);
   }
 
   _DeviceColorSpace _spaceFromOperands(List<CosObject> operands) {
@@ -327,7 +624,7 @@ abstract class _ColorScannerBase {
     }
 
     final colorSpaces = editor.document.cos.resolve(
-      page.resources['ColorSpace'],
+      (resources ?? page.resources)['ColorSpace'],
     );
     if (colorSpaces is! CosDictionary) return _DeviceColorSpace.other;
     return _spaceFromObject(editor.document.cos.resolve(colorSpaces[name]));
@@ -404,12 +701,26 @@ class _ColorCollector extends _ColorScannerBase {
     required super.page,
     required super.fill,
     required super.stroke,
+    super.resources,
+    super.initialState,
+    super.includeImplicit,
   });
 
   final _uses = <int, _ContentColorAccumulator>{};
 
+  void merge(Iterable<PdfContentColor> colors) {
+    for (final color in colors) {
+      final acc = _uses.putIfAbsent(color.rgb, _ContentColorAccumulator.new);
+      acc.fillUses += color.fillUses;
+      acc.strokeUses += color.strokeUses;
+    }
+  }
+
   void scan(List<ContentOperation> operations) {
     for (final op in operations) {
+      for (final implicit in _implicitColors(op).toList()) {
+        _trackOperation(implicit);
+      }
       _trackOperation(op);
     }
   }
@@ -454,6 +765,9 @@ class _ColorProcessor extends _ColorScannerBase {
     required this.tolerance,
     required super.fill,
     required super.stroke,
+    super.resources,
+    super.initialState,
+    super.includeImplicit,
     required this.transparent,
   });
 
@@ -467,10 +781,16 @@ class _ColorProcessor extends _ColorScannerBase {
   List<ContentOperation> rewrite(List<ContentOperation> operations) {
     final out = <ContentOperation>[];
     for (final op in operations) {
-      out.addAll(_rewriteOperation(op));
+      out.addAll(_rewriteWithImplicit(op));
     }
     return out;
   }
+
+  List<ContentOperation> _rewriteWithImplicit(ContentOperation op) => [
+        for (final implicit in _implicitColors(op).toList())
+          ..._rewriteOperation(implicit),
+        ..._rewriteOperation(op),
+      ];
 
   List<ContentOperation> _rewriteOperation(ContentOperation op) {
     switch (op.operator) {

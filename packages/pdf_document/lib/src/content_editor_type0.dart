@@ -87,6 +87,8 @@ class _Type0RunEditor {
     double fontSize, {
     PdfTextStyle? style,
     List<ContentOperation> restoreColorOps = const [],
+    double characterSpacing = 0,
+    double wordSpacing = 0,
   }) {
     // pick the font that can draw the whole replacement: the document's own
     // font when it has every glyph, else a style-matched fallback. (An empty
@@ -107,13 +109,15 @@ class _Type0RunEditor {
               runes.fold(
                   0.0,
                   (w, r) =>
-                      w + fallback.advanceForGlyph(fallback.glyphForRune(r))));
+                      w + fallback.advanceForGlyph(fallback.glyphForRune(r))),
+              bytesPerGlyph: 2);
         }
         return _StyledFace(
             resourceName,
             _font.encodeIdentity(replace)!,
             runes.fold(0.0,
-                (w, r) => w + _font.advanceForGlyph(_font.glyphForRune(r))));
+                (w, r) => w + _font.advanceForGlyph(_font.glyphForRune(r))),
+            bytesPerGlyph: 2);
       }
 
       return TextRunRewriter(_StyledRunCodec(
@@ -128,10 +132,13 @@ class _Type0RunEditor {
             ? null
             : PdfContentEditing._colorOp(style.color!),
         restoreColorOps: restoreColorOps,
+        characterSpacing: characterSpacing,
+        wordSpacing: wordSpacing,
       )).rewrite(run, find, replace);
     }
     if (origOk || replace.isEmpty) {
-      return TextRunRewriter(_Type0RunCodec(_font)).rewrite(run, find, replace);
+      return TextRunRewriter(_Type0RunCodec(_font, characterSpacing))
+          .rewrite(run, find, replace);
     }
     final fallback = _font.pickFallback(runes, _fallbacks);
     if (fallback == null) return (run, 0); // nobody can draw it
@@ -150,7 +157,8 @@ class _Type0RunEditor {
       return _FallbackDraw(fbName, fbBytes, fbWidth);
     }
 
-    final codec = _Type0FallbackCodec(_font, resourceName, fontSize, resolve);
+    final codec = _Type0FallbackCodec(
+        _font, resourceName, fontSize, resolve, characterSpacing);
     return TextRunRewriter(codec).rewrite(run, find, replace);
   }
 
@@ -211,7 +219,8 @@ class _Type0RunEditor {
 /// The in-the-document-font Type0 codec: replacement codes are the font's own
 /// glyph ids, drawn as 2-byte Identity-H show strings.
 class _Type0RunCodec extends RunCodec {
-  _Type0RunCodec(this._font);
+  _Type0RunCodec(this._font, this.characterSpacing);
+  final double characterSpacing;
   final Type0Font _font;
 
   @override
@@ -226,7 +235,7 @@ class _Type0RunCodec extends RunCodec {
   String glyphText(int glyph) => _font.codeToText[glyph] ?? '￿';
 
   @override
-  double glyphWidth(int glyph) => _font.widthOf(glyph);
+  double glyphWidth(int glyph) => _font.widthOf(glyph) + characterSpacing;
 
   @override
   void emitReplacement(
@@ -235,7 +244,7 @@ class _Type0RunCodec extends RunCodec {
     for (final rune in replace.runes) {
       final gid = _font.glyphForRune(rune);
       out.add(CellEmit((glyph: gid, kern: null)));
-      newWidth += _font.recordGlyph(gid, rune);
+      newWidth += _font.recordGlyph(gid, rune) + characterSpacing;
     }
     if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
       out.add(CellEmit((glyph: null, kern: newWidth - oldWidth)));
@@ -252,8 +261,9 @@ class _Type0RunCodec extends RunCodec {
 /// fallback face between `Tf` switches, with the unchanged surrounding text
 /// staying in the document's own font.
 class _Type0FallbackCodec extends RunCodec {
-  _Type0FallbackCodec(
-      this._font, this._resourceName, this._fontSize, this._resolve);
+  _Type0FallbackCodec(this._font, this._resourceName, this._fontSize,
+      this._resolve, this.characterSpacing);
+  final double characterSpacing;
 
   final Type0Font _font;
   final String _resourceName; // base font, restored after a fallback segment
@@ -277,7 +287,7 @@ class _Type0FallbackCodec extends RunCodec {
   String glyphText(int glyph) => _font.codeToText[glyph] ?? '￿';
 
   @override
-  double glyphWidth(int glyph) => _font.widthOf(glyph);
+  double glyphWidth(int glyph) => _font.widthOf(glyph) + characterSpacing;
 
   /// Restores the base font (if a fallback segment is open) and flushes the
   /// pending compensation kern into the base-font context.
@@ -302,8 +312,9 @@ class _Type0FallbackCodec extends RunCodec {
       ..add(
           OpEmit(ContentOperation('Tj', [CosString(draw.bytes, isHex: true)])));
     _inFallback = true;
-    if (hasTrailing && (draw.width - oldWidth).abs() >= 0.001) {
-      _pendingKern = draw.width - oldWidth;
+    final newWidth = draw.width + (draw.bytes.length ~/ 2) * characterSpacing;
+    if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
+      _pendingKern = newWidth - oldWidth;
     }
   }
 

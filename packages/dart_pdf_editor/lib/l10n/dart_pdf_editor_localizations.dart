@@ -138,6 +138,30 @@ abstract class DartPdfEditorLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// No description provided for @textVerticalAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical alignment'**
+  String get textVerticalAlign;
+
+  /// No description provided for @textAlignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to top'**
+  String get textAlignTop;
+
+  /// No description provided for @textAlignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to middle'**
+  String get textAlignMiddle;
+
+  /// No description provided for @textAlignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to bottom'**
+  String get textAlignBottom;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:

@@ -885,6 +885,13 @@ class PdfAnnotation {
       alignment: q is CosInteger
           ? PdfTextAlign.fromQuadding(q.value)
           : cssAlign ?? PdfTextAlign.left,
+      verticalAlignment: switch (
+          cos.resolve(dict[kPdfFreeTextVerticalAlignKey])) {
+        CosName(:final value) =>
+          PdfTextVerticalAlign.values.asNameMap()[value] ??
+              PdfTextVerticalAlign.top,
+        _ => PdfTextVerticalAlign.top,
+      },
       lineSpacing: number(kPdfFreeTextLineSpacingKey) ??
           cssLineSpacing ??
           kPdfFreeTextDefaultLineSpacing,
@@ -1143,6 +1150,7 @@ const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
 const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
 const String kPdfFreeTextHScaleKey = 'HScale';
 const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+const String kPdfFreeTextVerticalAlignKey = 'DartPdfTextVerticalAlignment';
 
 /// One leader of a callout: the page-space point its arrow points at, and
 /// optionally where it meets the text box (snapped onto the box perimeter;
@@ -1196,6 +1204,7 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.verticalAlignment = PdfTextVerticalAlign.top,
     this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
     this.charSpacing = 0,
     this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
@@ -1219,6 +1228,11 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// Placement of the wrapped block within the padded box. The generated
+  /// appearance preserves this in other PDF viewers; the private dictionary
+  /// preference lets later dart-pdf edits regenerate the same placement.
+  final PdfTextVerticalAlign verticalAlignment;
 
   /// The line-height multiplier (baseline-to-baseline distance is
   /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].

@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "세로 맞춤",
+  "textAlignTop": "텍스트 위쪽 맞춤",
+  "textAlignMiddle": "텍스트 가운데 맞춤",
+  "textAlignBottom": "텍스트 아래쪽 맞춤",
   "@@locale": "ko",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
