@@ -26,6 +26,7 @@ struct _MyApplication {
   // RegularWindowController implementation.
   FlEngine* windowing_engine;
   gboolean engine_started;
+  gboolean ocr_worker;
   gboolean application_held;
   // The top-level window, used to anchor the print dialog and to know whether
   // the UI has already been built (non-null once activated).
@@ -243,7 +244,7 @@ static void window_geometry_method_call_cb(FlMethodChannel* channel,
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  if (!self->ocr_worker) gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
 static void present_existing_window(MyApplication* self) {
@@ -593,6 +594,22 @@ static gboolean my_application_local_command_line(GApplication* application,
                                                   gchar*** arguments,
                                                   int* exit_status) {
   gchar** argv = *arguments;
+  if (argv[1] != nullptr && g_strcmp0(argv[1], "--ocr-worker") == 0 &&
+      argv[2] != nullptr && argv[3] == nullptr) {
+    MyApplication* self = MY_APPLICATION(application);
+    self->ocr_worker = TRUE;
+    self->dart_entrypoint_arguments = g_strdupv(argv + 1);
+    g_application_set_flags(application, G_APPLICATION_NON_UNIQUE);
+    g_autoptr(GError) error = nullptr;
+    if (!g_application_register(application, nullptr, &error)) {
+      *exit_status = 1;
+      return TRUE;
+    }
+    g_application_activate(application);
+    *exit_status = 0;
+    return TRUE;
+  }
+
   gboolean combine = FALSE;
   for (gint i = 1; argv[i] != nullptr; i++) {
     if (g_strcmp0(argv[i], kCombineFlag) == 0) combine = TRUE;

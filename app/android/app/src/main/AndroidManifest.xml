@@ -3,6 +3,8 @@
          (pdf_ocr_ondevice). The debug/profile manifests already grant this;
          release builds need it declared here too. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <application
         android:label="DartPDF"
         android:name="${applicationName}"
@@ -15,6 +17,9 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableFlutterGPU"
             android:value="true" />
+        <service android:name=".OcrForegroundService"
+            android:exported="false" android:stopWithTask="false"
+            android:foregroundServiceType="dataSync" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

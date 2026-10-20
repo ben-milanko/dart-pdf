@@ -490,7 +490,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    if (widget.ownsApplicationSession) unawaited(_restoreSession());
+    if (widget.ownsApplicationSession) {
+      unawaited(_restoreSession().then((_) {
+        if (mounted) _recoverOcr();
+      }));
+    }
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -790,6 +794,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && widget.ownsApplicationSession) {
+      _recoverOcr();
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
@@ -2807,6 +2814,25 @@ class _EditorScreenState extends State<EditorScreen>
   /// downloads once on first use; OCR runs in the **background** (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
+  void _recoverOcr() {
+    unawaited(_ocr.recover(context, onToast: (message) {
+      if (mounted) _toast(message);
+    }, onComplete: (result, title) {
+      if (mounted) unawaited(_openOcrResult(result, title));
+    }));
+  }
+
+  Future<void> _openOcrResult(Uint8List result, String title) async {
+    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    final tab = _active;
+    if (tab == null) return;
+    await _snapshotOpenedDocument(tab, result);
+    await _persistSession();
+    // Never discard a completed job just because its tab was displayed. The
+    // result stays recoverable until the replacement snapshot is saved.
+    if (mounted && tab.cachePath != null) await _ocr.acknowledgeResult(result);
+  }
+
   Future<void> _runOcr() async {
     final tab = _active;
     final bytes = tab?.session?.bytes;
@@ -2818,14 +2844,16 @@ class _EditorScreenState extends State<EditorScreen>
     final title = tab.title;
     await _ocr.start(
       context,
-      bytes: bytes,
+      // A session byte view may be overwritten by undo + a later edit while
+      // the first-use model prompt is open. Freeze the requested revision.
+      bytes: Uint8List.fromList(bytes),
       title: title,
       onToast: (message) {
         if (mounted) _toast(message);
       },
       onComplete: (result) {
         if (mounted) {
-          _openBytes(result, appL10n(context).editorOcrTitle(title));
+          unawaited(_openOcrResult(result, title));
         }
       },
     );

@@ -2,13 +2,16 @@ import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:pdf_graphics/pdf_graphics.dart' show pdfPageLooksScanned;
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 
 import 'l10n/app_l10n.dart';
-import 'ocr_pages.dart';
+import 'l10n/app_localizations.dart';
+import 'ocr_jobs.dart';
+import 'ocr_job_store.dart';
+import 'ocr_worker_io.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
@@ -33,6 +36,161 @@ class OnDeviceOcr {
   final ValueNotifier<OcrJobStatus?> status = ValueNotifier(null);
 
   bool _cancelled = false;
+  bool _disposed = false;
+  String? _jobId;
+  bool _recovering = false;
+  final OcrJobs _jobs = OcrJobs(openOcrJobStorage());
+  late final OcrResultDelivery _delivery = OcrResultDelivery(_jobs);
+
+  void _status(OcrJobStatus? value) {
+    if (!_disposed) status.value = value;
+  }
+
+  Future<void> acknowledgeResult(Uint8List result) async {
+    await _delivery.acknowledge(result);
+  }
+
+  Future<void> recover(
+    BuildContext context, {
+    required void Function(String) onToast,
+    required void Function(Uint8List, String) onComplete,
+  }) async {
+    if (isBusy || _disposed || _recovering) return;
+    _recovering = true;
+    try {
+      for (final job in await _jobs.list()) {
+        if (_disposed || !context.mounted) return;
+        if (job.state == OcrJobState.cancelled) {
+          await _jobs.delete(job.id);
+          continue;
+        }
+        if (job.state == OcrJobState.failed) continue;
+        await _runSaved(job,
+            onToast: onToast,
+            onComplete: (bytes) => onComplete(bytes, job.title),
+            l10n: appL10n(context));
+      }
+    } on MissingPluginException {
+      // Hosts without the app storage plugin have no persisted jobs.
+    } catch (e) {
+      if (!_disposed && context.mounted) {
+        onToast(appL10n(context).ocrFailed(e.toString()));
+      }
+    } finally {
+      _jobId = null;
+      _status(null);
+      _recovering = false;
+    }
+  }
+
+  Future<void> _runSaved(
+    OcrSavedJob job, {
+    required void Function(String) onToast,
+    required AppLocalizations l10n,
+    void Function(Uint8List)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>>)? onRecognized,
+  }) async {
+    _jobId = job.id;
+    void progress(OcrSavedJob j) => _status(OcrJobStatus(
+          phase: j.workPhase,
+          title: j.title,
+          page: (j.nextPage + 1).clamp(1, j.pageCount),
+          pageCount: j.pageCount,
+        ));
+    _status(OcrJobStatus(phase: OcrPhase.preparing, title: job.title));
+    if (job.state != OcrJobState.complete) {
+      if (ocrDetachedSupported) {
+        final lease = await _jobs.storage.claim(job.id);
+        var shouldLaunch = false;
+        if (lease != null) {
+          try {
+            // A worker may have completed (and a different window may have
+            // adopted it) since list/create returned this snapshot.
+            final current = await _jobs.read(job.id);
+            if (current == null) return;
+            job = current;
+            if (job.state != OcrJobState.complete &&
+                job.state != OcrJobState.cancelled) {
+              job.state = OcrJobState.pending;
+              await _jobs.save(job);
+              shouldLaunch = true;
+            }
+          } finally {
+            await lease.release();
+          }
+          if (shouldLaunch) await launchOcrWorker(job.id);
+        } else {
+          final current = await _jobs.read(job.id);
+          if (current == null) return;
+          job = current;
+        }
+        final started = DateTime.now();
+        // Poll durable progress, not a pipe owned by this editor process. The
+        // detached worker keeps running after the last editor window closes.
+        while (!_disposed &&
+            (job.state == OcrJobState.pending ||
+                job.state == OcrJobState.running)) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          final current = await _jobs.read(job.id);
+          if (current == null) throw StateError('OCR job disappeared');
+          job = current;
+          progress(job);
+          if (job.state != OcrJobState.pending &&
+              job.state != OcrJobState.running) {
+            break;
+          }
+          // Failed startup/native crash must not leave an eternal progress
+          // chip. A live worker owns the OS lock even during long pages.
+          if (DateTime.now().difference(started).inSeconds > 30) {
+            final abandoned = await _jobs.storage.claim(job.id);
+            if (abandoned != null) {
+              await abandoned.release();
+              throw StateError(
+                  'OCR worker stopped; choose OCR again to resume');
+            }
+          }
+        }
+      } else {
+        final lease = await _jobs.storage.claim(job.id);
+        if (lease == null) return;
+        try {
+          final current = await _jobs.read(job.id);
+          if (current == null) return;
+          job = current;
+          if (job.state != OcrJobState.complete &&
+              job.state != OcrJobState.cancelled) {
+            await executeNativeOcrJob(_jobs, job, onProgress: progress);
+          }
+        } finally {
+          await lease.release();
+        }
+      }
+    }
+    if (_disposed) return;
+    if (job.state == OcrJobState.complete) {
+      if (onRecognized != null) {
+        onRecognized(await _jobs.recognized(job));
+        // Keep the established live-session revision guard. A completed live
+        // callback consumes this job; an interrupted job recovers as a copy.
+        await _jobs.delete(job.id);
+      } else {
+        final result = await _delivery.take(job);
+        if (result == null) return;
+        final spans = (await _jobs.recognized(job))
+            .values
+            .fold<int>(0, (n, s) => n + s.length);
+        onComplete?.call(result);
+        onToast(l10n.ocrResult(spans));
+      }
+    } else if (job.state == OcrJobState.cancelled) {
+      await _jobs.delete(job.id);
+      onToast(l10n.ocrCancelled);
+    } else if (job.state == OcrJobState.failed) {
+      onToast(l10n.ocrFailed(job.error ?? 'OCR worker stopped'));
+    }
+    _jobId = null;
+    _status(null);
+  }
 
   /// Set when the user turns down the model download for an automatic run:
   /// later scans this session don't ask again (the Settings switch or the
@@ -43,9 +201,11 @@ class OnDeviceOcr {
   static bool get isSupported => PdfOcrModelManager.isSupported;
 
   /// Whether a job is in flight (only one runs at a time).
-  bool get isBusy => status.value != null;
+  bool get isBusy => status.value != null || _recovering;
 
   void dispose() {
+    _disposed = true;
+    _delivery.dispose();
     _manager.close();
     status.dispose();
   }
@@ -53,7 +213,11 @@ class OnDeviceOcr {
   /// Asks the running job to stop. It finishes the current page (and any
   /// in-flight model download) and then bails without producing a result.
   void cancel() {
-    if (isBusy) _cancelled = true;
+    if (isBusy) {
+      _cancelled = true;
+      final id = _jobId;
+      if (id != null) unawaited(_jobs.cancel(id));
+    }
   }
 
   /// Starts an OCR job over [bytes] in the background and returns once it
@@ -87,84 +251,49 @@ class OnDeviceOcr {
       return;
     }
     _cancelled = false;
+    _status(OcrJobStatus(phase: OcrPhase.preparing, title: title));
 
     // Make sure the model is present (download it on first use).
     try {
       if (!await _manager.isDownloaded(_model)) {
-        if (automatic && _autoDeclined) return;
-        if (!context.mounted) return;
+        if (automatic && _autoDeclined) {
+          _status(null);
+          return;
+        }
+        if (!context.mounted) {
+          _status(null);
+          return;
+        }
         final approved = await _confirmDownload(context);
         if (approved != true) {
           if (automatic) _autoDeclined = true;
+          _status(null);
           return;
         }
-        status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
-        await _manager.download(_model, onProgress: (p) {
-          status.value = OcrJobStatus(
-            phase: OcrPhase.downloading,
-            title: title,
-            downloadFraction: p.fraction,
-          );
-        });
       }
-    } on PdfOcrModelException catch (e) {
-      status.value = null;
-      onToast(l10n.ocrDownloadFailed(e.message));
+    } catch (e) {
+      _status(null);
+      onToast(l10n.ocrDownloadFailed(e.toString()));
       return;
     }
     if (_cancelled) {
-      status.value = null;
+      _status(null);
       onToast(l10n.ocrCancelled);
       return;
     }
 
-    // Recognize every page, yielding between pages so the UI stays responsive.
-    OnDeviceOcrEngine? engine;
     try {
-      status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
-      engine = await OnDeviceOcrEngine.fromDownloadedModel(_manager, _model);
-      final editor = PdfEditor(PdfDocument.open(bytes));
-      void onPage(int i, int count) => status.value = OcrJobStatus(
-            phase: OcrPhase.recognising,
-            title: title,
-            page: i + 1,
-            pageCount: count,
-          );
-      if (onRecognized != null) {
-        final recognized = await recognizeAllPages(
-          editor,
-          engine,
-          isCancelled: () => _cancelled,
-          onPage: onPage,
-          includePage:
-              automatic ? (i) => pdfPageLooksScanned(editor.document, i) : null,
-        );
-        if (_cancelled) {
-          onToast(l10n.ocrCancelled);
-          return;
-        }
-        onRecognized(recognized);
-        return;
-      }
-      final spans = await ocrAllPages(
-        editor,
-        engine,
-        isCancelled: () => _cancelled,
-        onPage: onPage,
-      );
-      if (_cancelled) {
-        onToast(l10n.ocrCancelledAfterSpans(spans));
-        return;
-      }
-      status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
-      final result = editor.save();
-      onToast(l10n.ocrResult(spans));
-      onComplete?.call(result);
+      final job = await _jobs.create(bytes, title, automatic: automatic);
+      await _runSaved(job,
+          l10n: l10n,
+          onToast: onToast,
+          onComplete: onComplete,
+          onRecognized: onRecognized);
     } catch (e) {
-      onToast(l10n.ocrFailed(e.toString()));
+      if (!_disposed) onToast(l10n.ocrFailed(e.toString()));
     } finally {
-      await engine?.dispose();
-      status.value = null;
+      _jobId = null;
+      _status(null);
     }
   }
 
