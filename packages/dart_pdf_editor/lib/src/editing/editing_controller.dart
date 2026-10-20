@@ -7186,22 +7186,37 @@ class PdfEditingController extends ChangeNotifier {
     }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
-    double left, bottom;
+    final page = _page(pageIndex);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize:
+          ui.Size(_visualPageWidth(pageIndex), _visualPageHeight(pageIndex)),
+    );
+    final ui.Rect visualTarget;
     if (at != null) {
-      left = at.$1 - w / 2;
-      bottom = at.$2 - h / 2;
+      visualTarget = ui.Rect.fromCenter(
+        center: geometry.toViewOffset(at.$1, at.$2),
+        width: w,
+        height: h,
+      );
     } else {
       final cascade = 12.0 * _snapshotPasteCount;
-      left = snapshot.region.left + cascade;
-      bottom = snapshot.region.bottom - cascade;
+      final anchor = geometry.toViewRect(snapshot.region).topLeft;
+      visualTarget =
+          ui.Rect.fromLTWH(anchor.dx + cascade, anchor.dy + cascade, w, h);
     }
+    final pageTarget = geometry.toPageRect(visualTarget);
+    var left = pageTarget.left, bottom = pageTarget.bottom;
     if (at == null) {
       // as in [pasteAnnotations]: only the point-less cascade is tethered
-      final box = _page(pageIndex).cropBox;
-      left += _tetherShift(left, left + w, box.left, box.right);
-      bottom += _tetherShift(bottom, bottom + h, box.bottom, box.top);
+      final box = page.cropBox;
+      left += _tetherShift(left, left + pageTarget.width, box.left, box.right);
+      bottom +=
+          _tetherShift(bottom, bottom + pageTarget.height, box.bottom, box.top);
     }
-    final target = PdfRect(left, bottom, left + w, bottom + h);
+    final target = PdfRect(
+        left, bottom, left + pageTarget.width, bottom + pageTarget.height);
     int? captured;
     final pasted = apply(
       (e) {

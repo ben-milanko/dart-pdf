@@ -10022,32 +10022,60 @@ class _PdfViewerState extends State<PdfViewer>
   Map<ShortcutActivator, Intent> _keyBindings(bool editing) {
     final base = widget.shortcuts ?? pdfViewerDefaultShortcuts;
     final tools = widget.toolShortcuts;
+    final canRotate = widget.editing?.canRotateSelected ?? false;
     final cached = _keyBindingsCache;
     if (cached != null &&
         identical(_keyBindingsBase, base) &&
         identical(_keyBindingsTools, tools) &&
-        _keyBindingsEditing == editing) {
+        _keyBindingsEditing == editing &&
+        _keyBindingsCanRotate == canRotate) {
       return cached;
     }
     _keyBindingsBase = base;
     _keyBindingsTools = tools;
     _keyBindingsEditing = editing;
-    return _keyBindingsCache = !editing || tools.isEmpty
-        ? base
-        : {
-            ...base,
-            // tool shortcuts (V select, P pen, R rectangle, ⇧L polyline, …) -
-            // safe because an open in-place text editor disables every
-            // binding
-            for (final entry in tools.entries)
-              entry.value.activator: PdfArmToolIntent(entry.key),
-          };
+    _keyBindingsCanRotate = canRotate;
+    if (!editing || tools.isEmpty) return _keyBindingsCache = base;
+    final rotationOnR = canRotate &&
+        base.entries.any((entry) {
+          final key = entry.key;
+          return entry.value is PdfRotateSelectionIntent &&
+              key is SingleActivator &&
+              key.trigger == LogicalKeyboardKey.keyR &&
+              !key.shift &&
+              !key.control &&
+              !key.meta &&
+              !key.alt;
+        });
+    final bindings = <ShortcutActivator, Intent>{...base};
+    for (final entry in tools.entries) {
+      final shortcut = entry.value;
+      // With a rotatable selection, the stock R rectangle key yields to
+      // selection rotation. Explicit custom tools retain their precedence.
+      if (rotationOnR &&
+          entry.key == PdfEditTool.rectangle &&
+          shortcut == const PdfToolShortcut(LogicalKeyboardKey.keyR)) {
+        continue;
+      }
+      // Activators have identity equality. Remove the matching command
+      // explicitly so Shortcuts sees one binding for this key combination.
+      bindings.removeWhere((key, _) =>
+          key is SingleActivator &&
+          key.trigger == shortcut.trigger &&
+          key.shift == shortcut.shift &&
+          !key.control &&
+          !key.meta &&
+          !key.alt);
+      bindings[shortcut.activator] = PdfArmToolIntent(entry.key);
+    }
+    return _keyBindingsCache = bindings;
   }
 
   Map<ShortcutActivator, Intent>? _keyBindingsCache;
   Map<ShortcutActivator, Intent>? _keyBindingsBase;
   Map<PdfEditTool, PdfToolShortcut>? _keyBindingsTools;
   bool? _keyBindingsEditing;
+  bool? _keyBindingsCanRotate;
 
   /// What the bound keys do. Each action is overridable - an [Actions]
   /// above the viewer replaces it - and an editing-only one is disabled
@@ -10077,6 +10105,9 @@ class _PdfViewerState extends State<PdfViewer>
       PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
           (_) => widget.editing?.autosizeSelectedTextBox(),
           enabled: editing),
+      PdfRotateSelectionIntent: action<PdfRotateSelectionIntent>(
+          (intent) => widget.editing?.rotateSelected(intent.degrees),
+          enabled: (_) => widget.editing?.canRotateSelected ?? false),
       PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
       PdfPasteIntent:
           action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
