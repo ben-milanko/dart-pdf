@@ -6,6 +6,109 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('older table metadata keeps its original styling defaults', () {
+    final legacy = PdfTableData([
+      ['Original']
+    ]).toJson()
+      ..remove('font')
+      ..remove('backgroundColor')
+      ..remove('gridLines')
+      ..remove('borderWidth');
+    final table = PdfTableData.decode(jsonEncode(legacy))!;
+    expect(table.font, PdfStandardFont.helvetica);
+    expect(table.backgroundColor, 0xFFFFFF);
+    expect(table.gridLines, isTrue);
+    expect(table.borderWidth, .5);
+    for (final invalid in [
+      {'font': 'missingFont'},
+      {'backgroundColor': -1},
+      {'gridLines': 'yes'},
+      {'borderWidth': 0},
+      {'borderWidth': 21},
+    ]) {
+      expect(PdfTableData.decode(jsonEncode({...legacy, ...invalid})), isNull);
+    }
+  });
+
+  for (final font in PdfStandardFont.values) {
+    test('${font.baseFont} and table colours survive edit, resize and reopen',
+        () {
+      final data = PdfTableData([
+        ['Heading'],
+        ['Value']
+      ],
+          font: font,
+          backgroundColor: 0xFFFF00,
+          headerColor: 0x00FF00,
+          textColor: 0x0000FF,
+          borderColor: 0xFF0000,
+          borderWidth: 2);
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      editor.addTable(0, const PdfRect(20, 30, 120, 86), data);
+      var document = PdfDocument.open(editor.save());
+      final update = PdfEditor(document);
+      expect(update.updateTable(0, document.page(0).annotations.single, data),
+          isTrue);
+      document = PdfDocument.open(update.save());
+      final resize = PdfEditor(document);
+      resize.resizeAnnotation(0, document.page(0).annotations.single,
+          const PdfRect(20, 30, 220, 142));
+      document = PdfDocument.open(resize.save());
+      final annotation = document.page(0).annotations.single;
+      final actual = annotation.table!;
+      expect(actual.font, font);
+      expect(actual.backgroundColor, data.backgroundColor);
+      expect(actual.headerColor, data.headerColor);
+      expect(actual.textColor, data.textColor);
+      expect(actual.borderColor, data.borderColor);
+      expect(actual.borderWidth, 2);
+      expect(actual.gridLines, isTrue);
+      expect(actual.width, 200);
+      final content = latin1
+          .decode(document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(content, contains('/${font.resourceName} 11 Tf'));
+      expect(content, contains('1 1 0 rg'));
+      expect(content, contains('0 1 0 rg'));
+      expect(content, contains('0 0 1 rg'));
+      expect(content, contains('1 0 0 RG'));
+      expect(content, contains('2 w'));
+      final resources = document.cos
+              .resolve(annotation.normalAppearance!.dictionary['Resources'])
+          as CosDictionary;
+      final fonts = document.cos.resolve(resources['Font']) as CosDictionary;
+      final face =
+          document.cos.resolve(fonts[font.resourceName]) as CosDictionary;
+      expect(face['BaseFont'], CosName(font.baseFont));
+    });
+  }
+
+  test('hidden grid writes no strokes and preserves Unicode font selection',
+      () {
+    final table = PdfTableData([
+      ['Δοκιμή'],
+      ['日本語']
+    ],
+        font: PdfStandardFont.timesBoldItalic,
+        gridLines: false,
+        backgroundColor: 0xFFFF00);
+    final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+    editor.addTable(0, const PdfRect(20, 30, 120, 86), table);
+    final document = PdfDocument.open(editor.save());
+    final annotation = document.page(0).annotations.single;
+    expect(annotation.table!.toJson(), table.toJson());
+    final content = latin1
+        .decode(document.cos.decodeStreamData(annotation.normalAppearance!));
+    expect(content, isNot(contains(' RG')));
+    expect(content, isNot(contains('\nS\n')));
+    expect(content, contains('/F1 11 Tf'));
+    final resources = document.cos
+            .resolve(annotation.normalAppearance!.dictionary['Resources'])
+        as CosDictionary;
+    final fonts = document.cos.resolve(resources['Font']) as CosDictionary;
+    final face = document.cos.resolve(fonts['F1']) as CosDictionary;
+    expect(face['BaseFont'], const CosName('Times-BoldItalic'));
+  });
+
   test('resizing a table rewraps cells without stretching the font', () {
     const text = 'What do ARTC do when there is a train order working';
     final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));

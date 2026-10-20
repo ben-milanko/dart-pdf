@@ -2498,6 +2498,30 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tableColumns => 'Cột';
 
   @override
+  String get tableStyle => 'Kiểu bảng';
+
+  @override
+  String get tableStyleHint => 'Áp dụng cho toàn bộ bảng.';
+
+  @override
+  String get tableBackgroundColor => 'Màu nền';
+
+  @override
+  String get tableHeaderColor => 'Màu tiêu đề';
+
+  @override
+  String get tableTextColor => 'Màu chữ';
+
+  @override
+  String get tableGridLines => 'Đường lưới';
+
+  @override
+  String get tableGridColor => 'Màu lưới';
+
+  @override
+  String get tableGridWidth => 'Độ dày lưới';
+
+  @override
   String get tableHeaderRow => 'Hàng tiêu đề';
 
   @override

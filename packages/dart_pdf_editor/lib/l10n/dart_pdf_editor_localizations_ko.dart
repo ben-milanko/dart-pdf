@@ -2465,6 +2465,30 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tableColumns => '열';
 
   @override
+  String get tableStyle => '표 스타일';
+
+  @override
+  String get tableStyleHint => '표 전체에 적용됩니다.';
+
+  @override
+  String get tableBackgroundColor => '배경색';
+
+  @override
+  String get tableHeaderColor => '머리글 색';
+
+  @override
+  String get tableTextColor => '글꼴 색';
+
+  @override
+  String get tableGridLines => '격자선';
+
+  @override
+  String get tableGridColor => '격자선 색';
+
+  @override
+  String get tableGridWidth => '격자선 두께';
+
+  @override
   String get tableHeaderRow => '머리글 행';
 
   @override

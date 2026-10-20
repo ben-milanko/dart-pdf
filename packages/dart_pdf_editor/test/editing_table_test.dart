@@ -114,6 +114,111 @@ void main() {
     ]);
   });
 
+  testWidgets(
+      'table styling applies fonts, colours and grid settings as a draft',
+      (tester) async {
+    PdfTableData? result;
+    await show(tester,
+        initial: PdfTableData([
+          ['Heading'],
+          ['Value']
+        ]),
+        done: (value) => result = value);
+    await tester.tap(find.byKey(const ValueKey('pdf-table-style')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-font')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Courier').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-font-bold')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-font-italic')));
+    await tester.pump();
+    for (final entry in {
+      'background': 'FFFF00',
+      'header': '00FF00',
+      'text': '0000FF',
+      'grid': 'FF0000'
+    }.entries) {
+      final button = find.byKey(ValueKey('pdf-table-${entry.key}-color'));
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-color-hex')), entry.value);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-ok')));
+      await tester.pumpAndSettle();
+    }
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-table-grid-width')), '2');
+    await tester.tap(find.byKey(const ValueKey('pdf-table-grid-lines')));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    await tester.tap(find.byKey(const ValueKey('pdf-table-style')));
+    await tester.pumpAndSettle();
+    final field = tester
+        .widget<TextField>(find.byKey(const ValueKey('pdf-table-cell-1-0')));
+    expect(field.style!.color, const Color(0xFF0000FF));
+    expect(field.style!.fontWeight, FontWeight.bold);
+    expect(field.style!.fontStyle, FontStyle.italic);
+    expect(
+        tester
+            .widget<Container>(
+                find.byKey(const ValueKey('pdf-table-grid-cell-1-0')))
+            .color,
+        const Color(0xFFFFFF00));
+    expect(
+        tester
+            .widget<Table>(find.byKey(const ValueKey('pdf-table-grid')))
+            .border,
+        isNull);
+    await tester.tap(find.byKey(const ValueKey('pdf-table-apply')));
+    await tester.pumpAndSettle();
+    expect(result!.font, PdfStandardFont.courierBoldOblique);
+    expect(result!.backgroundColor, 0xFFFF00);
+    expect(result!.headerColor, 0x00FF00);
+    expect(result!.textColor, 0x0000FF);
+    expect(result!.borderColor, 0xFF0000);
+    expect(result!.borderWidth, 2);
+    expect(result!.gridLines, isFalse);
+  });
+
+  testWidgets(
+      'existing table styles survive cell paste and Cancel leaves them unchanged',
+      (tester) async {
+    final original = PdfTableData([
+      ['Original']
+    ],
+        font: PdfStandardFont.timesItalic,
+        backgroundColor: 0xF4D2A1,
+        textColor: 0x123456,
+        headerColor: 0x654321,
+        borderColor: 0x567890,
+        borderWidth: 1.25,
+        gridLines: false);
+    PdfTableData? result;
+    await show(tester, initial: original, done: (value) => result = value);
+    clipboard = 'A\tB\nC\tD';
+    await tester.tap(find.byKey(const ValueKey('pdf-table-paste')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-apply')));
+    await tester.pumpAndSettle();
+    final expected = original.toJson()
+      ..['cells'] = result!.cells
+      ..['columns'] = result!.columnWidths
+      ..['rows'] = result!.rowHeights;
+    expect(result!.toJson(), expected);
+    result = null;
+    await show(tester, initial: original, done: (value) => result = value);
+    await tester.tap(find.byKey(const ValueKey('pdf-table-style')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-font-bold')));
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    expect(original.font, PdfStandardFont.timesItalic);
+  });
+
   test('table paste, edit, undo and reopen preserve the cell model', () async {
     final editing = PdfEditingController(buildMultiPagePdf(1));
     addTearDown(editing.dispose);
@@ -157,12 +262,69 @@ void main() {
         isFalse);
   });
 
+  for (final grid in [true, false]) {
+    test('saved table renders styled fills, font colour and grid=$grid',
+        () async {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      editor.addTable(
+          0,
+          const PdfRect(100, 600, 300, 680),
+          PdfTableData([
+            ['Heading', ''],
+            ['Value', '']
+          ],
+              columnWidths: [
+                100,
+                100
+              ],
+              rowHeights: [
+                40,
+                40
+              ],
+              font: PdfStandardFont.timesBoldItalic,
+              backgroundColor: 0xFFFF00,
+              headerColor: 0x00FF00,
+              textColor: 0x0000FF,
+              borderColor: 0xFF0000,
+              borderWidth: 2,
+              gridLines: grid));
+      final document = PdfDocument.open(editor.save());
+      final page = document.page(0);
+      final picture = (await PdfPageRenderer.renderAnnotationPicture(
+          page, page.annotations.single))!;
+      final image = await PdfPageRenderer.rasterize(
+          picture, PdfPageRenderer.pageSize(page), 1);
+      final pixels = (await image.toByteData())!;
+      List<int> rgb(int x, int y) {
+        final i = ((792 - y) * image.width + x) * 4;
+        return [for (var c = 0; c < 3; c++) pixels.getUint8(i + c)];
+      }
+
+      expect(rgb(280, 660), [0, 255, 0]);
+      expect(rgb(280, 620), [255, 255, 0]);
+      expect(rgb(201, 610), grid ? [255, 0, 0] : [255, 255, 0]);
+      var bluePixels = 0;
+      for (var y = 645; y < 677; y++) {
+        for (var x = 103; x < 195; x++) {
+          final p = rgb(x, y);
+          if (p[2] > 150 && p[0] < 100 && p[1] < 100) bluePixels++;
+        }
+      }
+      expect(bluePixels, greaterThan(10), reason: 'font glyphs render in blue');
+      image.dispose();
+      picture.dispose();
+    });
+  }
+
   testWidgets('table editor fits a narrow mobile dialog', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await show(tester);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('pdf-table-style')));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -274,11 +436,20 @@ void main() {
         600,
         PdfTableData([
           ['What do ARTC do when there is a train order working'],
-        ], columnWidths: [
-          160
-        ], rowHeights: [
-          120
-        ], fontSize: 12));
+        ],
+            columnWidths: [
+              160
+            ],
+            rowHeights: [
+              120
+            ],
+            fontSize: 12,
+            font: PdfStandardFont.courierBold,
+            backgroundColor: 0xFFFF00,
+            headerColor: 0x00FF00,
+            textColor: 0x0000FF,
+            borderColor: 0xFF0000,
+            borderWidth: 2));
     addTearDown(editing.dispose);
     final original = editing.selectedAnnotation!.rect;
     final geometry = PdfPageGeometry(
@@ -309,6 +480,18 @@ void main() {
     final label = tester.widget<Text>(
         find.descendant(of: preview, matching: find.byType(Text)).first);
     expect(label.style!.fontSize, 12);
+    expect(label.style!.fontWeight, FontWeight.bold);
+    expect(label.style!.color, const Color(0xFF0000FF));
+    final styledBorder = tester
+        .widgetList<DecoratedBox>(
+            find.descendant(of: preview, matching: find.byType(DecoratedBox)))
+        .map((box) => box.decoration)
+        .whereType<BoxDecoration>()
+        .where((decoration) => decoration.border != null)
+        .single
+        .border! as Border;
+    expect(styledBorder.top.width, 2);
+    expect(styledBorder.top.color, const Color(0xFFFF0000));
     final painter = tester
         .widget<CustomPaint>(find
             .descendant(
@@ -406,10 +589,18 @@ void main() {
     await tester.enterText(
         find.byKey(const ValueKey('pdf-table-cell-0-0')), 'Plain host');
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-style')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-table-font')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Times').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('pdf-table-apply')));
     await tester.pumpAndSettle();
     expect(editing.document.page(0).annotations.single.table!.cells[0][0],
         'Plain host');
+    expect(editing.document.page(0).annotations.single.table!.font,
+        PdfStandardFont.times);
     expectNoHostErrors(tester);
   });
 }

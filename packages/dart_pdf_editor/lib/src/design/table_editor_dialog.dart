@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 import '../l10n/pdf_l10n.dart';
+import '../editing/editing_color_picker.dart';
+import '../editing/editing_font_controls.dart';
+import '../font_substitution.dart';
 import 'material_host.dart';
 
 class PdfTableEditorDialog extends StatefulWidget {
@@ -19,6 +22,11 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
   late List<double> _heights;
   late bool _header;
   late double _fontSize;
+  late PdfStandardFont _font;
+  late int _textColor, _backgroundColor, _headerColor, _borderColor;
+  late double _borderWidth;
+  late bool _gridLines;
+  bool _styling = false;
   final Map<(int, int), TextEditingController> _fields = {};
   final Map<(int, int), FocusNode> _focus = {};
   final _horizontalScroll = ScrollController();
@@ -38,6 +46,13 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
     _heights = [...initial.rowHeights];
     _header = initial.headerRow;
     _fontSize = initial.fontSize;
+    _font = initial.font;
+    _textColor = initial.textColor;
+    _backgroundColor = initial.backgroundColor;
+    _headerColor = initial.headerColor;
+    _borderColor = initial.borderColor;
+    _borderWidth = initial.borderWidth;
+    _gridLines = initial.gridLines;
   }
 
   @override
@@ -71,9 +86,111 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
         rowHeights: _heights,
         fontSize: _fontSize,
         headerRow: _header,
-        textColor: widget.initial?.textColor ?? 0,
-        borderColor: widget.initial?.borderColor ?? 0x808080,
-        headerColor: widget.initial?.headerColor ?? 0xE8EEF8);
+        textColor: _textColor,
+        borderColor: _borderColor,
+        headerColor: _headerColor,
+        backgroundColor: _backgroundColor,
+        font: _font,
+        gridLines: _gridLines,
+        borderWidth: _borderWidth);
+  }
+
+  Widget _styles() {
+    final labels = pdfL10n(context);
+    Widget color(
+            String key, String label, int value, void Function(int) update) =>
+        TextButton.icon(
+            key: ValueKey('pdf-table-$key-color'),
+            icon: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                    color: Color(0xFF000000 | value),
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outline))),
+            label: Text(label),
+            onPressed: () async {
+              final picked = await showPdfColorPicker(context,
+                  initial: Color(0xFF000000 | value));
+              if (mounted && picked != null) {
+                setState(() => update(picked.toARGB32() & 0xFFFFFF));
+              }
+            });
+    return SingleChildScrollView(
+        key: const ValueKey('pdf-table-style-panel'),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(labels.tableStyleHint),
+          const SizedBox(height: 12),
+          Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(labels.propFont),
+                PdfDropdown<PdfStandardFontFamily>(
+                    key: const ValueKey('pdf-table-font'),
+                    value: _font.family,
+                    items: [
+                      for (final family in PdfStandardFontFamily.values)
+                        PdfDropdownItem(
+                            value: family,
+                            label: switch (family) {
+                              PdfStandardFontFamily.sans => 'Helvetica',
+                              PdfStandardFontFamily.serif => 'Times',
+                              PdfStandardFontFamily.mono => 'Courier',
+                            })
+                    ],
+                    onChanged: (family) {
+                      setState(() => _font = PdfStandardFont.styled(family,
+                          bold: _font.isBold, italic: _font.isItalic));
+                    }),
+                FontStyleToggles(
+                    font: _font,
+                    keyPrefix: 'pdf-table-font',
+                    onChanged: (font) => setState(() => _font = font)),
+              ]),
+          Wrap(spacing: 8, children: [
+            color('background', labels.tableBackgroundColor, _backgroundColor,
+                (value) => _backgroundColor = value),
+            color('header', labels.tableHeaderColor, _headerColor,
+                (value) => _headerColor = value),
+            color('text', labels.tableTextColor, _textColor,
+                (value) => _textColor = value),
+          ]),
+          SwitchListTile.adaptive(
+              key: const ValueKey('pdf-table-grid-lines'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(labels.tableGridLines),
+              value: _gridLines,
+              onChanged: (value) => setState(() => _gridLines = value)),
+          Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                color('grid', labels.tableGridColor, _borderColor,
+                    (value) => _borderColor = value),
+                SizedBox(
+                    width: 140,
+                    child: TextFormField(
+                        key: const ValueKey('pdf-table-grid-width'),
+                        initialValue: _borderWidth.toString(),
+                        contextMenuBuilder: pdfTextContextMenu,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: InputDecoration(
+                            labelText: labels.tableGridWidth, suffixText: 'pt'),
+                        onChanged: (text) {
+                          final width = double.tryParse(text);
+                          if (width != null &&
+                              width.isFinite &&
+                              width > 0 &&
+                              width <= 20) {
+                            setState(() => _borderWidth = width);
+                          }
+                        })),
+              ]),
+        ]));
   }
 
   void _resetFields() {
@@ -221,11 +338,14 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
           return Container(
               key: ValueKey('pdf-table-grid-cell-$r-$c'),
               constraints: BoxConstraints(minHeight: math.max(40, _heights[r])),
-              color: selected
-                  ? colors.secondaryContainer
-                  : r == 0 && _header
-                      ? colors.surfaceContainerHigh
-                      : colors.surface,
+              color: Color(0xFF000000 |
+                  (r == 0 && _header ? _headerColor : _backgroundColor)),
+              // Keep this decoration wrapper even when unselected: inserting
+              // it on focus would remount EditableText during text input.
+              foregroundDecoration: BoxDecoration(
+                  border: Border.all(
+                      color: selected ? colors.primary : Colors.transparent,
+                      width: 2)),
               child: Focus(
                   skipTraversal: true,
                   canRequestFocus: false,
@@ -249,6 +369,22 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
                       maxLines: null,
                       scrollPhysics: const NeverScrollableScrollPhysics(),
                       textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                          fontSize: _fontSize,
+                          fontFamily: pdfBundledSubstituteFor(_font.baseFont)
+                              .packageFamily,
+                          fontFamilyFallback: [
+                            pdfBundledSubstituteFor(_font.baseFont).family,
+                            ...pdfBundledSubstituteFor(_font.baseFont)
+                                .systemFallbacks
+                          ],
+                          fontWeight: _font.isBold
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          fontStyle: _font.isItalic
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                          color: Color(0xFF000000 | _textColor)),
                       decoration: InputDecoration(
                           isDense: true,
                           border: InputBorder.none,
@@ -290,8 +426,12 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
                                           defaultVerticalAlignment:
                                               TableCellVerticalAlignment
                                                   .intrinsicHeight,
-                                          border: TableBorder.all(
-                                              color: colors.outlineVariant),
+                                          border: _gridLines
+                                              ? TableBorder.all(
+                                                  color: Color(0xFF000000 |
+                                                      _borderColor),
+                                                  width: _borderWidth)
+                                              : null,
                                           children: [
                                             for (var r = 0;
                                                 r < _cells.length;
@@ -448,6 +588,12 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
                   spacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    IconButton(
+                        key: const ValueKey('pdf-table-style'),
+                        tooltip: l10n.tableStyle,
+                        isSelected: _styling,
+                        icon: const Icon(Icons.tune),
+                        onPressed: () => setState(() => _styling = !_styling)),
                     Text('${l10n.tableRows}: ${_cells.length}'),
                     IconButton(
                         key: const ValueKey('pdf-table-add-row'),
@@ -503,7 +649,7 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
               Text(l10n.tableSelectionHint,
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 8),
-              Expanded(child: _grid()),
+              Expanded(child: _styling ? _styles() : _grid()),
               const SizedBox(height: 8),
               SingleChildScrollView(
                   scrollDirection: Axis.horizontal,

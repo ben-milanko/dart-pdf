@@ -4512,6 +4512,54 @@ abstract class DartPdfEditorLocalizations {
   /// **'Columns'**
   String get tableColumns;
 
+  /// No description provided for @tableStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Table style'**
+  String get tableStyle;
+
+  /// No description provided for @tableStyleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies to the whole table.'**
+  String get tableStyleHint;
+
+  /// No description provided for @tableBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Background color'**
+  String get tableBackgroundColor;
+
+  /// No description provided for @tableHeaderColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Header color'**
+  String get tableHeaderColor;
+
+  /// No description provided for @tableTextColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Font color'**
+  String get tableTextColor;
+
+  /// No description provided for @tableGridLines.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid lines'**
+  String get tableGridLines;
+
+  /// No description provided for @tableGridColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid color'**
+  String get tableGridColor;
+
+  /// No description provided for @tableGridWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid width'**
+  String get tableGridWidth;
+
   /// No description provided for @tableHeaderRow.
   ///
   /// In en, this message translates to:

@@ -2520,6 +2520,30 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tableColumns => 'Colonnes';
 
   @override
+  String get tableStyle => 'Style du tableau';
+
+  @override
+  String get tableStyleHint => 'S’applique à tout le tableau.';
+
+  @override
+  String get tableBackgroundColor => 'Couleur de fond';
+
+  @override
+  String get tableHeaderColor => 'Couleur de l’en-tête';
+
+  @override
+  String get tableTextColor => 'Couleur de police';
+
+  @override
+  String get tableGridLines => 'Quadrillage';
+
+  @override
+  String get tableGridColor => 'Couleur du quadrillage';
+
+  @override
+  String get tableGridWidth => 'Épaisseur du quadrillage';
+
+  @override
   String get tableHeaderRow => 'Ligne d’en-tête';
 
   @override

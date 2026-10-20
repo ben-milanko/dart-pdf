@@ -6732,20 +6732,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               _wrappedTextBox(
                   rect: Rect.fromLTWH(0, 0, width, height),
                   text: table.cells[r][c],
-                  font: PdfStandardFont.helvetica,
+                  font: table.font,
                   size: table.fontSize,
                   color: Color(0xFF000000 | table.textColor),
                   background: Color(0xFF000000 |
                       (r == 0 && table.headerRow
                           ? table.headerColor
-                          : 0xFFFFFF)),
+                          : table.backgroundColor)),
                   rotation: 0),
-              Positioned.fill(
-                  child: DecoratedBox(
-                      decoration: BoxDecoration(
-                          border: Border.all(
-                              color: Color(0xFF000000 | table.borderColor),
-                              width: .5 * _geometry.scale)))),
+              if (table.gridLines)
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Color(0xFF000000 | table.borderColor),
+                                width: table.borderWidth * _geometry.scale)))),
             ]))));
         left += width;
       }

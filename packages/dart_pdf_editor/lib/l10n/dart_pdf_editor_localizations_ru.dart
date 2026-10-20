@@ -2553,6 +2553,30 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tableColumns => 'Столбцы';
 
   @override
+  String get tableStyle => 'Стиль таблицы';
+
+  @override
+  String get tableStyleHint => 'Применяется ко всей таблице.';
+
+  @override
+  String get tableBackgroundColor => 'Цвет фона';
+
+  @override
+  String get tableHeaderColor => 'Цвет заголовка';
+
+  @override
+  String get tableTextColor => 'Цвет шрифта';
+
+  @override
+  String get tableGridLines => 'Линии сетки';
+
+  @override
+  String get tableGridColor => 'Цвет сетки';
+
+  @override
+  String get tableGridWidth => 'Толщина сетки';
+
+  @override
   String get tableHeaderRow => 'Строка заголовков';
 
   @override

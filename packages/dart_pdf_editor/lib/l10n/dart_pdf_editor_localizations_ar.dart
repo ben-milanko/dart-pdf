@@ -2554,6 +2554,30 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tableColumns => 'الأعمدة';
 
   @override
+  String get tableStyle => 'نمط الجدول';
+
+  @override
+  String get tableStyleHint => 'ينطبق على الجدول بأكمله.';
+
+  @override
+  String get tableBackgroundColor => 'لون الخلفية';
+
+  @override
+  String get tableHeaderColor => 'لون الرأس';
+
+  @override
+  String get tableTextColor => 'لون الخط';
+
+  @override
+  String get tableGridLines => 'خطوط الشبكة';
+
+  @override
+  String get tableGridColor => 'لون الشبكة';
+
+  @override
+  String get tableGridWidth => 'سُمك الشبكة';
+
+  @override
   String get tableHeaderRow => 'صف العناوين';
 
   @override

@@ -2515,6 +2515,30 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tableColumns => 'Spalten';
 
   @override
+  String get tableStyle => 'Tabellenstil';
+
+  @override
+  String get tableStyleHint => 'Gilt für die gesamte Tabelle.';
+
+  @override
+  String get tableBackgroundColor => 'Hintergrundfarbe';
+
+  @override
+  String get tableHeaderColor => 'Kopfzeilenfarbe';
+
+  @override
+  String get tableTextColor => 'Schriftfarbe';
+
+  @override
+  String get tableGridLines => 'Gitterlinien';
+
+  @override
+  String get tableGridColor => 'Gitterfarbe';
+
+  @override
+  String get tableGridWidth => 'Linienbreite';
+
+  @override
   String get tableHeaderRow => 'Kopfzeile';
 
   @override

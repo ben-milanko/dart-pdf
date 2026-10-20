@@ -2464,6 +2464,30 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tableColumns => '列';
 
   @override
+  String get tableStyle => '表のスタイル';
+
+  @override
+  String get tableStyleHint => '表全体に適用されます。';
+
+  @override
+  String get tableBackgroundColor => '背景色';
+
+  @override
+  String get tableHeaderColor => '見出しの色';
+
+  @override
+  String get tableTextColor => '文字色';
+
+  @override
+  String get tableGridLines => '罫線';
+
+  @override
+  String get tableGridColor => '罫線の色';
+
+  @override
+  String get tableGridWidth => '罫線の太さ';
+
+  @override
   String get tableHeaderRow => '見出し行';
 
   @override

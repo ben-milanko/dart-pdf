@@ -2509,6 +2509,30 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tableColumns => 'ستوونەکان';
 
   @override
+  String get tableStyle => 'شێوازی خشتە';
+
+  @override
+  String get tableStyleHint => 'بۆ هەموو خشتەکە جێبەجێ دەبێت.';
+
+  @override
+  String get tableBackgroundColor => 'ڕەنگی پاشبنەما';
+
+  @override
+  String get tableHeaderColor => 'ڕەنگی سەردێڕ';
+
+  @override
+  String get tableTextColor => 'ڕەنگی فۆنت';
+
+  @override
+  String get tableGridLines => 'هێڵەکانی تۆڕ';
+
+  @override
+  String get tableGridColor => 'ڕەنگی تۆڕ';
+
+  @override
+  String get tableGridWidth => 'ئەستووری تۆڕ';
+
+  @override
   String get tableHeaderRow => 'ڕیزی سەردێڕ';
 
   @override

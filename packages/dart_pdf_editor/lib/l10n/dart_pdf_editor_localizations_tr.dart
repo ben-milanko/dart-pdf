@@ -2505,6 +2505,30 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tableColumns => 'Sütunlar';
 
   @override
+  String get tableStyle => 'Tablo stili';
+
+  @override
+  String get tableStyleHint => 'Tablonun tamamına uygulanır.';
+
+  @override
+  String get tableBackgroundColor => 'Arka plan rengi';
+
+  @override
+  String get tableHeaderColor => 'Başlık rengi';
+
+  @override
+  String get tableTextColor => 'Yazı rengi';
+
+  @override
+  String get tableGridLines => 'Izgara çizgileri';
+
+  @override
+  String get tableGridColor => 'Izgara rengi';
+
+  @override
+  String get tableGridWidth => 'Izgara kalınlığı';
+
+  @override
   String get tableHeaderRow => 'Başlık satırı';
 
   @override

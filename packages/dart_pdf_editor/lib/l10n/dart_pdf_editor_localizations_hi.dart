@@ -2502,6 +2502,30 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tableColumns => 'कॉलम';
 
   @override
+  String get tableStyle => 'तालिका शैली';
+
+  @override
+  String get tableStyleHint => 'पूरी तालिका पर लागू होता है।';
+
+  @override
+  String get tableBackgroundColor => 'पृष्ठभूमि का रंग';
+
+  @override
+  String get tableHeaderColor => 'शीर्षलेख का रंग';
+
+  @override
+  String get tableTextColor => 'फ़ॉन्ट का रंग';
+
+  @override
+  String get tableGridLines => 'ग्रिड रेखाएँ';
+
+  @override
+  String get tableGridColor => 'ग्रिड का रंग';
+
+  @override
+  String get tableGridWidth => 'ग्रिड की मोटाई';
+
+  @override
   String get tableHeaderRow => 'शीर्षक पंक्ति';
 
   @override

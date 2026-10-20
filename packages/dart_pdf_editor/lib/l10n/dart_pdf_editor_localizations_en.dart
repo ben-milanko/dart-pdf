@@ -2497,6 +2497,30 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tableColumns => 'Columns';
 
   @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background color';
+
+  @override
+  String get tableHeaderColor => 'Header color';
+
+  @override
+  String get tableTextColor => 'Font color';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid color';
+
+  @override
+  String get tableGridWidth => 'Grid width';
+
+  @override
   String get tableHeaderRow => 'Header row';
 
   @override
@@ -5010,6 +5034,30 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tableColumns => 'Columns';
 
   @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background colour';
+
+  @override
+  String get tableHeaderColor => 'Header colour';
+
+  @override
+  String get tableTextColor => 'Font colour';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid colour';
+
+  @override
+  String get tableGridWidth => 'Grid width';
+
+  @override
   String get tableHeaderRow => 'Header row';
 
   @override
@@ -7521,6 +7569,30 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tableColumns => 'Columns';
+
+  @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background colour';
+
+  @override
+  String get tableHeaderColor => 'Header colour';
+
+  @override
+  String get tableTextColor => 'Font colour';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid colour';
+
+  @override
+  String get tableGridWidth => 'Grid width';
 
   @override
   String get tableHeaderRow => 'Header row';

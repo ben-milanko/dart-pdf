@@ -2479,6 +2479,30 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tableColumns => 'คอลัมน์';
 
   @override
+  String get tableStyle => 'รูปแบบตาราง';
+
+  @override
+  String get tableStyleHint => 'ใช้กับทั้งตาราง';
+
+  @override
+  String get tableBackgroundColor => 'สีพื้นหลัง';
+
+  @override
+  String get tableHeaderColor => 'สีหัวตาราง';
+
+  @override
+  String get tableTextColor => 'สีตัวอักษร';
+
+  @override
+  String get tableGridLines => 'เส้นตาราง';
+
+  @override
+  String get tableGridColor => 'สีเส้นตาราง';
+
+  @override
+  String get tableGridWidth => 'ความหนาเส้นตาราง';
+
+  @override
   String get tableHeaderRow => 'แถวส่วนหัว';
 
   @override

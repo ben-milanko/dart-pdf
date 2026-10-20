@@ -67,6 +67,7 @@ extension PdfTableEditing on PdfEditor {
     annotation.dict
       ..['DartPdfTable'] = CosString.fromText(jsonEncode(table.toJson()))
       ..['Contents'] = CosString.fromText(table.toTsv())
+      ..['C'] = _colorComponents(table.borderColor)
       ..['AP'] = CosDictionary({'N': _updater.addObject(form)});
     _markAnnotationChanged(pageIndex, annotation.dict);
     return true;
@@ -87,7 +88,11 @@ extension PdfTableEditing on PdfEditor {
         headerRow: table.headerRow,
         textColor: table.textColor,
         borderColor: table.borderColor,
-        headerColor: table.headerColor);
+        headerColor: table.headerColor,
+        backgroundColor: table.backgroundColor,
+        font: table.font,
+        gridLines: table.gridLines,
+        borderWidth: table.borderWidth);
   }
 
   bool _regenerateTableAppearance(
@@ -107,11 +112,11 @@ extension PdfTableEditing on PdfEditor {
 
   (ContentWriter, CosDictionary) _tableAppearance(
       PdfRect rect, PdfTableData table, int rotation) {
-    PdfTextFont font = PdfStandardFont.helvetica;
+    PdfTextFont font = table.font;
     if (table.cells
         .expand((r) => r)
         .any((s) => s.codeUnits.any((c) => c > 255))) {
-      font = PdfUnicodeFont(PdfStandardFont.helvetica)..resetUsage();
+      font = PdfUnicodeFont(table.font)..resetUsage();
     }
     final vr = PdfAnnotationEditing._orientedVisualRect(rect, rotation);
     final w = ContentWriter()..save();
@@ -132,9 +137,11 @@ extension PdfTableEditing on PdfEditor {
             font: font,
             textDirection: PdfTextDirection.auto,
             color: table.textColor,
-            fillColor: r == 0 && table.headerRow ? table.headerColor : 0xFFFFFF,
-            borderColor: table.borderColor,
-            borderWidth: .5));
+            fillColor: r == 0 && table.headerRow
+                ? table.headerColor
+                : table.backgroundColor,
+            borderColor: table.gridLines ? table.borderColor : null,
+            borderWidth: table.borderWidth));
         left += width;
       }
       top -= h;
@@ -142,7 +149,7 @@ extension PdfTableEditing on PdfEditor {
     w.restore();
     final fonts = font is PdfUnicodeFont
         ? font.buildResource(_updater.addObject)
-        : _standardFont(PdfStandardFont.helvetica);
+        : _standardFont(table.font);
     return (w, fonts);
   }
 }

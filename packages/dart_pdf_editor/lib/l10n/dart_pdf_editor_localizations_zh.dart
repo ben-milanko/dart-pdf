@@ -2454,6 +2454,30 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tableColumns => '列';
 
   @override
+  String get tableStyle => '表格样式';
+
+  @override
+  String get tableStyleHint => '应用于整个表格。';
+
+  @override
+  String get tableBackgroundColor => '背景颜色';
+
+  @override
+  String get tableHeaderColor => '表头颜色';
+
+  @override
+  String get tableTextColor => '字体颜色';
+
+  @override
+  String get tableGridLines => '网格线';
+
+  @override
+  String get tableGridColor => '网格颜色';
+
+  @override
+  String get tableGridWidth => '网格线宽度';
+
+  @override
   String get tableHeaderRow => '标题行';
 
   @override
@@ -4921,6 +4945,30 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tableColumns => '欄';
+
+  @override
+  String get tableStyle => '表格樣式';
+
+  @override
+  String get tableStyleHint => '套用至整個表格。';
+
+  @override
+  String get tableBackgroundColor => '背景顏色';
+
+  @override
+  String get tableHeaderColor => '表頭顏色';
+
+  @override
+  String get tableTextColor => '字型顏色';
+
+  @override
+  String get tableGridLines => '格線';
+
+  @override
+  String get tableGridColor => '格線顏色';
+
+  @override
+  String get tableGridWidth => '格線寬度';
 
   @override
   String get tableHeaderRow => '標題列';

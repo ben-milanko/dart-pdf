@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'content_writer.dart';
 
 /// Editable cell values and simple layout, stored alongside a standard vector
 /// PDF appearance. Excel clipboard exchange uses quoted tab-separated text;
@@ -13,6 +14,10 @@ class PdfTableData {
     this.textColor = 0x000000,
     this.borderColor = 0x808080,
     this.headerColor = 0xE8EEF8,
+    this.backgroundColor = 0xFFFFFF,
+    this.font = PdfStandardFont.helvetica,
+    this.gridLines = true,
+    this.borderWidth = .5,
   })  : cells =
             List.unmodifiable(cells.map((r) => List<String>.unmodifiable(r))),
         columnWidths = List.unmodifiable(columnWidths ??
@@ -32,7 +37,10 @@ class PdfTableData {
         fontSize > 144 ||
         !width.isFinite ||
         !height.isFinite ||
-        [textColor, borderColor, headerColor]
+        !borderWidth.isFinite ||
+        borderWidth <= 0 ||
+        borderWidth > 20 ||
+        [textColor, borderColor, headerColor, backgroundColor]
             .any((c) => c < 0 || c > 0xFFFFFF)) {
       throw const FormatException('Invalid table size or layout');
     }
@@ -53,6 +61,10 @@ class PdfTableData {
   final int textColor;
   final int borderColor;
   final int headerColor;
+  final int backgroundColor;
+  final PdfStandardFont font;
+  final bool gridLines;
+  final double borderWidth;
   int get rowCount => cells.length;
   int get columnCount => cells.first.length;
   double get width => columnWidths.fold(0, (a, b) => a + b);
@@ -68,6 +80,10 @@ class PdfTableData {
         'textColor': textColor,
         'borderColor': borderColor,
         'headerColor': headerColor,
+        'backgroundColor': backgroundColor,
+        'font': font.name,
+        'gridLines': gridLines,
+        'borderWidth': borderWidth,
       };
 
   static PdfTableData? decode(String encoded) {
@@ -88,12 +104,20 @@ class PdfTableData {
           headerRow: m['headerRow'] as bool,
           textColor: m['textColor'] as int,
           borderColor: m['borderColor'] as int,
-          headerColor: m['headerColor'] as int);
+          headerColor: m['headerColor'] as int,
+          backgroundColor: (m['backgroundColor'] ?? 0xFFFFFF) as int,
+          font: m.containsKey('font')
+              ? PdfStandardFont.values.byName(m['font'] as String)
+              : PdfStandardFont.helvetica,
+          gridLines: (m['gridLines'] ?? true) as bool,
+          borderWidth: ((m['borderWidth'] ?? .5) as num).toDouble());
     } on FormatException {
       return null;
     } on TypeError {
       return null;
     } on RangeError {
+      return null;
+    } on ArgumentError {
       return null;
     }
   }
