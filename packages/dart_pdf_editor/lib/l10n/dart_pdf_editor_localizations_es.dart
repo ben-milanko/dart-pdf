@@ -2484,4 +2484,33 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas.';
+
+  @override
+  String get table => 'Tabla';
+
+  @override
+  String get tableEdit => 'Editar tabla';
+
+  @override
+  String get tableRows => 'Filas';
+
+  @override
+  String get tableColumns => 'Columnas';
+
+  @override
+  String get tableHeaderRow => 'Fila de encabezado';
+
+  @override
+  String get tableColumnWidth => 'Ancho de columna';
+
+  @override
+  String get tableRowHeight => 'Alto de fila';
+
+  @override
+  String get tableSelectionHint =>
+      'Haz clic en una celda para editarla; Mayús-clic selecciona un rango. Copiar y Pegar intercambian valores de celdas con Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'La tabla del portapapeles no es válida o supera 500 filas, 100 columnas o 20.000 celdas.';
 }

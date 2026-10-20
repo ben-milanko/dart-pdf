@@ -227,7 +227,8 @@ class PdfAnnotationBehavior {
     'Text' => annotation.normalAppearance != null,
     // A text check-mark stamp restyles by redrawing from its /Contents; an
     // image stamp restyles by re-baking its alpha over the same picture.
-    'Stamp' => annotation.normalAppearance != null &&
+    'Stamp' => annotation.table == null &&
+        annotation.normalAppearance != null &&
         ((annotation.contents?.isNotEmpty ?? false) || isImageStamp),
     _ => false,
   };

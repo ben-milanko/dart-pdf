@@ -4463,6 +4463,60 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
   String get pageColorNotBakedSigned;
+
+  /// No description provided for @table.
+  ///
+  /// In en, this message translates to:
+  /// **'Table'**
+  String get table;
+
+  /// No description provided for @tableEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit table'**
+  String get tableEdit;
+
+  /// No description provided for @tableRows.
+  ///
+  /// In en, this message translates to:
+  /// **'Rows'**
+  String get tableRows;
+
+  /// No description provided for @tableColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Columns'**
+  String get tableColumns;
+
+  /// No description provided for @tableHeaderRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Header row'**
+  String get tableHeaderRow;
+
+  /// No description provided for @tableColumnWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Column width'**
+  String get tableColumnWidth;
+
+  /// No description provided for @tableRowHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Row height'**
+  String get tableRowHeight;
+
+  /// No description provided for @tableSelectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.'**
+  String get tableSelectionHint;
+
+  /// No description provided for @tableClipboardError.
+  ///
+  /// In en, this message translates to:
+  /// **'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.'**
+  String get tableClipboardError;
 }
 
 class _DartPdfEditorLocalizationsDelegate

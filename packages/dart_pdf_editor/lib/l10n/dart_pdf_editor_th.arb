@@ -720,5 +720,14 @@
   "insertPagesSummary": "จะแทรก {inserted} หน้า เอกสารจะมีทั้งหมด {total} หน้า",
   "insertPagesConfirm": "แทรก",
   "shellBakePageColor": "บันทึกสีหน้าลงในไฟล์",
-  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง"
+  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง",
+  "table": "ตาราง",
+  "tableEdit": "แก้ไขตาราง",
+  "tableRows": "แถว",
+  "tableColumns": "คอลัมน์",
+  "tableHeaderRow": "แถวส่วนหัว",
+  "tableColumnWidth": "ความกว้างคอลัมน์",
+  "tableRowHeight": "ความสูงแถว",
+  "tableSelectionHint": "คลิกเซลล์เพื่อแก้ไข กด Shift พร้อมคลิกเพื่อเลือกช่วง คัดลอกและวางเพื่อแลกเปลี่ยนค่าเซลล์กับ Excel",
+  "tableClipboardError": "ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์"
 }

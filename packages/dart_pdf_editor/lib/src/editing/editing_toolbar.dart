@@ -24,6 +24,7 @@ import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
+import 'editing_table.dart';
 import 'editor_commands.dart';
 import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
@@ -1687,6 +1688,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         }
       }
     }
+    if (group.kind == PdfEditToolGroup.insert) {
+      toolButtons.add(IconButton(
+          key: const ValueKey('pdf-insert-table'),
+          icon: const Icon(Icons.table_chart_outlined),
+          tooltip: pdfL10n(context).table,
+          onPressed: () => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: viewerController.currentPage)));
+    }
     if (group.kind == PdfEditToolGroup.edit && _showColorProcessingAction) {
       toolButtons.add(_LabeledToolButton(
         key: const ValueKey('pdf-toolbar-color-processing'),
@@ -3173,6 +3183,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 }
               },
             ),
+        if (group.kind == PdfEditToolGroup.insert)
+          _SheetToolTile(
+              key: const ValueKey('pdf-insert-table'),
+              icon: Icons.table_chart_outlined,
+              label: pdfL10n(context).table,
+              active: false,
+              enabled: true,
+              onTap: () {
+                Navigator.of(context).pop();
+                if (mounted) {
+                  showPdfTableEditor(this.context,
+                      controller: controller,
+                      pageIndex: viewerController.currentPage);
+                }
+              }),
         if (group.kind == PdfEditToolGroup.measure)
           _SheetToolTile(
             key: const ValueKey('pdf-takeoff-totals'),

@@ -10,6 +10,7 @@ import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'stamp_template.dart';
 import 'takeoff.dart';
+import 'table_data.dart';
 
 part 'annotation_behavior.dart';
 
@@ -107,6 +108,11 @@ class PdfAnnotation {
   String? get contents {
     final c = document.cos.resolve(dict['Contents']);
     return c is CosString ? c.text : null;
+  }
+
+  PdfTableData? get table {
+    final value = document.cos.resolve(dict['DartPdfTable']);
+    return value is CosString ? PdfTableData.decode(value.text) : null;
   }
 
   /// The author: /T, "the text label … by convention … the annotation's

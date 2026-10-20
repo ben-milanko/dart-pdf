@@ -3871,6 +3871,13 @@ class PdfEditingController extends ChangeNotifier {
     String text, {
     double width = 220,
   }) {
+    if (text.contains('\t')) {
+      try {
+        return placeTable(pageIndex, x, y, PdfTableData.fromTsv(text));
+      } on FormatException {
+        return false;
+      }
+    }
     final value = text.trimRight();
     if (value.trim().isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
@@ -3908,6 +3915,51 @@ class PdfEditingController extends ChangeNotifier {
       ..add((pageIndex, total - 1));
     notifyListeners();
     return true;
+  }
+
+  /// Copies cell values for Excel. Old PDF-specific clipboards must not win
+  /// over this newer text copy when Paste returns to a PDF page.
+  Future<void> copyTableCellsText(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    annotationClipboard.clear();
+    snapshotClipboard.clear();
+    pageClipboard.clear();
+  }
+
+  /// Inserts one movable, resizable table annotation. Cell values remain
+  /// editable after saving and reopening; ordinary viewers see its vector AP.
+  bool placeTable(int pageIndex, double x, double y, PdfTableData table) {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final scale = math.min(
+        1.0,
+        math.min(_visualPageWidth(pageIndex) * .9 / table.width,
+            _visualPageHeight(pageIndex) * .9 / table.height));
+    final rect = _pageRectForVisualSize(pageIndex, x, y,
+        width: table.width * scale, height: table.height * scale);
+    if (!apply((e) =>
+        e.addTable(pageIndex, rect, table, author: preferences.author))) {
+      return false;
+    }
+    tool = PdfEditTool.select;
+    _selected
+      ..clear()
+      ..add((pageIndex, _page(pageIndex).annotations.length - 1));
+    notifyListeners();
+    return true;
+  }
+
+  bool updateTable(int pageIndex, int slot, PdfTableData table,
+      {required int expectedRevision}) {
+    if (_disposed || expectedRevision != revisionId) return false;
+    final annotation = annotationAt(pageIndex, slot);
+    if (annotation == null ||
+        !isAnnotationEditable(annotation) ||
+        annotation.isLockedContents) {
+      return false;
+    }
+    return apply((e) => e.updateTable(pageIndex, annotation, table));
   }
 
   void addStamp(int pageIndex, PdfRect rect, String text, {int? color}) =>

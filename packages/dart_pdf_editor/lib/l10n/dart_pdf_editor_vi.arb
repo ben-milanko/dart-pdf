@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Chèn 1 trang} other{Chèn {inserted} trang}} — tài liệu sẽ có {total, plural, =1{1 trang} other{{total} trang}}.",
   "insertPagesConfirm": "Chèn",
   "shellBakePageColor": "Lưu màu trang vào tệp",
-  "pageColorNotBakedSigned": "Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký."
+  "pageColorNotBakedSigned": "Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.",
+  "table": "Bảng",
+  "tableEdit": "Sửa bảng",
+  "tableRows": "Hàng",
+  "tableColumns": "Cột",
+  "tableHeaderRow": "Hàng tiêu đề",
+  "tableColumnWidth": "Độ rộng cột",
+  "tableRowHeight": "Chiều cao hàng",
+  "tableSelectionHint": "Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.",
+  "tableClipboardError": "Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô."
 }

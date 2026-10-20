@@ -2483,4 +2483,33 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
+
+  @override
+  String get table => 'خشتە';
+
+  @override
+  String get tableEdit => 'دەستکاری خشتە';
+
+  @override
+  String get tableRows => 'ڕیزەکان';
+
+  @override
+  String get tableColumns => 'ستوونەکان';
+
+  @override
+  String get tableHeaderRow => 'ڕیزی سەردێڕ';
+
+  @override
+  String get tableColumnWidth => 'پانی ستوون';
+
+  @override
+  String get tableRowHeight => 'بەرزی ڕیز';
+
+  @override
+  String get tableSelectionHint =>
+      'بۆ دەستکاری کرتە لە خانەیەک بکە؛ بۆ دیاریکردنی مەودا Shift بگرە و کرتە بکە. بە کۆپیکردن و لکاندن بەهای خانەکان لەگەڵ Excel بگوازەوە.';
+
+  @override
+  String get tableClipboardError =>
+      'خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.';
 }

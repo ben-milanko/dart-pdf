@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted} ページを挿入します。挿入後は {total} ページになります。",
   "insertPagesConfirm": "挿入",
   "shellBakePageColor": "ページの色をファイルに保存",
-  "pageColorNotBakedSigned": "ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。"
+  "pageColorNotBakedSigned": "ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。",
+  "table": "表",
+  "tableEdit": "表を編集",
+  "tableRows": "行",
+  "tableColumns": "列",
+  "tableHeaderRow": "見出し行",
+  "tableColumnWidth": "列の幅",
+  "tableRowHeight": "行の高さ",
+  "tableSelectionHint": "セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。",
+  "tableClipboardError": "クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。"
 }

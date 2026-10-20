@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Insère 1 page} other{Insère {inserted} pages}} : le document comptera {total, plural, =1{1 page} other{{total} pages}}.",
   "insertPagesConfirm": "Insérer",
   "shellBakePageColor": "Enregistrer la couleur de page dans le fichier",
-  "pageColorNotBakedSigned": "La couleur de page n'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures."
+  "pageColorNotBakedSigned": "La couleur de page n'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures.",
+  "table": "Tableau",
+  "tableEdit": "Modifier le tableau",
+  "tableRows": "Lignes",
+  "tableColumns": "Colonnes",
+  "tableHeaderRow": "Ligne d’en-tête",
+  "tableColumnWidth": "Largeur de colonne",
+  "tableRowHeight": "Hauteur de ligne",
+  "tableSelectionHint": "Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.",
+  "tableClipboardError": "Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules."
 }

@@ -2471,6 +2471,35 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4940,6 +4969,35 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7409,4 +7467,33 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
 }

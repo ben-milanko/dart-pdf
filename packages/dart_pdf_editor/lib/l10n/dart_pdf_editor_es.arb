@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Inserta 1 página} other{Inserta {inserted} páginas}}: el documento tendrá {total, plural, =1{1 página} other{{total} páginas}}.",
   "insertPagesConfirm": "Insertar",
   "shellBakePageColor": "Guardar el color de página en el archivo",
-  "pageColorNotBakedSigned": "El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas."
+  "pageColorNotBakedSigned": "El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas.",
+  "table": "Tabla",
+  "tableEdit": "Editar tabla",
+  "tableRows": "Filas",
+  "tableColumns": "Columnas",
+  "tableHeaderRow": "Fila de encabezado",
+  "tableColumnWidth": "Ancho de columna",
+  "tableRowHeight": "Alto de fila",
+  "tableSelectionHint": "Haz clic en una celda para editarla; Mayús-clic selecciona un rango. Copiar y Pegar intercambian valores de celdas con Excel.",
+  "tableClipboardError": "La tabla del portapapeles no es válida o supera 500 filas, 100 columnas o 20.000 celdas."
 }

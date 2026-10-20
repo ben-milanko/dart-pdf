@@ -2472,4 +2472,33 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
+
+  @override
+  String get table => 'Bảng';
+
+  @override
+  String get tableEdit => 'Sửa bảng';
+
+  @override
+  String get tableRows => 'Hàng';
+
+  @override
+  String get tableColumns => 'Cột';
+
+  @override
+  String get tableHeaderRow => 'Hàng tiêu đề';
+
+  @override
+  String get tableColumnWidth => 'Độ rộng cột';
+
+  @override
+  String get tableRowHeight => 'Chiều cao hàng';
+
+  @override
+  String get tableSelectionHint =>
+      'Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.';
 }

@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Wstawia 1 stronę} few{Wstawia {inserted} strony} many{Wstawia {inserted} stron} other{Wstawia {inserted} strony}} – dokument będzie miał {total, plural, =1{1 stronę} few{{total} strony} many{{total} stron} other{{total} strony}}.",
   "insertPagesConfirm": "Wstaw",
   "shellBakePageColor": "Zapisz kolor strony w pliku",
-  "pageColorNotBakedSigned": "Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy."
+  "pageColorNotBakedSigned": "Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy.",
+  "table": "Tabela",
+  "tableEdit": "Edytuj tabelę",
+  "tableRows": "Wiersze",
+  "tableColumns": "Kolumny",
+  "tableHeaderRow": "Wiersz nagłówka",
+  "tableColumnWidth": "Szerokość kolumny",
+  "tableRowHeight": "Wysokość wiersza",
+  "tableSelectionHint": "Kliknij komórkę, aby edytować; Shift i kliknięcie zaznacza zakres. Kopiuj i Wklej wymieniają wartości komórek z Excelem.",
+  "tableClipboardError": "Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek."
 }

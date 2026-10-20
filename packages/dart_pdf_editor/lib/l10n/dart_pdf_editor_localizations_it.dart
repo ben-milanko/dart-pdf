@@ -2487,4 +2487,33 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme.';
+
+  @override
+  String get table => 'Tabella';
+
+  @override
+  String get tableEdit => 'Modifica tabella';
+
+  @override
+  String get tableRows => 'Righe';
+
+  @override
+  String get tableColumns => 'Colonne';
+
+  @override
+  String get tableHeaderRow => 'Riga di intestazione';
+
+  @override
+  String get tableColumnWidth => 'Larghezza colonna';
+
+  @override
+  String get tableRowHeight => 'Altezza riga';
+
+  @override
+  String get tableSelectionHint =>
+      'Fai clic su una cella per modificarla; Maiusc-clic seleziona un intervallo. Copia e Incolla scambiano i valori delle celle con Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle.';
 }

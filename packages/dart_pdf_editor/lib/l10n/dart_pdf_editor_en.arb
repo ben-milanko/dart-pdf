@@ -3166,5 +3166,14 @@
   "pageColorNotBakedSigned": "The page color wasn't saved into the file: changing the pages would invalidate its signatures.",
   "@pageColorNotBakedSigned": {
     "description": "Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid."
-  }
+  },
+  "table": "Table",
+  "tableEdit": "Edit table",
+  "tableRows": "Rows",
+  "tableColumns": "Columns",
+  "tableHeaderRow": "Header row",
+  "tableColumnWidth": "Column width",
+  "tableRowHeight": "Row height",
+  "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
+  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells."
 }

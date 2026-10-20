@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Voegt 1 pagina in} other{Voegt {inserted} pagina's in}} – het document krijgt {total, plural, =1{1 pagina} other{{total} pagina's}}.",
   "insertPagesConfirm": "Invoegen",
   "shellBakePageColor": "Paginakleur in bestand opslaan",
-  "pageColorNotBakedSigned": "De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina's zou de handtekeningen ongeldig maken."
+  "pageColorNotBakedSigned": "De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina's zou de handtekeningen ongeldig maken.",
+  "table": "Tabel",
+  "tableEdit": "Tabel bewerken",
+  "tableRows": "Rijen",
+  "tableColumns": "Kolommen",
+  "tableHeaderRow": "Koprij",
+  "tableColumnWidth": "Kolombreedte",
+  "tableRowHeight": "Rijhoogte",
+  "tableSelectionHint": "Klik op een cel om te bewerken; Shift-klik selecteert een bereik. Kopiëren en Plakken wisselen celwaarden uit met Excel.",
+  "tableClipboardError": "De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen."
 }

@@ -720,5 +720,14 @@
   "insertPagesSummary": "{inserted, plural, =1{Fügt 1 Seite ein} other{Fügt {inserted} Seiten ein}} – das Dokument hat dann {total, plural, =1{1 Seite} other{{total} Seiten}}.",
   "insertPagesConfirm": "Einfügen",
   "shellBakePageColor": "Seitenfarbe in Datei speichern",
-  "pageColorNotBakedSigned": "Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen."
+  "pageColorNotBakedSigned": "Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.",
+  "table": "Tabelle",
+  "tableEdit": "Tabelle bearbeiten",
+  "tableRows": "Zeilen",
+  "tableColumns": "Spalten",
+  "tableHeaderRow": "Kopfzeile",
+  "tableColumnWidth": "Spaltenbreite",
+  "tableRowHeight": "Zeilenhöhe",
+  "tableSelectionHint": "Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.",
+  "tableClipboardError": "Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen."
 }

@@ -2438,4 +2438,33 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。';
+
+  @override
+  String get table => '表';
+
+  @override
+  String get tableEdit => '表を編集';
+
+  @override
+  String get tableRows => '行';
+
+  @override
+  String get tableColumns => '列';
+
+  @override
+  String get tableHeaderRow => '見出し行';
+
+  @override
+  String get tableColumnWidth => '列の幅';
+
+  @override
+  String get tableRowHeight => '行の高さ';
+
+  @override
+  String get tableSelectionHint =>
+      'セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。';
+
+  @override
+  String get tableClipboardError =>
+      'クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。';
 }

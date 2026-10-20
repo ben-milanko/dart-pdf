@@ -2528,4 +2528,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy.';
+
+  @override
+  String get table => 'Tabela';
+
+  @override
+  String get tableEdit => 'Edytuj tabelę';
+
+  @override
+  String get tableRows => 'Wiersze';
+
+  @override
+  String get tableColumns => 'Kolumny';
+
+  @override
+  String get tableHeaderRow => 'Wiersz nagłówka';
+
+  @override
+  String get tableColumnWidth => 'Szerokość kolumny';
+
+  @override
+  String get tableRowHeight => 'Wysokość wiersza';
+
+  @override
+  String get tableSelectionHint =>
+      'Kliknij komórkę, aby edytować; Shift i kliknięcie zaznacza zakres. Kopiuj i Wklej wymieniają wartości komórek z Excelem.';
+
+  @override
+  String get tableClipboardError =>
+      'Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek.';
 }
