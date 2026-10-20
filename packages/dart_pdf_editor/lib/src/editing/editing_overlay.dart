@@ -823,6 +823,7 @@ void Function() debugPdfPrimeSoftKeyboard = pdfPrimeSoftKeyboard;
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
   // shape/text/stamp drag
+  PdfEditTool? _observedTool;
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
@@ -1359,6 +1360,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     super.initState();
     _adoptInteraction();
     _adoptHost();
+    _observedTool = _tool;
     _controller.addListener(_onControllerChanged);
   }
 
@@ -3246,6 +3248,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onControllerChanged() {
+    final previousTool = _observedTool;
+    _observedTool = _tool;
+    if (previousTool == PdfEditTool.signatureBox &&
+        _tool != previousTool &&
+        (_dragStart != null || _dragCurrent != null)) {
+      setState(() {
+        _dragStart = null;
+        _dragCurrent = null;
+      });
+      _stopAutoScroll();
+    }
     final activeSavedId = _controller.activeSavedAnnotation?.id;
     if (activeSavedId != _savedAnnotationPictureFor &&
         activeSavedId != _savedAnnotationPictureLoadingFor) {
