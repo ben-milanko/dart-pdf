@@ -138,6 +138,12 @@ abstract class DartPdfEditorLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// Duplicate a library item or selected annotation as an independent copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicate;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:
@@ -738,11 +744,29 @@ abstract class DartPdfEditorLocalizations {
   /// **'Volume depth'**
   String get measVolumeDepth;
 
+  /// Title of the prompt asking for the value a measurement shows (a written value such as 12'-6" replacing the computed one).
+  ///
+  /// In en, this message translates to:
+  /// **'Measurement value'**
+  String get measCustomValueTitle;
+
   /// Annotation context-menu item that adds a vertex to a polyline or polygon at the click point.
   ///
   /// In en, this message translates to:
   /// **'Add node'**
   String get menuAddNode;
+
+  /// Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit measurement value'**
+  String get menuEditMeasurementValue;
+
+  /// Annotation context-menu item that adds another leader line (arrow) to the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Add leader'**
+  String get menuAddLeader;
 
   /// Title of the page-range dialog when applying the selected annotation(s) to multiple pages.
   ///
@@ -755,6 +779,48 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Apply to pages…'**
   String get menuApplyToPages;
+
+  /// Properties section for independently styling callout leader lines.
+  ///
+  /// In en, this message translates to:
+  /// **'Leader'**
+  String get propLeader;
+
+  /// Properties control for the callout text box outline width; zero removes it.
+  ///
+  /// In en, this message translates to:
+  /// **'Outline width'**
+  String get propOutlineWidth;
+
+  /// Annotation menu: rotate multiple annotations around their shared centre.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate around selection center…'**
+  String get menuRotateSelection;
+
+  /// Annotation menu: rotate multiple annotations around their individual centres.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate each annotation…'**
+  String get menuRotateEach;
+
+  /// Prompt for a signed rotation angle in degrees; positive rotates counterclockwise.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation (degrees, counterclockwise)'**
+  String get rotationAngleTitle;
+
+  /// Annotation context menu: make the selected annotations one persistent group.
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get menuGroup;
+
+  /// Annotation context menu: dissolve selected groups while retaining their annotations.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungroup'**
+  String get menuUngroup;
 
   /// Annotation context-menu item that raises the selected annotation to the top of the z-order.
   ///
@@ -851,6 +917,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Remove node'**
   String get menuRemoveNode;
+
+  /// Annotation context-menu item that removes the leader line nearest the click point from the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove leader'**
+  String get menuRemoveLeader;
+
+  /// Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point.
+  ///
+  /// In en, this message translates to:
+  /// **'Add note here'**
+  String get menuAddNoteHere;
 
   /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
   ///
@@ -3108,6 +3186,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Measure arc length'**
   String get tbNameMeasureArc;
 
+  /// Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom measurement (type value)'**
+  String get tbNameMeasureCustom;
+
   /// Tool name: measure an area.
   ///
   /// In en, this message translates to:
@@ -4308,108 +4392,6 @@ abstract class DartPdfEditorLocalizations {
   /// **'Float the toolbars over the page instead of docking them to the window edges'**
   String get tbFloatingToolbarsHint;
 
-  /// No description provided for @textVerticalAlign.
-  ///
-  /// In en, this message translates to:
-  /// **'Vertical alignment'**
-  String get textVerticalAlign;
-
-  /// No description provided for @textAlignTop.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to top'**
-  String get textAlignTop;
-
-  /// No description provided for @textAlignMiddle.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to middle'**
-  String get textAlignMiddle;
-
-  /// No description provided for @textAlignBottom.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to bottom'**
-  String get textAlignBottom;
-
-  /// Title of the prompt asking for the value a measurement shows (a written value such as 12'-6" replacing the computed one).
-  ///
-  /// In en, this message translates to:
-  /// **'Measurement value'**
-  String get measCustomValueTitle;
-
-  /// Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value.
-  ///
-  /// In en, this message translates to:
-  /// **'Edit measurement value'**
-  String get menuEditMeasurementValue;
-
-  /// Annotation context-menu item that adds another leader line (arrow) to the selected callout.
-  ///
-  /// In en, this message translates to:
-  /// **'Add leader'**
-  String get menuAddLeader;
-
-  /// Properties section for independently styling callout leader lines.
-  ///
-  /// In en, this message translates to:
-  /// **'Leader'**
-  String get propLeader;
-
-  /// Properties control for the callout text box outline width; zero removes it.
-  ///
-  /// In en, this message translates to:
-  /// **'Outline width'**
-  String get propOutlineWidth;
-
-  /// Annotation menu: rotate multiple annotations around their shared centre.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotate around selection center…'**
-  String get menuRotateSelection;
-
-  /// Annotation menu: rotate multiple annotations around their individual centres.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotate each annotation…'**
-  String get menuRotateEach;
-
-  /// Prompt for a signed rotation angle in degrees; positive rotates counterclockwise.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotation (degrees, counterclockwise)'**
-  String get rotationAngleTitle;
-
-  /// Annotation context menu: make the selected annotations one persistent group.
-  ///
-  /// In en, this message translates to:
-  /// **'Group'**
-  String get menuGroup;
-
-  /// Annotation context menu: dissolve selected groups while retaining their annotations.
-  ///
-  /// In en, this message translates to:
-  /// **'Ungroup'**
-  String get menuUngroup;
-
-  /// Annotation context-menu item that removes the leader line nearest the click point from the selected callout.
-  ///
-  /// In en, this message translates to:
-  /// **'Remove leader'**
-  String get menuRemoveLeader;
-
-  /// Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point.
-  ///
-  /// In en, this message translates to:
-  /// **'Add note here'**
-  String get menuAddNoteHere;
-
-  /// Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale.
-  ///
-  /// In en, this message translates to:
-  /// **'Custom measurement (type value)'**
-  String get tbNameMeasureCustom;
-
   /// Title of the multi-document insert-pages dialog.
   ///
   /// In en, this message translates to:
@@ -4625,6 +4607,30 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
   String get pageColorNotBakedSigned;
+
+  /// No description provided for @textVerticalAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical alignment'**
+  String get textVerticalAlign;
+
+  /// No description provided for @textAlignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to top'**
+  String get textAlignTop;
+
+  /// No description provided for @textAlignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to middle'**
+  String get textAlignMiddle;
+
+  /// No description provided for @textAlignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to bottom'**
+  String get textAlignBottom;
 }
 
 class _DartPdfEditorLocalizationsDelegate

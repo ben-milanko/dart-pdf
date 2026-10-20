@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get duplicate => 'Çoğalt';
+
+  @override
   String get add => 'Ekle';
 
   @override
@@ -343,7 +346,16 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Hacim derinliği';
 
   @override
+  String get measCustomValueTitle => 'Ölçü değeri';
+
+  @override
   String get menuAddNode => 'Düğüm ekle';
+
+  @override
+  String get menuEditMeasurementValue => 'Ölçü değerini düzenle';
+
+  @override
+  String get menuAddLeader => 'Gösterge çizgisi ekle';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -358,6 +370,27 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Sayfalara uygula…';
+
+  @override
+  String get propLeader => 'Kılavuz çizgisi';
+
+  @override
+  String get propOutlineWidth => 'Anahat kalınlığı';
+
+  @override
+  String get menuRotateSelection => 'Seçimin merkezi etrafında döndür…';
+
+  @override
+  String get menuRotateEach => 'Her açıklamayı döndür…';
+
+  @override
+  String get rotationAngleTitle => 'Döndürme (derece, saat yönünün tersine)';
+
+  @override
+  String get menuGroup => 'Grupla';
+
+  @override
+  String get menuUngroup => 'Grubu çöz';
 
   @override
   String get menuBringToFront => 'Öne getir';
@@ -406,6 +439,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Düğümü kaldır';
+
+  @override
+  String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
+
+  @override
+  String get menuAddNoteHere => 'Buraya not ekle';
 
   @override
   String get menuSaveToStamps => 'Damgalara kaydet';
@@ -1675,6 +1714,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Yay uzunluğunu ölç';
 
   @override
+  String get tbNameMeasureCustom => 'Özel ölçü (değeri yazın)';
+
+  @override
   String get tbNameMeasureArea => 'Alan ölç';
 
   @override
@@ -2376,57 +2418,6 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür';
 
   @override
-  String get textVerticalAlign => 'Dikey hizalama';
-
-  @override
-  String get textAlignTop => 'Metni üste hizala';
-
-  @override
-  String get textAlignMiddle => 'Metni dikey ortala';
-
-  @override
-  String get textAlignBottom => 'Metni alta hizala';
-
-  @override
-  String get measCustomValueTitle => 'Ölçü değeri';
-
-  @override
-  String get menuEditMeasurementValue => 'Ölçü değerini düzenle';
-
-  @override
-  String get menuAddLeader => 'Gösterge çizgisi ekle';
-
-  @override
-  String get propLeader => 'Kılavuz çizgisi';
-
-  @override
-  String get propOutlineWidth => 'Anahat kalınlığı';
-
-  @override
-  String get menuRotateSelection => 'Seçimin merkezi etrafında döndür…';
-
-  @override
-  String get menuRotateEach => 'Her açıklamayı döndür…';
-
-  @override
-  String get rotationAngleTitle => 'Döndürme (derece, saat yönünün tersine)';
-
-  @override
-  String get menuGroup => 'Grupla';
-
-  @override
-  String get menuUngroup => 'Grubu çöz';
-
-  @override
-  String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
-
-  @override
-  String get menuAddNoteHere => 'Buraya not ekle';
-
-  @override
-  String get tbNameMeasureCustom => 'Özel ölçü (değeri yazın)';
-
-  @override
   String get insertPagesTitle => 'Sayfa ekle';
 
   @override
@@ -2566,4 +2557,16 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
+
+  @override
+  String get textVerticalAlign => 'Dikey hizalama';
+
+  @override
+  String get textAlignTop => 'Metni üste hizala';
+
+  @override
+  String get textAlignMiddle => 'Metni dikey ortala';
+
+  @override
+  String get textAlignBottom => 'Metni alta hizala';
 }

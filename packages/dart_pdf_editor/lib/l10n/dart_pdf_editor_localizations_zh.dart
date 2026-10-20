@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get duplicate => '复制副本';
+
+  @override
   String get add => '添加';
 
   @override
@@ -343,7 +346,16 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '体积深度';
 
   @override
+  String get measCustomValueTitle => '测量值';
+
+  @override
   String get menuAddNode => '添加节点';
+
+  @override
+  String get menuEditMeasurementValue => '编辑测量值';
+
+  @override
+  String get menuAddLeader => '添加引线';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -358,6 +370,27 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => '应用到页面…';
+
+  @override
+  String get propLeader => '引线';
+
+  @override
+  String get propOutlineWidth => '轮廓宽度';
+
+  @override
+  String get menuRotateSelection => '围绕选择中心旋转…';
+
+  @override
+  String get menuRotateEach => '分别旋转各个批注…';
+
+  @override
+  String get rotationAngleTitle => '旋转角度（度，逆时针）';
+
+  @override
+  String get menuGroup => '组合';
+
+  @override
+  String get menuUngroup => '取消组合';
 
   @override
   String get menuBringToFront => '移到最前';
@@ -406,6 +439,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => '移除节点';
+
+  @override
+  String get menuRemoveLeader => '移除引线';
+
+  @override
+  String get menuAddNoteHere => '在此添加注释';
 
   @override
   String get menuSaveToStamps => '保存到图章';
@@ -1660,6 +1699,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => '测量弧长';
 
   @override
+  String get tbNameMeasureCustom => '自定义测量（输入数值）';
+
+  @override
   String get tbNameMeasureArea => '测量面积';
 
   @override
@@ -2335,57 +2377,6 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbFloatingToolbarsHint => '让工具栏浮动在页面上，而不是停靠在窗口边缘';
 
   @override
-  String get textVerticalAlign => '垂直对齐';
-
-  @override
-  String get textAlignTop => '文本顶端对齐';
-
-  @override
-  String get textAlignMiddle => '文本垂直居中';
-
-  @override
-  String get textAlignBottom => '文本底端对齐';
-
-  @override
-  String get measCustomValueTitle => '测量值';
-
-  @override
-  String get menuEditMeasurementValue => '编辑测量值';
-
-  @override
-  String get menuAddLeader => '添加引线';
-
-  @override
-  String get propLeader => '引线';
-
-  @override
-  String get propOutlineWidth => '轮廓宽度';
-
-  @override
-  String get menuRotateSelection => '围绕选择中心旋转…';
-
-  @override
-  String get menuRotateEach => '分别旋转各个批注…';
-
-  @override
-  String get rotationAngleTitle => '旋转角度（度，逆时针）';
-
-  @override
-  String get menuGroup => '组合';
-
-  @override
-  String get menuUngroup => '取消组合';
-
-  @override
-  String get menuRemoveLeader => '移除引线';
-
-  @override
-  String get menuAddNoteHere => '在此添加注释';
-
-  @override
-  String get tbNameMeasureCustom => '自定义测量（输入数值）';
-
-  @override
   String get insertPagesTitle => '插入页面';
 
   @override
@@ -2510,11 +2501,26 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
+
+  @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get duplicate => '製作副本';
 
   @override
   String get add => '新增';
@@ -2851,7 +2857,16 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get measVolumeDepth => '體積深度';
 
   @override
+  String get measCustomValueTitle => '測量值';
+
+  @override
   String get menuAddNode => '新增節點';
+
+  @override
+  String get menuEditMeasurementValue => '編輯測量值';
+
+  @override
+  String get menuAddLeader => '新增引線';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -2866,6 +2881,27 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuApplyToPages => '套用至頁面…';
+
+  @override
+  String get propLeader => '引線';
+
+  @override
+  String get propOutlineWidth => '輪廓寬度';
+
+  @override
+  String get menuRotateSelection => '圍繞選取中心旋轉…';
+
+  @override
+  String get menuRotateEach => '分別旋轉各個註解…';
+
+  @override
+  String get rotationAngleTitle => '旋轉角度（度，逆時針）';
+
+  @override
+  String get menuGroup => '群組';
+
+  @override
+  String get menuUngroup => '取消群組';
 
   @override
   String get menuBringToFront => '移至最上層';
@@ -2914,6 +2950,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRemoveNode => '移除節點';
+
+  @override
+  String get menuRemoveLeader => '移除引線';
+
+  @override
+  String get menuAddNoteHere => '在此新增註解';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';
@@ -4168,6 +4210,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbNameMeasureArc => '測量弧長';
 
   @override
+  String get tbNameMeasureCustom => '自訂測量（輸入數值）';
+
+  @override
   String get tbNameMeasureArea => '測量面積';
 
   @override
@@ -4844,57 +4889,6 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbFloatingToolbarsHint => '讓工具列浮動在頁面上，而不是停駐在視窗邊緣';
 
   @override
-  String get textVerticalAlign => '垂直對齊';
-
-  @override
-  String get textAlignTop => '文字靠上對齊';
-
-  @override
-  String get textAlignMiddle => '文字垂直置中';
-
-  @override
-  String get textAlignBottom => '文字靠下對齊';
-
-  @override
-  String get measCustomValueTitle => '測量值';
-
-  @override
-  String get menuEditMeasurementValue => '編輯測量值';
-
-  @override
-  String get menuAddLeader => '新增引線';
-
-  @override
-  String get propLeader => '引線';
-
-  @override
-  String get propOutlineWidth => '輪廓寬度';
-
-  @override
-  String get menuRotateSelection => '圍繞選取中心旋轉…';
-
-  @override
-  String get menuRotateEach => '分別旋轉各個註解…';
-
-  @override
-  String get rotationAngleTitle => '旋轉角度（度，逆時針）';
-
-  @override
-  String get menuGroup => '群組';
-
-  @override
-  String get menuUngroup => '取消群組';
-
-  @override
-  String get menuRemoveLeader => '移除引線';
-
-  @override
-  String get menuAddNoteHere => '在此新增註解';
-
-  @override
-  String get tbNameMeasureCustom => '自訂測量（輸入數值）';
-
-  @override
   String get insertPagesTitle => '插入頁面';
 
   @override
@@ -5019,4 +5013,16 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
+
+  @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
 }

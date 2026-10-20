@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
+  String get duplicate => 'Duplikuj';
+
+  @override
   String get add => 'Dodaj';
 
   @override
@@ -350,7 +353,16 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Głębokość objętości';
 
   @override
+  String get measCustomValueTitle => 'Wartość pomiaru';
+
+  @override
   String get menuAddNode => 'Dodaj węzeł';
+
+  @override
+  String get menuEditMeasurementValue => 'Edytuj wartość pomiaru';
+
+  @override
+  String get menuAddLeader => 'Dodaj linię odniesienia';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -365,6 +377,28 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Zastosuj do stron…';
+
+  @override
+  String get propLeader => 'Linia odniesienia';
+
+  @override
+  String get propOutlineWidth => 'Grubość obrysu';
+
+  @override
+  String get menuRotateSelection => 'Obróć wokół środka zaznaczenia…';
+
+  @override
+  String get menuRotateEach => 'Obróć każdą adnotację…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Obrót (stopnie, przeciwnie do wskazówek zegara)';
+
+  @override
+  String get menuGroup => 'Grupuj';
+
+  @override
+  String get menuUngroup => 'Rozgrupuj';
 
   @override
   String get menuBringToFront => 'Przenieś na wierzch';
@@ -413,6 +447,12 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Usuń węzeł';
+
+  @override
+  String get menuRemoveLeader => 'Usuń linię odniesienia';
+
+  @override
+  String get menuAddNoteHere => 'Dodaj notatkę tutaj';
 
   @override
   String get menuSaveToStamps => 'Zapisz w stemplach';
@@ -1701,6 +1741,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Zmierz długość łuku';
 
   @override
+  String get tbNameMeasureCustom => 'Własny wymiar (wpisz wartość)';
+
+  @override
   String get tbNameMeasureArea => 'Zmierz powierzchnię';
 
   @override
@@ -2418,58 +2461,6 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna';
 
   @override
-  String get textVerticalAlign => 'Wyrównanie w pionie';
-
-  @override
-  String get textAlignTop => 'Wyrównaj tekst do góry';
-
-  @override
-  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
-
-  @override
-  String get textAlignBottom => 'Wyrównaj tekst do dołu';
-
-  @override
-  String get measCustomValueTitle => 'Wartość pomiaru';
-
-  @override
-  String get menuEditMeasurementValue => 'Edytuj wartość pomiaru';
-
-  @override
-  String get menuAddLeader => 'Dodaj linię odniesienia';
-
-  @override
-  String get propLeader => 'Linia odniesienia';
-
-  @override
-  String get propOutlineWidth => 'Grubość obrysu';
-
-  @override
-  String get menuRotateSelection => 'Obróć wokół środka zaznaczenia…';
-
-  @override
-  String get menuRotateEach => 'Obróć każdą adnotację…';
-
-  @override
-  String get rotationAngleTitle =>
-      'Obrót (stopnie, przeciwnie do wskazówek zegara)';
-
-  @override
-  String get menuGroup => 'Grupuj';
-
-  @override
-  String get menuUngroup => 'Rozgrupuj';
-
-  @override
-  String get menuRemoveLeader => 'Usuń linię odniesienia';
-
-  @override
-  String get menuAddNoteHere => 'Dodaj notatkę tutaj';
-
-  @override
-  String get tbNameMeasureCustom => 'Własny wymiar (wpisz wartość)';
-
-  @override
   String get insertPagesTitle => 'Wstaw strony';
 
   @override
@@ -2615,4 +2606,16 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy.';
+
+  @override
+  String get textVerticalAlign => 'Wyrównanie w pionie';
+
+  @override
+  String get textAlignTop => 'Wyrównaj tekst do góry';
+
+  @override
+  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
+
+  @override
+  String get textAlignBottom => 'Wyrównaj tekst do dołu';
 }

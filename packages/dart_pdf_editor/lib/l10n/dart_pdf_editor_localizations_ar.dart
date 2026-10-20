@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get duplicate => 'تكرار';
+
+  @override
   String get add => 'إضافة';
 
   @override
@@ -352,7 +355,16 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'عمق الحجم';
 
   @override
+  String get measCustomValueTitle => 'قيمة القياس';
+
+  @override
   String get menuAddNode => 'إضافة عقدة';
+
+  @override
+  String get menuEditMeasurementValue => 'تعديل قيمة القياس';
+
+  @override
+  String get menuAddLeader => 'إضافة خط إشارة';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -367,6 +379,27 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'التطبيق على الصفحات…';
+
+  @override
+  String get propLeader => 'خط الإشارة';
+
+  @override
+  String get propOutlineWidth => 'عرض الإطار';
+
+  @override
+  String get menuRotateSelection => 'تدوير حول مركز التحديد…';
+
+  @override
+  String get menuRotateEach => 'تدوير كل تعليق توضيحي…';
+
+  @override
+  String get rotationAngleTitle => 'الدوران (درجات، عكس عقارب الساعة)';
+
+  @override
+  String get menuGroup => 'تجميع';
+
+  @override
+  String get menuUngroup => 'إلغاء التجميع';
 
   @override
   String get menuBringToFront => 'إحضار إلى الأمام';
@@ -415,6 +448,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'إزالة عقدة';
+
+  @override
+  String get menuRemoveLeader => 'إزالة خط إشارة';
+
+  @override
+  String get menuAddNoteHere => 'إضافة ملاحظة هنا';
 
   @override
   String get menuSaveToStamps => 'حفظ في الأختام';
@@ -1705,6 +1744,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'قياس طول القوس';
 
   @override
+  String get tbNameMeasureCustom => 'قياس مخصص (اكتب القيمة)';
+
+  @override
   String get tbNameMeasureArea => 'قياس المساحة';
 
   @override
@@ -2415,57 +2457,6 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة';
 
   @override
-  String get textVerticalAlign => 'المحاذاة الرأسية';
-
-  @override
-  String get textAlignTop => 'محاذاة النص إلى الأعلى';
-
-  @override
-  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
-
-  @override
-  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
-
-  @override
-  String get measCustomValueTitle => 'قيمة القياس';
-
-  @override
-  String get menuEditMeasurementValue => 'تعديل قيمة القياس';
-
-  @override
-  String get menuAddLeader => 'إضافة خط إشارة';
-
-  @override
-  String get propLeader => 'خط الإشارة';
-
-  @override
-  String get propOutlineWidth => 'عرض الإطار';
-
-  @override
-  String get menuRotateSelection => 'تدوير حول مركز التحديد…';
-
-  @override
-  String get menuRotateEach => 'تدوير كل تعليق توضيحي…';
-
-  @override
-  String get rotationAngleTitle => 'الدوران (درجات، عكس عقارب الساعة)';
-
-  @override
-  String get menuGroup => 'تجميع';
-
-  @override
-  String get menuUngroup => 'إلغاء التجميع';
-
-  @override
-  String get menuRemoveLeader => 'إزالة خط إشارة';
-
-  @override
-  String get menuAddNoteHere => 'إضافة ملاحظة هنا';
-
-  @override
-  String get tbNameMeasureCustom => 'قياس مخصص (اكتب القيمة)';
-
-  @override
   String get insertPagesTitle => 'إدراج صفحات';
 
   @override
@@ -2613,4 +2604,16 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.';
+
+  @override
+  String get textVerticalAlign => 'المحاذاة الرأسية';
+
+  @override
+  String get textAlignTop => 'محاذاة النص إلى الأعلى';
+
+  @override
+  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
+
+  @override
+  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
 }

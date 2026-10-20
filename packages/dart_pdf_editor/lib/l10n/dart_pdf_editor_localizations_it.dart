@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsIt([String locale = 'it']) : super(locale);
 
   @override
+  String get duplicate => 'Duplica';
+
+  @override
   String get add => 'Aggiungi';
 
   @override
@@ -345,7 +348,16 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Profondità del volume';
 
   @override
+  String get measCustomValueTitle => 'Valore della misura';
+
+  @override
   String get menuAddNode => 'Aggiungi nodo';
+
+  @override
+  String get menuEditMeasurementValue => 'Modifica valore della misura';
+
+  @override
+  String get menuAddLeader => 'Aggiungi linea di richiamo';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -360,6 +372,27 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Applica alle pagine…';
+
+  @override
+  String get propLeader => 'Linea guida';
+
+  @override
+  String get propOutlineWidth => 'Spessore del contorno';
+
+  @override
+  String get menuRotateSelection => 'Ruota intorno al centro della selezione…';
+
+  @override
+  String get menuRotateEach => 'Ruota ogni annotazione…';
+
+  @override
+  String get rotationAngleTitle => 'Rotazione (gradi, senso antiorario)';
+
+  @override
+  String get menuGroup => 'Raggruppa';
+
+  @override
+  String get menuUngroup => 'Separa';
 
   @override
   String get menuBringToFront => 'Porta in primo piano';
@@ -408,6 +441,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Rimuovi nodo';
+
+  @override
+  String get menuRemoveLeader => 'Rimuovi linea di richiamo';
+
+  @override
+  String get menuAddNoteHere => 'Aggiungi nota qui';
 
   @override
   String get menuSaveToStamps => 'Salva nei timbri';
@@ -1680,6 +1719,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Misura lunghezza arco';
 
   @override
+  String get tbNameMeasureCustom => 'Misura personalizzata (digita il valore)';
+
+  @override
   String get tbNameMeasureArea => 'Misura area';
 
   @override
@@ -2384,57 +2426,6 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Mostra le barre degli strumenti sopra la pagina invece di agganciarle ai bordi della finestra';
 
   @override
-  String get textVerticalAlign => 'Allineamento verticale';
-
-  @override
-  String get textAlignTop => 'Allinea il testo in alto';
-
-  @override
-  String get textAlignMiddle => 'Centra il testo verticalmente';
-
-  @override
-  String get textAlignBottom => 'Allinea il testo in basso';
-
-  @override
-  String get measCustomValueTitle => 'Valore della misura';
-
-  @override
-  String get menuEditMeasurementValue => 'Modifica valore della misura';
-
-  @override
-  String get menuAddLeader => 'Aggiungi linea di richiamo';
-
-  @override
-  String get propLeader => 'Linea guida';
-
-  @override
-  String get propOutlineWidth => 'Spessore del contorno';
-
-  @override
-  String get menuRotateSelection => 'Ruota intorno al centro della selezione…';
-
-  @override
-  String get menuRotateEach => 'Ruota ogni annotazione…';
-
-  @override
-  String get rotationAngleTitle => 'Rotazione (gradi, senso antiorario)';
-
-  @override
-  String get menuGroup => 'Raggruppa';
-
-  @override
-  String get menuUngroup => 'Separa';
-
-  @override
-  String get menuRemoveLeader => 'Rimuovi linea di richiamo';
-
-  @override
-  String get menuAddNoteHere => 'Aggiungi nota qui';
-
-  @override
-  String get tbNameMeasureCustom => 'Misura personalizzata (digita il valore)';
-
-  @override
   String get insertPagesTitle => 'Inserisci pagine';
 
   @override
@@ -2573,4 +2564,16 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme.';
+
+  @override
+  String get textVerticalAlign => 'Allineamento verticale';
+
+  @override
+  String get textAlignTop => 'Allinea il testo in alto';
+
+  @override
+  String get textAlignMiddle => 'Centra il testo verticalmente';
+
+  @override
+  String get textAlignBottom => 'Allinea il testo in basso';
 }

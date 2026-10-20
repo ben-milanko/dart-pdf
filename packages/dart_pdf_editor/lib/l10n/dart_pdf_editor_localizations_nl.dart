@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
+  String get duplicate => 'Dupliceren';
+
+  @override
   String get add => 'Toevoegen';
 
   @override
@@ -344,7 +347,16 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volumediepte';
 
   @override
+  String get measCustomValueTitle => 'Meetwaarde';
+
+  @override
   String get menuAddNode => 'Knooppunt toevoegen';
+
+  @override
+  String get menuEditMeasurementValue => 'Meetwaarde bewerken';
+
+  @override
+  String get menuAddLeader => 'Verwijslijn toevoegen';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -359,6 +371,27 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Toepassen op pagina\'s…';
+
+  @override
+  String get propLeader => 'Verwijslijn';
+
+  @override
+  String get propOutlineWidth => 'Omtrekdikte';
+
+  @override
+  String get menuRotateSelection => 'Rond het selectiemidden draaien…';
+
+  @override
+  String get menuRotateEach => 'Elke annotatie draaien…';
+
+  @override
+  String get rotationAngleTitle => 'Rotatie (graden, tegen de klok in)';
+
+  @override
+  String get menuGroup => 'Groeperen';
+
+  @override
+  String get menuUngroup => 'Groepering opheffen';
 
   @override
   String get menuBringToFront => 'Naar voorgrond';
@@ -407,6 +440,12 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Knooppunt verwijderen';
+
+  @override
+  String get menuRemoveLeader => 'Verwijslijn verwijderen';
+
+  @override
+  String get menuAddNoteHere => 'Notitie hier toevoegen';
 
   @override
   String get menuSaveToStamps => 'Opslaan bij stempels';
@@ -1680,6 +1719,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Booglengte meten';
 
   @override
+  String get tbNameMeasureCustom => 'Aangepaste maat (waarde typen)';
+
+  @override
   String get tbNameMeasureArea => 'Oppervlakte meten';
 
   @override
@@ -2380,57 +2422,6 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten';
 
   @override
-  String get textVerticalAlign => 'Verticaal uitlijnen';
-
-  @override
-  String get textAlignTop => 'Tekst boven uitlijnen';
-
-  @override
-  String get textAlignMiddle => 'Tekst verticaal centreren';
-
-  @override
-  String get textAlignBottom => 'Tekst onder uitlijnen';
-
-  @override
-  String get measCustomValueTitle => 'Meetwaarde';
-
-  @override
-  String get menuEditMeasurementValue => 'Meetwaarde bewerken';
-
-  @override
-  String get menuAddLeader => 'Verwijslijn toevoegen';
-
-  @override
-  String get propLeader => 'Verwijslijn';
-
-  @override
-  String get propOutlineWidth => 'Omtrekdikte';
-
-  @override
-  String get menuRotateSelection => 'Rond het selectiemidden draaien…';
-
-  @override
-  String get menuRotateEach => 'Elke annotatie draaien…';
-
-  @override
-  String get rotationAngleTitle => 'Rotatie (graden, tegen de klok in)';
-
-  @override
-  String get menuGroup => 'Groeperen';
-
-  @override
-  String get menuUngroup => 'Groepering opheffen';
-
-  @override
-  String get menuRemoveLeader => 'Verwijslijn verwijderen';
-
-  @override
-  String get menuAddNoteHere => 'Notitie hier toevoegen';
-
-  @override
-  String get tbNameMeasureCustom => 'Aangepaste maat (waarde typen)';
-
-  @override
   String get insertPagesTitle => 'Pagina\'s invoegen';
 
   @override
@@ -2570,4 +2561,16 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina\'s zou de handtekeningen ongeldig maken.';
+
+  @override
+  String get textVerticalAlign => 'Verticaal uitlijnen';
+
+  @override
+  String get textAlignTop => 'Tekst boven uitlijnen';
+
+  @override
+  String get textAlignMiddle => 'Tekst verticaal centreren';
+
+  @override
+  String get textAlignBottom => 'Tekst onder uitlijnen';
 }

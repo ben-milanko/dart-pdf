@@ -1,4 +1,8 @@
 {
+  "duplicate": "Duplicate",
+  "@duplicate": {
+    "description": "Duplicate a library item or selected annotation as an independent copy."
+  },
   "@@locale": "en",
   "add": "Add",
   "@add": {
@@ -446,9 +450,21 @@
   "@measVolumeDepth": {
     "description": "Title of the dialog asking for the extrusion depth of a volume measurement."
   },
+  "measCustomValueTitle": "Measurement value",
+  "@measCustomValueTitle": {
+    "description": "Title of the prompt asking for the value a measurement shows (a written value such as 12'-6\" replacing the computed one)."
+  },
   "menuAddNode": "Add node",
   "@menuAddNode": {
     "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
+  },
+  "menuEditMeasurementValue": "Edit measurement value",
+  "@menuEditMeasurementValue": {
+    "description": "Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value."
+  },
+  "menuAddLeader": "Add leader",
+  "@menuAddLeader": {
+    "description": "Annotation context-menu item that adds another leader line (arrow) to the selected callout."
   },
   "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Apply annotation to pages} other{Apply annotations to pages}}",
   "@menuApplyAnnotationsToPagesTitle": {
@@ -462,6 +478,34 @@
   "menuApplyToPages": "Apply to pages…",
   "@menuApplyToPages": {
     "description": "Annotation context-menu item that copies the selected annotation(s) to a range of pages."
+  },
+  "propLeader": "Leader",
+  "@propLeader": {
+    "description": "Properties section for independently styling callout leader lines."
+  },
+  "propOutlineWidth": "Outline width",
+  "@propOutlineWidth": {
+    "description": "Properties control for the callout text box outline width; zero removes it."
+  },
+  "menuRotateSelection": "Rotate around selection center…",
+  "@menuRotateSelection": {
+    "description": "Annotation menu: rotate multiple annotations around their shared centre."
+  },
+  "menuRotateEach": "Rotate each annotation…",
+  "@menuRotateEach": {
+    "description": "Annotation menu: rotate multiple annotations around their individual centres."
+  },
+  "rotationAngleTitle": "Rotation (degrees, counterclockwise)",
+  "@rotationAngleTitle": {
+    "description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."
+  },
+  "menuGroup": "Group",
+  "@menuGroup": {
+    "description": "Annotation context menu: make the selected annotations one persistent group."
+  },
+  "menuUngroup": "Ungroup",
+  "@menuUngroup": {
+    "description": "Annotation context menu: dissolve selected groups while retaining their annotations."
   },
   "menuBringToFront": "Bring to front",
   "@menuBringToFront": {
@@ -526,6 +570,14 @@
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
+  },
+  "menuRemoveLeader": "Remove leader",
+  "@menuRemoveLeader": {
+    "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
+  },
+  "menuAddNoteHere": "Add note here",
+  "@menuAddNoteHere": {
+    "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
   },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
@@ -2185,6 +2237,10 @@
   "@tbNameMeasureArc": {
     "description": "Tool name: measure an arc length."
   },
+  "tbNameMeasureCustom": "Custom measurement (type value)",
+  "@tbNameMeasureCustom": {
+    "description": "Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale."
+  },
   "tbNameMeasureArea": "Measure area",
   "@tbNameMeasureArea": {
     "description": "Tool name: measure an area."
@@ -3044,62 +3100,6 @@
   "@tbFloatingToolbarsHint": {
     "description": "Subtitle explaining the Floating toolbars setting."
   },
-  "textVerticalAlign": "Vertical alignment",
-  "textAlignTop": "Align text to top",
-  "textAlignMiddle": "Align text to middle",
-  "textAlignBottom": "Align text to bottom",
-  "measCustomValueTitle": "Measurement value",
-  "@measCustomValueTitle": {
-    "description": "Title of the prompt asking for the value a measurement shows (a written value such as 12'-6\" replacing the computed one)."
-  },
-  "menuEditMeasurementValue": "Edit measurement value",
-  "@menuEditMeasurementValue": {
-    "description": "Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value."
-  },
-  "menuAddLeader": "Add leader",
-  "@menuAddLeader": {
-    "description": "Annotation context-menu item that adds another leader line (arrow) to the selected callout."
-  },
-  "propLeader": "Leader",
-  "@propLeader": {
-    "description": "Properties section for independently styling callout leader lines."
-  },
-  "propOutlineWidth": "Outline width",
-  "@propOutlineWidth": {
-    "description": "Properties control for the callout text box outline width; zero removes it."
-  },
-  "menuRotateSelection": "Rotate around selection center…",
-  "@menuRotateSelection": {
-    "description": "Annotation menu: rotate multiple annotations around their shared centre."
-  },
-  "menuRotateEach": "Rotate each annotation…",
-  "@menuRotateEach": {
-    "description": "Annotation menu: rotate multiple annotations around their individual centres."
-  },
-  "rotationAngleTitle": "Rotation (degrees, counterclockwise)",
-  "@rotationAngleTitle": {
-    "description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."
-  },
-  "menuGroup": "Group",
-  "@menuGroup": {
-    "description": "Annotation context menu: make the selected annotations one persistent group."
-  },
-  "menuUngroup": "Ungroup",
-  "@menuUngroup": {
-    "description": "Annotation context menu: dissolve selected groups while retaining their annotations."
-  },
-  "menuRemoveLeader": "Remove leader",
-  "@menuRemoveLeader": {
-    "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
-  },
-  "menuAddNoteHere": "Add note here",
-  "@menuAddNoteHere": {
-    "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
-  },
-  "tbNameMeasureCustom": "Custom measurement (type value)",
-  "@tbNameMeasureCustom": {
-    "description": "Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale."
-  },
   "insertPagesTitle": "Insert pages",
   "@insertPagesTitle": {
     "description": "Title of the multi-document insert-pages dialog."
@@ -3276,5 +3276,9 @@
   "pageColorNotBakedSigned": "The page color wasn't saved into the file: changing the pages would invalidate its signatures.",
   "@pageColorNotBakedSigned": {
     "description": "Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid."
-  }
+  },
+  "textVerticalAlign": "Vertical alignment",
+  "textAlignTop": "Align text to top",
+  "textAlignMiddle": "Align text to middle",
+  "textAlignBottom": "Align text to bottom"
 }

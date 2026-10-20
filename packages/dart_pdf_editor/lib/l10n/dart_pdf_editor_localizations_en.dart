@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get duplicate => 'Duplicate';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -343,7 +346,16 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -358,6 +370,27 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Apply to pages…';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection center…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
 
   @override
   String get menuBringToFront => 'Bring to front';
@@ -406,6 +439,12 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -1674,6 +1713,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Measure arc length';
 
   @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
   String get tbNameMeasureArea => 'Measure area';
 
   @override
@@ -2368,57 +2410,6 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       'Float the toolbars over the page instead of docking them to the window edges';
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
-
-  @override
-  String get measCustomValueTitle => 'Measurement value';
-
-  @override
-  String get menuEditMeasurementValue => 'Edit measurement value';
-
-  @override
-  String get menuAddLeader => 'Add leader';
-
-  @override
-  String get propLeader => 'Leader';
-
-  @override
-  String get propOutlineWidth => 'Outline width';
-
-  @override
-  String get menuRotateSelection => 'Rotate around selection center…';
-
-  @override
-  String get menuRotateEach => 'Rotate each annotation…';
-
-  @override
-  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
-
-  @override
-  String get menuGroup => 'Group';
-
-  @override
-  String get menuUngroup => 'Ungroup';
-
-  @override
-  String get menuRemoveLeader => 'Remove leader';
-
-  @override
-  String get menuAddNoteHere => 'Add note here';
-
-  @override
-  String get tbNameMeasureCustom => 'Custom measurement (type value)';
-
-  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -2557,6 +2548,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2564,6 +2567,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnAu() : super('en_AU');
 
   @override
+  String get duplicate => 'Duplicate';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -2898,7 +2904,16 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -2913,6 +2928,27 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuApplyToPages => 'Apply to pages…';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
 
   @override
   String get menuBringToFront => 'Bring to front';
@@ -2961,6 +2997,12 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -4229,6 +4271,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tbNameMeasureArc => 'Measure arc length';
 
   @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
   String get tbNameMeasureArea => 'Measure area';
 
   @override
@@ -4923,57 +4968,6 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       'Float the toolbars over the page instead of docking them to the window edges';
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
-
-  @override
-  String get measCustomValueTitle => 'Measurement value';
-
-  @override
-  String get menuEditMeasurementValue => 'Edit measurement value';
-
-  @override
-  String get menuAddLeader => 'Add leader';
-
-  @override
-  String get propLeader => 'Leader';
-
-  @override
-  String get propOutlineWidth => 'Outline width';
-
-  @override
-  String get menuRotateSelection => 'Rotate around selection centre…';
-
-  @override
-  String get menuRotateEach => 'Rotate each annotation…';
-
-  @override
-  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
-
-  @override
-  String get menuGroup => 'Group';
-
-  @override
-  String get menuUngroup => 'Ungroup';
-
-  @override
-  String get menuRemoveLeader => 'Remove leader';
-
-  @override
-  String get menuAddNoteHere => 'Add note here';
-
-  @override
-  String get tbNameMeasureCustom => 'Custom measurement (type value)';
-
-  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -5112,6 +5106,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -5119,6 +5125,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnGb() : super('en_GB');
 
   @override
+  String get duplicate => 'Duplicate';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -5453,7 +5462,16 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get measVolumeDepth => 'Volume depth';
 
   @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
   String get menuAddNode => 'Add node';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -5468,6 +5486,27 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuApplyToPages => 'Apply to pages…';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
 
   @override
   String get menuBringToFront => 'Bring to front';
@@ -5516,6 +5555,12 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRemoveNode => 'Remove node';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';
@@ -6784,6 +6829,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get tbNameMeasureArc => 'Measure arc length';
 
   @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
   String get tbNameMeasureArea => 'Measure area';
 
   @override
@@ -7478,57 +7526,6 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
       'Float the toolbars over the page instead of docking them to the window edges';
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
-
-  @override
-  String get measCustomValueTitle => 'Measurement value';
-
-  @override
-  String get menuEditMeasurementValue => 'Edit measurement value';
-
-  @override
-  String get menuAddLeader => 'Add leader';
-
-  @override
-  String get propLeader => 'Leader';
-
-  @override
-  String get propOutlineWidth => 'Outline width';
-
-  @override
-  String get menuRotateSelection => 'Rotate around selection centre…';
-
-  @override
-  String get menuRotateEach => 'Rotate each annotation…';
-
-  @override
-  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
-
-  @override
-  String get menuGroup => 'Group';
-
-  @override
-  String get menuUngroup => 'Ungroup';
-
-  @override
-  String get menuRemoveLeader => 'Remove leader';
-
-  @override
-  String get menuAddNoteHere => 'Add note here';
-
-  @override
-  String get tbNameMeasureCustom => 'Custom measurement (type value)';
-
-  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -7667,4 +7664,16 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }

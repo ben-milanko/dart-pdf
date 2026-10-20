@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get duplicate => 'Дублювати';
+
+  @override
   String get add => 'Додати';
 
   @override
@@ -349,7 +352,16 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Глибина об’єму';
 
   @override
+  String get measCustomValueTitle => 'Значення вимірювання';
+
+  @override
   String get menuAddNode => 'Додати вузол';
+
+  @override
+  String get menuEditMeasurementValue => 'Змінити значення вимірювання';
+
+  @override
+  String get menuAddLeader => 'Додати лінію виноски';
 
   @override
   String menuApplyAnnotationsToPagesTitle(int count) {
@@ -364,6 +376,28 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Застосувати до сторінок…';
+
+  @override
+  String get propLeader => 'Виноска';
+
+  @override
+  String get propOutlineWidth => 'Товщина контуру';
+
+  @override
+  String get menuRotateSelection => 'Повернути навколо центру виділення…';
+
+  @override
+  String get menuRotateEach => 'Повернути кожну анотацію…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Обертання (градуси, проти годинникової стрілки)';
+
+  @override
+  String get menuGroup => 'Згрупувати';
+
+  @override
+  String get menuUngroup => 'Розгрупувати';
 
   @override
   String get menuBringToFront => 'На передній план';
@@ -412,6 +446,12 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveNode => 'Вилучити вузол';
+
+  @override
+  String get menuRemoveLeader => 'Вилучити лінію виноски';
+
+  @override
+  String get menuAddNoteHere => 'Додати нотатку тут';
 
   @override
   String get menuSaveToStamps => 'Зберегти у штампи';
@@ -1700,6 +1740,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Виміряти довжину дуги';
 
   @override
+  String get tbNameMeasureCustom => 'Власний розмір (ввести значення)';
+
+  @override
   String get tbNameMeasureArea => 'Виміряти площу';
 
   @override
@@ -2418,58 +2461,6 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       'Показувати панелі інструментів над сторінкою, а не закріплювати біля країв вікна';
 
   @override
-  String get textVerticalAlign => 'Вертикальне вирівнювання';
-
-  @override
-  String get textAlignTop => 'Вирівняти текст за верхнім краєм';
-
-  @override
-  String get textAlignMiddle => 'Вирівняти текст по центру';
-
-  @override
-  String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
-
-  @override
-  String get measCustomValueTitle => 'Значення вимірювання';
-
-  @override
-  String get menuEditMeasurementValue => 'Змінити значення вимірювання';
-
-  @override
-  String get menuAddLeader => 'Додати лінію виноски';
-
-  @override
-  String get propLeader => 'Виноска';
-
-  @override
-  String get propOutlineWidth => 'Товщина контуру';
-
-  @override
-  String get menuRotateSelection => 'Повернути навколо центру виділення…';
-
-  @override
-  String get menuRotateEach => 'Повернути кожну анотацію…';
-
-  @override
-  String get rotationAngleTitle =>
-      'Обертання (градуси, проти годинникової стрілки)';
-
-  @override
-  String get menuGroup => 'Згрупувати';
-
-  @override
-  String get menuUngroup => 'Розгрупувати';
-
-  @override
-  String get menuRemoveLeader => 'Вилучити лінію виноски';
-
-  @override
-  String get menuAddNoteHere => 'Додати нотатку тут';
-
-  @override
-  String get tbNameMeasureCustom => 'Власний розмір (ввести значення)';
-
-  @override
   String get insertPagesTitle => 'Вставити сторінки';
 
   @override
@@ -2615,4 +2606,16 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними.';
+
+  @override
+  String get textVerticalAlign => 'Вертикальне вирівнювання';
+
+  @override
+  String get textAlignTop => 'Вирівняти текст за верхнім краєм';
+
+  @override
+  String get textAlignMiddle => 'Вирівняти текст по центру';
+
+  @override
+  String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
 }
