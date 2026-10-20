@@ -4,6 +4,7 @@
 // falling through to the scroll view. The reach is deliberately narrow: it
 // takes only presses on the selection itself, leaving the rest of the
 // canvas to scrolling. See PdfEditingReach.
+import 'dart:math' as math;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_reach.dart';
 import 'package:material_ui/material_ui.dart';
@@ -17,15 +18,20 @@ void main() {
     // The default page fit leaves the 612x792 page narrower than the 800x600
     // test surface, so there is a real margin either side to press in - the
     // grey canvas the reader sees beside the paper.
-    Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
+    Future<PdfEditingController> pumpEditor(WidgetTester tester,
+        {int pages = 1, PdfViewerController? viewer}) async {
       SharedPreferences.setMockInitialValues({});
-      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final editing = PdfEditingController(buildMultiPagePdf(pages));
       addTearDown(editing.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: ListenableBuilder(
             listenable: editing,
-            builder: (context, _) => PdfViewer(editing: editing),
+            builder: (context, _) => PdfViewer(
+              editing: editing,
+              controller: viewer,
+              pageSpacing: 100,
+            ),
           ),
         ),
       ));
@@ -37,7 +43,7 @@ void main() {
     /// sized to the page and - unlike the editing overlay - is mounted even
     /// in reading mode.
     Rect pageRect(WidgetTester tester) =>
-        tester.getRect(find.byType(PdfEditingReach));
+        tester.getRect(find.byType(PdfEditingReach).first);
 
     /// Global position of a page-space point, on or off the page.
     Offset globalOf(
@@ -100,6 +106,139 @@ void main() {
       expect(after.bottom, closeTo(before.bottom, 1));
       expect(editing.document.page(0).annotations, hasLength(1));
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await settle(tester);
+    });
+
+    for (final edge in ['left', 'right', 'top', 'bottom']) {
+      testWidgets('resizes from visible $edge gutter handle', (tester) async {
+        final viewer = PdfViewerController();
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          viewer.dispose();
+        });
+        final editing = await pumpEditor(tester, pages: 2, viewer: viewer);
+        viewer.setZoom(0.5);
+        await tester.pumpAndSettle();
+        final bounds = switch (edge) {
+          'left' => const PdfRect(-15, 350, 100, 450),
+          'right' => const PdfRect(500, 350, 627, 450),
+          'top' => const PdfRect(250, 700, 350, 807),
+          _ => const PdfRect(250, -15, 350, 100),
+        };
+        final index = edge == 'top' ? 1 : 0;
+        editing.addRectangle(index, bounds);
+        editing.selectAnnotation(index, 0);
+        await tester.pump();
+        final page = tester.getRect(find.byType(PdfEditingReach).at(index));
+        final geometry = PdfPageGeometry(
+            cropBox: editing.document.page(index).cropBox,
+            rotation: 0,
+            viewSize: page.size);
+        Offset point(double x, double y) =>
+            page.topLeft + geometry.toViewOffset(x, y);
+        final from = switch (edge) {
+          'left' => point(bounds.left, 400),
+          'right' => point(bounds.right, 400),
+          'top' => point(300, bounds.top),
+          _ => point(300, bounds.bottom),
+        };
+        expect(page.contains(from), isFalse);
+        expect(tester.getRect(find.byType(PdfViewer)).contains(from), isTrue);
+        final delta = switch (edge) {
+          'left' => const Offset(40, 0),
+          'right' => const Offset(-40, 0),
+          'top' => const Offset(0, 40),
+          _ => const Offset(0, -40),
+        };
+        await drag(tester, from, from + delta);
+        final after = editing.document.page(index).annotations.single.rect;
+        if (edge == 'left' || edge == 'right') {
+          expect(after.width, lessThan(bounds.width - 20));
+        } else {
+          expect(after.height, lessThan(bounds.height - 20));
+        }
+        await settle(tester);
+      });
+    }
+
+    for (final zoom in [0.4, 0.6]) {
+      for (final rotation in [0, 90]) {
+        testWidgets('rotate knob in gutter at zoom $zoom rotation $rotation',
+            (tester) async {
+          final viewer = PdfViewerController();
+          addTearDown(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            viewer.dispose();
+          });
+          final editing = await pumpEditor(tester, pages: 2, viewer: viewer);
+          viewer.rotateView(rotation);
+          viewer.setZoom(zoom);
+          await tester.pumpAndSettle();
+          final bounds = rotation == 0
+              ? const PdfRect(250, 700, 350, 787)
+              : const PdfRect(5, 300, 92, 400);
+          editing.addRectangle(1, bounds);
+          editing.selectAnnotation(1, 0);
+          await tester.pump();
+          final page = tester.getRect(find.byType(PdfEditingReach).at(1));
+          final geometry = PdfPageGeometry(
+              cropBox: editing.document.page(1).cropBox,
+              rotation: rotation,
+              viewSize: page.size);
+          final box = geometry.toViewRect(bounds).shift(page.topLeft);
+          final from = Offset(box.center.dx, box.top - 22);
+          expect(page.contains(from), isFalse);
+          expect(tester.getRect(find.byType(PdfViewer)).contains(from), isTrue);
+          final radius = box.center.dy - from.dy;
+          await drag(tester, from, box.center + Offset(radius, 0));
+          final angle =
+              editing.document.page(1).annotations.single.appearanceRotation;
+          expect(angle.abs(), closeTo(math.pi / 2, 0.03));
+          await settle(tester);
+        });
+      }
+    }
+
+    testWidgets('empty gutter still pans with selection', (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewer.dispose();
+      });
+      final editing = await pumpEditor(tester, pages: 3, viewer: viewer);
+      viewer.setZoom(0.5);
+      await tester.pumpAndSettle();
+      editing.addRectangle(0, const PdfRect(200, 100, 300, 200));
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+      final before = pageRect(tester).top;
+      await drag(tester, const Offset(50, 400), const Offset(50, 250));
+      expect(pageRect(tester).top, lessThan(before - 50));
+      await settle(tester);
+    });
+
+    testWidgets('off-page selection does not steal adjacent page taps',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewer.dispose();
+      });
+      final editing = await pumpEditor(tester, pages: 2, viewer: viewer);
+      viewer.setZoom(0.5);
+      await tester.pumpAndSettle();
+      editing.addRectangle(0, const PdfRect(250, -350, 350, 100));
+      editing.addRectangle(1, const PdfRect(250, 650, 350, 750));
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+      final page = tester.getRect(find.byType(PdfEditingReach).at(1));
+      final geometry = PdfPageGeometry(
+          cropBox: editing.document.page(1).cropBox,
+          rotation: 0,
+          viewSize: page.size);
+      await tester.tapAt(page.topLeft + geometry.toViewOffset(300, 700));
+      await tester.pump();
+      expect(editing.selectedAnnotationSlots, [(1, 0)]);
       await settle(tester);
     });
 

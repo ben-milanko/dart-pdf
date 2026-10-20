@@ -2568,4 +2568,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек.';
+
+  @override
+  String get duplicate => 'Дублировать';
 }

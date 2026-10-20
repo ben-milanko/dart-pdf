@@ -2517,4 +2517,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।';
+
+  @override
+  String get duplicate => 'डुप्लिकेट बनाएँ';
 }

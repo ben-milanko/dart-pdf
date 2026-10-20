@@ -2530,4 +2530,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen.';
+
+  @override
+  String get duplicate => 'Duplizieren';
 }

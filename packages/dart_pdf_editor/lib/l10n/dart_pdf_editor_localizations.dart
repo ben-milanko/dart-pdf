@@ -4541,6 +4541,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.'**
   String get tableClipboardError;
+
+  /// Duplicate a library item or selected annotation as an independent copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicate;
 }
 
 class _DartPdfEditorLocalizationsDelegate

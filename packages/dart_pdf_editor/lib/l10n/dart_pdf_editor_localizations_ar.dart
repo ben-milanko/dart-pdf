@@ -2569,4 +2569,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'جدول الحافظة غير صالح أو يتجاوز 500 صف أو 100 عمود أو 20,000 خلية.';
+
+  @override
+  String get duplicate => 'تكرار';
 }

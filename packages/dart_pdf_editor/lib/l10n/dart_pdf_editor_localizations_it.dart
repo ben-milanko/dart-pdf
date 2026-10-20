@@ -2528,4 +2528,7 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle.';
+
+  @override
+  String get duplicate => 'Duplica';
 }

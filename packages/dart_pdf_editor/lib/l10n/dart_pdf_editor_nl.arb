@@ -733,5 +733,6 @@
   "tableColumnWidth": "Kolombreedte",
   "tableRowHeight": "Rijhoogte",
   "tableSelectionHint": "Klik op een cel om te bewerken; Shift-klik selecteert een bereik. Kopiëren en Plakken wisselen celwaarden uit met Excel.",
-  "tableClipboardError": "De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen."
+  "tableClipboardError": "De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen.",
+  "duplicate": "Dupliceren"
 }

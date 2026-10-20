@@ -733,5 +733,6 @@
   "tableColumnWidth": "Larghezza colonna",
   "tableRowHeight": "Altezza riga",
   "tableSelectionHint": "Fai clic su una cella per modificarla; Maiusc-clic seleziona un intervallo. Copia e Incolla scambiano i valori delle celle con Excel.",
-  "tableClipboardError": "La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle."
+  "tableClipboardError": "La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle.",
+  "duplicate": "Duplica"
 }

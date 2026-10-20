@@ -2520,4 +2520,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Pano tablosu geçersiz veya 500 satır, 100 sütun ya da 20.000 hücre sınırını aşıyor.';
+
+  @override
+  String get duplicate => 'Çoğalt';
 }

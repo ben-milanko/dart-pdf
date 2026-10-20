@@ -2480,4 +2480,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       '클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.';
+
+  @override
+  String get duplicate => '복제';
 }

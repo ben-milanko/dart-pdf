@@ -733,5 +733,6 @@
   "tableColumnWidth": "Largeur de colonne",
   "tableRowHeight": "Hauteur de ligne",
   "tableSelectionHint": "Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.",
-  "tableClipboardError": "Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules."
+  "tableClipboardError": "Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.",
+  "duplicate": "Dupliquer"
 }

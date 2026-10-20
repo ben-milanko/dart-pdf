@@ -733,5 +733,6 @@
   "tableColumnWidth": "列の幅",
   "tableRowHeight": "行の高さ",
   "tableSelectionHint": "セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。",
-  "tableClipboardError": "クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。"
+  "tableClipboardError": "クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。",
+  "duplicate": "複製"
 }

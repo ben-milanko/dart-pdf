@@ -733,5 +733,6 @@
   "tableColumnWidth": "Column width",
   "tableRowHeight": "Row height",
   "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
-  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells."
+  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.",
+  "duplicate": "Duplicate"
 }

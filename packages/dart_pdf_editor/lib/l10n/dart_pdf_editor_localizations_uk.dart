@@ -2569,4 +2569,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Таблиця в буфері обміну некоректна або перевищує 500 рядків, 100 стовпців чи 20 000 клітинок.';
+
+  @override
+  String get duplicate => 'Дублювати';
 }

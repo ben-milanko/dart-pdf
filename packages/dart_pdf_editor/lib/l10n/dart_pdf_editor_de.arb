@@ -733,5 +733,6 @@
   "tableColumnWidth": "Spaltenbreite",
   "tableRowHeight": "Zeilenhöhe",
   "tableSelectionHint": "Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.",
-  "tableClipboardError": "Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen."
+  "tableClipboardError": "Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen.",
+  "duplicate": "Duplizieren"
 }

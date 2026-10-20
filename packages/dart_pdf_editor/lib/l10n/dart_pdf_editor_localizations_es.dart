@@ -2525,4 +2525,7 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'La tabla del portapapeles no es válida o supera 500 filas, 100 columnas o 20.000 celdas.';
+
+  @override
+  String get duplicate => 'Duplicar';
 }

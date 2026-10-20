@@ -733,5 +733,6 @@
   "tableColumnWidth": "Độ rộng cột",
   "tableRowHeight": "Chiều cao hàng",
   "tableSelectionHint": "Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.",
-  "tableClipboardError": "Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô."
+  "tableClipboardError": "Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.",
+  "duplicate": "Nhân bản"
 }

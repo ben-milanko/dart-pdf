@@ -2479,4 +2479,7 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。';
+
+  @override
+  String get duplicate => '複製';
 }

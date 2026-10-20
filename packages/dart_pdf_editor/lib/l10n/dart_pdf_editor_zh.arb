@@ -733,5 +733,6 @@
   "tableColumnWidth": "列宽",
   "tableRowHeight": "行高",
   "tableSelectionHint": "点击单元格进行编辑；按住 Shift 点击可选择区域。复制和粘贴可与 Excel 交换单元格值。",
-  "tableClipboardError": "剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。"
+  "tableClipboardError": "剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。",
+  "duplicate": "复制副本"
 }

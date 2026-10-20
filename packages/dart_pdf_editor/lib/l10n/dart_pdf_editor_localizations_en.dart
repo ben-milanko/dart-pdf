@@ -2512,6 +2512,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -5022,6 +5025,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7532,4 +7538,7 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }

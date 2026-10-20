@@ -2535,4 +2535,7 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.';
+
+  @override
+  String get duplicate => 'Dupliquer';
 }

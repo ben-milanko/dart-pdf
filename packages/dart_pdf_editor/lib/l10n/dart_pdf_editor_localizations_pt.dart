@@ -2525,4 +2525,7 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'A tabela da área de transferência é inválida ou excede 500 linhas, 100 colunas ou 20.000 células.';
+
+  @override
+  String get duplicate => 'Duplicar';
 }

@@ -5451,6 +5451,8 @@ class _PdfViewerState extends State<PdfViewer>
       (_maxCrossPoint <= 0 ? 1.0 : _crossPointOf(index) / _maxCrossPoint) *
       _layoutZoom;
 
+  final _editingReachKeys = <Object, GlobalKey>{};
+
   /// Wraps page [index] in the reach that lets a selected annotation be
   /// grabbed where it hangs off the page - see [PdfEditingReach] for why
   /// hit testing stops at the page edge without it, and why routing through
@@ -5470,6 +5472,8 @@ class _PdfViewerState extends State<PdfViewer>
     return ListenableBuilder(
       listenable: editing,
       builder: (context, child) => PdfEditingReach(
+        key: _editingReachKeys.putIfAbsent(
+            (_tileCacheNamespace, _pageRefs[index] ?? index), GlobalKey.new),
         grabs: (position) => _selectionGrabsPageView(index, position),
         child: child!,
       ),
@@ -5488,14 +5492,13 @@ class _PdfViewerState extends State<PdfViewer>
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
     final contentMain = _scroll.offset + _mainOf(local);
     final point = _axisOffset(contentMain, _crossOf(local));
-    var mainStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
-        return _selectionGrabsPageView(
-            i, point - Offset(_pageContentX(i), _pageContentY(i)));
+    if (_pageContainsListPoint(local)) return false;
+    for (final i
+        in editing.selectedAnnotationSlots.map((slot) => slot.$1).toSet()) {
+      if (_selectionGrabsPageView(
+          i, point - Offset(_pageContentX(i), _pageContentY(i)))) {
+        return true;
       }
-      mainStart += pageMain + widget.pageSpacing;
     }
     return false;
   }
@@ -9922,7 +9925,11 @@ class _PdfViewerState extends State<PdfViewer>
                                     // pointer
                                     IgnorePointer(
                                       ignoring: _zoomModifierDown,
-                                      child: scrollable,
+                                      child: PdfEditingCanvasReach(
+                                        targets: () => _editingReachKeys.values,
+                                        overPage: _pageContainsListPoint,
+                                        child: scrollable,
+                                      ),
                                     ),
                                     // the Shift+drag marquee, drawn in this
                                     // (list) space so it tracks the gesture;

@@ -2494,4 +2494,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์';
+
+  @override
+  String get duplicate => 'ทำสำเนา';
 }

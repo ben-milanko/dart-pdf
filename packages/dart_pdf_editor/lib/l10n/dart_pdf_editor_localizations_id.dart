@@ -2524,4 +2524,7 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Tabel papan klip tidak valid atau melebihi 500 baris, 100 kolom, atau 20.000 sel.';
+
+  @override
+  String get duplicate => 'Duplikat';
 }

@@ -2569,4 +2569,7 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek.';
+
+  @override
+  String get duplicate => 'Duplikuj';
 }

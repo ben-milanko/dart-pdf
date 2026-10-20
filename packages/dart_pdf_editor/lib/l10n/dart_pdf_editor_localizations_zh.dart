@@ -2468,6 +2468,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tableClipboardError => '剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。';
+
+  @override
+  String get duplicate => '复制副本';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4934,4 +4937,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tableClipboardError => '剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。';
+
+  @override
+  String get duplicate => '製作副本';
 }

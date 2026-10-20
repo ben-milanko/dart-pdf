@@ -2525,4 +2525,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen.';
+
+  @override
+  String get duplicate => 'Dupliceren';
 }

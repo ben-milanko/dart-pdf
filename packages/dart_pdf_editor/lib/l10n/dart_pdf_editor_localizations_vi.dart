@@ -2513,4 +2513,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.';
+
+  @override
+  String get duplicate => 'Nhân bản';
 }

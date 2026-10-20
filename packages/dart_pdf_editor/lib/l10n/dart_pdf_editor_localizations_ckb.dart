@@ -2524,4 +2524,7 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.';
+
+  @override
+  String get duplicate => 'دووبارەکردنەوە';
 }
