@@ -89,7 +89,12 @@ class PdfAnnotationBehavior {
       };
 
   /// Whether rotation can ride this annotation's normal appearance matrix.
-  late final bool rotatable = resizable && annotation.normalAppearance != null;
+  late final bool rotatable = resizable &&
+      annotation.rect.width > 0 &&
+      annotation.rect.height > 0 &&
+      annotation.rect.width.isFinite &&
+      annotation.rect.height.isFinite &&
+      annotation.appearanceQuad != null;
 
   /// Whether the editing controller can rewrite the annotation's text.
   bool get textEditable => switch (subtype) {

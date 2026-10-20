@@ -657,6 +657,18 @@ abstract class AppLocalizations {
   /// **'Could not reopen {title}'**
   String editorCouldNotReopen(String title);
 
+  /// Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}'**
+  String editorReopenFilesUnavailable(int count, String title);
+
+  /// Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save {title} to its original location. It may have been moved or deleted. Choose where to save it.'**
+  String editorSaveOriginUnavailable(String title);
+
   /// Toast shown when digitally signing the document failed, with the error detail.
   ///
   /// In en, this message translates to:
@@ -1599,6 +1611,18 @@ abstract class AppLocalizations {
   /// **'View source on GitHub'**
   String get settingsViewSource;
 
+  /// Settings > About link that opens the app feedback issue form on GitHub.
+  ///
+  /// In en, this message translates to:
+  /// **'Report an issue on GitHub'**
+  String get settingsReportIssue;
+
+  /// Settings > About link that opens a feedback email to the developer, for users without a GitHub account. The email address is shown beneath it.
+  ///
+  /// In en, this message translates to:
+  /// **'Email feedback'**
+  String get settingsEmailFeedback;
+
   /// Generic button/tooltip to undo the last change.
   ///
   /// In en, this message translates to:
@@ -2210,6 +2234,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.'**
   String get ocrAutoDocumentChanged;
+
+  /// Title of the one-time dialog shown after automatic OCR first adds a text layer to a scanned document, asking whether to keep doing it.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep automatic OCR on?'**
+  String get ocrAutoOfferTitle;
+
+  /// Body of the one-time dialog after the first automatic OCR.
+  ///
+  /// In en, this message translates to:
+  /// **'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.'**
+  String get ocrAutoOfferMessage;
+
+  /// Button in the one-time automatic OCR dialog that keeps automatic OCR enabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep on'**
+  String get ocrAutoOfferKeepOn;
+
+  /// Button in the one-time automatic OCR dialog that disables automatic OCR.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off'**
+  String get ocrAutoOfferTurnOff;
+
+  /// Toast after the user turned automatic OCR off from the one-time dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.'**
+  String get ocrAutoTurnedOff;
 }
 
 class _AppLocalizationsDelegate

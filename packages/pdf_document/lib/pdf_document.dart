@@ -4,6 +4,7 @@ library;
 
 export 'src/annotation.dart';
 export 'src/annotation_align.dart';
+export 'src/annotation_groups.dart';
 export 'src/attachment.dart';
 export 'src/blank_document.dart';
 export 'src/cache_store.dart';

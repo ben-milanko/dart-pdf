@@ -1,6 +1,3 @@
-Nowości w 8.1.0
+Nowości w 10.0.0
 
-- Zmieniaj czcionkę i styl pól listy oraz list rozwijanych.
-- Nowe menu telefonu do tworzenia, otwierania, drukowania i podpisywania.
-- Edycja tekstu zachowuje czcionkę i podział wierszy. Ulepszenia klawiatury i menu zaznaczania w iOS.
-- Pełna paleta kolorów pióra i zakreślacza na urządzeniach mobilnych.
+Wpisuj własne wartości pomiarów bez ustawiania skali. Edytuj całe słowa i łatwiej rozpoznawaj linki. Paski czytania chowają się na telefonach i omijają zgięcia ekranu. Po pierwszym OCR zdecyduj, czy pozostawić automatyczne rozpoznawanie. Naprawiono awarię dużych skanów oraz poprawiono adnotacje i kadrowanie.

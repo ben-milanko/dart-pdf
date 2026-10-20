@@ -356,6 +356,24 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documents de la dernière session ne sont plus disponibles. Ils ont peut-être été déplacés, renommés ou supprimés.',
+      one:
+          '$title n\'est plus disponible. Il a peut-être été déplacé, renommé ou supprimé.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Impossible d\'enregistrer $title à son emplacement d\'origine. Il a peut-être été déplacé ou supprimé. Choisissez où l\'enregistrer.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Impossible de signer numériquement : $error';
   }
@@ -956,6 +974,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get settingsViewSource => 'Voir le code source sur GitHub';
 
   @override
+  String get settingsReportIssue => 'Signaler un problème sur GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Envoyer un avis par e-mail';
+
+  @override
   String get undo => 'Annuler';
 
   @override
@@ -1356,4 +1380,21 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

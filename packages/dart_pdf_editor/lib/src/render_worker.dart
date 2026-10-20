@@ -418,10 +418,11 @@ abstract class PdfRenderWorker {
   ///
   /// [imageDecodeRegion] is a PDF page-space rectangle for a transient
   /// deep-zoom/detail render. When set with [decodeImages] true, the worker
-  /// may decode only the intersecting source pixels of axis-aligned image
-  /// draws and retarget their transforms to that crop. Full-page cached
-  /// renders must leave this null; a region-specific buffer is only correct
-  /// for rasterizing that same visible slice.
+  /// may decode only the intersecting source pixels of each image draw
+  /// (rotated and skewed placements included) and retarget their transforms
+  /// to that crop. Full-page cached renders must leave this null; a
+  /// region-specific buffer is only correct for rasterizing that same visible
+  /// slice.
   ///
   /// [onPartial], when supplied on a full-page decoding record ([decodeImages]
   /// true), receives progressive linework prefixes as the worker walks the page

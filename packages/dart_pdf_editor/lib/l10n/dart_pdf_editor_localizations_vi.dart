@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Căn dọc';
+
+  @override
+  String get textAlignTop => 'Căn văn bản lên trên';
+
+  @override
+  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
+
+  @override
+  String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
   String get add => 'Thêm';
 
   @override
@@ -344,7 +356,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Độ sâu thể tích';
 
   @override
+  String get measCustomValueTitle => 'Giá trị đo';
+
+  @override
   String get menuAddNode => 'Thêm nút';
+
+  @override
+  String get menuEditMeasurementValue => 'Sửa giá trị đo';
 
   @override
   String get menuAddLeader => 'Thêm đường dẫn chú thích';
@@ -362,6 +380,27 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Áp dụng cho các trang…';
+
+  @override
+  String get propLeader => 'Đường dẫn';
+
+  @override
+  String get propOutlineWidth => 'Độ dày đường viền';
+
+  @override
+  String get menuRotateSelection => 'Xoay quanh tâm vùng chọn…';
+
+  @override
+  String get menuRotateEach => 'Xoay từng chú thích…';
+
+  @override
+  String get rotationAngleTitle => 'Góc xoay (độ, ngược chiều kim đồng hồ)';
+
+  @override
+  String get menuGroup => 'Nhóm';
+
+  @override
+  String get menuUngroup => 'Bỏ nhóm';
 
   @override
   String get menuBringToFront => 'Đưa lên trước';
@@ -413,6 +452,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
+
+  @override
+  String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
@@ -1682,6 +1724,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Đo chiều dài cung';
 
   @override
+  String get tbNameMeasureCustom => 'Số đo tùy chỉnh (nhập giá trị)';
+
+  @override
   String get tbNameMeasureArea => 'Đo diện tích';
 
   @override
@@ -2432,4 +2477,11 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Chèn';
+
+  @override
+  String get shellBakePageColor => 'Lưu màu trang vào tệp';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
 }

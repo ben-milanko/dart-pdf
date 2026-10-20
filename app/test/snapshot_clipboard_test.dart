@@ -189,6 +189,7 @@ void main() {
       channel,
       (call) async {
         expect(call.method, 'readImage');
+        expect(call.arguments, {'externalOnly': true});
         calls++;
         return image;
       },

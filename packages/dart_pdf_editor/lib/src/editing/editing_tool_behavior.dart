@@ -377,6 +377,43 @@ class _MeasureLineTool extends PdfEditToolBehavior {
   }
 }
 
+/// The written-value dimension ([PdfEditTool.measureCustom]): a distance
+/// drag whose value the user types, so its commit - which needs that
+/// prompt - stays in the overlay. A dimension reads with an arrowhead at
+/// each end, so those are its scope's defaults, remembered like a line's.
+class _MeasureCustomTool extends PdfEditToolBehavior {
+  const _MeasureCustomTool();
+
+  @override
+  PdfEditTool get tool => PdfEditTool.measureCustom;
+  @override
+  PdfMeasurementKind get measureKind => PdfMeasurementKind.distance;
+  @override
+  bool get isLineDrag => true;
+  @override
+  String get styleScopeKey => tool.name;
+  @override
+  Set<String> get styleScopeFields => const {
+        'color',
+        'strokeWidth',
+        'opacity',
+        'lineStartEnding',
+        'lineEndEnding',
+      };
+  @override
+  Map<String, Object?> get styleScopeDefaults => const {
+        'lineStartEnding': 'closedArrow',
+        'lineEndEnding': 'closedArrow',
+      };
+  @override
+  PdfToolStyleFields get styleFields => PdfToolStyleFields(
+        stroke: true,
+        opacity: true,
+        font: true,
+        lineEndings: true,
+      );
+}
+
 /// A poly-shaped measurement (perimeter / area / angle / arc / volume): a
 /// running vertex list stamps a /PolyLine or /Polygon takeoff whose live
 /// readout is its perimeter, area, interior angle, arc length, or volume.
@@ -440,6 +477,7 @@ const _textFields = {
   'fontSize',
   'fontFamily',
   'textAlign',
+  'textVerticalAlign',
   'opacity',
   'textFillColor',
   'textBorderColor',
@@ -563,6 +601,7 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
         fixedPolyCount: 3, hasEndings: true),
     const _MeasurePolyTool(PdfEditTool.measureVolume, PdfMeasurementKind.volume,
         hasEndings: false),
+    const _MeasureCustomTool(),
     const _SimpleTool(PdfEditTool.calibrate, isLineDrag: true),
     const _SimpleTool(PdfEditTool.freeText,
         styleScopeKey: 'freeText',

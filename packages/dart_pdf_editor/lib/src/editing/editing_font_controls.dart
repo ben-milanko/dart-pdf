@@ -93,6 +93,45 @@ class FontStyleToggles extends StatelessWidget {
   }
 }
 
+/// Vertical placement controls shared by the text popup and properties panel.
+class TextVerticalAlignToggles extends StatelessWidget {
+  const TextVerticalAlignToggles({
+    super.key,
+    required this.align,
+    required this.onChanged,
+    this.keyPrefix = 'pdf-text-vertical-align',
+  });
+
+  final PdfTextVerticalAlign? align;
+  final ValueChanged<PdfTextVerticalAlign> onChanged;
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = pdfL10n(context);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final value in PdfTextVerticalAlign.values)
+        IconButton(
+          key: ValueKey('$keyPrefix-${value.name}'),
+          tooltip: switch (value) {
+            PdfTextVerticalAlign.top => labels.textAlignTop,
+            PdfTextVerticalAlign.center => labels.textAlignMiddle,
+            PdfTextVerticalAlign.bottom => labels.textAlignBottom,
+          },
+          isSelected: align == value,
+          onPressed: () => onChanged(value),
+          icon: Icon(
+              switch (value) {
+                PdfTextVerticalAlign.top => Icons.vertical_align_top,
+                PdfTextVerticalAlign.center => Icons.vertical_align_center,
+                PdfTextVerticalAlign.bottom => Icons.vertical_align_bottom,
+              },
+              size: 18),
+        ),
+    ]);
+  }
+}
+
 /// A left / center / right alignment toggle group for a free-text box,
 /// reporting the chosen [PdfTextAlign] through [onChanged].
 ///

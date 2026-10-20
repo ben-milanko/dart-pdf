@@ -365,6 +365,23 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'لم يعد $count من مستندات جلستك الأخيرة متاحًا. ربما تم نقلها أو إعادة تسميتها أو حذفها.',
+      one: 'لم يعد $title متاحًا. ربما تم نقله أو إعادة تسميته أو حذفه.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'تعذّر حفظ $title في موقعه الأصلي. ربما تم نقله أو حذفه. اختر مكان الحفظ.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'تعذّر التوقيع الرقمي: $error';
   }
@@ -971,6 +988,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get settingsViewSource => 'عرض المصدر على GitHub';
 
   @override
+  String get settingsReportIssue => 'الإبلاغ عن مشكلة على GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'إرسال الملاحظات عبر البريد الإلكتروني';
+
+  @override
   String get undo => 'تراجع';
 
   @override
@@ -1357,4 +1380,21 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

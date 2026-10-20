@@ -299,6 +299,55 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsOneWidget);
     });
 
+    testWidgets(
+        'snapshot Crop menu starts cropping and commits one undoable crop',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+      final before = editing.selectedAnnotation!.rect;
+      await rightClick(tester, viewPoint(110, 500));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')));
+      await tester.pumpAndSettle();
+      expect(editing.isCroppingImage, isTrue);
+      expect(editing.imageCropDraft, before);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsOneWidget);
+      editing.updateImageCropDraft(PdfRect(before.left, before.bottom,
+          before.left + before.width / 2, before.top));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-crop-confirm')));
+      await tester.pumpAndSettle();
+      expect(editing.isCroppingImage, isFalse);
+      expect(editing.selectedAnnotation!.rect.width,
+          closeTo(before.width / 2, 1e-6));
+      editing.undo();
+      expect(editing.document.page(0).annotations.last.rect, before);
+      expect(editing.document.page(0).annotations.take(2).map((a) => a.rect),
+          const [PdfRect(60, 700, 160, 750), PdfRect(200, 700, 300, 750)]);
+    });
+
+    testWidgets('Crop is absent for ordinary shapes and multiple snapshots',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      await rightClick(tester, viewPoint(110, 725));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      editing.pasteSnapshot(0, at: (110, 500));
+      editing.pasteSnapshot(0, at: (300, 500));
+      editing.selectAnnotationsIn(0, const PdfRect(0, 450, 400, 550));
+      await tester.pump();
+      expect(editing.selectedAnnotationSlots, hasLength(2));
+      await rightClick(tester, viewPoint(110, 500));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')),
+          findsNothing);
+    });
+
     testWidgets('Recolour… shows only for a vector snapshot selection',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -318,7 +367,7 @@ void main() {
           findsNothing);
     });
 
-    testWidgets('Recolour… opens the picker and retints the snapshot',
+    testWidgets('Recolour… opens full find/replace scoped to snapshots',
         (tester) async {
       final editing = await pumpViewer(tester);
       editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
@@ -330,11 +379,22 @@ void main() {
       await tester
           .tap(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')));
       await tester.pumpAndSettle();
-      // the colour dialog is up; accept the default ink
-      await tester.tap(find.text('OK'));
+      expect(find.byKey(const ValueKey('pdf-color-process-find-picker')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-replace-picker')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-tolerance')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-color-process-whole-document')),
+          findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-color-process-apply')));
+      await tester.pump();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100 && identical(editing.document, before); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
       await tester.pumpAndSettle();
-
-      // a new revision landed - the snapshot was recoloured
       expect(identical(editing.document, before), isFalse);
     });
 
@@ -475,6 +535,35 @@ void main() {
       expect(find.text('Saved to stamps'), findsOneWidget); // the snackbar
     });
 
+    testWidgets('Edit measurement value shows only for a measurement',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      editing.addMeasurement(
+          0, PdfMeasurementKind.distance, const [(100, 450), (300, 450)],
+          valueText: '4 m');
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(200, 450)); // the dimension
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-measurement-value')));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('pdf-text-prompt-field'));
+      expect(tester.widget<TextField>(field).controller!.text, '4 m');
+      await tester.enterText(field, '4.2 m');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(
+          editing.document.page(0).annotations.last.measurementText, '4.2 m');
+    });
+
     testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -497,7 +586,8 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('a paste-only menu draws no dividers', (tester) async {
+    testWidgets('an empty-area menu rules Paste off from the page actions',
+        (tester) async {
       final editing = await pumpViewer(tester);
       editing
         ..selectAnnotation(0, 0)
@@ -505,12 +595,38 @@ void main() {
         ..clearAnnotationSelection();
       await tester.pump();
 
-      // empty-area right-click with a clipboard: the lone Paste group has
-      // nothing to be ruled off from
+      // empty-area right-click with a clipboard: Paste, then the page
+      // actions in their own group
       await rightClick(tester, viewPoint(450, 400));
       expect(
           find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
-      expect(menuDivider, findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-note')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-select-all-text')),
+          findsOneWidget);
+      expect(menuDivider, findsOneWidget);
+    });
+
+    testWidgets('Add note here drops a note at the clicked point',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(450, 400));
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-note')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Check this');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final note = editing.document.page(0).annotations.last;
+      expect(note.subtype, 'Text');
+      expect(note.contents, 'Check this');
+      expect(note.rect.left, closeTo(450, 30));
     });
   });
 

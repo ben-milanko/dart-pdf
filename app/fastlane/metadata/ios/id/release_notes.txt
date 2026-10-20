@@ -1,6 +1,3 @@
-Baru di 8.1.0
+Baru di 10.0.0
 
-- Ubah font dan gaya kolom formulir dropdown dan daftar.
-- Menu ponsel baru untuk membuat, membuka, mencetak dan menandatangani.
-- Pengeditan teks mempertahankan font dan pembungkusan baris. Papan ketik dan menu pilihan iOS diperbaiki.
-- Palet warna lengkap untuk pena dan penyorot seluler.
+Ketik nilai pengukuran sendiri tanpa skala. Edit kata utuh dan temukan tautan lebih mudah. Bilah baca tersembunyi di ponsel dan menghindari lipatan layar. Pilih apakah OCR otomatis tetap aktif setelah penggunaan pertama. Perbaikan crash pada pindai besar, tampilan anotasi, dan pemotongan gambar.

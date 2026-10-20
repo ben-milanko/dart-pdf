@@ -356,6 +356,24 @@ class AppLocalizationsId extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count dokumen dari sesi terakhir Anda tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.',
+      one:
+          '$title tidak lagi tersedia. Mungkin telah dipindahkan, diganti namanya, atau dihapus.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Tidak dapat menyimpan $title ke lokasi aslinya. Mungkin telah dipindahkan atau dihapus. Pilih lokasi penyimpanan.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Tidak dapat menandatangani secara digital: $error';
   }
@@ -948,6 +966,12 @@ class AppLocalizationsId extends AppLocalizations {
   String get settingsViewSource => 'Lihat sumber di GitHub';
 
   @override
+  String get settingsReportIssue => 'Laporkan masalah di GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Kirim masukan lewat email';
+
+  @override
   String get undo => 'Urungkan';
 
   @override
@@ -1343,4 +1367,21 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

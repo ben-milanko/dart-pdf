@@ -1,0 +1,8 @@
+Nouveautés de la 9.0.0
+
+- Groupez des annotations pour les déplacer, redimensionner et pivoter ensemble.
+- OCR automatique des documents numérisés pour y faire des recherches.
+- Enregistrement facultatif de la couleur de page dans les PDF.
+- Raccourcis de mise en forme du texte et styles distincts pour les flèches des bulles.
+- Polylignes et réorganisation des pages plus simples.
+- Meilleures polices serif, images pivotées plus nettes et défilement plus fluide.

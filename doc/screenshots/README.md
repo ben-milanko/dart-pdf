@@ -95,6 +95,8 @@ Pop-Location
 | macOS    | landscape   | 1440 × 900  | Mac App Store; matches a 1× window capture so the frame stays crisp (1280×800 / 2560×1600 / 2880×1800 also valid) |
 | iOS      | portrait    | 1320 × 2868 | App Store 6.9" display (iPhone 16/17 Pro Max) |
 | Android  | portrait    | 1320 × 2640 | Play phone screenshot (2:1, within Play's ≤2:1 limit) |
+| iPhone Duo outer | portrait | 1398 × 2034 | App Store iPhone Duo, closed (see below) |
+| iPhone Duo inner | landscape | 2853 × 2007 | App Store iPhone Duo, open (see below) |
 
 The iPhone simulator captures natively at 1320 × 2868, already a valid 6.9"
 App Store size. macOS is captured a window at a time via its CGWindowID
@@ -104,6 +106,34 @@ background. The pid is the one *we* launched (parsed from the run output), so an
 installed copy of the same-named app is never captured by mistake. The marketing
 canvas (1440 × 900) pins the macOS store dimension; pick a larger valid size only
 when capturing on a Retina display (a 1× window upscaled to 2880 would be soft).
+
+## iPhone Duo
+
+iPhone Duo has two App Store screenshot slots, one per display, and a set for
+one does not cover the other:
+
+| Token           | Display              | Pose (Device Hub) | simctl `--display` | Size        |
+|-----------------|----------------------|-------------------|--------------------|-------------|
+| `ios-duo-outer` | outer, phone closed  | Closed            | `primary`          | 1398 × 2034 |
+| `ios-duo-inner` | inner, phone open    | Open              | `primary-1`        | 2853 × 2007 |
+
+`duo` runs both. They are opt-in (not in the default platform list) because
+they need Xcode 27.1+ with the iOS 27.1 runtime, whose only device type is
+`iPhone Duo` (override with `DUO_DEVICE`). `simctl` has no pose command, so
+before each slot the script pauses for you to press Closed / Open in the
+simulator's Device Hub; `DUO_POSE_READY=1` skips the pause. Every capture is
+checked against the slot's sizes and discarded on a mismatch, so a shot of
+the wrong display or pose never lands in `doc/screenshots/app/ios-duo-*`.
+Duo screenshots can come out black for a few minutes after the simulator
+boots (an Xcode 27.2 beta note); re-run if a shot is blank.
+
+```sh
+packages/dart_pdf_editor/example/tool/screenshots.sh app duo
+```
+
+The marketing canvases are the store sizes themselves: outer portrait
+1398 × 2034, inner landscape 2853 × 2007 (Apple also accepts the turned
+sizes).
 
 ## Running locally
 

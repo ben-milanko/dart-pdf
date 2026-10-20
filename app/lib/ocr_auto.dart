@@ -16,9 +16,16 @@ class AutoOcrSetting extends ValueNotifier<bool> {
   static final AutoOcrSetting instance = AutoOcrSetting();
 
   static const _key = 'dart_pdf_editor_app.ocr.auto';
+  static const _offeredKey = 'dart_pdf_editor_app.ocr.auto.offered';
 
   Future<void>? _loading;
   bool _chosen = false;
+  bool _offered = false;
+
+  /// Whether the user has already been asked to keep or turn off automatic
+  /// OCR - or made the choice themselves in Settings - so the one-time offer
+  /// after the first automatic OCR is not shown again.
+  bool get offered => _offered || _chosen;
 
   /// Reads the saved choice. Safe to call more than once: every call waits
   /// on the one read, so nothing acts on the default before it lands.
@@ -29,6 +36,7 @@ class AutoOcrSetting extends ValueNotifier<bool> {
       final prefs = await SharedPreferences.getInstance();
       // a choice made while the read was in flight wins over the stored one
       if (!_chosen) value = prefs.getBool(_key) ?? true;
+      _offered = _offered || (prefs.getBool(_offeredKey) ?? false);
     } catch (error) {
       debugPrint('Auto OCR setting unreadable: $error');
     }
@@ -41,8 +49,20 @@ class AutoOcrSetting extends ValueNotifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_key, enabled);
+      await prefs.setBool(_offeredKey, true);
     } catch (error) {
       debugPrint('Auto OCR setting not saved: $error');
+    }
+  }
+
+  /// Records that the one-time offer was shown, whatever the user answered.
+  Future<void> markOffered() async {
+    _offered = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_offeredKey, true);
+    } catch (error) {
+      debugPrint('Auto OCR offer not saved: $error');
     }
   }
 }

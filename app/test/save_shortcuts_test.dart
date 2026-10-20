@@ -25,6 +25,36 @@ void main() {
     prefs.dispose();
   });
 
+  testWidgets('Ctrl+S includes ink restored by redo before it auto-commits',
+      (tester) async {
+    Uint8List? saved;
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildClassicPdf(), title: 'ink.pdf'),
+      saveDocumentAs: (context, bytes, suggestedName) async {
+        saved = Uint8List.fromList(bytes);
+        return SaveResult.cancelled;
+      },
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final editing =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+    editing.addInkStroke(0, const [(100, 100), (150, 150)]);
+    editing.undo();
+    editing.redo();
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(saved, isNotNull);
+    expect(PdfDocument.open(saved!).page(0).annotations.single.subtype, 'Ink');
+    expect(editing.hasPendingInk, isFalse);
+  });
+
   testWidgets('Ctrl+Shift+S routes to the app Save as flow', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {
@@ -165,6 +195,59 @@ void main() {
       await tester.pump();
 
       expect(savedPaths, ['/tmp/Renamed.pdf']);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Save warns and offers Save As when the origin has gone away',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      var saveAsCalls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          initialDocument: (bytes: buildClassicPdf(), title: 'Original.pdf'),
+          saveDocumentAs: (context, bytes, suggestedName) async {
+            saveAsCalls++;
+            // The first Save As gives the tab an on-disk origin; the second
+            // is the fallback after the in-place write fails - cancelled.
+            return saveAsCalls == 1
+                ? SaveResult.saved('/tmp/Moved.pdf')
+                : SaveResult.cancelled;
+          },
+          // The file (or its folder) was moved away since it was saved.
+          saveDocumentToPath: (bytes, path, {bookmark}) async =>
+              SaveResult.failed('No such file or directory'),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('menu-save-as')));
+      await tester.pumpAndSettle();
+      expect(saveAsCalls, 1);
+
+      final view = tester.widget<PdfEditorView>(find.byType(PdfEditorView));
+      final controller = view.controller!;
+      controller.addFreeText(0, const PdfRect(72, 650, 240, 700), 'Edit');
+      await tester.pump();
+      view.onSave!(controller.bytes);
+      await tester.pump();
+      // The warning replaces the "Saved to" toast, so let it animate in.
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Not a dead end: the user is told why and offered another location,
+      // and the edits stay in the (still open) tab.
+      expect(saveAsCalls, 2);
+      expect(
+          find.text("Couldn't save Moved to its original location. It may "
+              'have been moved or deleted. Choose where to save it.'),
+          findsOneWidget);
+      expect(find.byType(PdfEditorView), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
+
+  @override
+  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
+
+  @override
+  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
+
+  @override
+  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+
+  @override
   String get add => 'زیادکردن';
 
   @override
@@ -345,7 +357,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'قووڵیی قەبارە';
 
   @override
+  String get measCustomValueTitle => 'بەهای پێوان';
+
+  @override
   String get menuAddNode => 'زیادکردنی گرێ';
+
+  @override
+  String get menuEditMeasurementValue => 'دەستکاریکردنی بەهای پێوان';
 
   @override
   String get menuAddLeader => 'زیادکردنی هێڵی ئاماژە';
@@ -363,6 +381,27 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'جێبەجێکردن لەسەر پەڕەکان…';
+
+  @override
+  String get propLeader => 'هێڵی ئاماژە';
+
+  @override
+  String get propOutlineWidth => 'پانی چوارچێوە';
+
+  @override
+  String get menuRotateSelection => 'سوڕاندن بە دەوری ناوەندی هەڵبژاردن…';
+
+  @override
+  String get menuRotateEach => 'سوڕاندنی هەر تێبینییەک…';
+
+  @override
+  String get rotationAngleTitle => 'سوڕاندن (پلە، پێچەوانەی کاتژمێر)';
+
+  @override
+  String get menuGroup => 'گرووپکردن';
+
+  @override
+  String get menuUngroup => 'هەڵوەشاندنەوەی گرووپ';
 
   @override
   String get menuBringToFront => 'هێنانە پێشەوە';
@@ -414,6 +453,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'لابردنی هێڵی ئاماژە';
+
+  @override
+  String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
@@ -1686,6 +1728,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'پێوانەکردنی درێژیی کەوانە';
 
   @override
+  String get tbNameMeasureCustom => 'پێوانی تایبەت (بەها بنووسە)';
+
+  @override
   String get tbNameMeasureArea => 'پێوانەکردنی ڕووبەر';
 
   @override
@@ -2443,4 +2488,11 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'خستنەناو';
+
+  @override
+  String get shellBakePageColor => 'پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
 }

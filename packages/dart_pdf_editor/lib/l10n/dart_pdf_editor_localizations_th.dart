@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
+
+  @override
+  String get textAlignTop => 'จัดข้อความชิดบน';
+
+  @override
+  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
+
+  @override
+  String get textAlignBottom => 'จัดข้อความชิดล่าง';
+
+  @override
   String get add => 'เพิ่ม';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'ความลึกของปริมาตร';
 
   @override
+  String get measCustomValueTitle => 'ค่าการวัด';
+
+  @override
   String get menuAddNode => 'เพิ่มจุด';
+
+  @override
+  String get menuEditMeasurementValue => 'แก้ไขค่าการวัด';
 
   @override
   String get menuAddLeader => 'เพิ่มเส้นชี้';
@@ -361,6 +379,27 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'ใช้กับหน้า…';
+
+  @override
+  String get propLeader => 'เส้นชี้';
+
+  @override
+  String get propOutlineWidth => 'ความหนาเส้นขอบ';
+
+  @override
+  String get menuRotateSelection => 'หมุนรอบจุดกึ่งกลางของส่วนที่เลือก…';
+
+  @override
+  String get menuRotateEach => 'หมุนคำอธิบายประกอบแต่ละรายการ…';
+
+  @override
+  String get rotationAngleTitle => 'การหมุน (องศา ทวนเข็มนาฬิกา)';
+
+  @override
+  String get menuGroup => 'จัดกลุ่ม';
+
+  @override
+  String get menuUngroup => 'ยกเลิกการจัดกลุ่ม';
 
   @override
   String get menuBringToFront => 'นำมาไว้ด้านหน้า';
@@ -412,6 +451,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'นำเส้นชี้ออก';
+
+  @override
+  String get menuAddNoteHere => 'เพิ่มบันทึกที่นี่';
 
   @override
   String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';
@@ -1677,6 +1719,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'วัดความยาวส่วนโค้ง';
 
   @override
+  String get tbNameMeasureCustom => 'การวัดแบบกำหนดเอง (พิมพ์ค่า)';
+
+  @override
   String get tbNameMeasureArea => 'วัดพื้นที่';
 
   @override
@@ -2413,4 +2458,11 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'แทรก';
+
+  @override
+  String get shellBakePageColor => 'บันทึกสีหน้าลงในไฟล์';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
 }

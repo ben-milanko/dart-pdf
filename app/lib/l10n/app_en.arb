@@ -473,6 +473,27 @@
       }
     }
   },
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}",
+  "@editorReopenFilesUnavailable": {
+    "description": "Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorSaveOriginUnavailable": "Couldn't save {title} to its original location. It may have been moved or deleted. Choose where to save it.",
+  "@editorSaveOriginUnavailable": {
+    "description": "Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "editorCouldNotSign": "Could not digitally sign: {error}",
   "@editorCouldNotSign": {
     "description": "Toast shown when digitally signing the document failed, with the error detail.",
@@ -1279,6 +1300,14 @@
   "@settingsViewSource": {
     "description": "Link that opens the project's source repository on GitHub."
   },
+  "settingsReportIssue": "Report an issue on GitHub",
+  "@settingsReportIssue": {
+    "description": "Settings > About link that opens the app feedback issue form on GitHub."
+  },
+  "settingsEmailFeedback": "Email feedback",
+  "@settingsEmailFeedback": {
+    "description": "Settings > About link that opens a feedback email to the developer, for users without a GitHub account. The email address is shown beneath it."
+  },
   "undo": "Undo",
   "@undo": {
     "description": "Generic button/tooltip to undo the last change."
@@ -1752,5 +1781,25 @@
   "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
   "@ocrAutoDocumentChanged": {
     "description": "Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied."
+  },
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "@ocrAutoOfferTitle": {
+    "description": "Title of the one-time dialog shown after automatic OCR first adds a text layer to a scanned document, asking whether to keep doing it."
+  },
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "@ocrAutoOfferMessage": {
+    "description": "Body of the one-time dialog after the first automatic OCR."
+  },
+  "ocrAutoOfferKeepOn": "Keep on",
+  "@ocrAutoOfferKeepOn": {
+    "description": "Button in the one-time automatic OCR dialog that keeps automatic OCR enabled."
+  },
+  "ocrAutoOfferTurnOff": "Turn off",
+  "@ocrAutoOfferTurnOff": {
+    "description": "Button in the one-time automatic OCR dialog that disables automatic OCR."
+  },
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "@ocrAutoTurnedOff": {
+    "description": "Toast after the user turned automatic OCR off from the one-time dialog."
   }
 }

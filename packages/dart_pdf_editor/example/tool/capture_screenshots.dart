@@ -24,6 +24,14 @@
 //                     crop targets it by pid even when another copy of the
 //                     same-named app (e.g. an installed build) is running
 //   SHOT_OUT          output root (default: screenshots)
+//   SHOT_PLATFORM_DIR folder under SHOT_OUT for the shots (default:
+//                     SHOT_PLATFORM), e.g. ios-duo-inner
+//   SHOT_IOS_DISPLAY  iOS only: the simctl `--display` to grab. iPhone Duo
+//                     has two: primary (outer, closed) and primary-1 (inner,
+//                     open). Default: the simulator's main display.
+//   SHOT_EXPECT_SIZES comma-separated WxH list the PNG must match, e.g.
+//                     1398x2034,2034x1398. A mismatch (wrong pose, wrong
+//                     device) is a failed capture, never a stored shot.
 //   FLUTTER           flutter launcher (default: "fvm flutter", else "flutter")
 
 import 'dart:async';
@@ -31,6 +39,9 @@ import 'dart:convert';
 import 'dart:io';
 
 late final String platform;
+late final String platformDir;
+late final String iosDisplay;
+late final List<String> expectSizes;
 late final String shotDevice;
 late final String outRoot;
 late final String macProcess;
@@ -55,6 +66,13 @@ Future<void> main() async {
   outRoot = Platform.environment['SHOT_OUT'] ?? 'screenshots';
   macProcess = _env('SHOT_MAC_PROCESS');
   macAppHint = _env('SHOT_MAC_APP_HINT');
+  final dirOverride = _env('SHOT_PLATFORM_DIR');
+  platformDir = dirOverride.isEmpty ? platform : dirOverride;
+  iosDisplay = _env('SHOT_IOS_DISPLAY');
+  expectSizes = [
+    for (final s in _env('SHOT_EXPECT_SIZES').split(','))
+      if (s.trim().isNotEmpty) s.trim(),
+  ];
   final entry =
       Platform.environment['SHOT_ENTRY'] ?? 'lib/screenshots_main.dart';
   if (platform.isEmpty || flutterDevice.isEmpty) {
@@ -62,7 +80,7 @@ Future<void> main() async {
     exit(2);
   }
 
-  Directory('$outRoot/$platform').createSync(recursive: true);
+  Directory('$outRoot/$platformDir').createSync(recursive: true);
 
   // Build the window-capture helper up front so the first scene can use it.
   if (platform == 'macos') macWinHelper = await _buildMacWinHelper();
@@ -107,8 +125,7 @@ Future<void> main() async {
     if (shot != null) {
       final name = shot.group(1)!;
       chain = chain.then((_) async {
-        await _capture(name);
-        captured++;
+        if (await _capture(name)) captured++;
       });
     } else if (line.contains('@@SHOT_DONE@@')) {
       chain = chain.then((_) {
@@ -146,15 +163,16 @@ Future<void> main() async {
     return -1;
   });
 
-  stdout.writeln('[capture] $captured screenshot(s) → $outRoot/$platform/');
+  stdout.writeln('[capture] $captured screenshot(s) → $outRoot/$platformDir/');
   // Terminate now. The 8-minute fallback timer and the flutter-run output
   // streams would otherwise keep the VM alive long after the work is done,
   // stalling the shell that waits on us (and the compose step that follows it).
   exit(captured == 0 ? 1 : 0);
 }
 
-Future<void> _capture(String name) async {
-  final path = '$outRoot/$platform/$name.png';
+/// Grabs scene [name]; true when a valid shot was stored.
+Future<bool> _capture(String name) async {
+  final path = '$outRoot/$platformDir/$name.png';
   // Let the compositor present the held frame before reading the screen.
   await Future<void>.delayed(const Duration(milliseconds: 700));
   if (platform == 'android') await _prepareAndroidDevice();
@@ -162,8 +180,14 @@ Future<void> _capture(String name) async {
   ProcessResult result;
   switch (platform) {
     case 'ios':
-      result = await Process.run(
-          'xcrun', ['simctl', 'io', shotDevice, 'screenshot', path]);
+      result = await Process.run('xcrun', [
+        'simctl',
+        'io',
+        shotDevice,
+        'screenshot',
+        if (iosDisplay.isNotEmpty) '--display=$iosDisplay',
+        path,
+      ]);
     case 'android':
       result = await Process.run(
           'adb', ['-s', shotDevice, 'exec-out', 'screencap', '-p'],
@@ -175,15 +199,39 @@ Future<void> _capture(String name) async {
       result = await _captureMacWindow(path);
     default:
       stderr.writeln('[capture] unknown platform "$platform"');
-      return;
+      return false;
   }
 
   if (result.exitCode != 0) {
     stderr.writeln('[capture] $name failed (exit ${result.exitCode}): '
         '${result.stderr}');
-  } else {
-    stdout.writeln('[capture] shot: $path');
+    return false;
   }
+  if (expectSizes.isNotEmpty) {
+    final size = _pngSize(File(path));
+    if (size == null || !expectSizes.contains(size)) {
+      stderr.writeln('[capture] $name is ${size ?? 'not a PNG'}, expected one '
+          'of ${expectSizes.join(', ')} - wrong device pose or display; '
+          'discarded');
+      File(path).deleteSync();
+      return false;
+    }
+  }
+  stdout.writeln('[capture] shot: $path');
+  return true;
+}
+
+/// `WxH` from a PNG's IHDR chunk, or null if [file] is not a PNG.
+String? _pngSize(File file) {
+  if (!file.existsSync()) return null;
+  final bytes = file.readAsBytesSync();
+  if (bytes.length < 24 || bytes[1] != 0x50 || bytes[2] != 0x4E) return null;
+  int be(int at) =>
+      bytes[at] << 24 |
+      bytes[at + 1] << 16 |
+      bytes[at + 2] << 8 |
+      bytes[at + 3];
+  return '${be(16)}x${be(20)}';
 }
 
 Future<void> _prepareAndroidDevice() async {

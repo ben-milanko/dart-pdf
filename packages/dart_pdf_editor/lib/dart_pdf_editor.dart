@@ -25,6 +25,7 @@ export 'src/design/editor_presenter.dart'
         pdfPresentDialog;
 export 'src/design/editor_theme.dart'
     show PdfEditorThemeData, pdfShellCompactWidth;
+export 'src/design/fold.dart';
 export 'src/design/header_parts.dart';
 export 'src/design/material_host.dart'
     show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
@@ -99,6 +100,7 @@ export 'src/image_decoder.dart'
         pdfImageContentKey,
         pdfGpuSoftMaskOf;
 export 'src/ocr.dart';
+export 'src/page_color_bake.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
 export 'src/progressive_source.dart';

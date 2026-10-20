@@ -766,15 +766,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       );
 
   Future<void> _editElementText(BuildContext context) async {
-    final element = controller.selectedElement;
-    if (element == null) return;
+    final initial = controller.selectedElementEditText;
+    if (initial == null) return;
     final text = await widget.textPrompt(
       context,
       title: pdfL10n(context).tbReplaceText,
-      initial: element.text ?? '',
+      initial: initial,
       multiline: false,
     );
-    if (text == null || text.isEmpty || text == element.text) return;
+    if (text == null || text.isEmpty || text == initial) return;
     // bundled fallbacks let composite (/Type0) edits draw characters the
     // document's own (possibly subsetted) font lacks
     final fallbacks = await loadFallbackFonts();
@@ -782,17 +782,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _editElementTextStyle(BuildContext context) async {
-    final element = controller.selectedElement;
-    if (element == null) return;
+    final initial = controller.selectedElementEditText;
+    if (initial == null) return;
     final result = await widget.styledTextPrompt(
       context,
-      initial: element.text ?? '',
+      initial: initial,
       palette: widget.palette,
       pickFont: _pickStyledFont,
     );
     if (result == null) return;
     if (result.text.isEmpty ||
-        (result.text == element.text && result.style.isEmpty)) {
+        (result.text == initial && result.style.isEmpty)) {
       return;
     }
     // bundled fallbacks let composite (/Type0) edits draw characters the
@@ -3017,7 +3017,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   orElse: () => groups.first);
               return SafeArea(
                 top: false,
-                child: Padding(
+                // sized to its content, scrolling only once a tall group
+                // (the measure grid plus its settings) outgrows the sheet
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -3039,12 +3041,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                                     _toggleTool(PdfEditTool.select);
                                     return;
                                   }
+                                  if (g.id == tabId) return;
                                   setSheetState(() => tabId = g.id);
-                                  // markup arms no tool - scope it so its
-                                  // settings row edits markup's own style
-                                  if (g.kind == PdfEditToolGroup.markup) {
-                                    controller.useMarkupStyleScope();
-                                  }
+                                  _armSheetGroupDefault(g);
                                 },
                               ),
                             ),
@@ -3072,6 +3071,50 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
     );
   }
+
+  /// Switching the mobile sheet to [group] arms its first tool, so the
+  /// tab's settings row and the page are live without a second tap. A tool
+  /// already armed in [group] is kept, and a first tool that needs a prompt
+  /// first (a measuring scale, a drawn signature) or is a command is left
+  /// for an explicit tap - a tab switch never opens a dialog or edits.
+  void _armSheetGroupDefault(_ToolGroup group) {
+    final entries = group.tools.where(_entryVisible);
+    if (entries.isEmpty) return;
+    final first = entries.first;
+    if (first.markup case final markup?) {
+      if (entries.any((e) => e.markup == controller.markupTool)) return;
+      // set (not applyMarkup): a live text selection is not marked up just
+      // by switching tabs
+      controller.markupTool = markup;
+      controller.useMarkupStyleScope();
+      return;
+    }
+    final tool = first.tool;
+    if (tool == null) return;
+    if (controller.markupTool == null &&
+        entries.any((e) => e.tool != null && e.tool == controller.tool)) {
+      return;
+    }
+    if (_isMeasureTool(tool) && !controller.hasMeasurementScale) return;
+    if (tool == PdfEditTool.signature &&
+        controller.activeSavedSignature == null) {
+      return;
+    }
+    controller.tool = tool;
+    viewerController.clearSelection();
+  }
+
+  static bool _isMeasureTool(PdfEditTool tool) => switch (tool) {
+        PdfEditTool.measureDistance ||
+        PdfEditTool.measurePerimeter ||
+        PdfEditTool.measureArea ||
+        PdfEditTool.measureVolume ||
+        PdfEditTool.measureSlope ||
+        PdfEditTool.measureAngle ||
+        PdfEditTool.measureArc =>
+          true,
+        _ => false,
+      };
 
   Widget _sheetToolGrid(BuildContext context, _ToolGroup group) {
     final entries = group.tools.where(_entryVisible).toList();
@@ -3124,7 +3167,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   _chooseMarkup(entry.markup!);
                   if (context.mounted) Navigator.of(context).pop();
                 } else {
-                  await _armGroupTool(context, entry.tool!);
+                  // arm, not toggle: switching tabs may already have armed
+                  // this tile, and tapping it must not drop it again
+                  await _commands.armTool(context, entry.tool!);
                 }
               },
             ),
@@ -4650,6 +4695,19 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ),
                       ]),
                     ),
+                    if (captionStyle == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(children: [
+                          Expanded(
+                              child: Text(pdfL10n(context).textVerticalAlign)),
+                          TextVerticalAlignToggles(
+                            align: controller.selectedTextVerticalAlign ??
+                                controller.preferences.textVerticalAlign,
+                            onChanged: controller.setSelectedTextVerticalAlign,
+                          ),
+                        ]),
+                      ),
                     if (captionStyle == null) ...[
                       _slider(
                         key: const ValueKey('pdf-text-line-spacing'),

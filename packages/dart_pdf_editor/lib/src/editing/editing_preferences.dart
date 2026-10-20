@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign, PdfTextVerticalAlign;
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -172,6 +172,7 @@ class PdfEditingPreferences extends ChangeNotifier
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
+  PdfTextVerticalAlign _textVerticalAlign = PdfTextVerticalAlign.top;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
   double _lineScale = 1;
@@ -196,6 +197,7 @@ class PdfEditingPreferences extends ChangeNotifier
   List<Color> _recentColors = const [];
   List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
+  bool _bakePageColor = false;
   bool _showAnnotations = true;
   Set<String> _hiddenAnnotationSubtypes = const {};
   bool _showScrollbarChapters = false;
@@ -310,6 +312,9 @@ class PdfEditingPreferences extends ChangeNotifier
         _fontFamily =
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
+      _textVerticalAlign = PdfTextVerticalAlign.values
+              .asNameMap()[store.getString('${_prefix}textVerticalAlign')] ??
+          PdfTextVerticalAlign.top;
       final textAlign = store.getString('${_prefix}textAlign');
       if (textAlign != null) {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
@@ -420,6 +425,8 @@ class PdfEditingPreferences extends ChangeNotifier
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
+      _bakePageColor =
+          store.getBool('${_prefix}bakePageColor') ?? _bakePageColor;
       _showAnnotations =
           store.getBool('${_prefix}showAnnotations') ?? _showAnnotations;
       final hiddenSubtypes =
@@ -684,6 +691,10 @@ class PdfEditingPreferences extends ChangeNotifier
         final font = PdfStandardFont.values.asNameMap()[v];
         if (font != null) fontFamily = font;
       }
+      if (slot['textVerticalAlign'] case final String value) {
+        textVerticalAlign = PdfTextVerticalAlign.values.asNameMap()[value] ??
+            PdfTextVerticalAlign.top;
+      }
       if (slot.containsKey('textAlign')) {
         final v = slot['textAlign'];
         textAlign = v is String ? PdfTextAlign.values.asNameMap()[v] : null;
@@ -746,6 +757,7 @@ class PdfEditingPreferences extends ChangeNotifier
     put('fontSize', _fontSize);
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
+    put('textVerticalAlign', _textVerticalAlign.name);
     put('lineStyle', _lineStyle.name);
     put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
@@ -947,9 +959,19 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
-  /// Horizontal alignment (left/center/right) new free-text boxes are
-  /// created with - the box's /Q quadding. Null (the default) follows the
-  /// text direction: left for LTR, right for RTL. Persisted.
+  /// Default vertical placement for newly authored text boxes.
+  PdfTextVerticalAlign get textVerticalAlign => _textVerticalAlign;
+
+  set textVerticalAlign(PdfTextVerticalAlign value) {
+    if (value == _textVerticalAlign) return;
+    _textVerticalAlign = value;
+    _write(
+        (store) => store.setString('${_prefix}textVerticalAlign', value.name));
+    _recordScoped('textVerticalAlign', value.name);
+    notifyListeners();
+  }
+
+  /// Horizontal alignment of new free-text boxes; null follows text direction.
   PdfTextAlign? get textAlign => _textAlign;
 
   set textAlign(PdfTextAlign? value) {
@@ -1346,6 +1368,19 @@ class PdfEditingPreferences extends ChangeNotifier
     if (value == _pageColor) return;
     _pageColor = value;
     _write((s) => s.setInt('${_prefix}pageColor', value.toARGB32()));
+    notifyListeners();
+  }
+
+  /// Whether saving or exporting paints [pageColor] into the file, so other
+  /// PDF readers show it too (see `pdfBakePageColor`). Off by default -
+  /// [pageColor] then stays a display setting only. A white page colour has
+  /// nothing to bake either way.
+  bool get bakePageColor => _bakePageColor;
+
+  set bakePageColor(bool value) {
+    if (value == _bakePageColor) return;
+    _bakePageColor = value;
+    _write((s) => s.setBool('${_prefix}bakePageColor', value));
     notifyListeners();
   }
 

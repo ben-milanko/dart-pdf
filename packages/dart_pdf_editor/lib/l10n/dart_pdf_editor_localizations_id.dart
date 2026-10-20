@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Perataan vertikal';
+
+  @override
+  String get textAlignTop => 'Ratakan teks ke atas';
+
+  @override
+  String get textAlignMiddle => 'Ratakan teks ke tengah secara vertikal';
+
+  @override
+  String get textAlignBottom => 'Ratakan teks ke bawah';
+
+  @override
   String get add => 'Tambah';
 
   @override
@@ -344,7 +356,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Kedalaman volume';
 
   @override
+  String get measCustomValueTitle => 'Nilai ukuran';
+
+  @override
   String get menuAddNode => 'Tambah simpul';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit nilai ukuran';
 
   @override
   String get menuAddLeader => 'Tambah garis penunjuk';
@@ -362,6 +380,28 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Terapkan ke halaman…';
+
+  @override
+  String get propLeader => 'Garis penunjuk';
+
+  @override
+  String get propOutlineWidth => 'Ketebalan garis tepi';
+
+  @override
+  String get menuRotateSelection => 'Putar di sekitar pusat pilihan…';
+
+  @override
+  String get menuRotateEach => 'Putar setiap anotasi…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Rotasi (derajat, berlawanan arah jarum jam)';
+
+  @override
+  String get menuGroup => 'Kelompokkan';
+
+  @override
+  String get menuUngroup => 'Pisahkan kelompok';
 
   @override
   String get menuBringToFront => 'Bawa ke depan';
@@ -413,6 +453,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Hapus garis penunjuk';
+
+  @override
+  String get menuAddNoteHere => 'Tambahkan catatan di sini';
 
   @override
   String get menuSaveToStamps => 'Simpan ke stempel';
@@ -1685,6 +1728,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Ukur panjang busur';
 
   @override
+  String get tbNameMeasureCustom => 'Ukuran khusus (ketik nilai)';
+
+  @override
   String get tbNameMeasureArea => 'Ukur luas';
 
   @override
@@ -2442,4 +2488,11 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Sisipkan';
+
+  @override
+  String get shellBakePageColor => 'Simpan warna halaman ke file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.';
 }

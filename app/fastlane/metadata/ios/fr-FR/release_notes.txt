@@ -1,6 +1,3 @@
-Nouveautés de 8.1.0
+Nouveautés de 10.0.0
 
-- Modifiez la police et le style des champs de liste et des menus déroulants.
-- Nouveau menu mobile pour créer, ouvrir, imprimer et signer.
-- La modification du texte conserve la police et les retours à la ligne. Clavier et menus de sélection iOS améliorés.
-- Palette complète pour le stylo et le surligneur mobiles.
+Saisissez vos mesures, même sans échelle. Modifiez des mots entiers et repérez mieux les liens. Les commandes se masquent sur téléphone et évitent les plis d’écran. Choisissez de conserver ou non l’OCR automatique après sa première utilisation. Correction d’un plantage sur les grands scans et amélioration des annotations et du recadrage.

@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "无法打开 {url}",
   "editorCouldNotPrint": "无法打印 {title}",
   "editorCouldNotReopen": "无法重新打开 {title}",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} 已不可用，可能已被移动、重命名或删除。} other{上次会话中的 {count} 个文档已不可用，可能已被移动、重命名或删除。}}",
+  "editorSaveOriginUnavailable": "无法将 {title} 保存到原位置，它可能已被移动或删除。请选择保存位置。",
   "editorCouldNotSign": "无法进行数字签名：{error}",
   "editorDiscard": "放弃",
   "editorDiscardChangesTitle": "放弃更改？",
@@ -237,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。",
   "settingsUpdates": "更新",
   "settingsViewSource": "在 GitHub 上查看源代码",
+  "settingsEmailFeedback": "通过电子邮件发送反馈",
+  "settingsReportIssue": "在 GitHub 上报告问题",
   "undo": "撤销",
   "welcomeCopyName": "复制名称",
   "welcomeCopyPath": "复制路径",
@@ -345,5 +349,10 @@
   "settingsAutoOcrTitle": "Automatically OCR scans",
   "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
   "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
-  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "ocrAutoOfferKeepOn": "Keep on",
+  "ocrAutoOfferTurnOff": "Turn off",
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
 }

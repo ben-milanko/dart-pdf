@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get textVerticalAlign => '세로 맞춤';
+
+  @override
+  String get textAlignTop => '텍스트 위쪽 맞춤';
+
+  @override
+  String get textAlignMiddle => '텍스트 가운데 맞춤';
+
+  @override
+  String get textAlignBottom => '텍스트 아래쪽 맞춤';
+
+  @override
   String get add => '추가';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '부피 깊이';
 
   @override
+  String get measCustomValueTitle => '측정값';
+
+  @override
   String get menuAddNode => '노드 추가';
+
+  @override
+  String get menuEditMeasurementValue => '측정값 편집';
 
   @override
   String get menuAddLeader => '지시선 추가';
@@ -361,6 +379,27 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => '페이지에 적용…';
+
+  @override
+  String get propLeader => '지시선';
+
+  @override
+  String get propOutlineWidth => '윤곽선 두께';
+
+  @override
+  String get menuRotateSelection => '선택 영역 중심을 기준으로 회전…';
+
+  @override
+  String get menuRotateEach => '각 주석 회전…';
+
+  @override
+  String get rotationAngleTitle => '회전 (도, 반시계 방향)';
+
+  @override
+  String get menuGroup => '그룹화';
+
+  @override
+  String get menuUngroup => '그룹 해제';
 
   @override
   String get menuBringToFront => '맨 앞으로 가져오기';
@@ -412,6 +451,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => '지시선 제거';
+
+  @override
+  String get menuAddNoteHere => '여기에 메모 추가';
 
   @override
   String get menuSaveToStamps => '스탬프에 저장';
@@ -1670,6 +1712,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => '호 길이 측정';
 
   @override
+  String get tbNameMeasureCustom => '사용자 지정 측정 (값 입력)';
+
+  @override
   String get tbNameMeasureArea => '면적 측정';
 
   @override
@@ -2399,4 +2444,11 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '삽입';
+
+  @override
+  String get shellBakePageColor => '페이지 색상을 파일에 저장';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
 }

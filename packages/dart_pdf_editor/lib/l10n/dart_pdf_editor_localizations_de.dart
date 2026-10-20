@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Vertikale Ausrichtung';
+
+  @override
+  String get textAlignTop => 'Text oben ausrichten';
+
+  @override
+  String get textAlignMiddle => 'Text vertikal zentrieren';
+
+  @override
+  String get textAlignBottom => 'Text unten ausrichten';
+
+  @override
   String get add => 'Hinzufügen';
 
   @override
@@ -344,7 +356,13 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Volumentiefe';
 
   @override
+  String get measCustomValueTitle => 'Messwert';
+
+  @override
   String get menuAddNode => 'Knoten hinzufügen';
+
+  @override
+  String get menuEditMeasurementValue => 'Messwert bearbeiten';
 
   @override
   String get menuAddLeader => 'Führungslinie hinzufügen';
@@ -362,6 +380,27 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Auf Seiten anwenden…';
+
+  @override
+  String get propLeader => 'Führungslinie';
+
+  @override
+  String get propOutlineWidth => 'Umrissbreite';
+
+  @override
+  String get menuRotateSelection => 'Um Auswahlmitte drehen…';
+
+  @override
+  String get menuRotateEach => 'Jede Anmerkung drehen…';
+
+  @override
+  String get rotationAngleTitle => 'Drehung (Grad, gegen den Uhrzeigersinn)';
+
+  @override
+  String get menuGroup => 'Gruppieren';
+
+  @override
+  String get menuUngroup => 'Gruppierung aufheben';
 
   @override
   String get menuBringToFront => 'In den Vordergrund';
@@ -413,6 +452,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Führungslinie entfernen';
+
+  @override
+  String get menuAddNoteHere => 'Notiz hier hinzufügen';
 
   @override
   String get menuSaveToStamps => 'In Stempeln speichern';
@@ -1686,6 +1728,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Bogenlänge messen';
 
   @override
+  String get tbNameMeasureCustom => 'Eigenes Maß (Wert eingeben)';
+
+  @override
   String get tbNameMeasureArea => 'Fläche messen';
 
   @override
@@ -2449,4 +2494,11 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Einfügen';
+
+  @override
+  String get shellBakePageColor => 'Seitenfarbe in Datei speichern';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.';
 }

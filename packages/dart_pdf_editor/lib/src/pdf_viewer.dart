@@ -402,6 +402,15 @@ class PdfViewerController extends ChangeNotifier {
   _PdfViewerState? _state;
   bool _disposed = false;
 
+  /// Returns keyboard shortcuts to the page after a host/toolbar arms a tool.
+  /// Safe before mounting and after disposal; does not open or change a PDF.
+  void requestKeyboardFocus() {
+    final state = _state;
+    if (!_disposed && state != null && state.mounted) {
+      state._focusNode.requestFocus();
+    }
+  }
+
   /// Set while a text reflow view drives navigation in place of a mounted
   /// page viewer; a mounted [PdfViewer] ([_state]) always wins.
   PdfReflowBackend? _reflow;
@@ -1384,6 +1393,7 @@ class PdfViewer extends StatefulWidget {
     this.controller,
     this.onAction,
     this.onAnnotationTap,
+    this.onPlainTap,
     this.onLaunchUrl,
     this.pageOverlayBuilder,
     this.scrollIndicatorBuilder,
@@ -1410,6 +1420,7 @@ class PdfViewer extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
@@ -1605,6 +1616,14 @@ class PdfViewer extends StatefulWidget {
   /// PDF link/action dispatch.
   final PdfAnnotationTapHandler? onAnnotationTap;
 
+  /// Called for a touch or stylus tap on the viewer that it has no use for
+  /// itself: not on an annotation or link, not dismissing a text selection,
+  /// not with a tool other than Select armed or anything selected for
+  /// editing. The shells use
+  /// it to show and hide their chrome on phones, the way mobile readers do.
+  /// A double tap (zoom) never reaches it.
+  final VoidCallback? onPlainTap;
+
   /// Opens the hyperlink of a tapped /URI action (and of a push button
   /// whose action is a /URI). Defaults to launching well-known external
   /// schemes - http, https, mailto, tel, sms - in the platform's default
@@ -1791,12 +1810,17 @@ class PdfViewer extends StatefulWidget {
   /// clipboard read); return null from the callback to mean "user cancelled".
   final PdfImagePicker? imagePicker;
 
-  /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector
-  /// clipboard is empty. When this returns PNG or JPEG bytes, the image is
+  /// Supplies a clipboard image for ⌘V/Ctrl+V. PNG or JPEG bytes are
   /// placed as a stamp under the cursor, or at the current page center when
-  /// no pointer location is known. When null or when it returns null, paste
-  /// falls back to plain text from Flutter's system clipboard.
+  /// no pointer location is known. With no external image, paste uses the
+  /// in-app clipboard, then plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Reads images before local annotation/vector copies. Enable only when
+  /// [systemImagePasteProvider] tracks clipboard ownership and returns null
+  /// for an app-owned or superseded copy. Readers without that capability
+  /// retain local vector paste, including on mobile and web.
+  final bool systemImagePasteOverridesLocalClipboard;
 
   /// Supplies an external PDF for vector paste before the in-app clipboard.
   /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
@@ -2555,6 +2579,12 @@ class _PdfViewerState extends State<PdfViewer>
   Offset? _marqueeStart;
   Offset? _marqueeCurrent;
   int? _marqueePage;
+
+  /// The global press point of a touch long-press marquee (select tool,
+  /// empty page area - see [_beginTouchMarquee]), or null when the marquee
+  /// in flight (if any) is a mouse one. A release that never dragged opens
+  /// the paste menu here, which is what a still long-press did before.
+  Offset? _touchMarqueeGlobal;
 
   /// A single-selection move drag's floating preview, reported by the
   /// page's editing overlay. The overlay's own layer would clip it behind
@@ -6926,6 +6956,7 @@ class _PdfViewerState extends State<PdfViewer>
       _suppressTap = false;
       return;
     }
+    final hadTextSelection = _controller.hasSelection;
     _clearSelection();
     final tapHit = widget.onAnnotationTap == null
         ? null
@@ -6953,6 +6984,20 @@ class _PdfViewerState extends State<PdfViewer>
       if (point != null) {
         editing.selectAnnotationAt(point.$1, point.$2, point.$3);
       }
+    }
+    if (widget.onPlainTap != null &&
+        _lastPointerKind != PointerDeviceKind.mouse &&
+        tapHit == null &&
+        !hadTextSelection &&
+        (editing == null ||
+            // Select is the resting mode: an empty-page tap it ignores
+            // (having just dropped any selection) still falls through here
+            ((editing.tool == null || editing.tool == PdfEditTool.select) &&
+                editing.markupTool == null &&
+                !editing.isPickingColor &&
+                !editing.hasAnnotationSelection &&
+                editing.selectedElement == null))) {
+      widget.onPlainTap!();
     }
   }
 
@@ -7024,18 +7069,8 @@ class _PdfViewerState extends State<PdfViewer>
                 annotation: hit?.$2);
             return;
           }
-          await showPdfAnnotationMenu(
-            context: _ui,
-            position: details.globalPosition,
-            controller: editing,
-            pageIndex: page,
-            customActions: widget.annotationMenuBuilder,
-            entriesBuilder: widget.annotationMenuEntries,
-            pagePoint: (x, y),
-            onPaste: widget.systemPdfPasteProvider == null
-                ? null
-                : () => _onPaste(pageIndex: page, at: (x, y)),
-          );
+          await _showSelectionMenu(details.globalPosition, page,
+              pagePoint: (x, y));
           return;
         }
         // A locked annotation can't be selected, but a right-click on it
@@ -7269,9 +7304,10 @@ class _PdfViewerState extends State<PdfViewer>
     if (kind != null && mounted) _markupTextSelection(kind);
   }
 
-  /// Opens the rich content-text editor for the exact text element under the
-  /// current viewer selection. Selection is kept on cancel/failure so the
-  /// user can copy or mark it up instead.
+  /// Opens the rich content-text editor for the exact page text under the
+  /// current viewer selection - one run, or the consecutive runs a word is
+  /// split across ([PdfEditingController.textPartsForSelection]). Selection
+  /// is kept on cancel/failure so the user can copy or mark it up instead.
   Future<void> _editTextSelection() async {
     final editing = widget.editing;
     final range = _selRange;
@@ -7283,8 +7319,8 @@ class _PdfViewerState extends State<PdfViewer>
     }
     final page = range.$1.$1;
     final rects = _selectionRectsOn(page);
-    final element = editing.textElementForSelection(page, rects, selected);
-    if (element == null) {
+    final parts = editing.textPartsForSelection(page, rects, selected);
+    if (parts == null) {
       _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
       return;
     }
@@ -7300,7 +7336,8 @@ class _PdfViewerState extends State<PdfViewer>
         (result.text == selected && result.style.isEmpty)) {
       return;
     }
-    if (!result.style.isEmpty && !editing.canStyleContentText(page, element)) {
+    if (!result.style.isEmpty &&
+        !editing.canStyleContentText(page, parts.first.element)) {
       _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
       return;
     }
@@ -7310,12 +7347,11 @@ class _PdfViewerState extends State<PdfViewer>
         _controller.selectedText != selected) {
       return;
     }
-    final count = editing.replaceTextInElement(
+    final count = editing.replaceTextInParts(
       page,
-      element,
-      selected,
+      parts,
       result.text,
-      result.style,
+      style: result.style,
       fallbackFonts: fallbacks,
     );
     if (count == 0) {
@@ -7432,10 +7468,12 @@ class _PdfViewerState extends State<PdfViewer>
       pageIndex: pageIndex,
       customActions: widget.annotationMenuBuilder,
       entriesBuilder: widget.annotationMenuEntries,
+      textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       pagePoint: pagePoint,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
+      onSelectAllText: () => _selectAllTextOn(pageIndex),
     );
   }
 
@@ -7623,10 +7661,58 @@ class _PdfViewerState extends State<PdfViewer>
   /// ⌘X/Ctrl+X: cut the selected annotations (copy + delete).
   void _onCut() => widget.editing?.cutSelectedAnnotations();
 
-  /// ⌘V/Ctrl+V: paste the in-app annotation/snapshot clipboard at the
-  /// cursor. When that clipboard is empty, ask the host for a system
-  /// clipboard image first, then fall back to plain text from Flutter's
-  /// system clipboard and create a FreeText annotation at the same point.
+  void _onToggleTextFormatting(PdfTextFormatting format) {
+    final editing = widget.editing;
+    if (editing == null) return;
+    if (editing.canRestyleSelectedText) {
+      editing.toggleSelectedTextFormatting(format);
+      return;
+    }
+    final range = _selRange;
+    final selected = _controller.selectedText;
+    if (range == null || selected.isEmpty) return;
+    if (range.$1.$1 != range.$2.$1) {
+      _textSelectionToast(pdfL10n(context).viewerEditNeedsSinglePage);
+      return;
+    }
+    if (format == PdfTextFormatting.underline) {
+      _markupTextSelection(PdfMarkupKind.underline);
+      return;
+    }
+    final page = range.$1.$1;
+    final parts =
+        editing.textPartsForSelection(page, _selectionRectsOn(page), selected);
+    if (parts == null) {
+      _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
+      return;
+    }
+    final element = parts.first.element;
+    if (!editing.canStyleContentText(page, element)) {
+      _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
+      return;
+    }
+    final cos = editing.document.cos;
+    final fonts = cos.resolve(editing.pageAt(page).resources['Font']);
+    final resource = element.resourceName;
+    final dict = fonts is CosDictionary && resource != null
+        ? cos.resolve(fonts[resource])
+        : null;
+    final name = dict is CosDictionary ? cos.resolve(dict['BaseFont']) : null;
+    final font =
+        PdfStandardFont.fromName(name is CosName ? name.value : 'Helvetica');
+    final style = format == PdfTextFormatting.bold
+        ? PdfTextStyle(bold: !font.isBold)
+        : PdfTextStyle(italic: !font.isItalic);
+    if (editing.replaceTextInParts(page, parts, selected, style: style) > 0) {
+      _clearSelection();
+    } else {
+      _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
+    }
+  }
+
+  /// ⌘V/Ctrl+V: prefer an external PDF or new external image, then paste the
+  /// in-app annotation/snapshot clipboard. Otherwise create a FreeText box
+  /// from system clipboard text at the captured paste point.
   /// With no pointer seen yet (touch / keyboard-only) annotation paste
   /// falls back to the current page's cascade; text paste lands in the
   /// current page's center.
@@ -7640,10 +7726,6 @@ class _PdfViewerState extends State<PdfViewer>
         pageIndex == null && local != null ? _pagePointAt(local) : null;
     final page = pageIndex ?? point?.$1 ?? _controller.currentPage;
     at ??= point == null ? null : (point.$2, point.$3);
-    if (widget.systemPdfPasteProvider == null) {
-      _pasteLocalClipboard(editing, page, at);
-      return;
-    }
     unawaited(_pasteWithExternalPdf(editing, page, at));
   }
 
@@ -7654,7 +7736,7 @@ class _PdfViewerState extends State<PdfViewer>
     try {
       PdfClipboardPdf? pdf;
       try {
-        pdf = await widget.systemPdfPasteProvider!(context);
+        pdf = await widget.systemPdfPasteProvider?.call(context);
       } catch (_) {
         // Missing support or denied clipboard access keeps local paste usable.
       }
@@ -7674,29 +7756,35 @@ class _PdfViewerState extends State<PdfViewer>
         }
         return;
       }
-      _pasteLocalClipboard(editing, page, at);
+      final imageFirst =
+          widget.systemImagePasteOverridesLocalClipboard && !alreadyPasted;
+      if (imageFirst &&
+          await _pasteSystemClipboardImage(editing, page, at, revision)) {
+        return;
+      }
+      if (!mounted ||
+          widget.editing != editing ||
+          editing.revisionId != revision) {
+        return;
+      }
+      if (editing.hasSnapshotClipboard) {
+        editing.pasteSnapshot(page, at: at);
+      } else if (editing.hasAnnotationClipboard) {
+        editing.pasteAnnotations(page, at: at);
+      } else {
+        if (!imageFirst &&
+            await _pasteSystemClipboardImage(editing, page, at, revision)) {
+          return;
+        }
+        await _pasteSystemClipboardText(editing, page, at, revision);
+      }
     } finally {
       _readingPaste = false;
     }
   }
 
-  void _pasteLocalClipboard(
-      PdfEditingController editing, int page, (double, double)? at) {
-    if (editing.hasSnapshotClipboard) {
-      editing.pasteSnapshot(page, at: at);
-    } else if (editing.hasAnnotationClipboard) {
-      editing.pasteAnnotations(page, at: at);
-    } else {
-      unawaited(_pasteSystemClipboard(editing));
-    }
-  }
-
-  Future<void> _pasteSystemClipboard(PdfEditingController editing) async {
-    if (await _pasteSystemClipboardImage(editing)) return;
-    await _pasteSystemClipboardText(editing);
-  }
-
-  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing) async {
+  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing,
+      int page, (double, double)? at, int revision) async {
     final provider = widget.systemImagePasteProvider;
     if (provider == null) return false;
     Uint8List? bytes;
@@ -7706,25 +7794,23 @@ class _PdfViewerState extends State<PdfViewer>
       return false;
     }
     if (bytes == null || bytes.isEmpty) return false;
-    if (!mounted || widget.editing != editing) return false;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      return editing.placeImageAsync(point.$1, point.$2, point.$3, bytes);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
+      return false;
     }
-    if (_pages.isEmpty) return false;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return false;
-    final box = _pages[page].cropBox;
+    if (page < 0 || page >= editing.document.pageCount) return false;
+    final box = editing.pageAt(page).cropBox;
     return editing.placeImageAsync(
       page,
-      (box.left + box.right) / 2,
-      (box.bottom + box.top) / 2,
+      at?.$1 ?? (box.left + box.right) / 2,
+      at?.$2 ?? (box.bottom + box.top) / 2,
       bytes,
     );
   }
 
-  Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
+  Future<void> _pasteSystemClipboardText(PdfEditingController editing, int page,
+      (double, double)? at, int revision) async {
     // Prefer the host's reader (the web build wires one over the browser Async
     // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
     // fall back to Flutter's clipboard when none is injected.
@@ -7737,23 +7823,23 @@ class _PdfViewerState extends State<PdfViewer>
         text = null;
       }
     } else {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      text = data?.text;
+      try {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        text = data?.text;
+      } catch (_) {
+        return;
+      }
     }
     if (text == null || text.trim().isEmpty) return;
-    if (!mounted || widget.editing != editing) return;
-    final local = _lastPointerLocal;
-    final point = local == null ? null : _pagePointAt(local);
-    if (point != null) {
-      editing.placeFreeText(point.$1, point.$2, point.$3, text);
+    if (!mounted ||
+        widget.editing != editing ||
+        editing.revisionId != revision) {
       return;
     }
-    if (_pages.isEmpty) return;
-    final page = _controller.currentPage.clamp(0, _pages.length - 1).toInt();
-    if (page < 0 || page >= _pages.length) return;
-    final box = _pages[page].cropBox;
-    editing.placeFreeText(
-        page, (box.left + box.right) / 2, (box.bottom + box.top) / 2, text);
+    if (page < 0 || page >= editing.document.pageCount) return;
+    final box = editing.pageAt(page).cropBox;
+    editing.placeFreeText(page, at?.$1 ?? (box.left + box.right) / 2,
+        at?.$2 ?? (box.bottom + box.top) / 2, text);
   }
 
   /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
@@ -7828,6 +7914,11 @@ class _PdfViewerState extends State<PdfViewer>
       }
       if (editing.isCroppingImage) {
         editing.cancelImageCrop();
+        return;
+      }
+      if (editing.tool == PdfEditTool.signatureBox) {
+        editing.tool = PdfEditTool.select;
+        _clearSelection();
         return;
       }
       if (editing.activeSavedAnnotation != null) {
@@ -8235,6 +8326,11 @@ class _PdfViewerState extends State<PdfViewer>
   void _onLongPressStart(LongPressStartDetails details) {
     final range = _wordRangeAt(details.localPosition);
     if (range == null) {
+      // Select tool on empty page area: the held finger rubber-bands a
+      // marquee (touch has no modifier key to ask for one). A press on a
+      // word still selects text, like everywhere else on a phone - start
+      // the box in a margin or between lines to sweep over text.
+      if (_beginTouchMarquee(details)) return;
       // no text under the press: an annotation (or, with something on
       // the clipboard, empty page area) gets the context menu instead -
       // reader mode's touch counterpart of a right-click
@@ -8263,15 +8359,13 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Touch long-press with no text under the press: an annotation joins
   /// the selection and gets the context menu; empty page area gets the
-  /// paste menu when the clipboard has content. When
+  /// page menu (paste, add a note, select all). When
   /// [widget.contextMenuEnabled] is false the stock menu is suppressed and
   /// the gesture is handed to [widget.onContextMenuRequested] instead -
   /// matching the right-click and editing-overlay long-press paths.
   ///
-  /// Returns whether the gesture was consumed. The host-takeover branch
-  /// answers this the same way the stock branch does: a press with no menu
-  /// target (no annotation, nothing to paste), or one no host is listening
-  /// for, is *not* a menu gesture, so the caller still gets to clear the
+  /// Returns whether the gesture was consumed. A press no host is listening
+  /// for is *not* a menu gesture, so the caller still gets to clear the
   /// text selection.
   bool _maybeAnnotationMenu(LongPressStartDetails details) {
     final editing = widget.editing;
@@ -8301,13 +8395,6 @@ class _PdfViewerState extends State<PdfViewer>
         return true;
       }
       final hit = editing.selectableAnnotationAt(page, x, y);
-      // nothing to act on: not a menu gesture at all
-      if (hit == null &&
-          !editing.hasAnnotationClipboard &&
-          !editing.hasSnapshotClipboard &&
-          widget.systemPdfPasteProvider == null) {
-        return false;
-      }
       // select first, so the host sees the same context the stock menu
       // would have had - and so a press with no listening host still
       // leaves the selection the stock path would have made
@@ -8328,14 +8415,8 @@ class _PdfViewerState extends State<PdfViewer>
 
     if (editing == null) return false;
     final hit = editing.selectableAnnotationAt(page, x, y);
-    if (hit != null) {
-      if (!editing.isAnnotationSelected(page, hit.$1)) {
-        editing.selectAnnotationAt(page, x, y);
-      }
-    } else if (!editing.hasAnnotationClipboard &&
-        !editing.hasSnapshotClipboard &&
-        widget.systemPdfPasteProvider == null) {
-      return false;
+    if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
+      editing.selectAnnotationAt(page, x, y);
     }
     HapticFeedback.selectionClick();
     unawaited(
@@ -8343,12 +8424,98 @@ class _PdfViewerState extends State<PdfViewer>
     return true;
   }
 
+  /// Starts a touch long-press marquee when the select tool is armed and the
+  /// press (already known to miss text) lands on a page. Annotations never
+  /// reach here: [_selectionLongPressEnabledAt] leaves those presses to the
+  /// overlay, which selects/moves them or opens their menu.
+  bool _beginTouchMarquee(LongPressStartDetails details) {
+    final editing = widget.editing;
+    if (editing == null ||
+        editing.tool != PdfEditTool.select ||
+        editing.isPickingColor) {
+      return false;
+    }
+    final point = _pagePointAt(details.localPosition);
+    if (point == null) return false;
+    HapticFeedback.selectionClick();
+    _clearSelection();
+    _marqueePage = point.$1;
+    _touchMarqueeGlobal = details.globalPosition;
+    setState(() {
+      _marqueeStart = details.localPosition;
+      _marqueeCurrent = details.localPosition;
+    });
+    return true;
+  }
+
+  /// Ends a touch long-press marquee. A box that was dragged out selects
+  /// the annotations it covers; a press that never moved is the plain
+  /// long-press it used to be - the page menu (paste, add a note, select
+  /// all), so a hold always answers (the overlay leaves select-tool
+  /// empty-area presses to this recognizer so the two don't race for the
+  /// same hold).
+  void _endTouchMarquee({required bool cancelled}) {
+    final global = _touchMarqueeGlobal;
+    final page = _marqueePage;
+    final start = _marqueeStart;
+    final current = _marqueeCurrent ?? start;
+    _touchMarqueeGlobal = null;
+    if (cancelled) {
+      setState(() {
+        _marqueeStart = null;
+        _marqueeCurrent = null;
+        _marqueePage = null;
+      });
+      return;
+    }
+    // A finger never holds perfectly still: a hold that drifted less than
+    // the touch slop is a press, not a box (the box it drew is too small to
+    // have meant anything).
+    final dragged = start != null &&
+        current != null &&
+        (current - start).distance >= kTouchSlop;
+    if (dragged) {
+      _commitMarquee();
+    } else {
+      setState(() {
+        _marqueeStart = null;
+        _marqueeCurrent = null;
+        _marqueePage = null;
+      });
+    }
+    final editing = widget.editing;
+    if (dragged ||
+        editing == null ||
+        global == null ||
+        page == null ||
+        start == null) {
+      return;
+    }
+    final point = _pagePointAt(start);
+    if (point == null || point.$1 != page) return;
+    final pagePoint = (point.$2, point.$3);
+    if (!widget.contextMenuEnabled) {
+      _requestContextMenu(global, page,
+          pagePoint: pagePoint, target: PdfContextMenuTarget.emptyPage);
+      return;
+    }
+    unawaited(_showSelectionMenu(global, page, pagePoint: pagePoint));
+  }
+
   void _onLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_touchMarqueeGlobal != null) {
+      setState(() => _marqueeCurrent = details.localPosition);
+      return;
+    }
     if (!_touchSelecting) return;
     _extendWordSelection(details.localPosition);
   }
 
   void _onLongPressEnd({bool cancelled = false}) {
+    if (_touchMarqueeGlobal != null) {
+      _endTouchMarquee(cancelled: cancelled);
+      return;
+    }
     if (!_touchSelecting) return;
     setState(() => _touchSelecting = false);
     if (cancelled && widget.editing?.markupTool != null) {
@@ -9523,6 +9690,7 @@ class _PdfViewerState extends State<PdfViewer>
                       endTextSelection: _endToolTextSelection,
                       clearTextSelection: _clearToolTextSelection,
                       activateLinkAt: _activateLinkAtGlobal,
+                      plainTap: widget.onPlainTap,
                     ),
                     interactionSession: widget.interactionSession,
                     crossPageGhost: _crossPageGhostFor(index),
@@ -9868,32 +10036,60 @@ class _PdfViewerState extends State<PdfViewer>
   Map<ShortcutActivator, Intent> _keyBindings(bool editing) {
     final base = widget.shortcuts ?? pdfViewerDefaultShortcuts;
     final tools = widget.toolShortcuts;
+    final canRotate = widget.editing?.canRotateSelected ?? false;
     final cached = _keyBindingsCache;
     if (cached != null &&
         identical(_keyBindingsBase, base) &&
         identical(_keyBindingsTools, tools) &&
-        _keyBindingsEditing == editing) {
+        _keyBindingsEditing == editing &&
+        _keyBindingsCanRotate == canRotate) {
       return cached;
     }
     _keyBindingsBase = base;
     _keyBindingsTools = tools;
     _keyBindingsEditing = editing;
-    return _keyBindingsCache = !editing || tools.isEmpty
-        ? base
-        : {
-            ...base,
-            // tool shortcuts (V select, P pen, R rectangle, ⇧L polyline, …) -
-            // safe because an open in-place text editor disables every
-            // binding
-            for (final entry in tools.entries)
-              entry.value.activator: PdfArmToolIntent(entry.key),
-          };
+    _keyBindingsCanRotate = canRotate;
+    if (!editing || tools.isEmpty) return _keyBindingsCache = base;
+    final rotationOnR = canRotate &&
+        base.entries.any((entry) {
+          final key = entry.key;
+          return entry.value is PdfRotateSelectionIntent &&
+              key is SingleActivator &&
+              key.trigger == LogicalKeyboardKey.keyR &&
+              !key.shift &&
+              !key.control &&
+              !key.meta &&
+              !key.alt;
+        });
+    final bindings = <ShortcutActivator, Intent>{...base};
+    for (final entry in tools.entries) {
+      final shortcut = entry.value;
+      // With a rotatable selection, the stock R rectangle key yields to
+      // selection rotation. Explicit custom tools retain their precedence.
+      if (rotationOnR &&
+          entry.key == PdfEditTool.rectangle &&
+          shortcut == const PdfToolShortcut(LogicalKeyboardKey.keyR)) {
+        continue;
+      }
+      // Activators have identity equality. Remove the matching command
+      // explicitly so Shortcuts sees one binding for this key combination.
+      bindings.removeWhere((key, _) =>
+          key is SingleActivator &&
+          key.trigger == shortcut.trigger &&
+          key.shift == shortcut.shift &&
+          !key.control &&
+          !key.meta &&
+          !key.alt);
+      bindings[shortcut.activator] = PdfArmToolIntent(entry.key);
+    }
+    return _keyBindingsCache = bindings;
   }
 
   Map<ShortcutActivator, Intent>? _keyBindingsCache;
   Map<ShortcutActivator, Intent>? _keyBindingsBase;
   Map<PdfEditTool, PdfToolShortcut>? _keyBindingsTools;
   bool? _keyBindingsEditing;
+  bool? _keyBindingsCanRotate;
 
   /// What the bound keys do. Each action is overridable - an [Actions]
   /// above the viewer replaces it - and an editing-only one is disabled
@@ -9914,9 +10110,18 @@ class _PdfViewerState extends State<PdfViewer>
           enabled: editing),
       PdfRedoIntent: action<PdfRedoIntent>((_) => widget.editing?.redo(),
           enabled: editing),
+      PdfToggleTextFormattingIntent: action<PdfToggleTextFormattingIntent>(
+          (intent) => _onToggleTextFormatting(intent.format),
+          enabled: (_) =>
+              widget.editing != null &&
+              (widget.editing!.canRestyleSelectedText ||
+                  _controller.selectedText.isNotEmpty)),
       PdfAutosizeTextBoxIntent: action<PdfAutosizeTextBoxIntent>(
           (_) => widget.editing?.autosizeSelectedTextBox(),
           enabled: editing),
+      PdfRotateSelectionIntent: action<PdfRotateSelectionIntent>(
+          (intent) => widget.editing?.rotateSelected(intent.degrees),
+          enabled: (_) => widget.editing?.canRotateSelected ?? false),
       PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
       PdfPasteIntent:
           action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
@@ -10692,6 +10897,13 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
 
+  /// Whether the editing overlay stays mounted after its reason to be
+  /// (a tool, a selection, ...) has gone, until this page is current again.
+  /// It may be painting an afterimage of the latest edit - the annotation
+  /// layer has not drawn it yet - and unmounting it on a deselect hid the
+  /// annotation until the layer caught up.
+  bool _editingOverlayHeld = false;
+
   /// The editing revision [widget.page] belongs to, read when that page
   /// arrived: once this page's raster and annotation layer are current, the
   /// committed-ink afterimages up to it are on the page itself and are retired
@@ -10981,16 +11193,22 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             // the COS revision generation.
                             identical(
                                 widget.page.document.cos, editing.document.cos);
-                        return editing.tool == null &&
-                                !editing.isPickingColor &&
-                                editing.activeSavedAnnotation == null &&
-                                !editing.hasAnnotationSelection &&
-                                editing.pendingFlash == null &&
-                                !editing.preferences.showVerticalCursorGuide &&
-                                !editing
-                                    .preferences.showHorizontalCursorGuide &&
-                                !editing.preferences.showPageRulers &&
-                                !editing.preferences.showSnapGrid &&
+                        final idle = editing.tool == null &&
+                            !editing.isPickingColor &&
+                            editing.activeSavedAnnotation == null &&
+                            !editing.hasAnnotationSelection &&
+                            editing.pendingFlash == null &&
+                            !editing.preferences.showVerticalCursorGuide &&
+                            !editing.preferences.showHorizontalCursorGuide &&
+                            !editing.preferences.showPageRulers &&
+                            !editing.preferences.showSnapGrid;
+                        // a mounted overlay outlives its reason until the
+                        // page is current: it may hold the last edit's
+                        // afterimage (see [_editingOverlayHeld])
+                        _editingOverlayHeld =
+                            !rasterCurrent && (!idle || _editingOverlayHeld);
+                        return idle &&
+                                !_editingOverlayHeld &&
                                 (rasterCurrent ||
                                     editing
                                         .committedInksOn(widget.index)

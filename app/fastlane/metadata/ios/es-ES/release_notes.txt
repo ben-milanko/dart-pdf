@@ -1,6 +1,3 @@
-Novedades de 8.1.0
+Novedades de 10.0.0
 
-- Cambia la fuente y el estilo de los campos desplegables y de lista.
-- Nuevo menú móvil para crear, abrir, imprimir y firmar.
-- La edición conserva la fuente y los saltos de línea. Mejoras en el teclado y los menús de selección de iOS.
-- Paleta completa para el lápiz y el resaltador móvil.
+Escribe valores de medida sin una escala. Edita palabras completas y reconoce mejor los enlaces. Los controles de lectura se ocultan en teléfonos y evitan los pliegues de pantalla. Elige si mantener el OCR automático tras usarlo por primera vez. Corregimos un fallo con escaneos grandes y mejoramos las anotaciones y el recorte.

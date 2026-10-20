@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPt([String locale = 'pt']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Alinhamento vertical';
+
+  @override
+  String get textAlignTop => 'Alinhar texto em cima';
+
+  @override
+  String get textAlignMiddle => 'Centralizar texto verticalmente';
+
+  @override
+  String get textAlignBottom => 'Alinhar texto embaixo';
+
+  @override
   String get add => 'Adicionar';
 
   @override
@@ -345,7 +357,13 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Profundidade do volume';
 
   @override
+  String get measCustomValueTitle => 'Valor da medida';
+
+  @override
   String get menuAddNode => 'Adicionar nó';
+
+  @override
+  String get menuEditMeasurementValue => 'Editar valor da medida';
 
   @override
   String get menuAddLeader => 'Adicionar linha de chamada';
@@ -363,6 +381,27 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get menuApplyToPages => 'Aplicar às páginas…';
+
+  @override
+  String get propLeader => 'Linha guia';
+
+  @override
+  String get propOutlineWidth => 'Espessura do contorno';
+
+  @override
+  String get menuRotateSelection => 'Girar ao redor do centro da seleção…';
+
+  @override
+  String get menuRotateEach => 'Girar cada anotação…';
+
+  @override
+  String get rotationAngleTitle => 'Rotação (graus, sentido anti-horário)';
+
+  @override
+  String get menuGroup => 'Agrupar';
+
+  @override
+  String get menuUngroup => 'Desagrupar';
 
   @override
   String get menuBringToFront => 'Trazer para a frente';
@@ -414,6 +453,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Remover linha de chamada';
+
+  @override
+  String get menuAddNoteHere => 'Adicionar nota aqui';
 
   @override
   String get menuSaveToStamps => 'Salvar nos carimbos';
@@ -1685,6 +1727,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbNameMeasureArc => 'Medir comprimento de arco';
 
   @override
+  String get tbNameMeasureCustom => 'Medida personalizada (digitar valor)';
+
+  @override
   String get tbNameMeasureArea => 'Medir área';
 
   @override
@@ -2444,4 +2489,11 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Inserir';
+
+  @override
+  String get shellBakePageColor => 'Salvar a cor da página no arquivo';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'A cor da página não foi salva no arquivo: alterar as páginas invalidaria as assinaturas.';
 }

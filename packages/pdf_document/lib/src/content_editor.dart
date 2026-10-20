@@ -6,8 +6,8 @@ part of 'editor.dart';
 /// Each field left null keeps the matched run's existing value for that
 /// attribute, so `PdfTextStyle(color: 0xFF0000)` recolours a replacement
 /// while leaving its font and size untouched. Styling is applied to
-/// simple-font (non-/Type0) text runs; composite runs are still replaced
-/// but keep their original colour, size, and face.
+/// simple-font runs and Identity-H composite runs with a ToUnicode mapping.
+/// Unselected text retains its original font, color, and placement.
 class PdfTextStyle {
   const PdfTextStyle({
     this.color,
@@ -817,8 +817,8 @@ extension PdfContentEditing on PdfEditor {
   ///
   /// [style] applies a uniform rich-text override (fill colour, size, bold,
   /// italic) to the replacement - see [replaceStyledText], which this
-  /// forwards to. Styling only affects simple-font runs; a composite
-  /// (/Type0) run is still corrected but keeps its original appearance.
+  /// forwards to. Simple-font and Identity-H composite runs support styling;
+  /// the original font and placement of surrounding text are preserved.
   int replaceText(
     int index,
     String find,
@@ -930,6 +930,16 @@ extension PdfContentEditing on PdfEditor {
     CosDictionary? font; // the font active at the current operation
     String? fontName; // its /Font resource key
     var fontSize = 0.0; // its size, for fallback Tf switches
+    var characterSpacing = 0.0;
+    var wordSpacing = 0.0;
+    final stateStack = <(
+      String?,
+      double,
+      double,
+      double,
+      List<ContentOperation>,
+      ContentOperation?
+    )>[];
     // the nonstroking colour operators active at the current operation, so a
     // styled replacement can restore them for whatever text follows it.
     var restoreColorOps = <ContentOperation>[_colorOp(0x000000)];
@@ -938,6 +948,37 @@ extension PdfContentEditing on PdfEditor {
     var i = 0;
     while (i < ops.length) {
       final op = ops[i];
+      switch (op.operator) {
+        case 'q':
+          stateStack.add((
+            fontName,
+            fontSize,
+            characterSpacing,
+            wordSpacing,
+            restoreColorOps,
+            pendingCs
+          ));
+        case 'Q':
+          if (stateStack.isNotEmpty) {
+            final saved = stateStack.removeLast();
+            fontName = saved.$1;
+            fontSize = saved.$2;
+            characterSpacing = saved.$3;
+            wordSpacing = saved.$4;
+            restoreColorOps = saved.$5;
+            pendingCs = saved.$6;
+            font = fontFor(fontName);
+          }
+        case 'Tc':
+          if (op.operands.isNotEmpty) characterSpacing = _num(op.operands[0]);
+        case 'Tw':
+          if (op.operands.isNotEmpty) wordSpacing = _num(op.operands[0]);
+        case '"':
+          if (op.operands.length >= 2) {
+            wordSpacing = _num(op.operands[0]);
+            characterSpacing = _num(op.operands[1]);
+          }
+      }
       if (op.operator == 'Tf' && op.operands.isNotEmpty) {
         fontName = op.operands[0] is CosName
             ? (op.operands[0] as CosName).value
@@ -979,6 +1020,9 @@ extension PdfContentEditing on PdfEditor {
           run.add(ops[i]);
           i++;
         }
+        final charSpaceEm =
+            fontSize == 0 ? 0.0 : characterSpacing * 1000 / fontSize;
+        final wordSpaceEm = fontSize == 0 ? 0.0 : wordSpacing * 1000 / fontSize;
         final simpleRewrite = styled
             ? _rewriteStyledTextRun(
                 page,
@@ -992,16 +1036,30 @@ extension PdfContentEditing on PdfEditor {
                 restoreColorOps,
                 styledEmbed,
                 simpleFor(fontName, font),
+                charSpaceEm,
+                wordSpaceEm,
               )
             : _rewriteTextRun(
-                run, font, find, replace, simpleFor(fontName, font));
-        final (ops_, n) = _isType0(cos, font) && fontName != null
-            ? (type0For(
-                  fontName,
-                  font!,
-                )?.rewriteRun(run, find, replace, fontSize) ??
-                (run, 0))
-            : simpleRewrite;
+                run, font, find, replace, simpleFor(fontName, font),
+                characterSpacing: charSpaceEm, wordSpacing: wordSpaceEm);
+        final keepCompositeFace = !styled ||
+            (style.family == null &&
+                style.bold == null &&
+                style.italic == null &&
+                style.embeddedFont == null);
+        final compositeEditor =
+            _isType0(cos, font) && fontName != null && keepCompositeFace
+                ? type0For(fontName, font!)
+                : null;
+        final (ops_, n) = compositeEditor != null
+            ? compositeEditor.rewriteRun(run, find, replace, fontSize,
+                style: styled ? style : null,
+                restoreColorOps: restoreColorOps,
+                characterSpacing: charSpaceEm,
+                wordSpacing: wordSpaceEm)
+            : !styled && _isType0(cos, font)
+                ? (run, 0)
+                : simpleRewrite;
         rewritten.addAll(ops_);
         count += n;
         continue;
@@ -1068,8 +1126,7 @@ extension PdfContentEditing on PdfEditor {
   /// put (the replacement is re-measured against the styled font/size). A
   /// family/bold/italic change substitutes a base-14 face (Helvetica/Times/
   /// Courier), so it works even against embedded fonts. Styling is applied to
-  /// simple-font runs only; composite (/Type0) runs are corrected without
-  /// restyling.
+  /// simple-font runs and Identity-H composite runs with a ToUnicode mapping.
   int replaceStyledText(
     int index,
     String find,
@@ -1104,8 +1161,89 @@ extension PdfContentEditing on PdfEditor {
     List<ContentOperation> restoreColorOps,
     _StyledEmbed? embed,
     SimpleFont simple,
+    double characterSpacing,
+    double wordSpacing,
   ) {
-    if (_isType0(document.cos, font)) return (run, 0);
+    if (_isType0(document.cos, font)) {
+      if (font == null || fontName == null) return (run, 0);
+      final encoding = document.cos.resolve(font['Encoding']);
+      if (encoding is! CosName || encoding.value != 'Identity-H') {
+        return (run, 0);
+      }
+      final composite = Type0Font.decode(document.cos, font);
+      final variant = _styledVariant(font, style);
+      final bytes = variant == null ? null : _tryLatin1(replace);
+      final inverse = {
+        for (final entry in composite.codeToText.entries) entry.value: entry.key
+      };
+      final useEmbed = embed != null &&
+          replace.runes.every((r) => embed.font.glyphForRune(r) != 0);
+      if (variant == null &&
+          !useEmbed &&
+          replace.runes
+              .any((r) => !inverse.containsKey(String.fromCharCode(r)))) {
+        return (run, 0);
+      }
+      _StyledFace resolve() {
+        if (useEmbed) {
+          final name = _embeddedFontResource(page, embed);
+          return _StyledFace(
+              name,
+              CosString(_hexBytes(embed.font.encodeHex(replace)), isHex: true),
+              replace.runes.fold(
+                  0.0,
+                  (w, r) =>
+                      w +
+                      embed.font.advanceForGlyph(embed.font.glyphForRune(r))),
+              bytesPerGlyph: 2);
+        }
+        if (variant != null && bytes != null) {
+          return _StyledFace(
+              _standardFontResource(page, variant),
+              CosString(Uint8List.fromList(bytes)),
+              variant.measure(replace, 1000));
+        }
+        if (variant != null) {
+          final unicode = PdfUnicodeFont(variant)..resetUsage();
+          final show =
+              CosString(_hexBytes(unicode.encodeHex(replace)), isHex: true);
+          final fonts = _ownFontResources(page);
+          var i = 0;
+          while (fonts.containsKey('StyleUnicode$i')) {
+            i++;
+          }
+          final name = 'StyleUnicode$i';
+          fonts[name] = _updater.addObject(
+              unicode.buildResource(_updater.addObject).entries.values.first);
+          return _StyledFace(name, show, unicode.measure(replace, 1000),
+              bytesPerGlyph: 2);
+        }
+        final codes = [
+          for (final rune in replace.runes) inverse[String.fromCharCode(rune)]!
+        ];
+        return _StyledFace(
+            fontName,
+            _hexShowString([
+              for (final code in codes) ...[code >> 8, code & 255]
+            ]),
+            codes.fold(0.0, (w, code) => w + composite.widthOf(code)),
+            bytesPerGlyph: 2);
+      }
+
+      return TextRunRewriter(_StyledRunCodec(
+        simple: simple,
+        composite: composite,
+        origWidthOf: composite.widthOf,
+        resolveFace: resolve,
+        styledSize: style.fontSize ?? fontSize,
+        fontSize: fontSize,
+        fontName: fontName,
+        colorOp: style.color == null ? null : _colorOp(style.color!),
+        restoreColorOps: restoreColorOps,
+        characterSpacing: characterSpacing,
+        wordSpacing: wordSpacing,
+      )).rewrite(run, find, replace);
+    }
 
     final origWidthOf = simple.widthOf;
 
@@ -1141,7 +1279,7 @@ extension PdfContentEditing on PdfEditor {
         for (final r in runes) {
           w += embed.font.advanceForGlyph(embed.font.glyphForRune(r));
         }
-        return _StyledFace(name, replShow, w);
+        return _StyledFace(name, replShow, w, bytesPerGlyph: 2);
       }
       final String? name;
       final double Function(int) styledWidthOf;
@@ -1171,6 +1309,8 @@ extension PdfContentEditing on PdfEditor {
       fontName: fontName,
       colorOp: style.color == null ? null : _colorOp(style.color!),
       restoreColorOps: restoreColorOps,
+      characterSpacing: characterSpacing,
+      wordSpacing: wordSpacing,
     );
     return TextRunRewriter(codec).rewrite(run, find, replace);
   }
@@ -1304,8 +1444,10 @@ extension PdfContentEditing on PdfEditor {
     CosDictionary? font,
     String find,
     String replace,
-    SimpleFont simple,
-  ) {
+    SimpleFont simple, {
+    double characterSpacing = 0,
+    double wordSpacing = 0,
+  }) {
     if (_isType0(document.cos, font)) return (run, 0);
     // Decided before the rewrite, like the composite path's glyph check: a
     // font with no code for one of the replacement's characters cannot draw
@@ -1313,7 +1455,8 @@ extension PdfContentEditing on PdfEditor {
     // different glyph. Leaving the run untouched is the honest outcome.
     final replaceBytes = simple.encode(replace);
     if (replaceBytes == null) return (run, 0);
-    return TextRunRewriter(_SimpleRunCodec(simple, replaceBytes))
+    return TextRunRewriter(_SimpleRunCodec(
+            simple, replaceBytes, characterSpacing, wordSpacing))
         .rewrite(run, find, replace);
   }
 
@@ -1451,7 +1594,10 @@ extension PdfContentEditing on PdfEditor {
 /// each shown byte is a glyph, replacements are drawn as Latin-1 bytes in the
 /// run's own font, and cells serialize back into plain (non-hex) show strings.
 class _SimpleRunCodec extends RunCodec {
-  _SimpleRunCodec(this._simple, this._replaceBytes);
+  _SimpleRunCodec(this._simple, this._replaceBytes, this.characterSpacing,
+      this.wordSpacing);
+  final double characterSpacing;
+  final double wordSpacing;
 
   /// The run's font, which owns both directions of the code <-> text map.
   final SimpleFont _simple;
@@ -1467,7 +1613,10 @@ class _SimpleRunCodec extends RunCodec {
   String glyphText(int glyph) => _simple.textFor(glyph);
 
   @override
-  double glyphWidth(int glyph) => _simple.widthOf(glyph);
+  double glyphWidth(int glyph) =>
+      _simple.widthOf(glyph) +
+      characterSpacing +
+      (glyph == 32 ? wordSpacing : 0);
 
   @override
   void emitReplacement(
@@ -1475,7 +1624,7 @@ class _SimpleRunCodec extends RunCodec {
     var newWidth = 0.0;
     for (final code in _replaceBytes) {
       out.add(CellEmit((glyph: code, kern: null)));
-      newWidth += _simple.widthOf(code);
+      newWidth += glyphWidth(code);
     }
     if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
       out.add(CellEmit((glyph: null, kern: newWidth - oldWidth)));
@@ -1498,6 +1647,7 @@ class _SimpleRunCodec extends RunCodec {
 class _StyledRunCodec extends RunCodec {
   _StyledRunCodec({
     required this.simple,
+    this.composite,
     required double Function(int code) origWidthOf,
     required _StyledFace Function() resolveFace,
     required this.styledSize,
@@ -1505,14 +1655,19 @@ class _StyledRunCodec extends RunCodec {
     required this.fontName,
     required this.colorOp,
     required this.restoreColorOps,
+    this.characterSpacing = 0,
+    this.wordSpacing = 0,
   })  : _origWidthOf = origWidthOf,
         _resolveFace = resolveFace;
 
   /// The run's own font, for reading its codes back as text when matching.
   final SimpleFont simple;
+  final Type0Font? composite;
 
   final double Function(int) _origWidthOf;
   final _StyledFace Function() _resolveFace;
+  final double characterSpacing;
+  final double wordSpacing;
   final double styledSize;
   final double fontSize;
   final String? fontName;
@@ -1527,13 +1682,23 @@ class _StyledRunCodec extends RunCodec {
   _StyledFace? _face; // resolved once, on the first match
 
   @override
-  List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
+  List<RunCell> flatten(List<ContentOperation> run) =>
+      composite == null ? simpleRunCells(run) : type0RunCells(run);
 
   @override
-  String glyphText(int glyph) => simple.textFor(glyph);
+  bool shouldSkip(List<ContentOperation> run) =>
+      composite != null && type0RunHasOddString(run);
 
   @override
-  double glyphWidth(int glyph) => _origWidthOf(glyph);
+  String glyphText(int glyph) => composite == null
+      ? simple.textFor(glyph)
+      : composite!.codeToText[glyph] ?? '￿';
+
+  @override
+  double glyphWidth(int glyph) =>
+      _origWidthOf(glyph) +
+      characterSpacing +
+      (composite == null && glyph == 32 ? wordSpacing : 0);
 
   @override
   void emitReplacement(
@@ -1561,7 +1726,10 @@ class _StyledRunCodec extends RunCodec {
     // keep the rest of the line put; the compensation is applied in the
     // restored (original size) context, so convert the new width back.
     if (hasTrailing && fontSize != 0) {
-      final kern = face.newWidthEm * styledSize / fontSize - oldWidth;
+      final kern = face.newWidthEm * styledSize / fontSize +
+          face.glyphCount * characterSpacing +
+          face.spaceCount * wordSpacing -
+          oldWidth;
       if (kern.abs() >= 0.001) {
         out.add(CellEmit((glyph: null, kern: kern)));
       }
@@ -1571,15 +1739,23 @@ class _StyledRunCodec extends RunCodec {
   @override
   List<ContentOperation> assemble(List<ContentOperation> run, List<Emit> out) =>
       RunCodec.coalesce(run, out,
-          putGlyph: (g, buffer) => buffer.add(g),
-          makeString: (buffer) => CosString(Uint8List.fromList(buffer)));
+          putGlyph:
+              composite == null ? (g, buffer) => buffer.add(g) : _putType0Glyph,
+          makeString: composite == null
+              ? (buffer) => CosString(Uint8List.fromList(buffer))
+              : _hexShowString);
 }
 
 /// The resolved styled face for a [_StyledRunCodec]: the page /Font resource
 /// name to draw the replacement in (null keeps the run's font), the show
 /// string for the replacement, and its advance (thousandths of an em).
 class _StyledFace {
-  _StyledFace(this.fontName, this.replShow, this.newWidthEm);
+  _StyledFace(this.fontName, this.replShow, this.newWidthEm,
+      {this.bytesPerGlyph = 1});
+  final int bytesPerGlyph;
+  int get glyphCount => replShow.bytes.length ~/ bytesPerGlyph;
+  int get spaceCount =>
+      bytesPerGlyph == 1 ? replShow.bytes.where((b) => b == 32).length : 0;
   final String? fontName;
   final CosString replShow;
   final double newWidthEm;

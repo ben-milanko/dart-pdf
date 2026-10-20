@@ -87,6 +87,8 @@
   "editorCouldNotOpenUrl": "{url} açılamadı",
   "editorCouldNotPrint": "{title} yazdırılamadı",
   "editorCouldNotReopen": "{title} yeniden açılamadı",
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.} other{Son oturumunuzdaki {count} belge artık kullanılamıyor. Taşınmış, yeniden adlandırılmış veya silinmiş olabilirler.}}",
+  "editorSaveOriginUnavailable": "{title} özgün konumuna kaydedilemedi. Taşınmış veya silinmiş olabilir. Nereye kaydedileceğini seçin.",
   "editorCouldNotSign": "Dijital olarak imzalanamadı: {error}",
   "editorDiscard": "At",
   "editorDiscardChangesTitle": "Değişiklikler atılsın mı?",
@@ -237,6 +239,8 @@
   "settingsNightlyUpdatesSubtitle": "main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.",
   "settingsUpdates": "Güncellemeler",
   "settingsViewSource": "GitHub'da kaynağı görüntüle",
+  "settingsEmailFeedback": "E-postayla geri bildirim gönder",
+  "settingsReportIssue": "GitHub'da sorun bildir",
   "undo": "Geri al",
   "welcomeCopyName": "Adı kopyala",
   "welcomeCopyPath": "Yolu kopyala",
@@ -345,5 +349,10 @@
   "settingsAutoOcrTitle": "Automatically OCR scans",
   "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
   "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
-  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again."
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "ocrAutoOfferKeepOn": "Keep on",
+  "ocrAutoOfferTurnOff": "Turn off",
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
 }

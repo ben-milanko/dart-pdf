@@ -202,6 +202,59 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  // A finger never hovers or exits, so nothing but the stroke's own end can
+  // take the pen dot down - before, it stayed parked where the stroke ended.
+  for (final kind in [PointerDeviceKind.touch, PointerDeviceKind.stylus]) {
+    testWidgets('a ${kind.name} stroke takes the pen dot down on lift',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..inkCommitDelay = null
+        ..tool = PdfEditTool.ink;
+      await tester.pump();
+
+      final start = view(250, 450);
+      final end = view(330, 420);
+      final g = await tester.startGesture(start, kind: kind);
+      await tester.pump();
+      await g.moveTo(end);
+      await tester.pump();
+      expect(cursorPainter(tester).penCursor, end);
+
+      await g.up();
+      await tester.pump();
+      expect(cursorPainter(tester).penCursor, isNull);
+      await tester.pumpAndSettle();
+    });
+  }
+
+  // Flutter web follows a finger's lift with a synthesized hover of kind
+  // touch at the same spot. A finger can't hover, so it must not bring the
+  // pen dot back.
+  testWidgets('a touch hover after the lift does not park the pen dot',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..inkCommitDelay = null
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final start = view(250, 450);
+    final end = view(330, 420);
+    final g = await tester.startGesture(start, kind: PointerDeviceKind.touch);
+    await tester.pump();
+    await g.moveTo(end);
+    await tester.pump();
+    await g.up();
+    await tester.pump();
+    tester.binding.handlePointerEvent(
+        PointerHoverEvent(kind: PointerDeviceKind.touch, position: end));
+    await tester.pump();
+
+    expect(cursorPainter(tester).penCursor, isNull);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('leaving the page retracts the painted pen dot', (tester) async {
     final editing = await pumpViewer(tester);
     editing.tool = PdfEditTool.ink;

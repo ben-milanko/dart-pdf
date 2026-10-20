@@ -1,0 +1,8 @@
+Neu in 9.0.0
+
+- Anmerkungen gruppieren und gemeinsam verschieben, skalieren und drehen.
+- Gescannte Dokumente werden automatisch per OCR durchsuchbar.
+- Seitenfarbe optional in PDFs speichern.
+- Tastenkürzel für Textformatierung und eigene Stile für Legendenpfeile.
+- Einfacheres Zeichnen von Polylinien und Neuordnen von Seiten.
+- Bessere Serifenschriften, schärfere gedrehte Bilder und flüssigeres Scrollen.
