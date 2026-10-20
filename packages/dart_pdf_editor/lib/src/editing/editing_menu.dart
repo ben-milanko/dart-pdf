@@ -517,6 +517,13 @@ Future<void> showPdfAnnotationMenu({
     ],
   ];
   final recolor = <PdfAnnotationMenuItem>[
+    if (hasSelection && controller.canCropSelected)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-crop-snapshot'),
+        label: pdfL10n(context).tbCropImage,
+        icon: Icons.crop,
+        onSelected: (request) => request.controller.beginImageCrop(),
+      ),
     if (hasSelection && controller.canRecolorSnapshotSelected)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-recolor-snapshot'),

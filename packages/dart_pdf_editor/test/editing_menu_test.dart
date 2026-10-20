@@ -299,6 +299,55 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsOneWidget);
     });
 
+    testWidgets(
+        'snapshot Crop menu starts cropping and commits one undoable crop',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+      final before = editing.selectedAnnotation!.rect;
+      await rightClick(tester, viewPoint(110, 500));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')));
+      await tester.pumpAndSettle();
+      expect(editing.isCroppingImage, isTrue);
+      expect(editing.imageCropDraft, before);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsOneWidget);
+      editing.updateImageCropDraft(PdfRect(before.left, before.bottom,
+          before.left + before.width / 2, before.top));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-crop-confirm')));
+      await tester.pumpAndSettle();
+      expect(editing.isCroppingImage, isFalse);
+      expect(editing.selectedAnnotation!.rect.width,
+          closeTo(before.width / 2, 1e-6));
+      editing.undo();
+      expect(editing.document.page(0).annotations.last.rect, before);
+      expect(editing.document.page(0).annotations.take(2).map((a) => a.rect),
+          const [PdfRect(60, 700, 160, 750), PdfRect(200, 700, 300, 750)]);
+    });
+
+    testWidgets('Crop is absent for ordinary shapes and multiple snapshots',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      await rightClick(tester, viewPoint(110, 725));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      editing.pasteSnapshot(0, at: (110, 500));
+      editing.pasteSnapshot(0, at: (300, 500));
+      editing.selectAnnotationsIn(0, const PdfRect(0, 450, 400, 550));
+      await tester.pump();
+      expect(editing.selectedAnnotationSlots, hasLength(2));
+      await rightClick(tester, viewPoint(110, 500));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-crop-snapshot')),
+          findsNothing);
+    });
+
     testWidgets('Recolour… shows only for a vector snapshot selection',
         (tester) async {
       final editing = await pumpViewer(tester);
