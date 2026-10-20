@@ -71,6 +71,7 @@ class OnDeviceOcr {
           continue;
         }
         if (job.state == OcrJobState.failed) continue;
+        if (_disposed || !context.mounted) return;
         await _runSaved(job,
             onToast: onToast,
             onComplete: (bytes) => onComplete(bytes, job.title),
