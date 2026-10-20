@@ -8890,7 +8890,16 @@ class PdfEditingController extends ChangeNotifier {
     // leader + arrow: anchor at the box's top-left so the arrow stays put.
     // The anchor is where the user left the box, so a box sitting at (or
     // over) the page edge grows from there rather than sliding inward.
-    final anchor = annotation.calloutBox ?? annotation.rect;
+    // Measure and anchor in displayed page points: /Rotate 90 and 270 swap
+    // the text box's width/height, and 180 reverses its top-left corner.
+    final page = _page(_selected.last.$1);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: PdfPageRenderer.pageSize(page),
+    );
+    final anchor =
+        geometry.toViewRect(annotation.calloutBox ?? annotation.rect);
     var lines = normalized.split('\n');
     final double width;
     // Text that already wraps inside the box is a paragraph laid out at the
@@ -8925,13 +8934,14 @@ class PdfEditingController extends ChangeNotifier {
           size * (_freeTextAscent(font) + _freeTextDescent(font)) / 1000 +
           math.max(0, lines.length - 1) * size * lineSpacing,
     );
-    return PdfRect(
-        anchor.left, anchor.top - height, anchor.left + width, anchor.top);
+    return geometry
+        .toPageRect(ui.Rect.fromLTWH(anchor.left, anchor.top, width, height));
   }
 
   /// Shrinks or grows the selected free-text annotation to the natural
   /// bounds of its contents. Explicit newlines are preserved and the box is
-  /// anchored at its current top-left corner - it grows off the page edge
+  /// anchored at its current visible top-left corner, including on rotated
+  /// pages - it grows off the page edge
   /// rather than sliding inward to fit. Text that already wraps at the box's
   /// width keeps that width and only the height is fitted to the wrapped
   /// lines; otherwise the box takes the width of its longest line.
