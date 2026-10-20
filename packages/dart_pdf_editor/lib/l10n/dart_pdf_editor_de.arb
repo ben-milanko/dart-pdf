@@ -721,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{Fügt 1 Seite ein} other{Fügt {inserted} Seiten ein}} – das Dokument hat dann {total, plural, =1{1 Seite} other{{total} Seiten}}.",
   "insertPagesConfirm": "Einfügen",
   "shellBakePageColor": "Seitenfarbe in Datei speichern",
-  "pageColorNotBakedSigned": "Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen."
+  "pageColorNotBakedSigned": "Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.",
+  "textVerticalAlign": "Vertikale Ausrichtung",
+  "textAlignTop": "Text oben ausrichten",
+  "textAlignMiddle": "Text vertikal zentrieren",
+  "textAlignBottom": "Text unten ausrichten"
 }

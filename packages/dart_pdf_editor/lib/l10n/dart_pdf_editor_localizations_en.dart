@@ -2474,6 +2474,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4946,6 +4958,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7418,4 +7442,16 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
 }

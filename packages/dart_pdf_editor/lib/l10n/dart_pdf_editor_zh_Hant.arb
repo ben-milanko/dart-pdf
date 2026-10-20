@@ -721,5 +721,9 @@
   "insertPagesSummary": "將插入 {inserted} 頁，文件共 {total} 頁。",
   "insertPagesConfirm": "插入",
   "shellBakePageColor": "將頁面顏色儲存至檔案",
-  "pageColorNotBakedSigned": "頁面顏色未儲存至檔案：變更頁面會使其簽章失效。"
+  "pageColorNotBakedSigned": "頁面顏色未儲存至檔案：變更頁面會使其簽章失效。",
+  "textVerticalAlign": "垂直對齊",
+  "textAlignTop": "文字靠上對齊",
+  "textAlignMiddle": "文字垂直置中",
+  "textAlignBottom": "文字靠下對齊"
 }

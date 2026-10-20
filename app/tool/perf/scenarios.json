@@ -103,6 +103,12 @@
       "params": { "ops": 24 },
       "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
     },
+    "resize-text-plan": {
+      "kind": "resize",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": {},
+      "note": "Six real mouse resize starts on a selected text box over a vector plan. Measures synchronous slop-crossing dispatch, before PDF commit or deferred clean rendering; each completed resize is undone."
+    },
     "toolbar-arm": {
       "kind": "toolbar",
       "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",

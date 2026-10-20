@@ -721,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{Inserta 1 página} other{Inserta {inserted} páginas}}: el documento tendrá {total, plural, =1{1 página} other{{total} páginas}}.",
   "insertPagesConfirm": "Insertar",
   "shellBakePageColor": "Guardar el color de página en el archivo",
-  "pageColorNotBakedSigned": "El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas."
+  "pageColorNotBakedSigned": "El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas.",
+  "textVerticalAlign": "Alineación vertical",
+  "textAlignTop": "Alinear texto arriba",
+  "textAlignMiddle": "Centrar texto verticalmente",
+  "textAlignBottom": "Alinear texto abajo"
 }

@@ -4695,6 +4695,19 @@ class _StyleMenuState extends State<_StyleMenu> {
                         ),
                       ]),
                     ),
+                    if (captionStyle == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(children: [
+                          Expanded(
+                              child: Text(pdfL10n(context).textVerticalAlign)),
+                          TextVerticalAlignToggles(
+                            align: controller.selectedTextVerticalAlign ??
+                                controller.preferences.textVerticalAlign,
+                            onChanged: controller.setSelectedTextVerticalAlign,
+                          ),
+                        ]),
+                      ),
                     if (captionStyle == null) ...[
                       _slider(
                         key: const ValueKey('pdf-text-line-spacing'),

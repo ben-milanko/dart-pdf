@@ -721,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{1 پەڕە دەخاتە ناوەوە} other{{inserted} پەڕە دەخاتە ناوەوە}} - بەڵگەنامەکە {total, plural, =1{1 پەڕەی} other{{total} پەڕەی}} دەبێت.",
   "insertPagesConfirm": "خستنەناو",
   "shellBakePageColor": "پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا",
-  "pageColorNotBakedSigned": "ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە."
+  "pageColorNotBakedSigned": "ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.",
+  "textVerticalAlign": "ڕێکخستنی ستوونی",
+  "textAlignTop": "ڕێکخستنی دەق لە سەرەوە",
+  "textAlignMiddle": "ڕێکخستنی دەق لە ناوەڕاست",
+  "textAlignBottom": "ڕێکخستنی دەق لە خوارەوە"
 }

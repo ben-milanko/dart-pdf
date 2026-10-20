@@ -40,6 +40,9 @@ enum PdfTextAlign {
       };
 }
 
+/// Vertical placement of a free-text annotation's complete wrapped block.
+enum PdfTextVerticalAlign { top, center, bottom }
+
 /// True when [text]'s first strong directional character is RTL.
 bool pdfTextLooksRtl(String text) {
   for (final rune in text.runes) {

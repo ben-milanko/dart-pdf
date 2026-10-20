@@ -721,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, one{Буде вставлено {inserted} сторінку} few{Буде вставлено {inserted} сторінки} many{Буде вставлено {inserted} сторінок} other{Буде вставлено {inserted} сторінки}} — у документі стане {total, plural, one{{total} сторінка} few{{total} сторінки} many{{total} сторінок} other{{total} сторінки}}.",
   "insertPagesConfirm": "Вставити",
   "shellBakePageColor": "Зберігати колір сторінки у файлі",
-  "pageColorNotBakedSigned": "Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними."
+  "pageColorNotBakedSigned": "Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними.",
+  "textVerticalAlign": "Вертикальне вирівнювання",
+  "textAlignTop": "Вирівняти текст за верхнім краєм",
+  "textAlignMiddle": "Вирівняти текст по центру",
+  "textAlignBottom": "Вирівняти текст за нижнім краєм"
 }

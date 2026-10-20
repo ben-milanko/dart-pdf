@@ -721,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{سيتم إدراج صفحة واحدة} =2{سيتم إدراج صفحتين} few{سيتم إدراج {inserted} صفحات} many{سيتم إدراج {inserted} صفحة} other{سيتم إدراج {inserted} صفحة}} - سيحتوي المستند على {total, plural, =1{صفحة واحدة} =2{صفحتين} few{{total} صفحات} many{{total} صفحة} other{{total} صفحة}}.",
   "insertPagesConfirm": "إدراج",
   "shellBakePageColor": "حفظ لون الصفحة في الملف",
-  "pageColorNotBakedSigned": "لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته."
+  "pageColorNotBakedSigned": "لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.",
+  "textVerticalAlign": "المحاذاة الرأسية",
+  "textAlignTop": "محاذاة النص إلى الأعلى",
+  "textAlignMiddle": "محاذاة النص إلى الوسط",
+  "textAlignBottom": "محاذاة النص إلى الأسفل"
 }

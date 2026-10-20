@@ -2487,4 +2487,16 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'El color de página no se guardó en el archivo: modificar las páginas invalidaría sus firmas.';
+
+  @override
+  String get textVerticalAlign => 'Alineación vertical';
+
+  @override
+  String get textAlignTop => 'Alinear texto arriba';
+
+  @override
+  String get textAlignMiddle => 'Centrar texto verticalmente';
+
+  @override
+  String get textAlignBottom => 'Alinear texto abajo';
 }

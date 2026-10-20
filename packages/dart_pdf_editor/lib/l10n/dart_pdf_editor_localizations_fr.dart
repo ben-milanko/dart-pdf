@@ -2497,4 +2497,16 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'La couleur de page n\'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures.';
+
+  @override
+  String get textVerticalAlign => 'Alignement vertical';
+
+  @override
+  String get textAlignTop => 'Aligner le texte en haut';
+
+  @override
+  String get textAlignMiddle => 'Centrer le texte verticalement';
+
+  @override
+  String get textAlignBottom => 'Aligner le texte en bas';
 }

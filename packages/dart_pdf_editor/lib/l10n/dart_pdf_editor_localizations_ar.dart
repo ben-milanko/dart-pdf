@@ -2531,4 +2531,16 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.';
+
+  @override
+  String get textVerticalAlign => 'المحاذاة الرأسية';
+
+  @override
+  String get textAlignTop => 'محاذاة النص إلى الأعلى';
+
+  @override
+  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
+
+  @override
+  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
 }

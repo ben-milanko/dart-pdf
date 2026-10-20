@@ -721,5 +721,9 @@
   "insertPagesSummary": "将插入 {inserted} 页，文档共 {total} 页。",
   "insertPagesConfirm": "插入",
   "shellBakePageColor": "将页面颜色保存到文件",
-  "pageColorNotBakedSigned": "页面颜色未保存到文件中：更改页面会使其签名失效。"
+  "pageColorNotBakedSigned": "页面颜色未保存到文件中：更改页面会使其签名失效。",
+  "textVerticalAlign": "垂直对齐",
+  "textAlignTop": "文本顶端对齐",
+  "textAlignMiddle": "文本垂直居中",
+  "textAlignBottom": "文本底端对齐"
 }

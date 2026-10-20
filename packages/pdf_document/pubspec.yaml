@@ -17,6 +17,7 @@ environment:
 
 dependencies:
   archive: ^4.3.0
+  characters: ^1.4.1
   crypto: ^3.0.0
   image: ^4.12.0
   pdf_cos: ^10.0.0
