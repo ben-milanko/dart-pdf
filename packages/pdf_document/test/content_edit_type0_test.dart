@@ -8,12 +8,14 @@ import 'package:test/test.dart';
 
 /// Builds a one-page PDF that draws [text] with an embedded composite
 /// (/Type0, Identity-H, CIDFontType2) font built from [fontBytes].
-Uint8List buildType0Pdf(String text, Uint8List fontBytes) {
+Uint8List buildType0Pdf(String text, Uint8List fontBytes,
+    {String textState = ''}) {
   final font = PdfEmbeddedFont.parse(fontBytes);
   final hex = font.encodeHex(text); // records the glyphs for /W and /ToUnicode
   final builder = CosDocumentBuilder();
 
-  final content = latin1.encode('BT /F0 24 Tf 72 700 Td <$hex> Tj ET');
+  final content =
+      latin1.encode('BT /F0 24 Tf $textState 72 700 Td <$hex> Tj ET');
   final contentRef = builder.add(CosStream(
       CosDictionary({'Length': CosInteger(content.length)}),
       Uint8List.fromList(content)));
