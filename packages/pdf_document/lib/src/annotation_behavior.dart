@@ -14,6 +14,9 @@ enum PdfAnnotationResizeBehavior {
   /// Re-wrap free text at the new width, preserving its font size.
   reflowText,
 
+  /// Rebuild editable table cells at the new widths, preserving font size.
+  reflowTable,
+
   /// Rebuild line-family geometry and its optional measurement caption.
   regenerateLine,
 }
@@ -257,6 +260,8 @@ class PdfAnnotationBehavior {
     final form = annotation.normalAppearance;
     if (form == null) return PdfAnnotationResizeBehavior.stretch;
     switch (subtype) {
+      case 'Stamp' when annotation.table != null:
+        return PdfAnnotationResizeBehavior.reflowTable;
       case 'Square' || 'Circle':
         if (annotation.dict['BE'] != null) {
           return PdfAnnotationResizeBehavior.stretch;

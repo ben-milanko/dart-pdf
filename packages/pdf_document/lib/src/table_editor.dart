@@ -20,25 +20,88 @@ extension PdfTableEditing on PdfEditor {
         annotation.isLockedContents) {
       return false;
     }
-    // Regenerate in the existing appearance's local frame. Reusing its BBox
-    // and Matrix preserves rotation, mirroring and local-axis resizing.
+    // Recover physical local dimensions, not the old BBox's pre-stretch size.
+    // Unit-length basis vectors preserve rotation/mirroring without retaining
+    // old non-uniform font scaling from tables resized by an earlier version.
+    final quad = annotation.appearanceQuad;
+    var rect = annotation.rect;
+    PdfMatrix? matrix;
+    if (quad != null) {
+      final dx = quad[1].$1 - quad[0].$1;
+      final dy = quad[1].$2 - quad[0].$2;
+      final ux = quad[3].$1 - quad[0].$1;
+      final uy = quad[3].$2 - quad[0].$2;
+      final width = math.sqrt(dx * dx + dy * dy);
+      final height = math.sqrt(ux * ux + uy * uy);
+      if (width > 1e-9 && height > 1e-9) {
+        rect = PdfRect(0, 0, width, height);
+        matrix = PdfMatrix(dx / width, dy / width, ux / height, uy / height,
+            quad[0].$1, quad[0].$2);
+      }
+    }
     final previous = annotation.normalAppearance;
-    final rect = previous == null
-        ? annotation.rect
-        : pdfRectFrom(document.cos, previous.dictionary['BBox']) ??
-            annotation.rect;
-    final (writer, fonts) =
-        _tableAppearance(rect, table, _appearancePageRotation(pageIndex, null));
+    final bbox = previous == null
+        ? null
+        : pdfRectFrom(document.cos, previous.dictionary['BBox']);
+    final baked = previous == null
+        ? null
+        : PdfAnnotationEditing(this)
+            ._bakedFormMatrix(previous, annotation.rect);
+    if (bbox != null &&
+        baked != null &&
+        (math.sqrt(baked.a * baked.a + baked.b * baked.b) - 1).abs() < 1e-6 &&
+        (math.sqrt(baked.c * baked.c + baked.d * baked.d) - 1).abs() < 1e-6) {
+      // Already unscaled: retain the exact frame instead of introducing new
+      // serialized matrix rounding on every ordinary cell edit.
+      rect = bbox;
+      matrix = _formMatrix(previous!);
+    }
+    final rotation = _appearancePageRotation(pageIndex, null);
+    table = _fitTableLayout(table, rect, rotation);
+    final (writer, fonts) = _tableAppearance(rect, table, rotation);
     final form = _form(rect, writer, resources: _resources(font: fonts));
-    if (previous != null) {
-      form.dictionary['Matrix'] = CosArray(
-          [for (final n in _formMatrix(previous).toList()) CosReal(n)]);
+    if (matrix != null) {
+      form.dictionary['Matrix'] =
+          CosArray([for (final n in matrix.toList()) CosReal(n)]);
     }
     annotation.dict
       ..['DartPdfTable'] = CosString.fromText(jsonEncode(table.toJson()))
       ..['Contents'] = CosString.fromText(table.toTsv())
       ..['AP'] = CosDictionary({'N': _updater.addObject(form)});
     _markAnnotationChanged(pageIndex, annotation.dict);
+    return true;
+  }
+
+  PdfTableData _fitTableLayout(PdfTableData table, PdfRect rect, int rotation) {
+    final visual = PdfAnnotationEditing._orientedVisualRect(rect, rotation);
+    return PdfTableData(table.cells,
+        columnWidths: [
+          for (final width in table.columnWidths)
+            width * visual.width / table.width
+        ],
+        rowHeights: [
+          for (final height in table.rowHeights)
+            height * visual.height / table.height
+        ],
+        fontSize: table.fontSize,
+        headerRow: table.headerRow,
+        textColor: table.textColor,
+        borderColor: table.borderColor,
+        headerColor: table.headerColor);
+  }
+
+  bool _regenerateTableAppearance(
+      PdfAnnotation annotation, PdfRect to, int rotation) {
+    final table = annotation.table;
+    final previous = annotation.normalAppearance;
+    if (table == null || previous == null) return false;
+    final layout = _fitTableLayout(table, to, rotation);
+    final (writer, fonts) = _tableAppearance(to, layout, rotation);
+    PdfAnnotationEditing(this)._replaceAppearance(
+        annotation.dict, previous, to, writer,
+        resources: _resources(font: fonts));
+    annotation.dict['DartPdfTable'] =
+        CosString.fromText(jsonEncode(layout.toJson()));
     return true;
   }
 
@@ -65,7 +128,7 @@ extension PdfTableEditing on PdfEditor {
         final width = table.columnWidths[c] * sx;
         final cell = PdfRect(left, top - h, left + width, top);
         w.append(_freeTextContent(cell, table.cells[r][c],
-            fontSize: table.fontSize * math.min(sx, sy),
+            fontSize: table.fontSize,
             font: font,
             textDirection: PdfTextDirection.auto,
             color: table.textColor,

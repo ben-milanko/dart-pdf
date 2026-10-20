@@ -20,6 +20,9 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
   late bool _header;
   late double _fontSize;
   final Map<(int, int), TextEditingController> _fields = {};
+  final Map<(int, int), FocusNode> _focus = {};
+  final _horizontalScroll = ScrollController();
+  final _verticalScroll = ScrollController();
   int _row = 0, _column = 0, _anchorRow = 0, _anchorColumn = 0;
   String? _error;
 
@@ -42,6 +45,11 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
     for (final field in _fields.values) {
       field.dispose();
     }
+    for (final node in _focus.values) {
+      node.dispose();
+    }
+    _horizontalScroll.dispose();
+    _verticalScroll.dispose();
     super.dispose();
   }
 
@@ -77,13 +85,226 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
     }
   }
 
-  void _select(int r, int c) => setState(() {
-        if (!HardwareKeyboard.instance.isShiftPressed) {
+  void _select(int r, int c, {bool extend = false}) => setState(() {
+        if (!extend) {
           _anchorRow = r;
           _anchorColumn = c;
         }
         _row = r;
         _column = c;
+      });
+
+  void _focusCell(int r, int c, {bool extend = false}) {
+    _select(r, c, extend: extend);
+    final field = _fields[(r, c)]!;
+    field.selection =
+        TextSelection(baseOffset: 0, extentOffset: field.text.length);
+    final node = _focus[(r, c)]!;
+    node.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && node.context != null) {
+        Scrollable.ensureVisible(node.context!,
+            duration: const Duration(milliseconds: 100), alignment: .5);
+      }
+    });
+  }
+
+  KeyEventResult _cellKey(int r, int c, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isAltPressed) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    final field = _fields[(r, c)]!;
+    if (!field.value.composing.isCollapsed) return KeyEventResult.ignored;
+    var row = r, column = c;
+    if (key == LogicalKeyboardKey.tab) {
+      final index = r * _widths.length + c + (keyboard.isShiftPressed ? -1 : 1);
+      if (index < 0 || index >= _cells.length * _widths.length) {
+        return KeyEventResult
+            .ignored; // leave the grid, never trap keyboard focus
+      }
+      row = index ~/ _widths.length;
+      column = index % _widths.length;
+    } else {
+      final selection = field.selection;
+      if (!selection.isValid) return KeyEventResult.ignored;
+      final all = selection.start == 0 && selection.end == field.text.length;
+      // Newly focused cells select their contents, so arrows navigate the grid.
+      // After a click/typing, retain ordinary caret movement inside the text;
+      // crossing its first/last line or start/end moves to the adjacent cell.
+      if (key == LogicalKeyboardKey.arrowLeft &&
+          (all || selection.isCollapsed && selection.start == 0)) {
+        column--;
+      } else if (key == LogicalKeyboardKey.arrowRight &&
+          (all ||
+              selection.isCollapsed && selection.end == field.text.length)) {
+        column++;
+      } else if (key == LogicalKeyboardKey.arrowUp &&
+          (all ||
+              selection.isCollapsed && _atVerticalEdge(r, c, above: true))) {
+        row--;
+      } else if (key == LogicalKeyboardKey.arrowDown &&
+          (all ||
+              selection.isCollapsed && _atVerticalEdge(r, c, above: false))) {
+        row++;
+      } else {
+        return KeyEventResult.ignored;
+      }
+      if (row < 0 ||
+          row >= _cells.length ||
+          column < 0 ||
+          column >= _widths.length) {
+        return KeyEventResult.ignored;
+      }
+    }
+    _focusCell(row, column,
+        extend: key != LogicalKeyboardKey.tab && keyboard.isShiftPressed);
+    return KeyEventResult.handled;
+  }
+
+  bool _atVerticalEdge(int r, int c, {required bool above}) {
+    final field = _fields[(r, c)]!;
+    final editable = _focus[(r, c)]!
+        .context
+        ?.findAncestorStateOfType<EditableTextState>()
+        ?.renderEditable;
+    if (editable == null) {
+      return above
+          ? field.selection.start == 0
+          : field.selection.end == field.text.length;
+    }
+    final caret = editable.getLocalRectForCaret(field.selection.extent);
+    final edge = editable.getLocalRectForCaret(
+        TextPosition(offset: above ? 0 : field.text.length));
+    return (caret.top - edge.top).abs() < .5;
+  }
+
+  String _columnLabel(int column) {
+    var label = '';
+    for (var n = column + 1; n > 0; n = (n - 1) ~/ 26) {
+      label = String.fromCharCode(65 + (n - 1) % 26) + label;
+    }
+    return label;
+  }
+
+  Widget _grid() => LayoutBuilder(builder: (context, constraints) {
+        final colors = Theme.of(context).colorScheme;
+        final scale = math.max(
+            1.5,
+            (constraints.maxWidth - 44) /
+                _widths.fold<double>(0, (a, b) => a + b));
+        final widths = [
+          for (final width in _widths) math.max(96.0, width * scale)
+        ];
+        final columns = <int, TableColumnWidth>{
+          0: const FixedColumnWidth(44),
+          for (var c = 0; c < widths.length; c++)
+            c + 1: FixedColumnWidth(widths[c]),
+        };
+        Widget heading(String label) => Container(
+            padding: const EdgeInsets.all(8),
+            alignment: Alignment.center,
+            color: colors.surfaceContainerHighest,
+            child: Text(label));
+        Widget cell(int r, int c) {
+          final selected = r >= math.min(_row, _anchorRow) &&
+              r <= math.max(_row, _anchorRow) &&
+              c >= math.min(_column, _anchorColumn) &&
+              c <= math.max(_column, _anchorColumn);
+          final node = _focus.putIfAbsent((r, c), () => FocusNode());
+          return Container(
+              key: ValueKey('pdf-table-grid-cell-$r-$c'),
+              constraints: BoxConstraints(minHeight: math.max(40, _heights[r])),
+              color: selected
+                  ? colors.secondaryContainer
+                  : r == 0 && _header
+                      ? colors.surfaceContainerHigh
+                      : colors.surface,
+              child: Focus(
+                  skipTraversal: true,
+                  canRequestFocus: false,
+                  onFocusChange: (focused) {
+                    if (focused && (_row != r || _column != c)) {
+                      _select(r, c,
+                          extend: HardwareKeyboard.instance.isShiftPressed);
+                    }
+                  },
+                  onKeyEvent: (_, event) => _cellKey(r, c, event),
+                  child: TextField(
+                      key: ValueKey('pdf-table-cell-$r-$c'),
+                      focusNode: node,
+                      controller: _fields.putIfAbsent((r, c),
+                          () => TextEditingController(text: _cells[r][c])),
+                      contextMenuBuilder: pdfTextContextMenu,
+                      onTap: () => _select(r, c,
+                          extend: HardwareKeyboard.instance.isShiftPressed),
+                      onChanged: (text) => setState(() => _cells[r][c] = text),
+                      minLines: 1,
+                      maxLines: null,
+                      scrollPhysics: const NeverScrollableScrollPhysics(),
+                      textAlignVertical: TextAlignVertical.top,
+                      decoration: InputDecoration(
+                          isDense: true,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(8),
+                          hintText: '${_columnLabel(c)}${r + 1}'))));
+        }
+
+        return FocusTraversalGroup(
+            policy: WidgetOrderTraversalPolicy(),
+            child: Scrollbar(
+                controller: _horizontalScroll,
+                thumbVisibility: true,
+                notificationPredicate: (notification) =>
+                    notification.depth == 0,
+                child: SingleChildScrollView(
+                    controller: _horizontalScroll,
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                        width: 44 + widths.fold<double>(0, (a, b) => a + b),
+                        child: Column(children: [
+                          Table(columnWidths: columns, children: [
+                            TableRow(children: [
+                              heading(''),
+                              for (var c = 0; c < _widths.length; c++)
+                                heading(_columnLabel(c)),
+                            ])
+                          ]),
+                          Expanded(
+                              child: Scrollbar(
+                                  controller: _verticalScroll,
+                                  thumbVisibility: true,
+                                  child: SingleChildScrollView(
+                                      controller: _verticalScroll,
+                                      child: Table(
+                                          key: const ValueKey('pdf-table-grid'),
+                                          columnWidths: columns,
+                                          defaultVerticalAlignment:
+                                              TableCellVerticalAlignment
+                                                  .intrinsicHeight,
+                                          border: TableBorder.all(
+                                              color: colors.outlineVariant),
+                                          children: [
+                                            for (var r = 0;
+                                                r < _cells.length;
+                                                r++)
+                                              TableRow(children: [
+                                                heading('${r + 1}'),
+                                                for (var c = 0;
+                                                    c < _widths.length;
+                                                    c++)
+                                                  cell(r, c),
+                                              ]),
+                                          ]))))
+                        ])))));
       });
 
   Future<void> _copy() async {
@@ -282,69 +503,26 @@ class _PdfTableEditorDialogState extends State<PdfTableEditorDialog> {
               Text(l10n.tableSelectionHint,
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 8),
-              Expanded(
-                  child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                          width: 48 + _widths.length * 132,
-                          child: ListView.builder(
-                              itemCount: _cells.length,
-                              itemBuilder: (context, r) => Row(children: [
-                                    SizedBox(
-                                        width: 48, child: Text('${r + 1}')),
-                                    for (var c = 0; c < _widths.length; c++)
-                                      Container(
-                                          width: 132,
-                                          padding: const EdgeInsets.all(2),
-                                          color: r >= math.min(_row, _anchorRow) &&
-                                                  r <=
-                                                      math.max(
-                                                          _row, _anchorRow) &&
-                                                  c >=
-                                                      math.min(_column,
-                                                          _anchorColumn) &&
-                                                  c <=
-                                                      math.max(
-                                                          _column, _anchorColumn)
-                                              ? Theme.of(context)
-                                                  .colorScheme
-                                                  .secondaryContainer
-                                              : Colors.transparent,
-                                          child: Focus(
-                                              onFocusChange: (focused) {
-                                                if (focused) _select(r, c);
-                                              },
-                                              child: TextField(
-                                                  contextMenuBuilder:
-                                                      pdfTextContextMenu,
-                                                  key: ValueKey(
-                                                      'pdf-table-cell-$r-$c'),
-                                                  controller: _fields.putIfAbsent(
-                                                      (r, c),
-                                                      () =>
-                                                          TextEditingController(text: _cells[r][c])),
-                                                  onTap: () => _select(r, c),
-                                                  onChanged: (text) => _cells[r][c] = text,
-                                                  minLines: 1,
-                                                  maxLines: 3,
-                                                  decoration: InputDecoration(isDense: true, border: const OutlineInputBorder(), labelText: '${r + 1}:${c + 1}')))),
-                                  ]))))),
+              Expanded(child: _grid()),
               const SizedBox(height: 8),
-              Wrap(
-                  spacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    FilterChip(
-                        label: Text(l10n.tableHeaderRow),
-                        selected: _header,
-                        onSelected: (value) => setState(() => _header = value)),
-                    number(l10n.tableColumnWidth, _widths[_column],
-                        (v) => _widths[_column] = v),
-                    number(l10n.tableRowHeight, _heights[_row],
-                        (v) => _heights[_row] = v),
-                    number(l10n.tbFontSize, _fontSize,
-                        (v) => _fontSize = v.clamp(4, 144)),
-                  ]),
+              SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Wrap(
+                      spacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        FilterChip(
+                            label: Text(l10n.tableHeaderRow),
+                            selected: _header,
+                            onSelected: (value) =>
+                                setState(() => _header = value)),
+                        number(l10n.tableColumnWidth, _widths[_column],
+                            (v) => _widths[_column] = v),
+                        number(l10n.tableRowHeight, _heights[_row],
+                            (v) => _heights[_row] = v),
+                        number(l10n.tbFontSize, _fontSize,
+                            (v) => _fontSize = v.clamp(4, 144)),
+                      ])),
               if (_error != null)
                 Text(_error!,
                     style:
