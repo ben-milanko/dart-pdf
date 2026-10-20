@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "การจัดแนวแนวตั้ง",
+  "textAlignTop": "จัดข้อความชิดบน",
+  "textAlignMiddle": "จัดข้อความกึ่งกลางแนวตั้ง",
+  "textAlignBottom": "จัดข้อความชิดล่าง",
   "@@locale": "th",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
