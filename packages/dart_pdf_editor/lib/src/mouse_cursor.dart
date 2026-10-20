@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -106,11 +107,11 @@ void paintPdfMouseCursor(
 /// Page surfaces with an existing composite painter call
 /// [paintPdfMouseCursor] directly. Standalone chrome such as panel grips and
 /// scrollbars uses this widget.
-class PdfMouseCursorRegion extends StatefulWidget {
+class PdfMouseCursorRegion extends SingleChildRenderObjectWidget {
   const PdfMouseCursorRegion({
     super.key,
     required this.kind,
-    required this.child,
+    required super.child,
     this.scale = 1,
     this.onEnter,
     this.onHover,
@@ -118,67 +119,119 @@ class PdfMouseCursorRegion extends StatefulWidget {
   });
 
   final PdfMouseCursorKind? kind;
-  final Widget child;
   final double scale;
   final void Function(PointerEnterEvent event)? onEnter;
   final void Function(PointerHoverEvent event)? onHover;
   final void Function(PointerExitEvent event)? onExit;
 
   @override
-  State<PdfMouseCursorRegion> createState() => _PdfMouseCursorRegionState();
+  RenderPdfMouseCursorRegion createRenderObject(BuildContext context) =>
+      RenderPdfMouseCursorRegion(
+        kind: kind,
+        scale: scale,
+        onCursorEnter: onEnter,
+        onCursorHover: onHover,
+        onCursorExit: onExit,
+      );
+
+  @override
+  void updateRenderObject(
+          BuildContext context, RenderPdfMouseCursorRegion renderObject) =>
+      renderObject
+        ..kind = kind
+        ..scale = scale
+        ..onCursorEnter = onEnter
+        ..onCursorHover = onHover
+        ..onCursorExit = onExit;
 }
 
-class _PdfMouseCursorRegionState extends State<PdfMouseCursorRegion> {
-  Offset? _position;
+/// Paint-only cursor state. Pointer motion must not rebuild the chrome below
+/// it, nor add a stateful rebuild to every editing-preference notification.
+class RenderPdfMouseCursorRegion extends RenderMouseRegion {
+  RenderPdfMouseCursorRegion({
+    required PdfMouseCursorKind? kind,
+    double scale = 1,
+    this.onCursorEnter,
+    this.onCursorHover,
+    this.onCursorExit,
+  })  : _kind = kind,
+        _scale = scale,
+        super(cursor: SystemMouseCursors.none) {
+    onEnter = _enter;
+    onExit = _exit;
+  }
 
-  bool _tracks(PointerEvent event) =>
-      event.kind == PointerDeviceKind.mouse ||
-      event.kind == PointerDeviceKind.trackpad;
+  PdfMouseCursorKind? _kind;
+  PdfMouseCursorKind? get kind => _kind;
+  set kind(PdfMouseCursorKind? value) {
+    if (_kind == value) return;
+    _kind = value;
+    markNeedsPaint();
+  }
+
+  double _scale;
+  double get scale => _scale;
+  set scale(double value) {
+    if (_scale == value) return;
+    _scale = value;
+    markNeedsPaint();
+  }
+
+  Offset? _position;
+  Offset? get cursorPosition => _position;
+
+  void Function(PointerEnterEvent event)? onCursorEnter;
+  void Function(PointerHoverEvent event)? onCursorHover;
+  void Function(PointerExitEvent event)? onCursorExit;
 
   void _setPosition(PointerEvent event) {
-    if (!_tracks(event) || _position == event.localPosition) return;
-    setState(() => _position = event.localPosition);
+    if ((event.kind != PointerDeviceKind.mouse &&
+            event.kind != PointerDeviceKind.trackpad) ||
+        _position == event.localPosition) {
+      return;
+    }
+    _position = event.localPosition;
+    markNeedsPaint();
   }
 
   void _enter(PointerEnterEvent event) {
-    if (_tracks(event)) setState(() => _position = event.localPosition);
-    widget.onEnter?.call(event);
-  }
-
-  void _hover(PointerHoverEvent event) {
     _setPosition(event);
-    widget.onHover?.call(event);
+    onCursorEnter?.call(event);
   }
 
   void _exit(PointerExitEvent event) {
-    if (_position != null) setState(() => _position = null);
-    widget.onExit?.call(event);
+    if (_position != null) {
+      _position = null;
+      markNeedsPaint();
+    }
+    onCursorExit?.call(event);
   }
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-        cursor: SystemMouseCursors.none,
-        onEnter: _enter,
-        onHover: _hover,
-        onExit: _exit,
-        child: Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: _setPosition,
-          onPointerMove: _setPosition,
-          child: CustomPaint(
-            foregroundPainter: PdfMouseCursorPainter(
-              kind: widget.kind,
-              position: _position,
-              scale: widget.scale,
-            ),
-            child: widget.child,
-          ),
-        ),
-      );
+  void handleEvent(PointerEvent event, HitTestEntry entry) {
+    super.handleEvent(event, entry);
+    if (event is PointerHoverEvent) {
+      _setPosition(event);
+      onCursorHover?.call(event);
+    } else if (event is PointerDownEvent || event is PointerMoveEvent) {
+      _setPosition(event);
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    final kind = _kind;
+    final position = _position;
+    if (kind != null && position != null) {
+      paintPdfMouseCursor(context.canvas, offset + position, kind,
+          scale: _scale);
+    }
+  }
 }
 
-/// Foreground painter used by [PdfMouseCursorRegion] and the viewer's
-/// transform-independent cursor layer.
+/// Foreground painter used by the viewer's transform-independent cursor
+/// layer. Standalone regions paint directly from their render object.
 class PdfMouseCursorPainter extends CustomPainter {
   const PdfMouseCursorPainter({
     required this.kind,

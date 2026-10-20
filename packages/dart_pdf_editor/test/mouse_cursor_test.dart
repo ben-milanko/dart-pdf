@@ -64,34 +64,87 @@ void main() {
     await gesture.moveTo(const Offset(410, 305));
     await tester.pump();
 
-    final region = tester.widget<MouseRegion>(
-      find.descendant(
-        of: find.byType(PdfMouseCursorRegion),
-        matching: find.byType(MouseRegion),
-      ),
+    final region = tester.renderObject<RenderPdfMouseCursorRegion>(
+      find.byType(PdfMouseCursorRegion),
     );
-    final paint = tester.widget<CustomPaint>(
-      find.descendant(
-        of: find.byType(PdfMouseCursorRegion),
-        matching: find.byType(CustomPaint),
-      ),
-    );
-    final painter = paint.foregroundPainter! as PdfMouseCursorPainter;
     expect(region.cursor, SystemMouseCursors.none);
-    expect(painter.kind, PdfMouseCursorKind.resizeColumn);
-    expect(painter.position, const Offset(70, 45));
-    expect(painter.scale, 0.5);
+    expect(region.kind, PdfMouseCursorKind.resizeColumn);
+    expect(region.cursorPosition, const Offset(70, 45));
+    expect(region.scale, 0.5);
 
     await gesture.moveTo(const Offset(10, 10));
     await tester.pump();
-    final exited = tester
-        .widget<CustomPaint>(
-          find.descendant(
-            of: find.byType(PdfMouseCursorRegion),
-            matching: find.byType(CustomPaint),
-          ),
-        )
-        .foregroundPainter! as PdfMouseCursorPainter;
-    expect(exited.position, isNull);
+    expect(region.cursorPosition, isNull);
+  });
+
+  testWidgets('cursor motion only repaints and live configuration is applied',
+      (tester) async {
+    var builds = 0, enters = 0, hovers = 0, exits = 0;
+    var kind = PdfMouseCursorKind.grab;
+    var scale = 1.0;
+    late StateSetter rebuild;
+    final child = Builder(builder: (context) {
+      builds++;
+      return const ColoredBox(color: Colors.white);
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          width: 120,
+          height: 80,
+          child: StatefulBuilder(builder: (context, setState) {
+            rebuild = setState;
+            return PdfMouseCursorRegion(
+              kind: kind,
+              scale: scale,
+              onEnter: (_) => enters++,
+              onHover: (_) => hovers++,
+              onExit: (_) => exits++,
+              child: child,
+            );
+          }),
+        ),
+      ),
+    ));
+    final region = tester.renderObject<RenderPdfMouseCursorRegion>(
+      find.byType(PdfMouseCursorRegion),
+    );
+    final initialBuilds = builds;
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      pointer: 20,
+    );
+    addTearDown(gesture.removePointer);
+    await gesture.addPointer(location: const Offset(350, 270));
+    await tester.pump();
+    await gesture.moveTo(const Offset(360, 280));
+    await tester.pump();
+    expect(enters, 1);
+    expect(hovers, greaterThan(0));
+    expect(region.cursorPosition, const Offset(20, 20));
+
+    await gesture.down(const Offset(360, 280));
+    await gesture.moveTo(const Offset(410, 305));
+    await tester.pump();
+    expect(region.cursorPosition, const Offset(70, 45));
+    expect(builds, initialBuilds, reason: 'pointer motion rebuilt the child');
+    await gesture.up();
+
+    rebuild(() {
+      kind = PdfMouseCursorKind.grabbing;
+      scale = 0.5;
+    });
+    await tester.pump();
+    expect(
+        tester.renderObject(find.byType(PdfMouseCursorRegion)), same(region));
+    expect(region.kind, PdfMouseCursorKind.grabbing);
+    expect(region.scale, 0.5);
+    expect(region.cursorPosition, const Offset(70, 45));
+    expect(builds, initialBuilds);
+
+    await gesture.moveTo(const Offset(10, 10));
+    await tester.pump();
+    expect(exits, 1);
+    expect(region.cursorPosition, isNull);
   });
 }
