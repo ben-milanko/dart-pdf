@@ -79,15 +79,27 @@ class PdfStampPickerDialog extends StatelessWidget {
   Future<void> _export(BuildContext context) async {
     final stamps = controller.savedCustomStamps;
     if (stamps.isEmpty) return;
-    await onExportStamps?.call(context, stamps);
+    final selected = await _selectStamps(context, stamps,
+        action: pdfL10n(context).stampExport);
+    if (!context.mounted || selected == null || selected.isEmpty) return;
+    await onExportStamps?.call(context, selected);
   }
 
   Future<void> _import(BuildContext context) async {
     final imported = await onImportStamps?.call(context);
-    if (imported == null || imported.isEmpty) return;
+    if (!context.mounted || imported == null || imported.isEmpty) return;
+    final existingBeforeSelection = controller.customStamps.toSet();
+    final candidates = imported
+        .toSet()
+        .where((stamp) => !existingBeforeSelection.contains(stamp))
+        .toList();
+    if (candidates.isEmpty) return;
+    final selected = await _selectStamps(context, candidates,
+        action: pdfL10n(context).stampImport);
+    if (selected == null || selected.isEmpty) return;
     final existing = controller.customStamps.toSet();
     PdfCustomStamp? firstAdded;
-    for (final stamp in imported) {
+    for (final stamp in selected) {
       if (existing.contains(stamp)) continue;
       controller.saveCustomStamp(stamp);
       existing.add(stamp);
@@ -95,6 +107,18 @@ class PdfStampPickerDialog extends StatelessWidget {
     }
     if (firstAdded != null) controller.activeStamp = firstAdded;
   }
+
+  Future<List<PdfCustomStamp>?> _selectStamps(
+          BuildContext context, List<PdfCustomStamp> stamps,
+          {required String action}) =>
+      pdfPresentDialog<List<PdfCustomStamp>>(
+        context,
+        builder: (_) => _StampTransferSelectionDialog(
+          stamps: List.unmodifiable(stamps),
+          action: action,
+          templateValues: controller.resolvedStampTemplateValues,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +214,106 @@ class PdfStampPickerDialog extends StatelessWidget {
       ],
     );
   }
+}
+
+class _StampTransferSelectionDialog extends StatefulWidget {
+  const _StampTransferSelectionDialog(
+      {required this.stamps,
+      required this.action,
+      required this.templateValues});
+
+  final List<PdfCustomStamp> stamps;
+  final String action;
+  final Map<String, String> templateValues;
+
+  @override
+  State<_StampTransferSelectionDialog> createState() =>
+      _StampTransferSelectionDialogState();
+}
+
+class _StampTransferSelectionDialogState
+    extends State<_StampTransferSelectionDialog> {
+  late final Set<int> _selected = {
+    for (var i = 0; i < widget.stamps.length; i++) i
+  };
+
+  void _confirm() => Navigator.of(context).pop([
+        for (var i = 0; i < widget.stamps.length; i++)
+          if (_selected.contains(i)) widget.stamps[i],
+      ]);
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        key: const ValueKey('pdf-stamp-transfer-selection'),
+        title: Text(widget.action),
+        content: SizedBox(
+          width: 360,
+          height: math.min(360, 56 + 120.0 * widget.stamps.length),
+          child: Column(children: [
+            CheckboxListTile(
+              key: const ValueKey('pdf-stamp-transfer-select-all'),
+              title: Text(pdfL10n(context).viewerSelectAll),
+              tristate: true,
+              value: _selected.length == widget.stamps.length
+                  ? true
+                  : _selected.isEmpty
+                      ? false
+                      : null,
+              onChanged: (_) => setState(() {
+                if (_selected.length == widget.stamps.length) {
+                  _selected.clear();
+                } else {
+                  _selected
+                      .addAll(Iterable<int>.generate(widget.stamps.length));
+                }
+              }),
+              contentPadding: EdgeInsets.zero,
+            ),
+            Expanded(
+                child: ListView.builder(
+              itemCount: widget.stamps.length,
+              itemBuilder: (context, index) {
+                final stamp = widget.stamps[index];
+                return CheckboxListTile(
+                  key: ValueKey('pdf-stamp-transfer-item-$index'),
+                  value: _selected.contains(index),
+                  onChanged: (value) => setState(() {
+                    if (value == true) {
+                      _selected.add(index);
+                    } else {
+                      _selected.remove(index);
+                    }
+                  }),
+                  title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(stamp.text),
+                        const SizedBox(height: 4),
+                        PdfStampPreview(
+                            stamp: stamp,
+                            templateValues: widget.templateValues),
+                      ]),
+                  subtitle: _stampDetail(stamp) == null
+                      ? null
+                      : Text(_stampDetail(stamp)!),
+                  contentPadding: EdgeInsets.zero,
+                );
+              },
+            )),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(pdfL10n(context).cancel)),
+          PdfDialogSubmit.action(
+              onSubmit: _selected.isEmpty ? null : _confirm,
+              child: FilledButton(
+                  key: const ValueKey('pdf-stamp-transfer-confirm'),
+                  onPressed: _selected.isEmpty ? null : _confirm,
+                  child: Text(widget.action))),
+        ],
+      );
 }
 
 class _StampDateTimeFormatControls extends StatelessWidget {

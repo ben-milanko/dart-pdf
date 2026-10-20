@@ -299,23 +299,6 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsOneWidget);
     });
 
-    testWidgets(
-        'Duplicate from a stamp context menu creates and selects a copy',
-        (tester) async {
-      final editing = await pumpViewer(tester);
-      editing.addStamp(0, const PdfRect(250, 500, 350, 550), 'COPY ME');
-      await tester.pump();
-      await rightClick(tester, viewPoint(300, 525));
-      await tester
-          .tap(find.byKey(const ValueKey('pdf-annot-menu-duplicate-stamp')));
-      await tester.pumpAndSettle();
-      expect(editing.document.page(0).annotations, hasLength(4));
-      expect(editing.selectedAnnotation!.contents, 'COPY ME');
-      expect(editing.selectedAnnotationSlots, [(0, 3)]);
-      editing.undo();
-      expect(editing.document.page(0).annotations, hasLength(3));
-    });
-
     testWidgets('Recolour… shows only for a vector snapshot selection',
         (tester) async {
       final editing = await pumpViewer(tester);

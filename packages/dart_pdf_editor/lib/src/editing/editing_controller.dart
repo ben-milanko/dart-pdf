@@ -6811,44 +6811,6 @@ class PdfEditingController extends ChangeNotifier {
   /// made in another document tab, since [annotationClipboard] is shared.
   bool get hasAnnotationClipboard => annotationClipboard.isNotEmpty;
 
-  /// Whether a single editable placed stamp can be duplicated in place.
-  bool get canDuplicateSelectedStamp =>
-      _selected.length == 1 &&
-      selectedAnnotation?.subtype == 'Stamp' &&
-      isAnnotationEditable(selectedAnnotation!);
-
-  /// Duplicates a placed stamp without changing either clipboard. The copy
-  /// keeps the captured appearance and receives a new annotation identity.
-  /// One undo removes it; the source remains selected only until the copy lands.
-  bool duplicateSelectedStamp() {
-    if (!canDuplicateSelectedStamp) return false;
-    final slot = _selected.single;
-    final page = _page(slot.$1);
-    final annotation = _annotationAt(slot)!;
-    final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
-        sourcePageRotation: page.rotation);
-    if (snapshot == null) return false;
-    var (dx, dy) = switch (page.rotation) {
-      90 => (12.0, 12.0),
-      180 => (-12.0, 12.0),
-      270 => (-12.0, -12.0),
-      _ => (12.0, -12.0),
-    };
-    final r = snapshot.rect, box = page.cropBox;
-    dx += _tetherShift(r.left + dx, r.right + dx, box.left, box.right);
-    dy += _tetherShift(r.bottom + dy, r.top + dy, box.bottom, box.top);
-    if (!apply((e) => e.pasteAnnotation(slot.$1, snapshot, dx: dx, dy: dy))) {
-      return false;
-    }
-    final last = _page(slot.$1).annotations.length - 1;
-    tool = PdfEditTool.select;
-    _selected
-      ..clear()
-      ..add((slot.$1, last));
-    notifyListeners();
-    return true;
-  }
-
   /// Copies the selected annotations to the in-app [annotationClipboard]
   /// as detached snapshots - they survive edits, undo, and closing the
   /// document they came from, and because the clipboard is shared they

@@ -516,13 +516,6 @@ Future<void> showPdfAnnotationMenu({
     ],
   ];
   final recolor = <PdfAnnotationMenuItem>[
-    if (hasSelection && controller.canDuplicateSelectedStamp)
-      PdfAnnotationMenuItem(
-        key: const ValueKey('pdf-annot-menu-duplicate-stamp'),
-        label: pdfL10n(context).duplicate,
-        icon: Icons.copy_all_outlined,
-        onSelected: (request) => request.controller.duplicateSelectedStamp(),
-      ),
     if (hasSelection && controller.canRecolorSnapshotSelected)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
