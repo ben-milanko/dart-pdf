@@ -2535,10 +2535,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfStandardFont get fontFamily => preferences.fontFamily;
 
   set fontFamily(PdfStandardFont value) {
-    if (_activeFont != null) {
-      _activeFont = null;
-      notifyListeners();
-    }
+    preferences.embeddedFont = null;
     preferences.fontFamily = value;
   }
 
@@ -2587,22 +2584,17 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PdfEmbeddedFont? _activeFont;
-
   /// An embedded TrueType/OpenType font selected for new free text, taking
   /// precedence over [fontFamily] so authored text can use any font (not
   /// just the base-14 faces). Null means a standard family.
   ///
-  /// Not persisted - the font program is large, and recovering it from a
-  /// box's own appearance keeps editing lossless regardless. A session
-  /// starts on the standard fonts; reselect a bundled or custom font to
-  /// use it again.
-  PdfEmbeddedFont? get activeFont => _activeFont;
+  /// Persisted with [preferences] as a compressed font program, so new
+  /// documents and app sessions keep the chosen face. Selecting a standard
+  /// [fontFamily] clears this embedded default.
+  PdfEmbeddedFont? get activeFont => preferences.embeddedFont;
 
   set activeFont(PdfEmbeddedFont? value) {
-    if (value == _activeFont) return;
-    _activeFont = value;
-    notifyListeners();
+    preferences.embeddedFont = value;
   }
 
   /// A human label for the font the font controls currently target - a
@@ -2610,7 +2602,7 @@ class PdfEditingController extends ChangeNotifier {
   /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
       selectedMeasurementCaptionStyle?.font.family.label ??
-      _activeFont?.displayName ??
+      activeFont?.displayName ??
       preferences.fontFamily.family.label;
 
   /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and
@@ -3806,7 +3798,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           text,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
           verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
@@ -3839,7 +3831,7 @@ class PdfEditingController extends ChangeNotifier {
           text,
           target,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
           verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
@@ -3908,7 +3900,7 @@ class PdfEditingController extends ChangeNotifier {
         rect,
         value,
         fontSize: fontSize,
-        font: _activeFont ?? preferences.fontFamily,
+        font: activeFont ?? preferences.fontFamily,
         align: preferences.textAlign,
         verticalAlign: preferences.textVerticalAlign,
         color: _colorValue,
@@ -7576,6 +7568,9 @@ class PdfEditingController extends ChangeNotifier {
     if (annotation == null) return false;
     final target = _defaultStyleTargetFor(annotation);
     if (target == null) return false;
+    if (annotation.subtype == 'FreeText') {
+      preferences.embeddedFont = PdfEmbeddedFont.fromFreeText(annotation);
+    }
     preferences.writeScopedStyle(
         target.scope, target.fields, _capturedStyleOf(annotation));
     notifyListeners();
