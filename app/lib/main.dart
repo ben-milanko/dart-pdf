@@ -14,7 +14,6 @@ import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
 import 'window_support.dart';
 import 'windows_file_dialogs.dart';
-import 'ocr_worker.dart' deferred as ocr_worker;
 
 /// The git commit this build was compiled from, or `unknown` for a build that
 /// did not pass one. Supplied by the build scripts as
@@ -32,13 +31,6 @@ Future<void> main(List<String> args) async {
 
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
-
-  // A desktop worker owns no document window and no UI lifetime. Keep the
-  // deferred web shell small; this loading unit is only loaded by native args.
-  if (args.length == 2 && args.first == '--ocr-worker') {
-    await ocr_worker.loadLibrary();
-    if (await ocr_worker.runOcrWorkerIfRequested(args)) return;
-  }
 
   // Windows only, and after the Dart plugin registrant has run so this wins:
   // the stock file_selector plugin dereferences a Flutter view the runner

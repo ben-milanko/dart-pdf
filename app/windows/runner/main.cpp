@@ -223,9 +223,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-  const auto worker_arguments = GetCommandLineArguments();
-  const bool ocr_worker = worker_arguments.size() == 2 &&
-                          worker_arguments[0] == "--ocr-worker";
   const bool experimental_windowing = ExperimentalWindowingEnabled();
   const std::vector<DartPdfIncomingFile> pdf_arguments = PdfArguments();
 
@@ -234,7 +231,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // and exit. If we can't
   // find its window - it may be shutting down - fall through and start fresh.
   HANDLE single_instance =
-      ocr_worker ? nullptr : ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
+      ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
   const bool already_running =
       single_instance != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS;
   if (already_running) {

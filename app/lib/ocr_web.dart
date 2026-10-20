@@ -11,6 +11,7 @@ import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
 import 'l10n/app_l10n.dart';
 import 'ocr_jobs.dart';
+import 'ocr_lifecycle.dart';
 import 'ocr_job_store.dart';
 import 'ocr_status.dart';
 import 'ocr_web_budget.dart';
@@ -52,12 +53,13 @@ class OnDeviceOcr {
     required void Function(String) onToast,
     required void Function(Uint8List, String) onComplete,
   }) async {
-    if (isBusy || _disposed || _recovering) return;
+    if (isBusy || _disposed || _recovering || ocrShouldPause) return;
     _recovering = true;
     try {
       for (final job in await _jobs.list()) {
         if (_disposed || !context.mounted) return;
-        if (job.state == OcrJobState.cancelled) {
+        if (job.state == OcrJobState.cancelled ||
+            await _jobs.isCancelled(job.id)) {
           await _jobs.delete(job.id);
           continue;
         }
@@ -249,7 +251,7 @@ class OnDeviceOcr {
 
       await _jobs.run(
         job,
-        shouldPause: () => _disposed,
+        shouldPause: () => _disposed || ocrShouldPause,
         onProgress: (j) =>
             onPage(j.nextPage.clamp(0, j.pageCount - 1), j.pageCount),
         recognize: (i) async {

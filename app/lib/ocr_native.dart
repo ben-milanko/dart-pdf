@@ -11,22 +11,26 @@ import 'l10n/app_l10n.dart';
 import 'l10n/app_localizations.dart';
 import 'ocr_jobs.dart';
 import 'ocr_job_store.dart';
-import 'ocr_worker_io.dart';
+import 'ocr_job_runner.dart';
+import 'ocr_lifecycle.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
 
 /// Drives the app's on-device OCR flow: download the model (once, behind a
 /// quick confirm), then run it over every page of a document - in the
-/// **background**, so the user keeps interacting with the PDF while a long
-/// (hundreds of pages) job runs. Progress is published on [status] for an
+/// open app, so the user keeps interacting with the PDF while a long
+/// (hundreds of pages) job runs. Completed pages are saved for resuming after
+/// the app closes or pauses. Progress is published on [status] for an
 /// app-bar indicator; [cancel] stops it.
 ///
 /// All of the heavy work lives in [pdf_ocr_ondevice]; this is just the app's
 /// orchestration - model gating, the download prompt, progress reporting, and
 /// turning failures into a toast.
 class OnDeviceOcr {
-  OnDeviceOcr();
+  OnDeviceOcr({OcrJobs? jobs, NativeOcrJobRunner? runJob})
+      : _jobs = jobs ?? OcrJobs(openOcrJobStorage()),
+        _runJob = runJob ?? executeNativeOcrJob;
 
   final PdfOcrModelManager _manager = PdfOcrModelManager();
   final PdfOcrModel _model = PdfOcrModels.ppOcrV5Mobile;
@@ -39,7 +43,8 @@ class OnDeviceOcr {
   bool _disposed = false;
   String? _jobId;
   bool _recovering = false;
-  final OcrJobs _jobs = OcrJobs(openOcrJobStorage());
+  final OcrJobs _jobs;
+  final NativeOcrJobRunner _runJob;
   late final OcrResultDelivery _delivery = OcrResultDelivery(_jobs);
 
   void _status(OcrJobStatus? value) {
@@ -55,12 +60,13 @@ class OnDeviceOcr {
     required void Function(String) onToast,
     required void Function(Uint8List, String) onComplete,
   }) async {
-    if (isBusy || _disposed || _recovering) return;
+    if (isBusy || _disposed || _recovering || ocrShouldPause) return;
     _recovering = true;
     try {
       for (final job in await _jobs.list()) {
         if (_disposed || !context.mounted) return;
-        if (job.state == OcrJobState.cancelled) {
+        if (job.state == OcrJobState.cancelled ||
+            await _jobs.isCancelled(job.id)) {
           await _jobs.delete(job.id);
           continue;
         }
@@ -99,71 +105,22 @@ class OnDeviceOcr {
         ));
     _status(OcrJobStatus(phase: OcrPhase.preparing, title: job.title));
     if (job.state != OcrJobState.complete) {
-      if (ocrDetachedSupported) {
-        final lease = await _jobs.storage.claim(job.id);
-        var shouldLaunch = false;
-        if (lease != null) {
-          try {
-            // A worker may have completed (and a different window may have
-            // adopted it) since list/create returned this snapshot.
-            final current = await _jobs.read(job.id);
-            if (current == null) return;
-            job = current;
-            if (job.state != OcrJobState.complete &&
-                job.state != OcrJobState.cancelled) {
-              job.state = OcrJobState.pending;
-              await _jobs.save(job);
-              shouldLaunch = true;
-            }
-          } finally {
-            await lease.release();
-          }
-          if (shouldLaunch) await launchOcrWorker(job.id);
-        } else {
-          final current = await _jobs.read(job.id);
-          if (current == null) return;
-          job = current;
+      final lease = await _jobs.storage.claim(job.id);
+      if (lease == null) return;
+      try {
+        // Re-read only after ownership: another window may have finished or
+        // adopted the job since this observer listed it.
+        final current = await _jobs.read(job.id);
+        if (current == null) return;
+        job = current;
+        if (job.state != OcrJobState.complete &&
+            job.state != OcrJobState.cancelled) {
+          await _runJob(_jobs, job,
+              onProgress: progress,
+              shouldPause: () => _disposed || ocrShouldPause);
         }
-        final started = DateTime.now();
-        // Poll durable progress, not a pipe owned by this editor process. The
-        // detached worker keeps running after the last editor window closes.
-        while (!_disposed &&
-            (job.state == OcrJobState.pending ||
-                job.state == OcrJobState.running)) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-          final current = await _jobs.read(job.id);
-          if (current == null) throw StateError('OCR job disappeared');
-          job = current;
-          progress(job);
-          if (job.state != OcrJobState.pending &&
-              job.state != OcrJobState.running) {
-            break;
-          }
-          // Failed startup/native crash must not leave an eternal progress
-          // chip. A live worker owns the OS lock even during long pages.
-          if (DateTime.now().difference(started).inSeconds > 30) {
-            final abandoned = await _jobs.storage.claim(job.id);
-            if (abandoned != null) {
-              await abandoned.release();
-              throw StateError(
-                  'OCR worker stopped; choose OCR again to resume');
-            }
-          }
-        }
-      } else {
-        final lease = await _jobs.storage.claim(job.id);
-        if (lease == null) return;
-        try {
-          final current = await _jobs.read(job.id);
-          if (current == null) return;
-          job = current;
-          if (job.state != OcrJobState.complete &&
-              job.state != OcrJobState.cancelled) {
-            await executeNativeOcrJob(_jobs, job, onProgress: progress);
-          }
-        } finally {
-          await lease.release();
-        }
+      } finally {
+        await lease.release();
       }
     }
     if (_disposed) return;
@@ -220,7 +177,7 @@ class OnDeviceOcr {
     }
   }
 
-  /// Starts an OCR job over [bytes] in the background and returns once it
+  /// Starts a resumable OCR job over [bytes] in the open app and returns once it
   /// finishes (so the caller can `unawaited` it). On success [onComplete] is
   /// handed the OCR'd PDF - or, when [onRecognized] is given instead, the
   /// recognized spans by page index, for the caller to lay onto its live

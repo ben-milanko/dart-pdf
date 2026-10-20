@@ -3,9 +3,6 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
-  private var ocrWorker: Bool {
-    CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--ocr-worker"
-  }
   private let fileAccess = FileAccessExecutor()
   private var windowingEngine: FlutterEngine?
   private var windowingServicesWindow: MainFlutterWindow?
@@ -28,16 +25,6 @@ class AppDelegate: FlutterAppDelegate {
   override func applicationDidFinishLaunching(_ notification: Notification) {
     // Finder's "Combine with DartPDF" service (NSServices in Info.plist) calls
     // combinePDFs(_:userData:error:) on this object.
-    if ocrWorker {
-      NSApp.setActivationPolicy(.prohibited)
-      mainFlutterWindow?.orderOut(nil)
-      let engine = FlutterEngine(name: "dartpdf-ocr", project: nil, allowHeadlessExecution: true)
-      windowingEngine = engine
-      _ = engine.run(withEntrypoint: nil, initialRoute: nil,
-                     entrypointArgs: Array(CommandLine.arguments.dropFirst()))
-      RegisterGeneratedPlugins(registry: engine)
-      return
-    }
     NSApp.servicesProvider = self
     guard DartPdfWindowingBootstrap.isEnabled else {
       super.applicationDidFinishLaunching(notification)
@@ -78,7 +65,7 @@ class AppDelegate: FlutterAppDelegate {
     // tear down every Dart-owned view just after launch. The Dart window
     // lifetime coordinator calls SystemNavigator.pop after its final window;
     // the normal single-window runner keeps the historical AppKit behavior.
-    return !ocrWorker && !DartPdfWindowingBootstrap.isEnabled
+    return !DartPdfWindowingBootstrap.isEnabled
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

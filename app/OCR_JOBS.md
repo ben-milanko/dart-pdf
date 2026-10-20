@@ -1,41 +1,33 @@
-# Long OCR jobs
+# Resumable OCR
 
-OCR stays on the device. A job saves a private snapshot of the requested PDF,
-then commits each page's recognized text independently. Closing the source tab
-does not change the job's input. Completed pages are not recognized again after
-an interruption, including pages with no text.
+OCR runs locally while the app is open. Each job saves a private copy of the
+source PDF and checkpoints every completed page, including pages without text.
+Closing the app does not discard those checkpoints. On the next open, unfinished
+jobs resume from the first page that has not been saved.
 
-## Closing or backgrounding
+This applies to Windows, macOS, Linux, Android, iOS/iPadOS and web. There are no
+detached processes, background services or requests for extended OS execution.
+When the app becomes hidden or pauses, an in-flight page can finish and save;
+the job pauses before starting another page. Returning to the app resumes it.
+The browser uses IndexedDB, so clearing browser storage also clears saved jobs.
 
-| Platform | Behaviour |
-| --- | --- |
-| Windows, macOS, Linux | A separate, hidden app process runs OCR independently of the editor window. Reopening the editor reconnects to saved progress or adopts the finished result. |
-| Android | A foreground service keeps the Flutter engine alive while the activity is backgrounded or removed from Recents. Its notification shows page progress and allows cancellation. The service uses the OS's local-file-processing type and respects its time limit. |
-| iOS/iPadOS 26+ | A manual OCR request asks for Continued Processing with system progress. The OS can deny or end that grant. Automatic OCR uses finite UIKit background time instead. |
-| Earlier iOS/iPadOS | Finite UIKit background time can finish current work; an unfinished job resumes when the app returns. |
-| Web | Work can continue while the browser permits the tab to run. A frozen or closed tab cannot keep executing local OCR. IndexedDB checkpoints let it resume on the next open. |
+Closing the source document tab does not replace the job's saved input. Recovered
+output opens as a separate PDF and never overwrites a document edited since the
+job began. Cancellation discards the job. A failed job can be retried from its
+saved pages by choosing OCR again for the same PDF snapshot.
 
-Force-stop, reboot, browser storage removal and OS resource limits cannot be
-overridden. Pending/running jobs resume from saved pages when the app next opens.
-A reported failure stops instead of retrying indefinitely; choosing OCR again
-for the same PDF snapshot retries from its checkpoints.
+An exclusive job lock prevents multiple windows or browser tabs from processing
+the same job. A separate delivery lock prevents duplicate result tabs. Completed
+output is retained until it has been cached and included in session persistence.
 
-Recovered output opens as a separate PDF, never over a document edited since
-the job started. The completed job is retained until its output has been cached
-and included in session persistence. An exclusive delivery lock prevents two
-windows/tabs from adopting the same result. Cancellation discards the job rather
-than reopening it later.
-
-## Implementation and verification
+## Persistence
 
 Native checkpoints use flushed temporary files, atomic replacement and OS file
-locks. Browser checkpoints await IndexedDB transaction completion, with Web Locks
-for ownership. Final PDF generation always starts with the immutable source and
-the saved spans, so retrying that stage cannot add duplicate text layers.
+locks. Browser writes await IndexedDB transaction completion and use Web Locks
+for ownership. Final output is assembled from the immutable source and saved
+text spans; retrying final assembly cannot add a second OCR text layer.
 
-Local verification covers checkpoint/restart, empty pages, cancellation,
-expiration, failed writes, result adoption and the existing OCR UI. Linux, web
-and Android debug builds were checked. A real Linux worker was terminated after
-eight committed pages, then completed all 30 pages on restart; the eight saved
-page hashes were unchanged. Windows/macOS/iOS native execution and Apple
-background/raster behaviour still need platform verification before release.
+Tests cover saved and empty pages, interruption between a page write and its
+progress update, cancellation, pause and resume, failed writes, result adoption
+and multiple-window ownership. Platform builds and runtime checks are separate
+from these persistence tests.

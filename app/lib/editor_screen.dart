@@ -2811,7 +2811,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Adds an invisible, selectable/searchable OCR text layer over the active
   /// document, running entirely on-device (pdf_ocr_ondevice). The model
-  /// downloads once on first use; OCR runs in the **background** (progress in
+  /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
   void _recoverOcr() {

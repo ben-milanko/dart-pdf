@@ -52,50 +52,8 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private var pendingPick: MethodChannel.Result? = null
     private val openDocumentRequestCode = 0x0D_0C
 
-    override fun provideFlutterEngine(context: Context): FlutterEngine? =
-        OcrForegroundService.engine
-
-    override fun shouldDestroyEngineWithHost(): Boolean = !OcrForegroundService.active
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        val ocrContext = applicationContext
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
-            "dev.milanko.dartpdf/ocr_background").also { ocrChannel ->
-            OcrForegroundService.channel = ocrChannel
-            ocrChannel.setMethodCallHandler { call, result ->
-                val service = Intent(ocrContext, OcrForegroundService::class.java)
-                try {
-                    when (call.method) {
-                        "begin" -> {
-                            service.putExtra("title", call.argument<String>("title"))
-                            service.putExtra("count", call.argument<Int>("count") ?: 0)
-                            OcrForegroundService.engine = flutterEngine
-                            OcrForegroundService.active = true
-                            if (Build.VERSION.SDK_INT >= 26) ocrContext.startForegroundService(service)
-                            else ocrContext.startService(service)
-                            result.success(null)
-                        }
-                        "progress" -> {
-                            if (OcrForegroundService.active) {
-                                service.putExtra("completed", call.argument<Int>("completed") ?: 0)
-                                service.putExtra("count", call.argument<Int>("count") ?: 0)
-                                ocrContext.startService(service)
-                            }
-                            result.success(null)
-                        }
-                        "end" -> { ocrContext.stopService(service); result.success(null) }
-                        else -> result.notImplemented()
-                    }
-                } catch (error: Exception) {
-                    if (call.method == "begin") {
-                        OcrForegroundService.active = false
-                        OcrForegroundService.engine = null
-                    }
-                    result.error("ocr_background", error.message, null)
-                }
-            }
-        }
         keyboardChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger, "dev.milanko.dartpdf/keyboard"
         ).also { keyboard ->

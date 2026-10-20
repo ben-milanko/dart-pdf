@@ -69,7 +69,7 @@ class MainFlutterWindow: NSWindow {
     // In experimental multi-window mode AppDelegate owns a headless engine and
     // Dart creates every native window. Adding this template view controller
     // first would make Flutter abort when it enables multiview.
-    if DartPdfWindowingBootstrap.isEnabled || CommandLine.arguments.contains("--ocr-worker") {
+    if DartPdfWindowingBootstrap.isEnabled {
       super.awakeFromNib()
       return
     }
