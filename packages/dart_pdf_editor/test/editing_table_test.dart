@@ -45,6 +45,99 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final kind in [PointerDeviceKind.mouse, PointerDeviceKind.touch]) {
+    for (final tool in [null, PdfEditTool.select]) {
+      testWidgets('double-click/tap opens an unselected table ($kind, $tool)',
+          (tester) async {
+        final editing = PdfEditingController(buildMultiPagePdf(1))
+          ..placeTable(
+              0,
+              200,
+              600,
+              PdfTableData([
+                ['Original']
+              ]))
+          ..clearAnnotationSelection()
+          ..tool = tool;
+        final viewer = PdfViewerController();
+        addTearDown(editing.dispose);
+        addTearDown(viewer.dispose);
+        await tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+                body: ListenableBuilder(
+                    listenable: editing,
+                    builder: (_, __) => PdfViewer(
+                        document: editing.document,
+                        editing: editing,
+                        controller: viewer,
+                        initialFit: PdfViewerFit.width)))));
+        await tester.pumpAndSettle();
+        final revision = editing.revisionId;
+        final rect = editing.document.page(0).annotations.single.rect;
+        final position = viewer.globalRectOf(0, rect)!.center;
+        await tester.tapAt(position, kind: kind);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(PdfTableEditorDialog), findsNothing);
+        await tester.tapAt(position, kind: kind);
+        await tester.pumpAndSettle();
+        expect(find.byType(PdfTableEditorDialog), findsOneWidget);
+        expect(editing.revisionId, revision);
+        await tester.enterText(
+            find.byKey(const ValueKey('pdf-table-cell-0-0')), 'Updated');
+        await tester.tap(find.byKey(const ValueKey('pdf-table-apply')));
+        await tester.pumpAndSettle();
+        expect(editing.document.page(0).annotations.single.table!.cells, [
+          ['Updated']
+        ]);
+        editing.undo();
+        expect(editing.document.page(0).annotations.single.table!.cells, [
+          ['Original']
+        ]);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
+
+  for (final flags in [64, 128, 512]) {
+    testWidgets('double-click cannot edit a protected table (/F=$flags)',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..placeTable(
+            0,
+            200,
+            600,
+            PdfTableData([
+              ['Protected']
+            ]));
+      final annotation = editing.annotationAt(0, 0)!;
+      editing.apply((editor) => editor.setAnnotationFlags(0, annotation, flags),
+          pages: const [0]);
+      editing.clearAnnotationSelection();
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: ListenableBuilder(
+                  listenable: editing,
+                  builder: (_, __) => PdfViewer(
+                      document: editing.document,
+                      editing: editing,
+                      controller: viewer,
+                      initialFit: PdfViewerFit.width)))));
+      await tester.pumpAndSettle();
+      final revision = editing.revisionId;
+      final position = viewer.globalRectOf(0, annotation.rect)!.center;
+      await tester.tapAt(position, kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(position, kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfTableEditorDialog), findsNothing);
+      expect(editing.revisionId, revision);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets(
       'paste an Excel range, select all and copy exact cell values back',
       (tester) async {
