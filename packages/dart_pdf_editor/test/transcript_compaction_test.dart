@@ -5,6 +5,7 @@ import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:dart_pdf_editor/src/annotation_display_filter.dart';
 
 void main() {
   const fixtures = [
@@ -30,13 +31,13 @@ void main() {
       ).transcriptFor(
         document,
         0,
-        true,
+        PdfAnnotationLayerSpec.all,
         PdfCancellationToken(),
       );
       final compact = await PdfWorkerTranscriptCache().transcriptFor(
         document,
         0,
-        true,
+        PdfAnnotationLayerSpec.all,
         PdfCancellationToken(),
       );
       expect(baseline, isNotNull, reason: name);

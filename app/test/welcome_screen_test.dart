@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show pdfSearchFieldBorderRadius;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,6 +27,29 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: screen)));
   }
+
+  testWidgets('first launch offers file picking and desktop drop guidance',
+      (tester) async {
+    var opened = 0;
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () => opened++,
+          onOpenRecent: (_) {},
+        ),
+        size: wide);
+    final panel = find.byKey(const ValueKey('welcome-start-panel'));
+    expect(panel, findsOneWidget);
+    expect(find.text('Drop PDF to open'), findsOneWidget);
+    // The panel sizes to its content, not the 900px recents grid column, and
+    // leaves the app name to the app bar.
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(420));
+    expect(find.text('DartPDF'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('welcome-open-pdf')));
+    expect(opened, 1);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
   testWidgets('a recent row shows its first-page thumbnail once it renders',
       (tester) async {

@@ -1,5 +1,42 @@
 # Changelog
 
+## 10.0.0
+
+- Speed up Indexed image decoding with a palette lookup table and direct box-filter downsampling.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Add `pdfPageLooksScanned` and `pdfDocumentLooksScanned` to decide when a document needs OCR.
+- Carry the font descriptor's Serif flag on `PdfTextRun.serif` and `PdfFontInfo.isSerif`, so unembedded serif fonts can use a serif substitute.
+- Add `serializedCommandCount` to size a worker reply without decoding it. The render-command format version is now 12.
+- Crop rotated and skewed images in region-limited decodes, so they sharpen again on deep zoom.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Optimize image-mask compositing and scan decoding without changing decoded pixels.
+- Allow annotation drawing to filter by annotation subtype.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Add `ocrSpansNotIn` to skip OCR spans already covered by page text.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
+## 6.0.0
+
+- Add `PdfStreamingCommandWriter` for native workers to record directly to
+  the existing v11 wire format, avoiding an intermediate command graph.
+- Store extracted and decoded character offsets in typed arrays.
+- Budget reusable and target-sized image decodes separately and expose
+  `PdfImageDecodeCache.maxTransientEntryBytes` for worker memory policy.
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

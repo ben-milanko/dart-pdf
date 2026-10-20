@@ -1,4 +1,3 @@
-Novità della 5.1.1
+Novità della 10.0.0
 
-- L'inchiostro scritto in rapida successione non scompare più dalla pagina.
-- Include tutti i miglioramenti della 5.1.0.
+Inserisci valori di misura anche senza scala. Modifica parole intere e riconosci meglio i link. I controlli si nascondono sui telefoni ed evitano le pieghe dello schermo. Scegli se mantenere l’OCR automatico dopo il primo utilizzo. Corretto un arresto con scansioni grandi; migliorate annotazioni e ritaglio delle immagini.

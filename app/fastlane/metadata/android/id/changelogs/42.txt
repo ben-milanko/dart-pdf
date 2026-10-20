@@ -1,0 +1,6 @@
+Baru di 6.0.0
+
+- Pilih teks halaman dengan alat Pilih; klik dua kali kata dalam mode Tangan.
+- Kontrol membaca berbagi satu bilah atas.
+- Halaman tampil lebih cepat dengan penggunaan memori lebih rendah.
+- Memperbaiki detail yang hilang setelah zoom cepat.

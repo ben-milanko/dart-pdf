@@ -8,6 +8,12 @@
 # The following line activates a set of recommended lints for Flutter apps,
 # packages, and plugins designed to encourage good coding practices.
 analyzer:
+  errors:
+    # 7.0: Material and Cupertino come from material_ui / cupertino_ui. An
+    # import of package:flutter/material.dart or cupertino.dart is an error;
+    # only the editor's legacy-host bridge (and the tests that build legacy
+    # hosts) opt out, with an ignore_for_file.
+    migrate_design_widgets: error
   exclude:
     - build/**
     - android/**
@@ -30,6 +36,7 @@ linter:
   # `// ignore_for_file: name_of_lint` syntax on the line or in the file
   # producing the lint.
   rules:
+    migrate_design_widgets: true
     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
     # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
 

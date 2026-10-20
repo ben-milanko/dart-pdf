@@ -1,0 +1,6 @@
+6.0.0 yenilikleri
+
+- Seç aracıyla sayfa metnini seçin; El modunda bir sözcüğe çift tıklayın.
+- Okuma kontrolleri tek bir üst çubukta.
+- Daha az bellek kullanımıyla daha hızlı sayfa görüntüleme.
+- Hızlı yakınlaştırmadan sonra kaybolan ayrıntılar düzeltildi.

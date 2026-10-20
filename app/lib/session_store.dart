@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'devtools.dart';
+import 'pdf_cache.dart';
 
 /// One file-backed document that was open in the previous session, captured so
 /// the editor can re-open it on the next launch.
@@ -64,6 +65,11 @@ class SessionDocument {
 /// list, mirroring how [RecentsStore] and [PdfEditingPreferences] handle the
 /// same case.
 class SessionStore {
+  SessionStore({CachedPdfKeyResolver? resolveCacheKey})
+      : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
+
+  final CachedPdfKeyResolver _resolveCacheKey;
+
   static const _key = 'dart_pdf_editor_app.session';
 
   List<SessionDocument> _documents = const [];
@@ -80,17 +86,30 @@ class SessionStore {
       if (raw == null) return _documents;
       final decoded = jsonDecode(raw);
       if (decoded is! List) return _documents;
-      _documents = decoded
-          .whereType<Map>()
-          .map((m) => SessionDocument.fromJson(m.cast<String, dynamic>()))
-          .where((d) => d.readPath != null)
-          .toList();
+      _documents = [
+        for (final m in decoded.whereType<Map>())
+          await _rebase(SessionDocument.fromJson(m.cast<String, dynamic>())),
+      ].where((d) => d.readPath != null).toList();
     } catch (e) {
       // No storage (tests) - keep whatever is already in memory.
       AppDevTools.instance
           .addLog('session restore failed: $e', level: DevLogLevel.error);
     }
     return _documents;
+  }
+
+  /// Points [doc]'s snapshot at the live store, which an app update can move
+  /// (see `resolveCachedPdfKey`).
+  Future<SessionDocument> _rebase(SessionDocument doc) async {
+    final cachePath = doc.cachePath;
+    if (cachePath == null) return doc;
+    final live = await _resolveCacheKey(cachePath);
+    if (live == null || live == cachePath) return doc;
+    return SessionDocument(
+        title: doc.title,
+        path: doc.path,
+        cachePath: live,
+        bookmark: doc.bookmark);
   }
 
   /// Replaces the persisted open-document list with [documents] (tab order).

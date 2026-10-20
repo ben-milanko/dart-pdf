@@ -1,1 +1,1 @@
-pdf,editor,modifica,annota,evidenzia,firma,modulo,oscura,unisci,pagine,scansione,ocr,confronta
+ocr,markup,evidenzia,note,timbri,moduli,unisci,lettore,password,confronta,scan,pagine,inchiostro

@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -372,6 +372,25 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-page-color')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-bake-page-color')),
+          findsNothing);
+    });
+
+    testWidgets('view options toggle saving the page color into the file',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(1), preferences: prefs));
+      expect(prefs.bakePageColor, isFalse);
+      for (final expected in [true, false]) {
+        await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Save page color into file'));
+        await tester.pumpAndSettle();
+        expect(prefs.bakePageColor, expected);
+      }
     });
   });
 
@@ -460,6 +479,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
 
@@ -476,6 +496,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
     }
@@ -680,9 +701,8 @@ void main() {
       // as wide as the widest, so this is the case that would overflow.
       await tester.pumpWidget(MaterialApp(
         locale: const Locale('uk'),
-        localizationsDelegates:
-            DartPdfEditorLocalizations.localizationsDelegates,
-        supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+        localizationsDelegates: PdfEditorLocalizations.delegates,
+        supportedLocales: PdfEditorLocalizations.supportedLocales,
         home: Scaffold(body: PdfEditorView(bytes: buildMultiPagePdf(2))),
       ));
       await tester.pump();
@@ -1248,12 +1268,13 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shape-fill-none')), findsOneWidget);
     });
 
-    testWidgets('compact markup tools explain the arm-first workflow',
-        (tester) async {
+    testWidgets('compact tool sheet tabs arm their first tool', (tester) async {
       tester.view.physicalSize = const Size(560, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await pump(tester, PdfEditorView(bytes: buildClassicPdf()));
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-tools-handle')),
           kind: PointerDeviceKind.mouse);
@@ -1261,8 +1282,35 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-group-tab-markup')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      expect(editing.markupTool, PdfMarkupKind.highlight);
+      expect(find.text('Choose a markup, then select text'), findsNothing,
+          reason: 'the armed highlight button communicates the state');
 
-      expect(find.text('Choose a markup, then select text'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-draw')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.markupTool, isNull);
+      expect(editing.tool, PdfEditTool.ink);
+      // tapping the tile the tab switch armed keeps it armed
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-ink')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.ink);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-shapes')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.rectangle);
+
+      // measure's first tool needs a scale: switching never prompts
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-group-tab-measure')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-measure')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.rectangle);
+      expect(find.byType(Dialog), findsNothing);
     });
 
     testWidgets('desktop markup tools explain the arm-first workflow',
@@ -1809,6 +1857,42 @@ void main() {
       expect(editing.document.pageCount, 5);
       expect(viewer.currentPage, 1,
           reason: 'the view follows the first inserted page');
+    });
+
+    testWidgets(
+        'with a multi-file picker, Insert PDF… opens the insert-pages dialog',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          viewerController: viewer,
+          onPickPdfFilesToInsert: () async => [
+            PdfInsertFile('a.pdf', buildMultiPagePdf(1)),
+            PdfInsertFile('b.pdf', buildMultiPagePdf(2)),
+          ],
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-insert-pdf')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-insert-pages-dialog')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.pumpAndSettle();
+      // both files land, in order, after the current page as one undo step
+      expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
+      editing.undo();
+      expect(editing.document.pageCount, 2);
     });
 
     testWidgets('Export pages… hands the host the chosen range',

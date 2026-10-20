@@ -3,7 +3,7 @@
 // ignore_for_file: implementation_imports, invalid_use_of_internal_member
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
 import 'package:flutter_test/flutter_test.dart';
@@ -270,30 +270,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(result, isFalse);
   }, variant: TargetPlatformVariant.all());
-
-  testWidgets('the deprecated ButtonStyleButton form still submits on Enter',
-      (tester) async {
-    var submits = 0;
-    await openDialog(
-        tester,
-        (context) => showPdfDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                content: const TextField(autofocus: true),
-                actions: [
-                  // ignore: deprecated_member_use_from_same_package
-                  PdfDialogSubmit(
-                      child: FilledButton(
-                    onPressed: () => submits++,
-                    child: const Text('Save'),
-                  )),
-                ],
-              ),
-            ));
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(submits, 1);
-  });
 
   // Enter keeps its meaning by role, not by widget type: a value control
   // (segments, a dropdown) is part of the form, so Enter submits from it;

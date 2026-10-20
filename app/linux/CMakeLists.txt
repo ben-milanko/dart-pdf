@@ -149,6 +149,20 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.desktop"
   DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/applications"
   COMPONENT Runtime)
 
+# "Combine with DartPDF" for a multi-file PDF selection: an Open With entry
+# (GNOME Files, Nemo, ...) and a KDE Dolphin right-click service menu. Both run
+# `dartpdf --combine %U`; KDE only runs service menus that are executable.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.combine.desktop"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/applications"
+  COMPONENT Runtime)
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.combine.servicemenu.desktop"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/kio/servicemenus"
+  RENAME dev.milanko.dartpdf.combine.desktop
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE
+  COMPONENT Runtime)
+
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.metainfo.xml"
   DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/metainfo"
   COMPONENT Runtime)

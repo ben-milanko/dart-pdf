@@ -2374,4 +2374,196 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür';
+
+  @override
+  String get textVerticalAlign => 'Dikey hizalama';
+
+  @override
+  String get textAlignTop => 'Metni üste hizala';
+
+  @override
+  String get textAlignMiddle => 'Metni dikey ortala';
+
+  @override
+  String get textAlignBottom => 'Metni alta hizala';
+
+  @override
+  String get measCustomValueTitle => 'Ölçü değeri';
+
+  @override
+  String get menuEditMeasurementValue => 'Ölçü değerini düzenle';
+
+  @override
+  String get menuAddLeader => 'Gösterge çizgisi ekle';
+
+  @override
+  String get propLeader => 'Kılavuz çizgisi';
+
+  @override
+  String get propOutlineWidth => 'Anahat kalınlığı';
+
+  @override
+  String get menuRotateSelection => 'Seçimin merkezi etrafında döndür…';
+
+  @override
+  String get menuRotateEach => 'Her açıklamayı döndür…';
+
+  @override
+  String get rotationAngleTitle => 'Döndürme (derece, saat yönünün tersine)';
+
+  @override
+  String get menuGroup => 'Grupla';
+
+  @override
+  String get menuUngroup => 'Grubu çöz';
+
+  @override
+  String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
+
+  @override
+  String get menuAddNoteHere => 'Buraya not ekle';
+
+  @override
+  String get tbNameMeasureCustom => 'Özel ölçü (değeri yazın)';
+
+  @override
+  String get insertPagesTitle => 'Sayfa ekle';
+
+  @override
+  String get insertPagesFiles => 'Dosyalar';
+
+  @override
+  String get insertPagesAddFiles => 'Dosya ekle…';
+
+  @override
+  String get insertPagesSortByName => 'Ada göre sırala';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Eklemek için bir veya daha fazla PDF ekleyin.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '$names açılamadı. Dosya hasarlı veya parola korumalı olabilir.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sayfa',
+      one: '1 sayfa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Yukarı taşı';
+
+  @override
+  String get insertPagesMoveDown => 'Aşağı taşı';
+
+  @override
+  String get insertPagesRemoveFile => 'Listeden kaldır';
+
+  @override
+  String get insertPagesRange => 'Sayfalar';
+
+  @override
+  String get insertPagesRangeHint => 'Tümü (ör. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return '1–$count arası sayfaları kullanın, ör. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Tüm sayfalar';
+
+  @override
+  String get insertPagesSubsetOdd => 'Tek sayfalar';
+
+  @override
+  String get insertPagesSubsetEven => 'Çift sayfalar';
+
+  @override
+  String get insertPagesReverse => 'Ters sıra';
+
+  @override
+  String get insertPagesPlacement => 'Konum';
+
+  @override
+  String get insertPagesBefore => 'Önce';
+
+  @override
+  String get insertPagesAfter => 'Sonra';
+
+  @override
+  String get insertPagesFirstPage => 'İlk sayfa';
+
+  @override
+  String get insertPagesLastPage => 'Son sayfa';
+
+  @override
+  String get insertPagesPage => 'Sayfa';
+
+  @override
+  String get insertPagesPageNumber => 'Sayfa numarası';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count girin';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Sayfaları araya ekle';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Konumdan itibaren eklenen ve mevcut sayfaları dönüşümlü yerleştirir; örneğin ayrı taranmış tek ve çift sayfaları birleştirmek için.';
+
+  @override
+  String get insertPagesRunInserted => 'Her seferde eklenen sayfa';
+
+  @override
+  String get insertPagesRunExisting => 'Aradaki belge sayfası';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Yer işaretlerini dahil et';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Her dosya için bir yer işareti ekle';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: '$inserted sayfa eklenecek',
+      one: '1 sayfa eklenecek',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total sayfa',
+      one: '1 sayfa',
+    );
+    return '$_temp0; belge $_temp1 olacak.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Ekle';
+
+  @override
+  String get shellBakePageColor => 'Sayfa rengini dosyaya kaydet';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
 }

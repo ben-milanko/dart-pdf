@@ -1,0 +1,8 @@
+New in 8.1.0
+
+- Change dropdown and list-box form fonts and styling.
+- Use a phone-friendly menu for New, Open, Print and Sign.
+- Edit text without changing its font, wrapping or caret position.
+- Improved iOS keyboards, selection menus and share-sheet filenames.
+- Full mobile pen and highlighter colour palette.
+- Linux AppImage compatibility and download-link fixes.

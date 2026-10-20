@@ -14,10 +14,8 @@ version="${1:?usage: verify-flatpak-install.sh <version>}"
 flatpak_id="${FLATPAK_ID:-dev.milanko.dartpdf}"
 base_url="${FLATPAK_BASE_URL:-https://dartpdf-flatpak.web.app}"
 
-flatpak remote-add --user --if-not-exists --no-gpg-verify \
-  dartpdf-verify "$base_url"
 flatpak install --user --assumeyes --noninteractive \
-  dartpdf-verify "$flatpak_id"
+  --from "$base_url/dartpdf.flatpakref"
 
 installed="$(LC_ALL=C flatpak info --user "$flatpak_id" |
   sed -n 's/^[[:space:]]*Version:[[:space:]]*//p')"

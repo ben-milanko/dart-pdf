@@ -2416,4 +2416,202 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'Показывать панели инструментов поверх страницы, а не закреплять у краёв окна';
+
+  @override
+  String get textVerticalAlign => 'Вертикальное выравнивание';
+
+  @override
+  String get textAlignTop => 'Выровнять текст по верхнему краю';
+
+  @override
+  String get textAlignMiddle => 'Выровнять текст по центру';
+
+  @override
+  String get textAlignBottom => 'Выровнять текст по нижнему краю';
+
+  @override
+  String get measCustomValueTitle => 'Значение измерения';
+
+  @override
+  String get menuEditMeasurementValue => 'Изменить значение измерения';
+
+  @override
+  String get menuAddLeader => 'Добавить линию выноски';
+
+  @override
+  String get propLeader => 'Выноска';
+
+  @override
+  String get propOutlineWidth => 'Толщина контура';
+
+  @override
+  String get menuRotateSelection => 'Повернуть вокруг центра выделения…';
+
+  @override
+  String get menuRotateEach => 'Повернуть каждую аннотацию…';
+
+  @override
+  String get rotationAngleTitle => 'Поворот (градусы, против часовой стрелки)';
+
+  @override
+  String get menuGroup => 'Сгруппировать';
+
+  @override
+  String get menuUngroup => 'Разгруппировать';
+
+  @override
+  String get menuRemoveLeader => 'Удалить линию выноски';
+
+  @override
+  String get menuAddNoteHere => 'Добавить заметку здесь';
+
+  @override
+  String get tbNameMeasureCustom => 'Свой размер (ввести значение)';
+
+  @override
+  String get insertPagesTitle => 'Вставить страницы';
+
+  @override
+  String get insertPagesFiles => 'Файлы';
+
+  @override
+  String get insertPagesAddFiles => 'Добавить файлы…';
+
+  @override
+  String get insertPagesSortByName => 'Сортировать по имени';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Добавьте один или несколько PDF для вставки.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Не удалось открыть $names. Возможно, файл поврежден или защищен паролем.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count страницы',
+      many: '$count страниц',
+      few: '$count страницы',
+      one: '$count страница',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Вверх';
+
+  @override
+  String get insertPagesMoveDown => 'Вниз';
+
+  @override
+  String get insertPagesRemoveFile => 'Убрать из списка';
+
+  @override
+  String get insertPagesRange => 'Страницы';
+
+  @override
+  String get insertPagesRangeHint => 'Все (напр. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Используйте страницы 1–$count, напр. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Все страницы';
+
+  @override
+  String get insertPagesSubsetOdd => 'Нечетные страницы';
+
+  @override
+  String get insertPagesSubsetEven => 'Четные страницы';
+
+  @override
+  String get insertPagesReverse => 'Обратный порядок';
+
+  @override
+  String get insertPagesPlacement => 'Расположение';
+
+  @override
+  String get insertPagesBefore => 'Перед';
+
+  @override
+  String get insertPagesAfter => 'После';
+
+  @override
+  String get insertPagesFirstPage => 'Первая страница';
+
+  @override
+  String get insertPagesLastPage => 'Последняя страница';
+
+  @override
+  String get insertPagesPage => 'Страница';
+
+  @override
+  String get insertPagesPageNumber => 'Номер страницы';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'из $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Введите 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Чередовать страницы';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Чередует вставленные и существующие страницы начиная с выбранного места — например, чтобы объединить отдельно отсканированные нечетные и четные страницы.';
+
+  @override
+  String get insertPagesRunInserted => 'Вставляемых страниц за раз';
+
+  @override
+  String get insertPagesRunExisting => 'Страниц документа между ними';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Включить закладки';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Добавить закладку для каждого файла';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Будет вставлено $inserted страницы',
+      many: 'Будет вставлено $inserted страниц',
+      few: 'Будет вставлено $inserted страницы',
+      one: 'Будет вставлена $inserted страница',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total страницы',
+      many: '$total страниц',
+      few: '$total страницы',
+      one: '$total страница',
+    );
+    return '$_temp0 — в документе станет $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Вставить';
+
+  @override
+  String get shellBakePageColor => 'Сохранять цвет страницы в файле';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Цвет страницы не сохранён в файле: изменение страниц сделает его подписи недействительными.';
 }

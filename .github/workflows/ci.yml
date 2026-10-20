@@ -5,6 +5,14 @@ on:
     branches: [main, deploy]
   pull_request:
 
+# A new push to a PR supersedes its previous run. Without this every superseded
+# commit kept its macOS jobs (flutter-gpu-smoke, Print plugin / macos) in the
+# shared macOS runner queue, which is what backed PR checks up for hours.
+# Pushes to main/deploy group per commit, so they are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
       # Run before pub get on purpose: the formatter wrapper must preserve the
@@ -20,6 +28,8 @@ jobs:
       - name: Check fresh-worktree formatter contract
         run: dart tool/format.dart --output=none --set-exit-if-changed tool/format.dart
       - run: flutter pub get
+      - name: Check release listing preservation policy
+        run: python3 -m unittest discover -s tool/storeflight -p 'test_*.py' -v
       - run: dart analyze --fatal-infos
       - name: Test Patrol performance summarizer
         run: dart tool/patrol_perf_summary_test.dart
@@ -226,23 +236,53 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  windows-clipboard:
+    name: Windows clipboard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Test native PNG and PDF clipboard transport
+        shell: cmd
+        run: |
+          cl /nologo /std:c++17 /EHsc /W4 app\windows\test\image_clipboard_test.cc app\windows\runner\image_clipboard.cpp /Fe:%RUNNER_TEMP%\image_clipboard_test.exe /link ole32.lib windowscodecs.lib user32.lib gdi32.lib
+          %RUNNER_TEMP%\image_clipboard_test.exe
+
   # Every other job runs the pinned .fvmrc Flutter, which says nothing about
   # the floor dart_pdf_editor declares (5.0.0 said >=3.24.0 but used a 3.44
   # API). This analyzes the editor and the pure-Dart packages under it on the
-  # declared floor, outside the workspace (dart_pdf_printing needs 3.47, so
-  # the workspace itself cannot resolve there). Keep flutter-version in step
-  # with `flutter:` in packages/dart_pdf_editor/pubspec.yaml.
+  # declared floor, outside the workspace (the app and the tooling in it may
+  # need a newer Flutter than the published packages). Keep flutter-version
+  # in step with `flutter:` in packages/dart_pdf_editor/pubspec.yaml (7.0:
+  # 3.47.0, material_ui 1.4's floor).
   floor-analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.0
+          flutter-version: 3.47.0
           channel: stable
           cache: true
       - name: Analyze dart_pdf_editor on its Flutter floor
         run: tool/floor_analyze.sh
+
+  # The legacy-host bridge (dart_pdf_editor/lib/src/legacy/) must compile out
+  # completely with --dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false, and be
+  # present under a legacy MaterialApp host. Five small web builds.
+  legacy-bridge-dce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+      - name: Legacy bridge DCE check
+        env:
+          FLUTTER: flutter
+        run: tool/check_legacy_bridge_dce.sh
 
   # The broad GPU suite above deliberately self-skips on Linux runners without
   # an Impeller context. This designated Metal lane is the non-optional proof:
@@ -257,7 +297,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
       - run: flutter pub get
@@ -283,6 +323,48 @@ jobs:
         run: >-
           flutter test --enable-impeller --enable-flutter-gpu
           test/gpu_corpus_test.dart --reporter expanded
+
+      # The warm-up/first-tile A/B below is ~25 minutes of a macOS runner
+      # (17 scenarios x 6 repetitions x 2 cohorts, plus priming). Only spend it
+      # when the PR can move the render path; editor UI, localisation, app and
+      # docs changes skip it. Pushes to main/deploy always measure.
+      - name: Decide whether the Flutter GPU performance A/B is in scope
+        id: gpu-scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != 'pull_request' ]]; then
+            echo "perf=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          relevant="$(printf '%s\n' "$changed" | grep -E \
+            -e '^packages/(pdf_cos|pdf_document|pdf_graphics)/lib/' \
+            -e '^packages/dart_pdf_editor_flutter_gpu/' \
+            -e '^packages/dart_pdf_editor/lib/' \
+            -e '^test_corpora/' \
+            -e '^pubspec\.(yaml|lock)$' \
+            -e '^tool/patrol_perf_summary\.dart$' \
+            -e '^\.github/workflows/ci\.yml$' \
+            | grep -vE '^packages/dart_pdf_editor/lib/(l10n|src/(editing|l10n|design|legacy))/' \
+            || true)"
+          if [[ -n "$relevant" ]]; then
+            echo "perf=true" >> "$GITHUB_OUTPUT"
+            echo "Render-path changes found:"
+            printf '%s\n' "$relevant"
+          else
+            echo "perf=false" >> "$GITHUB_OUTPUT"
+            mkdir -p packages/dart_pdf_editor_flutter_gpu/test-results/gpu
+            note='Skipped the warm-up/first-tile A/B: this PR changes no render-path code (see the "Decide whether the Flutter GPU performance A/B is in scope" step).'
+            printf '%s\n' "$note" \
+              > packages/dart_pdf_editor_flutter_gpu/test-results/gpu/patrol-perf-headline.md
+            printf '%s\n' "$note" \
+              > packages/dart_pdf_editor_flutter_gpu/test-results/gpu/patrol-perf.md
+            echo "$note"
+          fi
 
       - name: Prepare same-host main Flutter GPU baseline
         id: gpu-baseline
@@ -332,6 +414,7 @@ jobs:
 
       - name: Measure Flutter GPU warm-up and first-tile performance
         id: gpu-performance
+        if: steps.gpu-scope.outputs.perf == 'true'
         working-directory: packages/dart_pdf_editor_flutter_gpu
         shell: bash
         env:
@@ -501,7 +584,7 @@ jobs:
           fi
 
       - name: Summarize Flutter GPU performance
-        if: always()
+        if: always() && steps.gpu-scope.outputs.perf == 'true'
         working-directory: packages/dart_pdf_editor_flutter_gpu
         shell: bash
         run: |
@@ -713,7 +796,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
       # Guard: the checked-in worker asset must stay the small placeholder, not
@@ -765,7 +848,8 @@ jobs:
   # toolchain) and adds desktop-file/AppStream validation plus a headless
   # smoke launch under Xvfb. Kept green so `flutter build linux` can't rot.
   linux:
-    runs-on: ubuntu-latest
+    # Match the release builder so a plugin cannot silently raise the libc floor.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux desktop build + validation deps
@@ -773,18 +857,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
-            desktop-file-utils appstream xvfb x11-utils
+            desktop-file-utils xvfb x11-utils python3-venv \
+            libcurl4-openssl-dev libxml2-dev libyaml-dev libstemmer-dev \
+            libsystemd-dev liblzma-dev libzstd-dev gperf gettext xsltproc docbook-xsl itstool
+      - name: Test Windows clipboard DIB decode (host-portable C++)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            app/windows/test/dib_pixels_test.cc -o "$RUNNER_TEMP/dib_pixels_test"
+          "$RUNNER_TEMP/dib_pixels_test"
+      - name: Test Windows long-path spelling (host-portable C++)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            app/windows/test/long_paths_test.cc -o "$RUNNER_TEMP/long_paths_test"
+          "$RUNNER_TEMP/long_paths_test"
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
       - run: flutter pub get
       - name: Build Linux (release)
         working-directory: app
         run: flutter build linux --release
+      - name: Test the Linux packaging guards
+        run: python3 -m unittest discover -s tool -p 'test_linux_*.py' -v
+      - name: Check Linux libc baseline (including bundled plugins)
+        run: python3 tool/check_linux_glibc.py app/build/linux/x64/release/bundle --max-version 2.35
       - name: Validate .desktop entry
-        run: desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
+        run: |
+          desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
+          desktop-file-validate app/linux/dev.milanko.dartpdf.combine.desktop
+          cmp app/linux/dev.milanko.dartpdf.combine.desktop \
+            app/packaging/flatpak/desktop-assets/dev.milanko.dartpdf.combine.desktop || {
+            echo "::error::Flatpak desktop assets are stale; run app/packaging/flatpak/sync-desktop-assets.sh"
+            exit 1
+          }
+      - name: Build schema-aware AppStream validator
+        run: bash tool/build_appstream_validator.sh
       - name: Validate AppStream metainfo
         run: |
           set -euo pipefail
@@ -806,6 +915,8 @@ jobs:
           set -euo pipefail
           bundle=build/linux/x64/release/bundle
           test -f "$bundle/share/applications/dev.milanko.dartpdf.desktop"
+          test -f "$bundle/share/applications/dev.milanko.dartpdf.combine.desktop"
+          test -x "$bundle/share/kio/servicemenus/dev.milanko.dartpdf.combine.desktop"
           test -f "$bundle/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
           for sz in 64 128 256 512; do
             test -f "$bundle/share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png"
@@ -896,7 +1007,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.5
+          flutter-version: 3.47.7
           channel: stable
           cache: true
       - name: Install desktop dependencies and virtual display

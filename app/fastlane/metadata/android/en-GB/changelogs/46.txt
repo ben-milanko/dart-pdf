@@ -1,0 +1,8 @@
+New in 9.0.0
+
+- Group annotations to move, resize and rotate them together.
+- Scanned documents are OCR'd automatically so you can search them.
+- Optionally save the page colour into PDFs.
+- Text formatting shortcuts and separate callout arrow styles.
+- Easier polyline drawing and page reordering.
+- Better serif fonts, sharper rotated images and smoother scrolling.

@@ -589,6 +589,21 @@
         grid-template-columns: 1fr;
       }
     }
+    /* ---------- Promo video ---------- */
+    .promo-video {
+      margin: 0 auto;
+      max-width: 1040px;
+    }
+
+    .promo-video video {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 16 / 9;
+      border-radius: var(--radius-lg);
+      background: #202124;
+      box-shadow: var(--shadow-md);
+    }
   </style>
 
   <script type="application/ld+json">
@@ -615,6 +630,19 @@
       "@type": "Person",
       "name": "Ben Milanko"
     }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "name": "dart_pdf_editor: a Flutter PDF editor in pure Dart",
+    "description": "A PDF page parsed and rendered by the pure-Dart engine, then annotated, filled, reordered, and digitally signed.",
+    "thumbnailUrl": "https://dart-pdf.com/assets/promo-sdk-poster.webp",
+    "contentUrl": "https://dart-pdf.com/assets/promo-sdk.mp4",
+    "uploadDate": "2026-10-07",
+    "duration": "PT22S",
+    "embedUrl": "https://dart-pdf.com/flutter-pdf-editor"
   }
   </script>
 </head>
@@ -696,6 +724,20 @@ PdfReader(bytes: pdfBytes)</pre>
         <img src="/assets/editor-screenshot.png" width="2208" height="1552" loading="eager"
           alt="Flutter PDF editor showing page thumbnails, annotation tools, a PDF page, and editing controls." />
         <figcaption>The same editor UI runs on all six Flutter platforms and saves edits into the PDF.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ PROMO VIDEO ============ -->
+  <section class="section">
+    <div class="wrap">
+      <figure class="promo-video">
+        <video data-promo muted loop playsinline controls preload="none" width="1920" height="1080"
+          poster="/assets/promo-sdk-poster.webp" data-i18n-attr="aria-label:sdk_promo_videoAria"
+          aria-label="Short video of the DartPDF engine rendering a PDF page, then editing, reordering, and digitally signing it.">
+          <source src="/assets/promo-sdk.webm" type='video/webm; codecs="av01.0.08M.08, opus"' />
+          <source src="/assets/promo-sdk.mp4" type="video/mp4" />
+        </video>
       </figure>
     </div>
   </section>
@@ -905,6 +947,7 @@ PdfReader(bytes: pdfBytes)</pre>
       <span data-i18n="foot_oss">Free and open source under Apache-2.0.</span>
     </div>
   </footer>
+  <script src="/promo-video.js" defer></script>
   <script src="/i18n.js" defer></script>
 </body>
 

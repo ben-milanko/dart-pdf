@@ -1,7 +1,7 @@
 // PrintProgressDialog shows "page X of Y" while a print job rasterises pages.
 import 'package:dart_pdf_printing/dart_pdf_printing.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The dialog's progress bar.

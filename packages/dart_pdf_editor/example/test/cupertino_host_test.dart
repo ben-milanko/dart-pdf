@@ -3,7 +3,7 @@
 // Cupertino presenter - the acceptance test for the 5.x UI seams.
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';

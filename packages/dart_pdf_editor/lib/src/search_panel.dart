@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'design/viewer_tokens.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'design/material_host.dart';
 import 'editing/editing_controller.dart';

@@ -1,4 +1,10 @@
 analyzer:
+  errors:
+    # 7.0: Material and Cupertino come from material_ui / cupertino_ui. An
+    # import of package:flutter/material.dart or cupertino.dart is an error;
+    # only the editor's legacy-host bridge (and the tests that build legacy
+    # hosts) opt out, with an ignore_for_file.
+    migrate_design_widgets: error
   exclude:
     - build/**
     - android/**
@@ -8,3 +14,7 @@ analyzer:
     - macos/**
     - linux/**
 include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    migrate_design_widgets: true

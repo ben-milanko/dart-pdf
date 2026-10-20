@@ -281,8 +281,21 @@ PdfImageBase? decodePdfImageBase(
   }
 
   if (filters.contains('JPXDecode')) {
+    // A smaller requested base skips JPX resolution levels, as the unmasked
+    // scaled path does: a masked scan layer (MRC copier output puts every
+    // page's colour under a stencil) otherwise ran the full entropy decode and
+    // wavelet only to be shrunk one layer up. Never for /Indexed - its samples
+    // are palette indices, which must not be resolution-averaged.
+    final reduce = targetWidth == null ||
+            targetHeight == null ||
+            luminosityMask ||
+            pdfImageColorFamily(cos, dict) == 'Indexed'
+        ? 0
+        : _jpxReduceLevels(_intOf(cos.resolve(dict['Width'])),
+            _intOf(cos.resolve(dict['Height'])), targetWidth, targetHeight);
     final jpx = JpxDecoder.decode(
-        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
+        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'),
+        reduceLevels: reduce);
     if (jpx == null) return null;
     // An /Indexed JPX carries palette indices in its single component, not
     // colour: the samples must run through the lookup table, exactly as a raw
@@ -319,6 +332,28 @@ PdfImageBase? decodePdfImageBase(
   }
 
   final family = pdfImageColorFamily(cos, dict);
+  // An opaque, unmasked /Indexed image asked for a smaller base is averaged
+  // straight out of its palette: the box filter over the expanded pixels is a
+  // sum of palette entries, so the native RGBA surface (and its second read in
+  // the downsample) never needs to exist. A masked image keeps the native base
+  // its compositing paths expect.
+  if (targetWidth != null &&
+      targetHeight != null &&
+      !isMask &&
+      !colorKeyed &&
+      !luminosityMask &&
+      family == 'Indexed' &&
+      cos.resolve(dict['SMask']) is! CosStream &&
+      cos.resolve(dict['Mask']) is! CosStream) {
+    final colorT0 = PdfPerf.begin();
+    final scaled = _indexedToRgbaDownsampled(
+        cos, dict, data, width, height, bits, targetWidth, targetHeight);
+    PdfPerf.end(PdfPerfPhase.imageColorConvert, colorT0);
+    if (scaled != null) {
+      return PdfImageBase(scaled.rgba, scaled.width, scaled.height,
+          opaque: true);
+    }
+  }
   final alternate = _alternateColorSpaceFor(cos, dict);
   final components = alternate?.channels ??
       switch (family) {
@@ -870,12 +905,7 @@ PdfDecodedPixels? _decodeJpxScaled(
   if (dict.containsKey('SMask') || dict.containsKey('Mask')) return null;
   if (pdfImageColorFamily(cos, dict) == 'Indexed') return null;
 
-  // Resolution levels to skip = floor(log2(min(w/tw, h/th))), and only when the
-  // image is at least halved on its limiting axis (below that the reduce buys
-  // nothing and the full path's downsample is already cheap).
-  final ratio = math.min(width / targetWidth, height / targetHeight);
-  if (ratio < 2) return null;
-  final reduce = (math.log(ratio) / math.ln2).floor();
+  final reduce = _jpxReduceLevels(width, height, targetWidth, targetHeight);
   if (reduce < 1) return null;
 
   final jpx = JpxDecoder.decode(
@@ -887,6 +917,29 @@ PdfDecodedPixels? _decodeJpxScaled(
   // JPX carries no colour key; the mapper writes opaque alpha throughout.
   final decoded = _finish(rgba, jpx.width, jpx.height, hasAlpha: false);
   return downsamplePdfDecodedPixels(decoded, targetWidth, targetHeight);
+}
+
+/// JPX resolution levels to skip for a [width]x[height] image wanted at
+/// [targetWidth]x[targetHeight]: the most that still leave the reduced image
+/// (ceil(w / 2^r) x ceil(h / 2^r), how JPX sizes a resolution level) at least
+/// as large as the target on both axes, so the box filter after it only ever
+/// shrinks. Comparing against the reduced size rather than requiring
+/// w / tw >= 2 matters at exactly half size: an odd-width image shown at
+/// ceil(w / 2) has a ratio just under 2 and used to miss the reduce entirely,
+/// paying for a full decode it then threw away. The decoder clamps the result
+/// to the codestream's decomposition depth.
+int _jpxReduceLevels(int width, int height, int targetWidth, int targetHeight) {
+  if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return 0;
+  }
+  int ceilShift(int value, int shift) => (value + (1 << shift) - 1) >> shift;
+  var reduce = 0;
+  while (reduce < 30 &&
+      ceilShift(width, reduce + 1) >= targetWidth &&
+      ceilShift(height, reduce + 1) >= targetHeight) {
+    reduce++;
+  }
+  return reduce;
 }
 
 /// Decodes a rectangular source-region of a simple Flate/raw or CCITT image
@@ -1412,6 +1465,39 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   final inverted = decode is CosArray &&
       decode.length > 0 &&
       _numOf(cos.resolve(decode[0])) == 1;
+  final coverage = _stencilCoverage(data, width, inverted, sourceX, sourceY,
+      sourceWidth, sourceHeight, targetWidth, targetHeight);
+  final out = Uint8List(targetWidth * targetHeight * 4);
+  for (var i = 0, di = 0; i < coverage.length; i++, di += 4) {
+    // Premultiplied white coverage: the device tints it through srcIn.
+    final v = coverage[i];
+    out[di] = out[di + 1] = out[di + 2] = out[di + 3] = v;
+  }
+  return PdfDecodedPixels(out, targetWidth, targetHeight);
+}
+
+/// The fraction of painting bits in each [targetWidth]x[targetHeight] cell of
+/// the source region of a 1-bit stencil (MSB-first rows of `(width + 7) ~/ 8`
+/// bytes), as 0-255 bytes, row-major. A bit paints when it is 0, or 1 when
+/// [inverted] (/Decode [1 0]) - for a /Mask stencil, "paints" is "shows the
+/// image". Requires targetWidth <= sourceWidth and targetHeight <=
+/// sourceHeight, and the caller to have checked [data] covers the rows.
+///
+/// Truncating `count * 255 ~/ cellArea` over the same cell partition as
+/// [downsamplePdfDecodedPixels] and [_targetSizedSoftMask], so it is
+/// pixel-identical to expanding every bit and box-filtering the result.
+Uint8List _stencilCoverage(
+  Uint8List data,
+  int width,
+  bool inverted,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  final rowBytes = (width + 7) ~/ 8;
   // Area coverage, not point sampling. A scanned drawing stencil (a 7360px
   // CCITT sheet shown ~1500px wide) is mostly 1-2px linework: picking one
   // source bit per destination pixel dropped whole strokes and broke the rest
@@ -1492,7 +1578,7 @@ PdfDecodedPixels? _scaledImageMaskRegion(
       ? data.buffer.asUint32List(data.offsetInBytes, data.length >> 2)
       : null;
   final counts = Int32List(targetWidth);
-  final out = Uint8List(targetWidth * targetHeight * 4);
+  final out = Uint8List(targetWidth * targetHeight);
   var di = 0;
   for (var ty = 0; ty < targetHeight; ty++) {
     final sy0 = sourceY + ty * sourceHeight ~/ targetHeight;
@@ -1530,13 +1616,10 @@ PdfDecodedPixels? _scaledImageMaskRegion(
     }
     final rows = sy1 - sy0;
     for (var tx = 0; tx < targetWidth; tx++) {
-      final v = counts[tx] * 255 ~/ (columnSpan[tx] * rows);
-      // Premultiplied white coverage: the device tints it through srcIn.
-      out[di] = out[di + 1] = out[di + 2] = out[di + 3] = v;
-      di += 4;
+      out[di++] = counts[tx] * 255 ~/ (columnSpan[tx] * rows);
     }
   }
-  return PdfDecodedPixels(out, targetWidth, targetHeight);
+  return out;
 }
 
 /// Exact region decode of a masked 8-bit image: a single-Flate DeviceRGB or
@@ -2517,19 +2600,47 @@ PdfImageSoftMask? pdfImageStencilMask(
     final height = samples.height;
     final rowBytes = (width + 7) ~/ 8;
     if (data.length < rowBytes * height) return null;
+    if (targetWidth != null &&
+        targetHeight != null &&
+        targetWidth > 0 &&
+        targetHeight > 0 &&
+        (targetWidth < width || targetHeight < height)) {
+      // Count the shown bits per target cell straight from the packed rows
+      // instead of expanding a byte per source pixel and box-filtering that:
+      // the same pixels (see [_stencilCoverage]), without the native-size
+      // plane - a 300 ppi scan's page mask is 17 megapixels.
+      final tw = targetWidth < width ? targetWidth : width;
+      final th = targetHeight < height ? targetHeight : height;
+      final scaleT0 = PdfPerf.begin();
+      final coverage =
+          _stencilCoverage(data, width, inverted, 0, 0, width, height, tw, th);
+      PdfPerf.end(PdfPerfPhase.imageDownsample, scaleT0);
+      return PdfImageSoftMask(coverage, tw, th);
+    }
+    // Shown (alpha 255) where the sample is 0, or 1 when /Decode inverts.
+    final flip = inverted ? 0 : 0xff;
     final alpha = Uint8List(width * height);
+    final wholeBytes = width >> 3;
     for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final bit = (data[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
-        final masked = inverted ? bit == 0 : bit == 1;
-        alpha[y * width + x] = masked ? 0 : 255;
+      final row = y * rowBytes;
+      var o = y * width;
+      for (var b = 0; b < wholeBytes; b++, o += 8) {
+        final shown = data[row + b] ^ flip;
+        if (shown == 0) continue; // the plane starts out all masked
+        if (shown == 0xff) {
+          alpha.fillRange(o, o + 8, 255);
+          continue;
+        }
+        for (var k = 0; k < 8; k++) {
+          if ((shown << k) & 0x80 != 0) alpha[o + k] = 255;
+        }
+      }
+      for (var x = wholeBytes << 3; x < width; x++, o++) {
+        final bit = (data[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+        if (bit != (flip & 1)) alpha[o] = 255;
       }
     }
-    return _targetSizedSoftMask(
-      PdfImageSoftMask(alpha, width, height),
-      targetWidth,
-      targetHeight,
-    );
+    return PdfImageSoftMask(alpha, width, height);
   } on Exception {
     return null; // unsupported mask: leave the image opaque
   }
@@ -3621,29 +3732,165 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final palette = paletteInfo.$1;
   final paletteCount = paletteInfo.$2;
   if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
+  if (paletteCount == 0) return null;
 
   final rowBytes = (width * bits + 7) ~/ 8;
   if (data.length < rowBytes * height) return null;
+
+  // Every possible sample resolves to one RGBA pixel, so build that table
+  // once - out-of-range indices clamp to entry 0, and color-key ranges compare
+  // the raw index sample (§8.9.6.4) - and expand each sample with a single
+  // 32-bit store. Read back through the table's own buffer a word is in host
+  // byte order, exactly how a word store lays it into [out]. The per-pixel
+  // palette arithmetic, color-key test and four byte stores this replaces
+  // dominated CAD sheets that tile a drawing into thousands of small
+  // Indexed images.
+  final entryCount = 1 << bits;
+  final table = Uint8List(entryCount * 4);
+  for (var raw = 0; raw < entryCount; raw++) {
+    final index = raw >= paletteCount ? 0 : raw;
+    table[raw * 4] = palette[index * 3];
+    table[raw * 4 + 1] = palette[index * 3 + 1];
+    table[raw * 4 + 2] = palette[index * 3 + 2];
+    table[raw * 4 + 3] =
+        colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
+            ? 0
+            : 255;
+  }
+  final entries = Uint32List.view(table.buffer);
+  final pixels = Uint32List.view(out.buffer, out.offsetInBytes, width * height);
+  var i = 0;
+  if (bits == 8) {
+    for (var y = 0; y < height; y++) {
+      final row = y * rowBytes;
+      for (var x = 0; x < width; x++) {
+        pixels[i++] = entries[data[row + x]];
+      }
+    }
+    return out;
+  }
   final perByte = 8 ~/ bits;
-  final mask = (1 << bits) - 1;
+  final mask = entryCount - 1;
+  final wholeBytes = width ~/ perByte;
   for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final byte = data[y * rowBytes + x ~/ perByte];
+    final row = y * rowBytes;
+    for (var b = 0; b < wholeBytes; b++) {
+      final byte = data[row + b];
+      for (var shift = 8 - bits; shift >= 0; shift -= bits) {
+        pixels[i++] = entries[(byte >> shift) & mask];
+      }
+    }
+    for (var x = wholeBytes * perByte; x < width; x++) {
+      final byte = data[row + x ~/ perByte];
       final shift = 8 - bits * (x % perByte + 1);
-      final raw = (byte >> shift) & mask;
-      final index = raw >= paletteCount ? 0 : raw;
-      final i = (y * width + x) * 4;
-      out[i] = palette[index * 3];
-      out[i + 1] = palette[index * 3 + 1];
-      out[i + 2] = palette[index * 3 + 2];
-      // color-key ranges compare the raw index sample (§8.9.6.4)
-      out[i + 3] =
-          colorKey != null && raw >= colorKey[0].$1 && raw <= colorKey[0].$2
-              ? 0
-              : 255;
+      pixels[i++] = entries[(byte >> shift) & mask];
     }
   }
   return out;
+}
+
+/// [_indexedToRgba] followed by [downsamplePdfDecodedPixels], in one pass and
+/// byte-for-byte identical to it for an opaque (unkeyed) image: the same cell
+/// geometry, no upscale, and each channel the truncated mean of the palette
+/// entries the cell's samples name. Returns null where [_indexedToRgba] would.
+({Uint8List rgba, int width, int height})? _indexedToRgbaDownsampled(
+    CosDocument cos,
+    CosDictionary dict,
+    Uint8List data,
+    int width,
+    int height,
+    int bits,
+    int targetWidth,
+    int targetHeight) {
+  var tw = targetWidth < 1 ? 1 : targetWidth;
+  var th = targetHeight < 1 ? 1 : targetHeight;
+  if (tw >= width && th >= height) return null; // the full decode is the size
+  if (tw > width) tw = width;
+  if (th > height) th = height;
+  if (bits != 1 && bits != 2 && bits != 4 && bits != 8) return null;
+  final paletteInfo =
+      _indexedPalette(cos, dict, intent: _imageRenderingIntent(cos, dict));
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  if (paletteCount == 0) return null;
+  final rowBytes = (width * bits + 7) ~/ 8;
+  if (data.length < rowBytes * height) return null;
+
+  // Per-sample channel tables (out-of-range indices clamp to entry 0).
+  final entryCount = 1 << bits;
+  final reds = Int32List(entryCount);
+  final greens = Int32List(entryCount);
+  final blues = Int32List(entryCount);
+  for (var raw = 0; raw < entryCount; raw++) {
+    final index = raw >= paletteCount ? 0 : raw;
+    reds[raw] = palette[index * 3];
+    greens[raw] = palette[index * 3 + 1];
+    blues[raw] = palette[index * 3 + 2];
+  }
+  // Unpack one source row of samples at a time; 8-bit rows are read in place.
+  final samples = bits == 8 ? null : Uint8List(width);
+  final perByte = 8 ~/ bits;
+  final mask = entryCount - 1;
+  final x0s = Int32List(tw);
+  final x1s = Int32List(tw);
+  for (var tx = 0; tx < tw; tx++) {
+    final sx0 = tx * width ~/ tw;
+    var sx1 = (tx + 1) * width ~/ tw;
+    if (sx1 <= sx0) sx1 = sx0 + 1;
+    x0s[tx] = sx0;
+    x1s[tx] = sx1;
+  }
+  final r = Int32List(tw), g = Int32List(tw), b = Int32List(tw);
+  final out = Uint8List(tw * th * 4);
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = ty * height ~/ th;
+    var sy1 = (ty + 1) * height ~/ th;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    r.fillRange(0, tw, 0);
+    g.fillRange(0, tw, 0);
+    b.fillRange(0, tw, 0);
+    for (var sy = sy0; sy < sy1; sy++) {
+      final row = sy * rowBytes;
+      final Uint8List line;
+      final int base;
+      if (samples == null) {
+        line = data;
+        base = row;
+      } else {
+        for (var x = 0; x < width; x++) {
+          final byte = data[row + x ~/ perByte];
+          samples[x] = (byte >> (8 - bits * (x % perByte + 1))) & mask;
+        }
+        line = samples;
+        base = 0;
+      }
+      for (var tx = 0; tx < tw; tx++) {
+        var cr = 0, cg = 0, cb = 0;
+        final end = base + x1s[tx];
+        for (var i = base + x0s[tx]; i < end; i++) {
+          final raw = line[i];
+          cr += reds[raw];
+          cg += greens[raw];
+          cb += blues[raw];
+        }
+        r[tx] += cr;
+        g[tx] += cg;
+        b[tx] += cb;
+      }
+    }
+    final rows = sy1 - sy0;
+    for (var tx = 0; tx < tw; tx++) {
+      final n = rows * (x1s[tx] - x0s[tx]);
+      out[di] = r[tx] ~/ n;
+      out[di + 1] = g[tx] ~/ n;
+      out[di + 2] = b[tx] ~/ n;
+      out[di + 3] = 255;
+      di += 4;
+    }
+  }
+  return (rgba: out, width: tw, height: th);
 }
 
 (Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict,

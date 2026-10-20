@@ -27,6 +27,17 @@ Future<Uint8List> _pixels(ui.Image image) async {
   return data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 }
 
+Future<void> _waitForGpuCompletions(FlutterGpuTileBackendStats stats) async {
+  final clock = Stopwatch()..start();
+  while (stats.inFlightSubmissions != 0 &&
+      clock.elapsed < const Duration(seconds: 5)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  expect(stats.inFlightSubmissions, 0,
+      reason: 'GPU completion callbacks must release retired scene resources');
+  expect(stats.failedSubmissions, 0);
+}
+
 PdfPath _rect(double left, double bottom, double right, double top) => PdfPath([
       PdfMoveTo(left, bottom),
       PdfLineTo(right, bottom),
@@ -297,11 +308,15 @@ void main() {
           final warm = await active.rasterizeRegion(region, pixelRatio: 1);
           await _pixels(warm);
           warm.dispose();
+          // Pixel readback need not deliver the Dart completion callback that
+          // returns the transient attachments to their pool.
+          await _waitForGpuCompletions(backend.stats);
 
           backend.stats.reset();
           final replay = await active.rasterizeRegion(region, pixelRatio: 1);
           await _pixels(replay);
           replay.dispose();
+          await _waitForGpuCompletions(backend.stats);
           expect(backend.stats.failedSubmissions, 0);
           if (budget == 0) {
             expect(
@@ -362,6 +377,9 @@ void main() {
         final warm = await active.rasterizeRegion(region, pixelRatio: 1);
         await _pixels(warm);
         warm.dispose();
+        // Reuse is guaranteed after the route's completion callback, not just
+        // after its image is readable.
+        await _waitForGpuCompletions(backend.stats);
 
         final attachmentsPerTile =
             gpu.gpuContext.doesSupportOffscreenMSAA ? 2 : 1;
@@ -375,6 +393,7 @@ void main() {
         final replay = await active.rasterizeRegion(region, pixelRatio: 1);
         await _pixels(replay);
         replay.dispose();
+        await _waitForGpuCompletions(backend.stats);
         expect(backend.stats.failedSubmissions, 0);
         expect(backend.stats.transientAttachmentTextures, 0);
         expect(
@@ -2233,6 +2252,11 @@ void main() {
       expect(backend.stats.textureCacheHits, 1);
 
       backend.clearImageCache();
+      // Pixel readback can finish before Dart receives the submission's
+      // completion callback. Clearing the cache keeps any still-leased texture
+      // alive until that callback retires the disposed scene.
+      await _waitForGpuCompletions(backend.stats);
+      expect(backend.stats.activeTextureLeases, 0);
       expect(backend.stats.textureBytes, 0);
       final third = backend.createSession(scene)!;
       final thirdImage = await third.rasterizeRegion(region, pixelRatio: 0.25);
@@ -2242,6 +2266,10 @@ void main() {
       expect(backend.stats.texturesUploaded, 2);
       expect(backend.stats.textureImports, 2);
       expect(backend.stats.textureReadbacks, 0);
+      await _waitForGpuCompletions(backend.stats);
+      expect(backend.stats.activeTextureLeases, 0);
+      backend.clearImageCache();
+      expect(backend.stats.textureBytes, 0);
     });
   });
 

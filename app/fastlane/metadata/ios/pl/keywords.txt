@@ -1,1 +1,1 @@
-pdf,edytor,adnotacje,podpis,formularz,wymazywanie,skan,ocr,strony,zakreślacz,scalanie,porównaj
+ocr,adnotacje,notatki,stemple,formularze,scalanie,czytnik,hasło,porównaj,skan,strony,tusz,eksport

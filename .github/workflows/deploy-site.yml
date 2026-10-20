@@ -7,7 +7,7 @@ name: Deploy Site
 # silently drifted behind merged PRs (e.g. the localization work in #541 and the
 # Windows-installer change in #545 shipped to git but not to the live site). This
 # gives it the same shape as the other two. The site is static, so there is no
-# Flutter/build step; the locale JSONs are validated before the deploy.
+# Flutter/build step; crawlability and locale JSONs are checked before deployment.
 
 on:
   workflow_dispatch:
@@ -16,25 +16,53 @@ on:
     paths:
       - .github/workflows/deploy-site.yml
       - site/**
+      - tool/site/**
+  pull_request:
+    paths:
+      - .github/workflows/deploy-site.yml
+      - site/**
+      - tool/site/**
 
 concurrency:
-  group: site-web
+  group: site-web-${{ github.event.pull_request.number || 'live' }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # Gate the deploy on locale parity + HTML-tag integrity so a broken
       # translation JSON can never reach dart-pdf.com. Self-contained (stdlib),
       # exits non-zero on any problem.
       - name: Validate locale JSONs
         run: python3 site/i18n/_validate.py
+
+      - name: Test SEO guardrails
+        run: python3 -m unittest discover -s tool/site -p 'test_*.py'
+
+      - name: Generate sitemap and validate crawlability
+        run: python3 tool/site/seo.py --write-sitemap
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate sitemap from committed content
+        run: python3 tool/site/seo.py --write-sitemap
 
       # site/firebase.json pins "site": "dartpdf"; channelId live -> the
       # production channel behind dart-pdf.com. No build: the site is static.
@@ -44,3 +72,6 @@ jobs:
           projectId: dart-pdf-demo
           channelId: live
           entryPoint: site
+
+      - name: Verify deployed crawlability
+        run: python3 tool/site/seo.py --live

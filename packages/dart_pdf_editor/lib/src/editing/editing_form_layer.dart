@@ -2,7 +2,7 @@ import 'dart:async';
 import '../design/viewer_tokens.dart';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 

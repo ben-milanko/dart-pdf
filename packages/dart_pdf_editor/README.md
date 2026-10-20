@@ -343,18 +343,23 @@ flutter:
   uses-material-design: true
 ```
 
+The library is built on [material_ui](https://pub.dev/packages/material_ui)
+(since 7.0; see [doc/MIGRATING-7.0.0.md](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-7.0.0.md)).
 Register the editor's localizations so its strings follow the app's locale
-(without them it falls back to English). `localizationsDelegates` carries the
-editor's delegate plus Flutter's Material, Cupertino and widgets delegates:
+(without them it falls back to English). `PdfEditorLocalizations.delegates`
+carries the editor's delegate plus material_ui's Material, Cupertino and
+widgets delegates:
 
 ```dart
+import 'package:material_ui/material_ui.dart';
+
 MaterialApp(
-  localizationsDelegates: DartPdfEditorLocalizations.localizationsDelegates,
-  supportedLocales: DartPdfEditorLocalizations.supportedLocales,
-  // If the app has its own gen-l10n bundle, list both:
+  localizationsDelegates: PdfEditorLocalizations.delegates,
+  supportedLocales: PdfEditorLocalizations.supportedLocales,
+  // If the app has its own bundle, spread both:
   // localizationsDelegates: [
-  //   ...AppLocalizations.localizationsDelegates,
   //   DartPdfEditorLocalizations.delegate,
+  //   ...AppLocalizations.localizationsDelegates,
   // ],
   themeMode: switch (prefs.themePreference) {
     PdfThemePreference.system => ThemeMode.system,
@@ -366,8 +371,14 @@ MaterialApp(
 ```
 
 `PdfEditingPreferences.themePreference` is the user's saved theme choice in
-a design-system-neutral enum; the `ThemeMode`-typed `themeMode` is
-deprecated. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
+a design-system-neutral enum. The generated
+`DartPdfEditorLocalizations.localizationsDelegates` lists the legacy
+`flutter_localizations` delegates, which suit an app still on
+`package:flutter/material.dart`; a material_ui app should use
+`PdfEditorLocalizations.delegates` (or spread material_ui's
+`GlobalMaterialLocalizations.delegates` itself, if its own gen-l10n list
+brings the legacy ones). Either way the editor fills in whichever Material
+and Cupertino localizations the host lacks. Your own dialogs opened with `showPdfDialog` get Enter-to-submit
 by wrapping the primary action in `PdfDialogSubmit.action(onSubmit: ...,
 child: ...)`, which takes any widget.
 
@@ -608,10 +619,11 @@ PdfEditorView(
 )
 ```
 
-### Any host: MaterialApp, CupertinoApp or WidgetsApp
+### Any host: MaterialApp (material_ui or legacy), CupertinoApp or WidgetsApp
 
-The editor does not need a `MaterialApp`. `PdfViewer`, `PdfReader`,
-`PdfEditorView` and `PdfComparisonView` run under a `CupertinoApp` or a plain
+The editor does not need a material_ui `MaterialApp`. `PdfViewer`,
+`PdfReader`, `PdfEditorView` and `PdfComparisonView` run under a legacy
+`package:flutter/material.dart` `MaterialApp`, a `CupertinoApp` or a plain
 `WidgetsApp` too:
 
 ```dart
@@ -621,10 +633,17 @@ CupertinoApp(
 ```
 
 Each wraps its content in `PdfMaterialHost`, which supplies whatever the
-stock chrome needs and the host lacks: Material and Cupertino localizations,
-a theme derived from the host's `CupertinoTheme` (or its platform brightness
-and `DefaultSelectionStyle`), and a surface for ink and text fields. Under a
-`MaterialApp` it adds nothing. The editor's dialogs, menus, sheets, notices
+stock chrome needs and the host lacks: material_ui and cupertino_ui
+localizations, a theme, and a surface for ink and text fields. The theme
+comes from `PdfEditorThemeData.primary`/`brightness` when set, else the
+host's material_ui `Theme`, else a legacy `MaterialApp`'s theme (its colour
+scheme, text and icon themes, platform and density, carried over by a small
+bridge that also shows notices on the legacy `ScaffoldMessenger`), else the
+host's `CupertinoTheme`, else its platform brightness and
+`DefaultSelectionStyle`. Under a material_ui `MaterialApp` it adds nothing.
+Legacy component themes and `ThemeExtension`s do not cross over; build with
+`--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false` to drop the bridge (about
+12 KB of web JS) when no host uses the legacy library. The editor's dialogs, menus, sheets, notices
 and text-field context menus build under the root navigator, outside that
 wrapper, so they re-inject the same things; without a `ScaffoldMessenger`,
 notices appear as a toast in the root overlay. Wrap any stock widget you

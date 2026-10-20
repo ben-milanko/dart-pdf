@@ -21,7 +21,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -219,13 +219,14 @@ void main() {
   });
 
   group('the recorded annotation picture', () {
-    test('scales positive widths below, at and above 1 pt with the replay '
+    test(
+        'scales positive widths below, at and above 1 pt with the replay '
         'scale', () async {
       final document = PdfDocument.open(buildAnnotationWidthPdf([0.6, 1, 1.5]));
 
       for (final (slot, width) in [(0, 0.6), (1, 1.0), (2, 1.5)]) {
-        expect(await annotationThickness(document, slot, 1),
-            closeTo(width, 0.35),
+        expect(
+            await annotationThickness(document, slot, 1), closeTo(width, 0.35),
             reason: '$width pt should measure $width px at 1:1');
         expect(await annotationThickness(document, slot, zoom),
             closeTo(width * zoom, 0.35),
@@ -295,7 +296,8 @@ void main() {
       }
     });
 
-    testWidgets('a stroke drawn at zero pressure keeps its live width once '
+    testWidgets(
+        'a stroke drawn at zero pressure keeps its live width once '
         'committed', (tester) async {
       // A 240 pt wide page fills the 800 px viewport at fit-width, so it is
       // displayed at 800/240 = 3.33 device px per point - the reported 333%,

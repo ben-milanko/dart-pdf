@@ -14,15 +14,18 @@ class AppDelegate: FlutterAppDelegate {
   var incomingChannel: FlutterMethodChannel?
 
   /// Files opened before the engine was ready (cold start). Drained by the
-  /// Dart side's `getInitialFile` call.
+  /// Dart side's `getInitialFiles` call.
   var pendingFiles: [[String: Any]] = []
 
-  /// True once Dart has installed its `openFile` handler and called
-  /// `getInitialFile`. A FlutterMethodChannel can exist before that point
+  /// True once Dart has installed its `openFiles` handler and called
+  /// `getInitialFiles`. A FlutterMethodChannel can exist before that point
   /// during cold start; sending then drops the file on the floor.
   var dartIncomingReady = false
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
+    // Finder's "Combine with DartPDF" service (NSServices in Info.plist) calls
+    // combinePDFs(_:userData:error:) on this object.
+    NSApp.servicesProvider = self
     guard DartPdfWindowingBootstrap.isEnabled else {
       super.applicationDidFinishLaunching(notification)
       return
@@ -111,14 +114,17 @@ class AppDelegate: FlutterAppDelegate {
   /// `openFile:`/`openFiles:` below. File URLs are ours; anything else (custom
   /// URL schemes, universal links) belongs to Flutter's deep-link handling.
   override func application(_ application: NSApplication, open urls: [URL]) {
+    var paths: [String] = []
     var forwarded: [URL] = []
     for url in urls {
       if url.isFileURL {
-        deliver(path: url.path)
+        paths.append(url.path)
       } else {
         forwarded.append(url)
       }
     }
+    // One request, one batch: Dart offers to combine several files.
+    if !paths.isEmpty { deliver(paths: paths) }
     if !forwarded.isEmpty {
       super.application(application, open: forwarded)
     }
@@ -127,14 +133,33 @@ class AppDelegate: FlutterAppDelegate {
   /// Fallback for macOS < 10.13, which predates `application(_:open:)`.
   /// "Open With" / double-click / drag-onto-icon for a single file.
   override func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-    deliver(path: filename)
+    deliver(paths: [filename])
     return true
   }
 
   /// Fallback for macOS < 10.13. Multiple files at once.
   override func application(_ sender: NSApplication, openFiles filenames: [String]) {
-    for filename in filenames { deliver(path: filename) }
+    deliver(paths: filenames)
     sender.reply(toOpenOrPrint: .success)
+  }
+
+  /// Finder's "Combine with DartPDF" service (right-click > Quick Actions /
+  /// Services, declared under NSServices in Info.plist): the selected PDFs
+  /// arrive on the pasteboard and go to Dart as one batch marked to combine.
+  @objc(combinePDFs:userData:error:)
+  func combinePDFs(
+    _ pboard: NSPasteboard, userData: String?,
+    error: AutoreleasingUnsafeMutablePointer<NSString?>
+  ) {
+    let urls = pboard.readObjects(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    let paths = urls.map { $0.path }
+    guard !paths.isEmpty else {
+      error.pointee = "No PDF files were selected." as NSString
+      return
+    }
+    deliver(paths: paths, combine: true)
   }
 
   /// Brings DartPDF forward for a file the OS just handed us. LaunchServices
@@ -170,47 +195,43 @@ class AppDelegate: FlutterAppDelegate {
       })
   }
 
-  /// Sends a freshly opened file to Dart, or buffers it until the engine is up.
-  private func deliver(path: String) {
+  /// Sends freshly opened files to Dart as one batch, or buffers them until
+  /// the engine is up. [combine] marks files from the "Combine with DartPDF"
+  /// service.
+  private func deliver(paths: [String], combine: Bool = false) {
     surfaceForIncomingFile()
     // Finder can deliver an iCloud/OneDrive placeholder during cold launch.
     // Reading it or resolving its security scope here blocks AppKit's main
     // thread and produces a beachball before Flutter can paint. Build the
-    // payload on the same background executor used by the file-access channel,
-    // then return to the main thread to touch the channel/queue state.
+    // payloads on the same background executor used by the file-access
+    // channel, then return to the main thread to touch the channel/queue state.
     fileAccess.perform {
-      let payload = self.payload(for: path)
+      let payloads = paths.map { path -> [String: Any] in
+        var payload = self.payload(for: path)
+        if combine { payload["combine"] = true }
+        return payload
+      }
       DispatchQueue.main.async {
-        self.deliver(payload: payload)
+        self.deliver(payloads: payloads)
       }
     }
   }
 
-  private func deliver(payload: [String: Any]) {
+  private func deliver(payloads: [[String: Any]]) {
     guard dartIncomingReady, let channel = incomingChannel else {
-      pendingFiles.append(payload)
+      pendingFiles.append(contentsOf: payloads)
       return
     }
-    channel.invokeMethod("openFile", arguments: payload)
+    channel.invokeMethod("openFiles", arguments: payloads)
   }
 
-  /// Marks Dart ready for warm file-open pushes and returns the first queued
-  /// cold-start file for the `getInitialFile` response, if any.
-  func takeInitialFile() -> [String: Any]? {
+  /// Marks Dart ready for warm file-open pushes and returns every file queued
+  /// before then - the cold-start batch - for the `getInitialFiles` response.
+  func takeInitialFiles() -> [[String: Any]] {
     dartIncomingReady = true
-    guard !pendingFiles.isEmpty else { return nil }
-    return pendingFiles.removeFirst()
-  }
-
-  /// Sends any extra files queued before Dart was ready. The first queued file
-  /// travels as the `getInitialFile` response; the rest use the warm stream.
-  func flushPendingFiles() {
-    guard dartIncomingReady, let channel = incomingChannel else { return }
     let files = pendingFiles
     pendingFiles.removeAll()
-    for payload in files {
-      channel.invokeMethod("openFile", arguments: payload)
-    }
+    return files
   }
 
   func payload(for path: String) -> [String: Any] {

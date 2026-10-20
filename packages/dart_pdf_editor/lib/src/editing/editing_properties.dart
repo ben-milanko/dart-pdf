@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosName;
 
 import '../design/material_host.dart';
 import 'annotation_presentation.dart';
@@ -122,10 +123,17 @@ class _PdfAnnotationPropertiesPanelState
   bool _contentsVaries = false;
   bool _authorVaries = false;
 
+  /// Whether the selected form widgets' widths / heights differ - the bulk
+  /// size fields then start blank with a "Varies" hint.
+  bool _widgetWidthVaries = false;
+  bool _widgetHeightVaries = false;
+
   /// Slider values while a drag is in flight - each restyle commits one
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
+  double? _draggingLeaderWidth;
+  double? _draggingOutlineWidth;
   double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
@@ -249,6 +257,26 @@ class _PdfAnnotationPropertiesPanelState
     _contents.text = contents.varies ? '' : contents.value;
     _author.text = authors.varies ? '' : authors.value;
     _fieldName.text = _controller.selectedWidgetFieldName ?? '';
+    final widgets = [
+      for (final annotation in selected)
+        if (annotation.subtype == 'Widget') annotation,
+    ];
+    if (selected.length > 1 && widgets.isNotEmpty) {
+      // the multi-selection's size fields edit every selected widget
+      final widths =
+          _common<String>([for (final w in widgets) _fmt(w.rect.width)]);
+      final heights =
+          _common<String>([for (final w in widgets) _fmt(w.rect.height)]);
+      _widgetWidthVaries = widths.varies;
+      _widgetHeightVaries = heights.varies;
+      _w.text = widths.varies ? '' : widths.value;
+      _h.text = heights.varies ? '' : heights.value;
+      _x.clear();
+      _y.clear();
+      return;
+    }
+    _widgetWidthVaries = false;
+    _widgetHeightVaries = false;
     final rect = annotation?.rect;
     _x.text = rect == null ? '' : _fmt(rect.left);
     _y.text = rect == null ? '' : _fmt(rect.bottom);
@@ -289,6 +317,19 @@ class _PdfAnnotationPropertiesPanelState
       _controller.moveSelected(x - rect.left, y - rect.bottom);
     } else {
       // unparsable input - put the real values back
+      _syncedRevisionId = null;
+      setState(() {});
+    }
+  }
+
+  /// Commits the multi-selection's width/height fields to every selected
+  /// form widget ([PdfEditingController.resizeSelectedFormWidgets]). A blank
+  /// (still "Varies") or unparsable field leaves that dimension alone.
+  void _commitWidgetSize() {
+    final w = double.tryParse(_w.text);
+    final h = double.tryParse(_h.text);
+    if (!_controller.resizeSelectedFormWidgets(width: w, height: h)) {
+      // nothing changed (or bad input) - put the real values back
       _syncedRevisionId = null;
       setState(() {});
     }
@@ -433,7 +474,8 @@ class _PdfAnnotationPropertiesPanelState
     return Padding(
       padding: const EdgeInsetsDirectional.only(start: 16, end: 8),
       child: Row(children: [
-        Text(label),
+        Flexible(
+            child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis)),
         Expanded(
           child: Slider(
             key: key,
@@ -513,11 +555,12 @@ class _PdfAnnotationPropertiesPanelState
       );
 
   Widget _geometryField(String label, TextEditingController controller, Key key,
-      {required bool enabled}) {
+      {required bool enabled, VoidCallback? onCommit, bool varies = false}) {
+    final commit = onCommit ?? _commitGeometry;
     return Expanded(
       child: Focus(
         onFocusChange: (focused) {
-          if (!focused && enabled) _commitGeometry();
+          if (!focused && enabled) commit();
         },
         child: TextField(
           key: key,
@@ -527,10 +570,11 @@ class _PdfAnnotationPropertiesPanelState
               decimal: true, signed: true),
           decoration: InputDecoration(
             labelText: label,
+            hintText: varies ? pdfL10n(context).propVaries : null,
             isDense: true,
             border: const OutlineInputBorder(),
           ),
-          onSubmitted: (_) => _commitGeometry(),
+          onSubmitted: (_) => commit(),
           contextMenuBuilder: pdfTextContextMenu,
         ),
       ),
@@ -765,6 +809,8 @@ class _PdfAnnotationPropertiesPanelState
     ];
     final alignments = _common<PdfTextAlign>(
         [for (final value in freeStyles) value.alignment]);
+    final verticalAlignments = _common<PdfTextVerticalAlign>(
+        [for (final value in freeStyles) value.verticalAlignment]);
     final underlines =
         _common<bool>([for (final value in freeStyles) value.underline]);
     final lineSpacings =
@@ -811,6 +857,18 @@ class _PdfAnnotationPropertiesPanelState
             keyPrefix: 'pdf-prop-text-align',
             align: alignments.value,
             onChanged: (align) => _controller.restyleSelectedText(align: align),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(children: [
+          Expanded(child: Text(pdfL10n(context).textVerticalAlign)),
+          TextVerticalAlignToggles(
+            keyPrefix: 'pdf-prop-text-vertical-align',
+            align: verticalAlignments.value,
+            onChanged: (align) =>
+                _controller.restyleSelectedText(verticalAlign: align),
           ),
         ]),
       ),
@@ -900,21 +958,129 @@ class _PdfAnnotationPropertiesPanelState
           onClear: () => _controller.restyleSelectedText(border: (null,)),
           clearTooltip: pdfL10n(context).propNoOutline,
           varies: borders.varies),
+      if (annotations.any((a) => a.isCallout))
+        _sliderRow(pdfL10n(context).propOutlineWidth,
+            _draggingOutlineWidth ?? freeStyles.first.borderWidth,
+            key: const ValueKey('pdf-prop-callout-outline-width'),
+            min: 0,
+            max: 16,
+            fieldMin: 0,
+            fieldMax: kPdfTypedSizeMax,
+            onChanged: (v) => setState(() => _draggingOutlineWidth = v),
+            onChangeEnd: (v) {
+              _controller.restyleSelectedText(borderWidth: v);
+              setState(() => _draggingOutlineWidth = null);
+            }),
     ];
   }
 
-  /// Text styling for a selected form text field (font, style, alignment,
-  /// auto-size, size, multiline, colour) - regenerated through
-  /// [PdfEditingController.setFormFieldStyle].
+  List<Widget> _calloutLeaderControls() {
+    final callouts = [
+      for (final a in _selectedAnnotations)
+        if (a.isCallout) a
+    ];
+    if (callouts.isEmpty) return const [];
+    final styles = [for (final a in callouts) a.calloutLeaderStyle!];
+    final colors = _common<int>([for (final s in styles) s.color]);
+    final widths = _common<double>([for (final s in styles) s.width]);
+    final dash = PdfLineStyle.ofDashArray(styles.first.dash);
+    final ending =
+        callouts.first.document.cos.resolve(callouts.first.dict['LE']);
+    final arrow = ending is CosName
+        ? PdfLineEnding.fromName(ending.value)
+        : PdfLineEnding.openArrow;
+    return [
+      _swatchRow(pdfL10n(context).propColor, Color(0xFF000000 | colors.value),
+          key: const ValueKey('pdf-prop-callout-leader-color'),
+          varies: colors.varies, onTap: () async {
+        final color = await pickEditingColor(context, _controller,
+            initial: Color(0xFF000000 | colors.value));
+        if (color != null) {
+          _controller.restyleSelectedCalloutLeader(color: color);
+        }
+      }),
+      _sliderRow(
+          pdfL10n(context).propStroke, _draggingLeaderWidth ?? widths.value,
+          key: const ValueKey('pdf-prop-callout-leader-width'),
+          min: 0.5,
+          max: 16,
+          fieldMin: 0.1,
+          fieldMax: kPdfTypedSizeMax,
+          varies: widths.varies,
+          onChanged: (v) => setState(() => _draggingLeaderWidth = v),
+          onChangeEnd: (v) {
+            _controller.restyleSelectedCalloutLeader(width: v);
+            setState(() => _draggingLeaderWidth = null);
+          }),
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(pdfL10n(context).propLineType)),
+            PdfDropdown<PdfLineStyle>(
+                key: const ValueKey('pdf-prop-callout-leader-dash'),
+                value: dash,
+                items: [
+                  for (final s in PdfLineStyle.values)
+                    PdfDropdownItem(
+                        value: s, label: pdfLineStyleLabel(context, s))
+                ],
+                onChanged: (s) =>
+                    _controller.restyleSelectedCalloutLeader(lineStyle: s)),
+          ])),
+      _lineEndingRow(
+          label: pdfL10n(context).propLineStart,
+          key: const ValueKey('pdf-prop-callout-leader-ending'),
+          value: arrow,
+          onChanged: (ending) =>
+              _controller.restyleSelectedCalloutLeader(ending: ending)),
+    ];
+  }
+
+  /// Text styling for the selected form text and choice fields (font,
+  /// style, alignment, auto-size, size, colour; multiline when a text field
+  /// is among them) - regenerated through
+  /// [PdfEditingController.setSelectedFormFieldStyle]. With several fields
+  /// selected every edit applies to all of them and mixed values read
+  /// "Varies"; the toggles reflect the primary field.
   List<Widget> _formFieldControls() {
-    final name = _controller.selectedFormFieldName;
-    final style = _controller.selectedFormFieldStyle;
-    if (name == null || style == null) return const [];
+    final styles = _controller.selectedFormFieldStyles;
+    if (styles.isEmpty) return const [];
+    final style = styles.first;
+    final sizes = _common<double?>([
+      for (final s in styles) s.autoSize ? null : s.size,
+    ]);
+    final colors = _common<Color>([for (final s in styles) s.color]);
+    final aligns = _common<PdfTextAlign>([for (final s in styles) s.align]);
+    final autoSizes = _common<bool>([for (final s in styles) s.autoSize]);
+    // multiline is a text-field flag; choice fields in the selection don't
+    // count toward it
+    final multilineStyles = [
+      for (final s in styles)
+        if (s.supportsMultiline) s.multiline,
+    ];
+    final multilines =
+        multilineStyles.isEmpty ? null : _common<bool>(multilineStyles);
+    final fonts = _common<PdfStandardFont>([for (final s in styles) s.font]);
+    // a size row whenever any selected field has a fixed size, so a mixed
+    // selection can be pinned to one size in a single edit
+    final showSize = styles.any((s) => !s.autoSize);
+    final size = sizes.value ??
+        styles.firstWhere((s) => !s.autoSize, orElse: () => style).size;
+    final l = pdfL10n(context);
+    final variesStyle =
+        TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    Widget variesLabel(String key, bool varies) => varies
+        ? Padding(
+            padding: const EdgeInsetsDirectional.only(end: 8),
+            child: Text(l.propVaries, key: ValueKey(key), style: variesStyle),
+          )
+        : const SizedBox.shrink();
     return [
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          Expanded(child: Text(pdfL10n(context).propFont)),
+          Expanded(child: Text(l.propFont)),
+          variesLabel('pdf-prop-form-font-varies', fonts.varies),
           PdfFontMenuButton(
             buttonKey: const ValueKey('pdf-prop-form-font'),
             controller: _controller,
@@ -926,24 +1092,25 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          Expanded(child: Text(pdfL10n(context).propStyle)),
+          Expanded(child: Text(l.propStyle)),
           FontStyleToggles(
             keyPrefix: 'pdf-prop-form-font',
             font: style.font,
             onChanged: (font) =>
-                _controller.setFormFieldStyle(name, font: font),
+                _controller.setSelectedFormFieldStyle(font: font),
           ),
         ]),
       ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          Expanded(child: Text(pdfL10n(context).propAlign)),
+          Expanded(child: Text(l.propAlign)),
+          variesLabel('pdf-prop-form-align-varies', aligns.varies),
           TextAlignToggles(
             keyPrefix: 'pdf-prop-form-align',
             align: style.align,
             onChanged: (align) =>
-                _controller.setFormFieldStyle(name, align: align),
+                _controller.setSelectedFormFieldStyle(align: align),
           ),
         ]),
       ),
@@ -951,45 +1118,51 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-form-autosize'),
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Text(pdfL10n(context).propAutoSize),
+        title: Text(l.propAutoSize),
+        subtitle: autoSizes.varies ? Text(l.propVaries) : null,
         value: style.autoSize,
-        onChanged: (v) => _controller.setFormFieldStyle(name,
-            autoSize: v, fontSize: v ? null : style.size),
+        onChanged: (v) => _controller.setSelectedFormFieldStyle(
+            autoSize: v, fontSize: v ? null : size),
       ),
-      if (!style.autoSize)
+      if (showSize)
         _sliderRow(
-          pdfL10n(context).propSize,
-          _draggingFontSize ?? style.size,
+          l.propSize,
+          _draggingFontSize ?? size,
           key: const ValueKey('pdf-prop-form-size'),
           min: 6,
           max: 72,
           fieldMin: 1,
           fieldMax: kPdfTypedSizeMax,
+          varies: _draggingFontSize == null && sizes.varies,
           onChanged: (v) => setState(() => _draggingFontSize = v),
           onChangeEnd: (v) {
-            _controller.setFormFieldStyle(name, fontSize: v.roundToDouble());
+            _controller.setSelectedFormFieldStyle(fontSize: v.roundToDouble());
             setState(() => _draggingFontSize = null);
           },
         ),
-      SwitchListTile(
-        key: const ValueKey('pdf-prop-form-multiline'),
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Text(pdfL10n(context).propMultiline),
-        value: style.multiline,
-        onChanged: (v) => _controller.setFormFieldStyle(name, multiline: v),
-      ),
-      _swatchRow(pdfL10n(context).propColor, style.color,
+      if (multilines != null)
+        SwitchListTile(
+          key: const ValueKey('pdf-prop-form-multiline'),
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          title: Text(l.propMultiline),
+          subtitle: multilines.varies ? Text(l.propVaries) : null,
+          value: multilines.value,
+          onChanged: (v) => _controller.setSelectedFormFieldStyle(multiline: v),
+        ),
+      _swatchRow(l.propColor, style.color,
           key: const ValueKey('pdf-prop-form-color'),
-          onTap: () => _pickFormColor(name, style.color)),
+          varies: colors.varies,
+          onTap: () => _pickFormColor(style.color)),
     ];
   }
 
-  Future<void> _pickFormColor(String name, Color current) async {
+  Future<void> _pickFormColor(Color current) async {
     final picked =
         await pickEditingColor(context, _controller, initial: current);
     if (picked != null) {
-      _controller.setFormFieldStyle(name, color: picked.toARGB32() & 0xFFFFFF);
+      _controller.setSelectedFormFieldStyle(
+          color: picked.toARGB32() & 0xFFFFFF);
     }
   }
 
@@ -1014,6 +1187,7 @@ class _PdfAnnotationPropertiesPanelState
 
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
+    addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
     // a form widget's /T is its field name, not an author, and /V (not
     // /Contents) is its value - so widgets get a "Field name" group instead
     // of the generic Contents/Author group
@@ -1115,7 +1289,30 @@ class _PdfAnnotationPropertiesPanelState
     ]);
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
-    if (!hasWidget) {
+    addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
+    if (hasWidget) {
+      // bulk form-field edits: text styling for every selected text field
+      // and one width/height for every selected widget
+      addGroup('form-text', l.propSectionText, _formFieldControls());
+      addGroup('position-size', l.propSectionPositionSize, [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            _geometryField(
+                l.propGeometryWidth, _w, const ValueKey('pdf-prop-w'),
+                enabled: true,
+                onCommit: _commitWidgetSize,
+                varies: _widgetWidthVaries),
+            const SizedBox(width: 8),
+            _geometryField(
+                l.propGeometryHeight, _h, const ValueKey('pdf-prop-h'),
+                enabled: true,
+                onCommit: _commitWidgetSize,
+                varies: _widgetHeightVaries),
+          ]),
+        ),
+      ]);
+    } else {
       addGroup('content', l.propSectionContent, [
         _textRow(
           l.propContents,

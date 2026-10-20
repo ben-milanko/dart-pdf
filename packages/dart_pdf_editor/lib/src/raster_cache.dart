@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:pdf_document/pdf_document.dart';
 
+import 'annotation_display_filter.dart';
 import 'tile_store.dart';
 
 /// Serialized representation of a full-resolution page raster on disk.
@@ -206,7 +207,8 @@ class PdfRasterCache implements PdfTilePersistence {
         .padLeft(8, '0');
     return '$documentKey/lod$tileVersion/'
         '${id.pageEpoch}.${id.contentStamp}.${id.destructiveStamp}/'
-        '${id.pageIndex}/$color/${plan.annotations ? 'annots' : 'noannots'}'
+        '${id.pageIndex}/$color/'
+        '${_annotationsSegment(plan.annotations, plan.hiddenAnnotationSubtypes)}'
         '/r${plan.rotation ?? 0}/${key.rung}/${key.tx}.${key.ty}'
         '/${pixelRatio.toStringAsFixed(8)}/${width}x$height'
         '/${region.left},${region.top},${region.right},${region.bottom}';
@@ -303,9 +305,12 @@ class PdfRasterCache implements PdfTilePersistence {
   // from the low-res previews above: the page grid and strip render sharper,
   // size-bucketed rasters, and several sizes can coexist for one page.
   String _thumbKey(int pageIndex, int pixelWidth,
-      {int pageColor = 0xFFFFFFFF, bool annotations = true}) {
+      {int pageColor = 0xFFFFFFFF,
+      bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {}}) {
     final color = pageColor.toUnsigned(32).toRadixString(16).padLeft(8, '0');
-    return '$documentKey/t$pixelWidth/$color/${annotations ? 'annots' : 'noannots'}/$pageIndex';
+    return '$documentKey/t$pixelWidth/$color/'
+        '${_annotationsSegment(annotations, hiddenAnnotationSubtypes)}/$pageIndex';
   }
 
   /// The stored thumbnail for [pageIndex] at the [pixelWidth] bucket, decoded
@@ -313,10 +318,14 @@ class PdfRasterCache implements PdfTilePersistence {
   /// decode failure. Lets the page grid open onto already-rendered thumbnails
   /// in a later session instead of re-interpreting every page.
   Future<ui.Image?> loadThumbnail(int pageIndex, int pixelWidth,
-      {int pageColor = 0xFFFFFFFF, bool annotations = true}) async {
+      {int pageColor = 0xFFFFFFFF,
+      bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {}}) async {
     if (documentKey.isEmpty) return null;
     final bytes = await cache.read(_thumbKey(pageIndex, pixelWidth,
-        pageColor: pageColor, annotations: annotations));
+        pageColor: pageColor,
+        annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes));
     if (bytes == null) return null;
     try {
       final codec = await ui.instantiateImageCodec(bytes);
@@ -335,14 +344,18 @@ class PdfRasterCache implements PdfTilePersistence {
   /// [pixelWidth] bucket. Best-effort and fire-and-forget at the call sites;
   /// [image] stays owned by the caller.
   Future<void> storeThumbnail(int pageIndex, int pixelWidth, ui.Image image,
-      {int pageColor = 0xFFFFFFFF, bool annotations = true}) async {
+      {int pageColor = 0xFFFFFFFF,
+      bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {}}) async {
     if (documentKey.isEmpty) return;
     try {
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data == null) return;
       await cache.write(
           _thumbKey(pageIndex, pixelWidth,
-              pageColor: pageColor, annotations: annotations),
+              pageColor: pageColor,
+              annotations: annotations,
+              hiddenAnnotationSubtypes: hiddenAnnotationSubtypes),
           data.buffer.asUint8List());
     } catch (_) {
       // a readback can fail mid page-swap; a missing thumbnail just renders
@@ -417,13 +430,15 @@ class PdfRasterCache implements PdfTilePersistence {
     required int height,
     required int pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     String revision = '',
   }) {
     final color = pageColor.toUnsigned(32).toRadixString(16).padLeft(8, '0');
     return '$documentKey/f$fullRasterVersion/${revision.isEmpty ? '-' : revision}'
         '/$pageIndex/${width}x$height/$color'
-        '/${annotations ? 'annots' : 'noannots'}/r${rotation ?? 0}';
+        '/${_annotationsSegment(annotations, hiddenAnnotationSubtypes)}'
+        '/r${rotation ?? 0}';
   }
 
   /// The stored exact raster for [pageIndex] at exactly [width] x [height],
@@ -437,6 +452,7 @@ class PdfRasterCache implements PdfTilePersistence {
     required int height,
     required int pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     String revision = '',
   }) async {
@@ -451,6 +467,7 @@ class PdfRasterCache implements PdfTilePersistence {
         height: height,
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
         revision: revision,
       ));
@@ -498,6 +515,7 @@ class PdfRasterCache implements PdfTilePersistence {
     ui.Image image, {
     required int pageColor,
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int? rotation,
     String revision = '',
   }) async {
@@ -525,6 +543,7 @@ class PdfRasterCache implements PdfTilePersistence {
           height: height,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           rotation: rotation,
           revision: revision,
         ),
@@ -553,6 +572,7 @@ class PdfRasterCache implements PdfTilePersistence {
     required int height,
     int pageColor = 0xFFFFFFFF,
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int? rotation,
     String revision = '',
   }) async {
@@ -564,6 +584,7 @@ class PdfRasterCache implements PdfTilePersistence {
       height: height,
       pageColor: pageColor,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       rotation: rotation,
       revision: revision,
     ));
@@ -648,4 +669,13 @@ class PdfRasterCache implements PdfTilePersistence {
       codec.dispose();
     }
   }
+}
+
+/// The annotation part of a persistent cache key. Unchanged from the
+/// pre-filter `annots`/`noannots` spelling when nothing is hidden, so existing
+/// stores stay valid.
+String _annotationsSegment(bool annotations, Set<String> hiddenSubtypes) {
+  if (!annotations) return 'noannots';
+  if (hiddenSubtypes.isEmpty) return 'annots';
+  return 'annots-${hiddenAnnotationSubtypesKey(hiddenSubtypes)}';
 }

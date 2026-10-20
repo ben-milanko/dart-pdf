@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
+import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'stamp_template.dart';
 import 'takeoff.dart';
@@ -428,23 +429,142 @@ class PdfAnnotation {
     return points;
   }
 
+  /// Every leader of a callout, page space, each arrow tip first and box
+  /// attachment last: the standard /CL leader, then any extra leaders this
+  /// package added (persisted under [kPdfCalloutLeadersKey], since /CL can
+  /// only describe one). Null when this is not a callout or carries no
+  /// usable /CL; malformed extra leaders are skipped.
+  List<List<(double, double)>>? get calloutLeaders {
+    final primary = calloutLine;
+    if (primary == null) return null;
+    final leaders = [primary];
+    final raw = document.cos.resolve(dict[kPdfCalloutLeadersKey]);
+    if (raw is CosArray) {
+      for (final item in raw.items) {
+        final leader = document.cos.resolve(item);
+        if (leader is! CosArray || leader.items.length < 4) continue;
+        final points = <(double, double)>[];
+        for (var i = 0; i + 1 < leader.items.length; i += 2) {
+          final x = _number(document.cos.resolve(leader.items[i]));
+          final y = _number(document.cos.resolve(leader.items[i + 1]));
+          if (x == null || y == null) break;
+          points.add((x, y));
+        }
+        if (points.length >= 2) leaders.add(points);
+      }
+    }
+    return leaders;
+  }
+
+  /// Leader styling independent of the text-box outline. Older callouts
+  /// inherit their outline stroke until separate styling is recorded.
+  PdfCalloutLeaderStyle? get calloutLeaderStyle {
+    if (!isCallout) return null;
+    final style = freeTextStyle;
+    final raw = document.cos.resolve(dict['DartPdfCalloutLeaderStyle']);
+    final stored = raw is CosDictionary ? raw : null;
+    final color = stored == null ? null : _colorArray(stored['C']);
+    final width =
+        stored == null ? null : _number(document.cos.resolve(stored['W']));
+    final dash = stored == null ? null : document.cos.resolve(stored['D']);
+    return PdfCalloutLeaderStyle(
+      color: color ?? style?.borderColor ?? style?.color ?? 0,
+      width: width != null && width > 0
+          ? width
+          : (style != null && style.borderWidth > 0 ? style.borderWidth : 1),
+      dash: stored == null
+          ? borderDash
+          : dash is CosArray
+              ? [
+                  for (final item in dash.items)
+                    if (_number(document.cos.resolve(item)) case final n?) n,
+                ]
+              : null,
+    );
+  }
+
   /// The text-box sub-rect of a callout (§12.5.6.19): [rect] inset by /RD,
   /// distinct from /Rect which also encloses the leader line and arrowhead.
   /// Null when this is not a callout.
+  ///
+  /// The spec lists the /RD insets as left, top, right, bottom, but Acrobat-
+  /// family writers (Bluebeam, PDFBox) store and read them as left, *bottom*,
+  /// right, *top*. Both orders are tried and the box the leader actually
+  /// attaches to wins - /CL's last point sits on the text box's edge - so
+  /// either kind of file selects and edits the right box. An unhelpful /CL
+  /// (or symmetric insets) falls back to the left-bottom-right-top order,
+  /// which is what this package writes.
   PdfRect? get calloutBox {
     if (!isCallout) return null;
-    final rd = document.cos.resolve(dict['RD']);
+    var rd = document.cos.resolve(dict['RD']);
     double d(int i) {
       if (rd is! CosArray || rd.items.length <= i) return 0;
-      return _number(document.cos.resolve(rd.items[i])) ?? 0;
+      return math.max(0, _number(document.cos.resolve(rd.items[i])) ?? 0);
     }
 
-    final r = rect;
-    final left = (r.left + math.max(0, d(0))).clamp(r.left, r.right);
-    final right = (r.right - math.max(0, d(2))).clamp(left, r.right);
-    final bottom = (r.bottom + math.max(0, d(3))).clamp(r.bottom, r.top);
-    final top = (r.top - math.max(0, d(1))).clamp(bottom, r.top);
-    return PdfRect(left, bottom, right, top);
+    var r = rect;
+    PdfMatrix? localToPage;
+    final localFlag = document.cos.resolve(dict[kPdfCalloutRDFrameKey]);
+    if (localFlag is CosBoolean && localFlag.value) {
+      final localRd = document.cos.resolve(dict[kPdfCalloutLocalRDKey]);
+      if (localRd is CosArray) rd = localRd;
+      final form = normalAppearance;
+      final bbox = form == null
+          ? null
+          : pdfRectFrom(document.cos, form.dictionary['BBox']);
+      final quad = appearanceQuad;
+      if (bbox != null && bbox.width > 0 && bbox.height > 0 && quad != null) {
+        final a = (quad[1].$1 - quad[0].$1) / bbox.width;
+        final b = (quad[1].$2 - quad[0].$2) / bbox.width;
+        final c = (quad[3].$1 - quad[0].$1) / bbox.height;
+        final d = (quad[3].$2 - quad[0].$2) / bbox.height;
+        localToPage = PdfMatrix(
+            a,
+            b,
+            c,
+            d,
+            quad[0].$1 - a * bbox.left - c * bbox.bottom,
+            quad[0].$2 - b * bbox.left - d * bbox.bottom);
+        r = bbox;
+      }
+    }
+    PdfRect pageBox(PdfRect box) =>
+        localToPage == null ? box : boundsUnderMatrix(localToPage, box);
+    PdfRect inset(double bottom, double top) {
+      final left = (r.left + d(0)).clamp(r.left, r.right);
+      final right = (r.right - d(2)).clamp(left, r.right);
+      final b = (r.bottom + bottom).clamp(r.bottom, r.top);
+      final t = (r.top - top).clamp(b, r.top);
+      return PdfRect(left, b, right, t);
+    }
+
+    final common = inset(d(1), d(3)); // left, bottom, right, top
+    if (d(1) == d(3)) return pageBox(common);
+    final spec = inset(d(3), d(1)); // left, top, right, bottom (§12.5.6.19)
+    var attach = calloutLine?.last;
+    if (attach == null) return pageBox(common);
+    final inverse = localToPage?.inverted();
+    if (inverse != null) attach = inverse.apply(attach.$1, attach.$2);
+    return pageBox(_perimeterDistance(spec, attach) + 0.01 <
+            _perimeterDistance(common, attach)
+        ? spec
+        : common);
+  }
+
+  /// How far [p] is from [box]'s outline (0 on it).
+  static double _perimeterDistance(PdfRect box, (double, double) p) {
+    final (x, y) = p;
+    final inside =
+        x >= box.left && x <= box.right && y >= box.bottom && y <= box.top;
+    if (inside) {
+      return math.min(math.min(x - box.left, box.right - x),
+          math.min(y - box.bottom, box.top - y));
+    }
+    final dx =
+        x < box.left ? box.left - x : (x > box.right ? x - box.right : 0);
+    final dy =
+        y < box.bottom ? box.bottom - y : (y > box.top ? y - box.top : 0);
+    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// The /Measure dictionary (§12.9): the scale and unit formats a
@@ -453,7 +573,8 @@ class PdfAnnotation {
   PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
 
   /// The takeoff metadata (/Takeoff) carried by a count/volume/angle/arc/
-  /// slope/area-cutout measurement, or null for a plain annotation. See
+  /// slope/area-cutout measurement or one with a written value, or null for
+  /// a plain annotation. See
   /// [PdfTakeoffData].
   PdfTakeoffData? get takeoff => PdfTakeoffData.read(this);
 
@@ -499,6 +620,20 @@ class PdfAnnotation {
     final m = measure;
     final t = takeoff;
     final pts = _measurementPoints;
+
+    // a written value stands in for the computed one, scale or not
+    final written = t?.valueText;
+    if (written != null && kind != PdfMeasurementKind.count) {
+      final (value, unit) = pdfParseMeasurementValue(written);
+      return PdfMeasurementResult(
+          kind: kind,
+          value: value ?? 0,
+          unit: value == null || unit.isNotEmpty
+              ? unit
+              : _measurementUnit(kind, m),
+          text: written,
+          isCustom: true);
+    }
 
     switch (kind) {
       case PdfMeasurementKind.count:
@@ -574,6 +709,23 @@ class PdfAnnotation {
                 const PdfNumberFormat(unit: '°', precision: 10).format(deg));
     }
   }
+
+  /// The unit a computed [kind] measurement reports through [m] - what a
+  /// bare written number (`12.5`) is taken to be in.
+  static String _measurementUnit(PdfMeasurementKind kind, PdfMeasure? m) =>
+      switch (kind) {
+        PdfMeasurementKind.angle || PdfMeasurementKind.slope => '°',
+        PdfMeasurementKind.count => '',
+        PdfMeasurementKind.area ||
+        PdfMeasurementKind.areaCutout =>
+          m?.area.first.unit ?? '',
+        PdfMeasurementKind.volume =>
+          (m?.volume?.first ?? m?.area.first)?.unit ?? '',
+        PdfMeasurementKind.distance ||
+        PdfMeasurementKind.perimeter ||
+        PdfMeasurementKind.arc =>
+          m?.distance.first.unit ?? '',
+      };
 
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
@@ -655,7 +807,8 @@ class PdfAnnotation {
     if (tf == null || size == null) return null;
 
     int? lastColor(String op) {
-      final m = (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
+      final m =
+          (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
       if (m == null) return null;
       int byte(String s) =>
           ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -732,6 +885,13 @@ class PdfAnnotation {
       alignment: q is CosInteger
           ? PdfTextAlign.fromQuadding(q.value)
           : cssAlign ?? PdfTextAlign.left,
+      verticalAlignment: switch (
+          cos.resolve(dict[kPdfFreeTextVerticalAlignKey])) {
+        CosName(:final value) =>
+          PdfTextVerticalAlign.values.asNameMap()[value] ??
+              PdfTextVerticalAlign.top,
+        _ => PdfTextVerticalAlign.top,
+      },
       lineSpacing: number(kPdfFreeTextLineSpacingKey) ??
           cssLineSpacing ??
           kPdfFreeTextDefaultLineSpacing,
@@ -892,8 +1052,8 @@ class PdfAnnotation {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    // numeric noise within ~0.3° reads as unrotated
-    return angle.abs() < 0.005 ? 0 : angle;
+    // Ignore floating point noise, without flattening deliberate small turns.
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {
@@ -990,6 +1150,32 @@ const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
 const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
 const String kPdfFreeTextHScaleKey = 'HScale';
 const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+const String kPdfFreeTextVerticalAlignKey = 'DartPdfTextVerticalAlignment';
+
+/// One leader of a callout: the page-space point its arrow points at, and
+/// optionally where it meets the text box (snapped onto the box perimeter;
+/// null picks the edge facing [target]).
+typedef PdfCalloutLeader = ({
+  (double, double) target,
+  (double, double)? attach,
+});
+
+/// Dictionary key holding a callout's extra leader lines - an array of point
+/// arrays shaped like /CL (arrow tip first, box attachment last). /CL itself
+/// can only describe one leader (§12.5.6.19), so a multi-leader callout keeps
+/// its first leader there and the rest here; the appearance stream draws all
+/// of them, so other viewers still show every arrow. Non-standard, written
+/// and read back only by this package.
+const String kPdfCalloutLeadersKey = 'CalloutLeaders';
+
+/// Marks /RD insets that remain in a transformed appearance's local frame.
+const String kPdfCalloutRDFrameKey = 'DartPdfCalloutRDInAppearance';
+
+/// Local insets retained alongside the standard page-space /RD values.
+const String kPdfCalloutLocalRDKey = 'DartPdfCalloutLocalRD';
+
+/// Preserves the authored frame when restyling transformed group artwork.
+const String kPdfAppearanceFrameKey = 'DartPdfPreserveAppearanceFrame';
 
 /// The default free-text line-height multiplier (baseline-to-baseline
 /// distance is `fontSize * lineSpacing`).
@@ -998,9 +1184,17 @@ const double kPdfFreeTextDefaultLineSpacing = 1.2;
 /// The default free-text horizontal glyph scaling, as a percentage.
 const double kPdfFreeTextDefaultHorizontalScale = 100.0;
 
+/// A callout leader's independent color, width, and dash pattern.
+class PdfCalloutLeaderStyle {
+  const PdfCalloutLeaderStyle(
+      {required this.color, required this.width, this.dash});
+  final int color;
+  final double width;
+  final List<double>? dash;
+}
+
 /// A free-text annotation's text and box styling, as recoverable from
-/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
-/// 0xRRGGBB.
+/// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are 0xRRGGBB.
 class PdfFreeTextStyle {
   const PdfFreeTextStyle({
     required this.fontName,
@@ -1010,6 +1204,7 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.verticalAlignment = PdfTextVerticalAlign.top,
     this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
     this.charSpacing = 0,
     this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
@@ -1033,6 +1228,11 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// Placement of the wrapped block within the padded box. The generated
+  /// appearance preserves this in other PDF viewers; the private dictionary
+  /// preference lets later dart-pdf edits regenerate the same placement.
+  final PdfTextVerticalAlign verticalAlignment;
 
   /// The line-height multiplier (baseline-to-baseline distance is
   /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].

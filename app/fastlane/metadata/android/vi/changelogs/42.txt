@@ -1,0 +1,6 @@
+Mới trong 6.0.0
+
+- Chọn văn bản bằng công cụ Chọn; nhấp đúp vào từ trong chế độ Bàn tay.
+- Các điều khiển đọc dùng chung một thanh đầu trang.
+- Hiển thị trang nhanh hơn, dùng ít bộ nhớ hơn.
+- Sửa lỗi mất chi tiết sau khi phóng to nhanh.

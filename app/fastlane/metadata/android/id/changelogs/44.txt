@@ -1,0 +1,7 @@
+Baru di 8.0.0
+
+- Gabungkan PDF dan sisipkan halaman secara berselang-seling.
+- Ambil cuplikan poligon dan pangkas cuplikan yang ditempel.
+- Tambahkan beberapa panah keterangan dengan sasaran tetap.
+- Ubah gaya dan ukuran beberapa kolom formulir sekaligus.
+- Pemrosesan pindai lebih cepat dan pratinjau lebih jelas.

@@ -2,11 +2,27 @@
   "hosting": {
     "site": "dartpdf",
     "public": ".",
-    "ignore": ["firebase.json", ".firebaserc", "**/.*", "README.md", "i18n/_validate.py"],
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "README.md", "i18n/_validate.py", "firebase-debug*.log"],
     "cleanUrls": true,
+    "trailingSlash": false,
     "redirects": [
       {
         "source": "/sdk",
+        "destination": "/flutter-pdf-editor",
+        "type": 301
+      },
+      {
+        "source": "/sdk/",
+        "destination": "/flutter-pdf-editor",
+        "type": 301
+      },
+      {
+        "source": "/sdk.html",
+        "destination": "/flutter-pdf-editor",
+        "type": 301
+      },
+      {
+        "source": "/flutter-pdf-editor/",
         "destination": "/flutter-pdf-editor",
         "type": 301
       }

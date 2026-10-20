@@ -64,3 +64,6 @@ tool/perf/loop.log
 
 # Storeflight run state (plans, ledger, receipts)
 .storeflight/
+
+# OCR models fetched for `flutter run -d chrome` (tool/fetch_ocr_models.sh app/web).
+/web/ocr/

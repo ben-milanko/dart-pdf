@@ -9,7 +9,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -938,6 +938,7 @@ void main() {
       int index = 0,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int? rotation,
       int? width,
       int? height,
@@ -950,6 +951,7 @@ void main() {
           height: height ?? image.height,
           pageColor: pageColor,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           rotation: rotation,
         );
 
@@ -1106,12 +1108,14 @@ class _RecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     recorded.add(pageIndex);
     priorities.add(priority);
@@ -1148,12 +1152,14 @@ class _MultiPageRecordingWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
       return null;
@@ -1181,12 +1187,14 @@ class _DecliningWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async =>
       null;
 

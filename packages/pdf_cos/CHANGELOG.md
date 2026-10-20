@@ -1,5 +1,33 @@
 # Changelog
 
+## 10.0.0
+
+- Release with the 10.0.0 package suite; no public API changes in this package.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite. No public API changes.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Speed up MRC scan decoding with optimized JBIG2 generic regions, JPX inverse wavelets and MQ arithmetic decoding.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
+## 6.0.0
+
+- Add `CosDocument.trimDecodedStreamCache()` to release decoded payloads
+  without closing the document or changing subsequent decode results.
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

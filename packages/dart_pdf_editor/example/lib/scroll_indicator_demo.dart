@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'l10n/app_l10n.dart';
@@ -93,8 +93,9 @@ class _ScrollIndicatorDemoScreenState extends State<ScrollIndicatorDemoScreen> {
           ),
           IconButton(
             tooltip: appL10n(context).scrollDemoPreviousPage,
-            icon: Icon(
-                horizontal ? Icons.keyboard_arrow_left : Icons.keyboard_arrow_up),
+            icon: Icon(horizontal
+                ? Icons.keyboard_arrow_left
+                : Icons.keyboard_arrow_up),
             onPressed: () => _step(-1),
           ),
           IconButton(
@@ -266,8 +267,8 @@ class _PageScrubberState extends State<_PageScrubber> {
                     ? scheme.primary
                     : scheme.primary.withValues(alpha: 0.75),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: scheme.onSurface.withValues(alpha: 0.25)),
+                border:
+                    Border.all(color: scheme.onSurface.withValues(alpha: 0.25)),
               ),
             ),
           ),

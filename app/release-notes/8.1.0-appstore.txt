@@ -1,0 +1,8 @@
+New in 8.1.0
+
+- Change the font, size, colour and alignment of dropdown and list-box form fields, including several selected fields together.
+- Use the new phone-friendly menu to create, open, print and sign documents.
+- Edit free text while keeping its original font, line wrapping and baseline. The caret stays aligned after resizing text.
+- The iOS text-selection menu stays clear of the style controls, and inline text opens the keyboard more reliably in iOS browsers.
+- The iOS share sheet shows the document filename.
+- Choose from the full colour palette in the mobile pen and highlighter tune menu.

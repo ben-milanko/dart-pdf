@@ -345,6 +345,22 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '지난 세션의 문서 $count개를 더 이상 사용할 수 없습니다. 이동, 이름 변경 또는 삭제되었을 수 있습니다.',
+      one: '$title을(를) 더 이상 사용할 수 없습니다. 이동, 이름 변경 또는 삭제되었을 수 있습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title을(를) 원래 위치에 저장할 수 없습니다. 이동되었거나 삭제되었을 수 있습니다. 저장할 위치를 선택하세요.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return '디지털 서명할 수 없습니다: $error';
   }
@@ -773,7 +789,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      '웹 OCR은 Florence-2 비전-언어 모델을 다운로드하여 Transformers.js를 통해 WebGPU/WASM으로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 유지되며, 처음 사용할 때 모델 파일만 가져옵니다.';
+      '웹 OCR은 작은 텍스트 인식 모델(PP-OCRv5, 약 21MB)을 다운로드하여 WebAssembly로 로컬에서 실행합니다. PDF 페이지는 이 브라우저에 그대로 남으며, 처음 사용할 때 모델 파일만 가져옵니다.';
 
   @override
   String get ocrWebPromptTitle => '이 브라우저에서 AI OCR을 실행하시겠습니까?';
@@ -919,13 +935,19 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
+      'main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
 
   @override
   String get settingsUpdates => '업데이트';
 
   @override
   String get settingsViewSource => 'GitHub에서 소스 보기';
+
+  @override
+  String get settingsReportIssue => 'GitHub에서 문제 신고';
+
+  @override
+  String get settingsEmailFeedback => '이메일로 의견 보내기';
 
   @override
   String get undo => '실행 취소';
@@ -1019,8 +1041,14 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR $pageCount페이지 중 $page페이지';
   }
+
+  @override
+  String get ocrChipRecognisingText => '텍스트 읽는 중…';
+
+  @override
+  String get ocrChipPreparing => 'OCR 모델 로드 중…';
 
   @override
   String get ocrChipFinishing => 'OCR 마무리 중…';
@@ -1229,4 +1257,93 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '이 빌드에서는 릴리스 정보를 사용할 수 없습니다.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 열기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '각 파일을 별도의 탭에서 열까요, 아니면 하나의 새 문서로 합칠까요? 파일을 끌어 합칠 순서를 정하세요.';
+
+  @override
+  String get incomingFilesCombine => '합치기';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'PDF $count개 합치기',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '파일을 끌어 합칠 순서를 정하세요.';
+
+  @override
+  String get appMenuNew => '새로 만들기';
+
+  @override
+  String get appMenuOpen => '열기';
+
+  @override
+  String get appMenuPrint => '인쇄';
+
+  @override
+  String get appMenuSign => '서명';
+
+  @override
+  String get appMenuRecent => '최근 항목';
+
+  @override
+  String get appMenuSeeAll => '모두 보기';
+
+  @override
+  String get appMenuExport => '내보내기';
+
+  @override
+  String get appMenuMoreTools => '기타 도구';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

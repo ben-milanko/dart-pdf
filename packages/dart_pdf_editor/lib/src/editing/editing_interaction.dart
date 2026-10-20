@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../page_geometry.dart';
@@ -166,6 +166,13 @@ class PdfEditingInteractionHost {
     this.resolvePagePoint,
     this.moveDragPreview,
     this.textEditClosed,
+    this.pageTextAt,
+    this.beginTextSelection,
+    this.updateTextSelection,
+    this.endTextSelection,
+    this.clearTextSelection,
+    this.activateLinkAt,
+    this.plainTap,
   });
 
   final void Function(Offset delta)? panViewport;
@@ -180,6 +187,34 @@ class PdfEditingInteractionHost {
       resolvePagePoint;
   final PdfMoveDragPreviewCallback? moveDragPreview;
   final VoidCallback? textEditClosed;
+
+  /// Whether a drag starting at the global position would select page
+  /// text. The select tool asks on hover (text cursor) and at drag start.
+  final bool Function(Offset globalPosition)? pageTextAt;
+
+  /// Starts a page-text selection at the global position - a select-tool
+  /// drag that begins over text and over no annotation. Returns false when
+  /// there is no text there, leaving the drag to the overlay.
+  final bool Function(Offset globalPosition)? beginTextSelection;
+
+  /// Extends the selection begun by [beginTextSelection].
+  final void Function(Offset globalPosition)? updateTextSelection;
+
+  /// Ends the selection drag begun by [beginTextSelection].
+  final void Function({bool cancelled})? endTextSelection;
+
+  /// A select-tool click clears the page-text selection, as a click in the
+  /// reader does.
+  final VoidCallback? clearTextSelection;
+
+  /// Follows the link (or other action annotation) under the global
+  /// position, as a click in the reader does. Returns false when there is
+  /// none, so the select tool can treat the click as a selection click.
+  final bool Function(Offset globalPosition)? activateLinkAt;
+
+  /// A select-tool touch or stylus tap on empty page - no annotation, no
+  /// link - which the viewer reports as [PdfViewer.onPlainTap].
+  final VoidCallback? plainTap;
 }
 
 /// The gesture intent currently owned by an editing page.

@@ -2,12 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-// Only for the deprecated [PdfEditingPreferences.themeMode], removed in 6.0.
-// tool/check_design_imports.dart allows exactly this show list here.
-import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show PdfLineEnding, PdfStandardFont, PdfTextAlign, PdfTextVerticalAlign;
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -176,6 +173,7 @@ class PdfEditingPreferences extends ChangeNotifier
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
+  PdfTextVerticalAlign _textVerticalAlign = PdfTextVerticalAlign.top;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
   double _lineScale = 1;
@@ -200,7 +198,9 @@ class PdfEditingPreferences extends ChangeNotifier
   List<Color> _recentColors = const [];
   List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
+  bool _bakePageColor = false;
   bool _showAnnotations = true;
+  Set<String> _hiddenAnnotationSubtypes = const {};
   bool _showScrollbarChapters = false;
   bool _highlightFormFields = true;
   bool _showReflowView = false;
@@ -322,6 +322,9 @@ class PdfEditingPreferences extends ChangeNotifier
         _fontFamily =
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
+      _textVerticalAlign = PdfTextVerticalAlign.values
+              .asNameMap()[store.getString('${_prefix}textVerticalAlign')] ??
+          PdfTextVerticalAlign.top;
       final textAlign = store.getString('${_prefix}textAlign');
       if (textAlign != null) {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
@@ -432,8 +435,15 @@ class PdfEditingPreferences extends ChangeNotifier
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
+      _bakePageColor =
+          store.getBool('${_prefix}bakePageColor') ?? _bakePageColor;
       _showAnnotations =
           store.getBool('${_prefix}showAnnotations') ?? _showAnnotations;
+      final hiddenSubtypes =
+          store.getStringList('${_prefix}hiddenAnnotationSubtypes');
+      if (hiddenSubtypes != null) {
+        _hiddenAnnotationSubtypes = Set.unmodifiable(hiddenSubtypes);
+      }
       _showScrollbarChapters =
           store.getBool('${_prefix}showScrollbarChapters') ??
               _showScrollbarChapters;
@@ -701,6 +711,10 @@ class PdfEditingPreferences extends ChangeNotifier
         final font = PdfStandardFont.values.asNameMap()[v];
         if (font != null) fontFamily = font;
       }
+      if (slot['textVerticalAlign'] case final String value) {
+        textVerticalAlign = PdfTextVerticalAlign.values.asNameMap()[value] ??
+            PdfTextVerticalAlign.top;
+      }
       if (slot.containsKey('textAlign')) {
         final v = slot['textAlign'];
         textAlign = v is String ? PdfTextAlign.values.asNameMap()[v] : null;
@@ -763,6 +777,7 @@ class PdfEditingPreferences extends ChangeNotifier
     put('fontSize', _fontSize);
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
+    put('textVerticalAlign', _textVerticalAlign.name);
     put('lineStyle', _lineStyle.name);
     put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
@@ -964,9 +979,19 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
-  /// Horizontal alignment (left/center/right) new free-text boxes are
-  /// created with - the box's /Q quadding. Null (the default) follows the
-  /// text direction: left for LTR, right for RTL. Persisted.
+  /// Default vertical placement for newly authored text boxes.
+  PdfTextVerticalAlign get textVerticalAlign => _textVerticalAlign;
+
+  set textVerticalAlign(PdfTextVerticalAlign value) {
+    if (value == _textVerticalAlign) return;
+    _textVerticalAlign = value;
+    _write(
+        (store) => store.setString('${_prefix}textVerticalAlign', value.name));
+    _recordScoped('textVerticalAlign', value.name);
+    notifyListeners();
+  }
+
+  /// Horizontal alignment of new free-text boxes; null follows text direction.
   PdfTextAlign? get textAlign => _textAlign;
 
   set textAlign(PdfTextAlign? value) {
@@ -1239,24 +1264,6 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
-  /// [themePreference] as Material's `ThemeMode`.
-  @Deprecated('Use themePreference, the design-system-neutral '
-      'PdfThemePreference, and map it to ThemeMode in the host. '
-      'Removed in 6.0.0.')
-  ThemeMode get themeMode => switch (_themePreference) {
-        PdfThemePreference.system => ThemeMode.system,
-        PdfThemePreference.light => ThemeMode.light,
-        PdfThemePreference.dark => ThemeMode.dark,
-      };
-
-  @Deprecated('Use themePreference, the design-system-neutral '
-      'PdfThemePreference. Removed in 6.0.0.')
-  set themeMode(ThemeMode value) => themePreference = switch (value) {
-        ThemeMode.system => PdfThemePreference.system,
-        ThemeMode.light => PdfThemePreference.light,
-        ThemeMode.dark => PdfThemePreference.dark,
-      };
-
   /// The UI language the user picked in Settings, or null (the default) to
   /// follow the platform locale. A host feeds this to its `MaterialApp`
   /// locale resolution; null means "System default" and defers to Flutter's
@@ -1384,6 +1391,19 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Whether saving or exporting paints [pageColor] into the file, so other
+  /// PDF readers show it too (see `pdfBakePageColor`). Off by default -
+  /// [pageColor] then stays a display setting only. A white page colour has
+  /// nothing to bake either way.
+  bool get bakePageColor => _bakePageColor;
+
+  set bakePageColor(bool value) {
+    if (value == _bakePageColor) return;
+    _bakePageColor = value;
+    _write((s) => s.setBool('${_prefix}bakePageColor', value));
+    notifyListeners();
+  }
+
   /// Whether pages are displayed with their annotations (see
   /// [PdfViewer.showAnnotations]). A display setting only - hiding
   /// changes nothing in the document.
@@ -1394,6 +1414,43 @@ class PdfEditingPreferences extends ChangeNotifier
     _showAnnotations = value;
     _write((s) => s.setBool('${_prefix}showAnnotations', value));
     notifyListeners();
+  }
+
+  /// Annotation /Subtype names hidden from display while [showAnnotations]
+  /// is on - `{'Link'}` hides link annotations and keeps every other mark
+  /// (see [PdfViewer.hiddenAnnotationSubtypes], which the stock editor and
+  /// reader feed from this). Empty by default.
+  ///
+  /// A display setting only, like [showAnnotations]: the document, its
+  /// revisions and undo/redo are untouched, and printing, export and the
+  /// saved bytes still carry every annotation. Hidden annotations are not
+  /// drawn, don't take taps or hover, and the editing controller's hit tests
+  /// (selection, rubber band, eraser) skip them. Persisted with the other
+  /// preferences.
+  Set<String> get hiddenAnnotationSubtypes => _hiddenAnnotationSubtypes;
+
+  set hiddenAnnotationSubtypes(Set<String> value) {
+    if (value.length == _hiddenAnnotationSubtypes.length &&
+        _hiddenAnnotationSubtypes.containsAll(value)) {
+      return;
+    }
+    _hiddenAnnotationSubtypes = Set.unmodifiable(value);
+    _write((s) => s.setStringList('${_prefix}hiddenAnnotationSubtypes',
+        _hiddenAnnotationSubtypes.toList()..sort()));
+    notifyListeners();
+  }
+
+  /// Whether `/Link` annotations are displayed - a convenience over
+  /// [hiddenAnnotationSubtypes]. True by default; setting it false hides
+  /// links (they stop drawing and stop being clickable) without touching the
+  /// document or its undo history.
+  bool get showLinks => !_hiddenAnnotationSubtypes.contains('Link');
+
+  set showLinks(bool value) {
+    if (value == showLinks) return;
+    hiddenAnnotationSubtypes = value
+        ? ({..._hiddenAnnotationSubtypes}..remove('Link'))
+        : {..._hiddenAnnotationSubtypes, 'Link'};
   }
 
   /// Whether document outline entries appear as chapter markers on the

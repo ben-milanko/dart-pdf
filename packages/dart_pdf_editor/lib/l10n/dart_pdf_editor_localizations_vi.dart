@@ -2367,4 +2367,195 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ';
+
+  @override
+  String get textVerticalAlign => 'Căn dọc';
+
+  @override
+  String get textAlignTop => 'Căn văn bản lên trên';
+
+  @override
+  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
+
+  @override
+  String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
+  String get measCustomValueTitle => 'Giá trị đo';
+
+  @override
+  String get menuEditMeasurementValue => 'Sửa giá trị đo';
+
+  @override
+  String get menuAddLeader => 'Thêm đường dẫn chú thích';
+
+  @override
+  String get propLeader => 'Đường dẫn';
+
+  @override
+  String get propOutlineWidth => 'Độ dày đường viền';
+
+  @override
+  String get menuRotateSelection => 'Xoay quanh tâm vùng chọn…';
+
+  @override
+  String get menuRotateEach => 'Xoay từng chú thích…';
+
+  @override
+  String get rotationAngleTitle => 'Góc xoay (độ, ngược chiều kim đồng hồ)';
+
+  @override
+  String get menuGroup => 'Nhóm';
+
+  @override
+  String get menuUngroup => 'Bỏ nhóm';
+
+  @override
+  String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
+
+  @override
+  String get menuAddNoteHere => 'Thêm ghi chú tại đây';
+
+  @override
+  String get tbNameMeasureCustom => 'Số đo tùy chỉnh (nhập giá trị)';
+
+  @override
+  String get insertPagesTitle => 'Chèn trang';
+
+  @override
+  String get insertPagesFiles => 'Tệp';
+
+  @override
+  String get insertPagesAddFiles => 'Thêm tệp…';
+
+  @override
+  String get insertPagesSortByName => 'Sắp xếp theo tên';
+
+  @override
+  String get insertPagesNoFiles => 'Thêm một hoặc nhiều PDF để chèn.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Không thể mở $names. Tệp có thể bị hỏng hoặc được bảo vệ bằng mật khẩu.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count trang',
+      one: '1 trang',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Di chuyển lên';
+
+  @override
+  String get insertPagesMoveDown => 'Di chuyển xuống';
+
+  @override
+  String get insertPagesRemoveFile => 'Xóa khỏi danh sách';
+
+  @override
+  String get insertPagesRange => 'Trang';
+
+  @override
+  String get insertPagesRangeHint => 'Tất cả (vd: 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Dùng trang 1–$count, vd: 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Tất cả các trang';
+
+  @override
+  String get insertPagesSubsetOdd => 'Trang lẻ';
+
+  @override
+  String get insertPagesSubsetEven => 'Trang chẵn';
+
+  @override
+  String get insertPagesReverse => 'Đảo ngược thứ tự';
+
+  @override
+  String get insertPagesPlacement => 'Vị trí';
+
+  @override
+  String get insertPagesBefore => 'Trước';
+
+  @override
+  String get insertPagesAfter => 'Sau';
+
+  @override
+  String get insertPagesFirstPage => 'Trang đầu';
+
+  @override
+  String get insertPagesLastPage => 'Trang cuối';
+
+  @override
+  String get insertPagesPage => 'Trang';
+
+  @override
+  String get insertPagesPageNumber => 'Số trang';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Nhập 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Xen kẽ trang';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Xen kẽ trang được chèn và trang hiện có kể từ vị trí đã chọn — ví dụ để ghép lại các trang lẻ và chẵn được quét riêng.';
+
+  @override
+  String get insertPagesRunInserted => 'Số trang chèn mỗi lần';
+
+  @override
+  String get insertPagesRunExisting => 'Số trang tài liệu xen giữa';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Bao gồm dấu trang';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Thêm dấu trang cho mỗi tệp';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Chèn $inserted trang',
+      one: 'Chèn 1 trang',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total trang',
+      one: '1 trang',
+    );
+    return '$_temp0 — tài liệu sẽ có $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Chèn';
+
+  @override
+  String get shellBakePageColor => 'Lưu màu trang vào tệp';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
 }

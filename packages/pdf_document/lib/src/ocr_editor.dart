@@ -38,9 +38,15 @@ extension PdfOcrEditing on PdfEditor {
   ///
   /// Each span becomes one text-showing operation, sized and horizontally
   /// scaled (`Tz`) so its selection box matches [PdfOcrSpan.bounds]: the
-  /// font size is the box height and the run's em box - the conventional
-  /// ascent/descent the selection and search code reconstructs - spans the
-  /// box exactly. By default the text is invisible (render mode 3,
+  /// font size is the box's extent across the reading direction and the
+  /// run's em box - the conventional ascent/descent the selection and
+  /// search code reconstructs - spans the box exactly.
+  ///
+  /// The run reads the way the page is *displayed*: on a page with /Rotate
+  /// 90, 180, or 270 its text matrix is turned to match, so a word that
+  /// reads left to right on screen gets a baseline running along user-space
+  /// +y, -x, or -y respectively (the bounds stay axis-aligned in user
+  /// space either way). By default the text is invisible (render mode 3,
   /// §9.4.3): it paints nothing but stays selectable, searchable, and
   /// extractable, exactly like the OCR layer Acrobat/Tesseract bury under a
   /// scan. Pass [visible] true to also paint it in [color] (debugging, or a
@@ -73,24 +79,46 @@ extension PdfOcrEditing on PdfEditor {
     if (accepted.isEmpty) return 0;
 
     final fontName = _ensureOcrFont(page, font);
+    final rotation = page.rotation;
     final writer = ContentWriter()..save();
     for (final span in accepted) {
       final box = span.bounds;
-      final size = box.height;
+      // The box's extent across and along the visual reading direction:
+      // on a quarter-turned page a word's on-screen width is user-space y.
+      final quarter = rotation == 90 || rotation == 270;
+      final size = quarter ? box.width : box.height;
+      final length = quarter ? box.height : box.width;
       final natural = measureStandardText(span.text, size, font: font);
-      // Horizontal scaling that stretches the run's natural width onto the
-      // box width - so the invisible selection box tracks the word.
-      final scale = natural > 0 ? box.width / natural * 100 : 100.0;
+      // Horizontal scaling that stretches the run's natural length onto the
+      // box - so the invisible selection box tracks the word.
+      final scale = natural > 0 ? length / natural * 100 : 100.0;
+      // The baseline sits a quarter em above the box's visual bottom edge,
+      // so the em box (0.75 ascent, −0.25 descent) lands with the descent
+      // on that edge and the ascent on the opposite one. The rotation is
+      // the inverse of /Rotate's clockwise display turn.
+      final descent = size * 0.25;
+      final matrix = switch (rotation) {
+        // Reads along +y, glyph tops toward −x: visual bottom is box.right.
+        90 => [0.0, 1.0, -1.0, 0.0, box.right - descent, box.bottom],
+        // Reads along −x, glyph tops toward −y: visual bottom is box.top.
+        180 => [-1.0, 0.0, 0.0, -1.0, box.right, box.top - descent],
+        // Reads along −y, glyph tops toward +x: visual bottom is box.left.
+        270 => [0.0, -1.0, 1.0, 0.0, box.left + descent, box.top],
+        _ => null,
+      };
       writer
         ..beginText()
         ..op('Tr', [visible ? 0 : 3]);
       if (visible) writer.fillColor(color);
       writer
         ..font(fontName, size)
-        ..op('Tz', [scale])
-        // Baseline so the em box (0.75 ascent, −0.25 descent) lands with
-        // the descent on box.bottom and the ascent on box.top.
-        ..textAt(box.left, box.bottom + size * 0.25)
+        ..op('Tz', [scale]);
+      if (matrix == null) {
+        writer.textAt(box.left, box.bottom + descent);
+      } else {
+        writer.op('Tm', matrix);
+      }
+      writer
         ..showText(span.text)
         ..endText();
     }

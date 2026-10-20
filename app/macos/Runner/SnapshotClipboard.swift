@@ -27,6 +27,8 @@ final class SnapshotClipboard {
     localChangeCount = pasteboard.changeCount
   }
 
+  var isLocalCopy: Bool { pasteboard.changeCount == localChangeCount }
+
   func readExternalPdf() -> Data? {
     guard pasteboard.changeCount != localChangeCount else { return nil }
     return pasteboard.data(forType: .pdf)

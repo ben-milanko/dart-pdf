@@ -6,7 +6,7 @@
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 
-import 'editing/editing_controller.dart' show PdfEditTool;
+import 'editing/editing_controller.dart' show PdfEditTool, PdfTextFormatting;
 
 /// Copies the selection: selected annotations to the editing clipboard, or
 /// the selected text to the system clipboard (⌘C / Ctrl+C).
@@ -57,6 +57,21 @@ class PdfDeleteSelectionIntent extends Intent {
 /// Editing only.
 class PdfAutosizeTextBoxIntent extends Intent {
   const PdfAutosizeTextBoxIntent();
+}
+
+/// Rotates selected annotations by [degrees] counterclockwise in page space.
+/// R turns clockwise by 90°; Shift+R turns counterclockwise. Editing only,
+/// and enabled only when the selection can rotate.
+class PdfRotateSelectionIntent extends Intent {
+  const PdfRotateSelectionIntent(this.degrees);
+
+  final double degrees;
+}
+
+/// Toggles bold, italic, or underline on the selected text (Ctrl/⌘+B/I/U).
+class PdfToggleTextFormattingIntent extends Intent {
+  const PdfToggleTextFormattingIntent(this.format);
+  final PdfTextFormatting format;
 }
 
 /// Moves the selected annotations, or the selected page content, by
@@ -119,12 +134,26 @@ final Map<ShortcutActivator, Intent> pdfViewerDefaultShortcuts =
       const PdfUndoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
       const PdfAutosizeTextBoxIntent(),
+  const SingleActivator(LogicalKeyboardKey.keyR):
+      const PdfRotateSelectionIntent(-90),
+  const SingleActivator(LogicalKeyboardKey.keyR, shift: true):
+      const PdfRotateSelectionIntent(90),
   const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
       const PdfRedoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true):
       const PdfRedoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyY, control: true):
       const PdfRedoIntent(),
+  for (final entry in {
+    LogicalKeyboardKey.keyB: PdfTextFormatting.bold,
+    LogicalKeyboardKey.keyI: PdfTextFormatting.italic,
+    LogicalKeyboardKey.keyU: PdfTextFormatting.underline,
+  }.entries) ...{
+    SingleActivator(entry.key, control: true):
+        PdfToggleTextFormattingIntent(entry.value),
+    SingleActivator(entry.key, meta: true):
+        PdfToggleTextFormattingIntent(entry.value),
+  },
   const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
       const PdfCutIntent(),
   const SingleActivator(LogicalKeyboardKey.keyX, control: true):

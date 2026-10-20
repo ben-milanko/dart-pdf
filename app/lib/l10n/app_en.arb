@@ -473,6 +473,27 @@
       }
     }
   },
+  "editorReopenFilesUnavailable": "{count, plural, =1{{title} is no longer available. It may have been moved, renamed or deleted.} other{{count} documents from your last session are no longer available. They may have been moved, renamed or deleted.}}",
+  "@editorReopenFilesUnavailable": {
+    "description": "Warning toast when documents from the last session could not be reopened because their file is gone (moved, renamed or deleted). Restore carries on without them. title is the document name (used when count is 1).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorSaveOriginUnavailable": "Couldn't save {title} to its original location. It may have been moved or deleted. Choose where to save it.",
+  "@editorSaveOriginUnavailable": {
+    "description": "Warning toast when Save could not write back to the document's original file (e.g. its folder was moved or deleted); a Save As dialog follows.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "editorCouldNotSign": "Could not digitally sign: {error}",
   "@editorCouldNotSign": {
     "description": "Toast shown when digitally signing the document failed, with the error detail.",
@@ -1068,7 +1089,7 @@
       }
     }
   },
-  "ocrWebPromptBody": "Web OCR downloads a Florence-2 vision-language model and runs it locally with WebGPU/WASM through Transformers.js. The PDF pages stay in this browser; only model files are fetched on first use.",
+  "ocrWebPromptBody": "Web OCR downloads a small text-recognition model (PP-OCRv5, about 21 MB) and runs it locally with WebAssembly. The PDF pages stay in this browser; only the model files are fetched, on first use.",
   "@ocrWebPromptBody": {
     "description": "Explanatory body of the browser-local OCR confirmation dialog."
   },
@@ -1267,7 +1288,7 @@
   "@settingsNightlyUpdates": {
     "description": "Windows-only setting that opts into rolling test builds from main."
   },
-  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows test builds from main.",
+  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows and macOS test builds from main.",
   "@settingsNightlyUpdatesSubtitle": {
     "description": "Explains the risk and behavior of the nightly update channel."
   },
@@ -1278,6 +1299,14 @@
   "settingsViewSource": "View source on GitHub",
   "@settingsViewSource": {
     "description": "Link that opens the project's source repository on GitHub."
+  },
+  "settingsReportIssue": "Report an issue on GitHub",
+  "@settingsReportIssue": {
+    "description": "Settings > About link that opens the app feedback issue form on GitHub."
+  },
+  "settingsEmailFeedback": "Email feedback",
+  "@settingsEmailFeedback": {
+    "description": "Settings > About link that opens a feedback email to the developer, for users without a GitHub account. The email address is shown beneath it."
   },
   "undo": "Undo",
   "@undo": {
@@ -1366,9 +1395,9 @@
       }
     }
   },
-  "ocrChipRecognising": "OCR {page}/{pageCount}",
+  "ocrChipRecognising": "OCR page {page} of {pageCount}",
   "@ocrChipRecognising": {
-    "description": "OCR progress chip while recognizing text, showing page of total.",
+    "description": "OCR progress chip while recognizing a multi-page document: the page in progress and the total.",
     "placeholders": {
       "page": {
         "type": "int"
@@ -1377,6 +1406,14 @@
         "type": "int"
       }
     }
+  },
+  "ocrChipRecognisingText": "Reading text…",
+  "@ocrChipRecognisingText": {
+    "description": "OCR progress chip while recognizing a single-page document (no page count to show; the progress bar carries completion)."
+  },
+  "ocrChipPreparing": "Loading OCR model…",
+  "@ocrChipPreparing": {
+    "description": "OCR progress chip while the downloaded recognition model loads and warms up."
   },
   "ocrChipFinishing": "Finishing OCR…",
   "@ocrChipFinishing": {
@@ -1662,5 +1699,107 @@
   "whatsNewUnavailable": "Release notes aren't available in this build.",
   "@whatsNewUnavailable": {
     "description": "Shown when the bundled changelog is missing or empty."
+  },
+  "incomingFilesTitle": "{count, plural, other{Open {count} PDFs}}",
+  "@incomingFilesTitle": {
+    "description": "Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file \"Open with\").",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "incomingFilesMessage": "Open each file in its own tab, or combine them into one new document? Drag to set the order they're combined in.",
+  "@incomingFilesMessage": {
+    "description": "Body of the dialog asking whether PDFs opened from the operating system should open in separate tabs or be combined into one new document. The file list below it can be reordered by dragging."
+  },
+  "incomingFilesCombine": "Combine",
+  "@incomingFilesCombine": {
+    "description": "Button that combines several PDFs opened from the operating system into one new document."
+  },
+  "incomingFilesCombineTitle": "{count, plural, other{Combine {count} PDFs}}",
+  "@incomingFilesCombineTitle": {
+    "description": "Title of the dialog shown when PDFs arrive through the operating system's \"Combine with DartPDF\" menu entry; it only asks for their order.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "incomingFilesCombineMessage": "Drag the files to set the order they're combined in.",
+  "@incomingFilesCombineMessage": {
+    "description": "Body of the dialog that orders PDFs chosen through the operating system's \"Combine with DartPDF\" menu entry. The file list below it can be reordered by dragging."
+  },
+  "appMenuNew": "New",
+  "@appMenuNew": {
+    "description": "Short label of the New button in the phone app menu sheet (blank or scanned document)."
+  },
+  "appMenuOpen": "Open",
+  "@appMenuOpen": {
+    "description": "Short label of the Open button in the phone app menu sheet."
+  },
+  "appMenuPrint": "Print",
+  "@appMenuPrint": {
+    "description": "Short label of the Print button in the phone app menu sheet."
+  },
+  "appMenuSign": "Sign",
+  "@appMenuSign": {
+    "description": "Short label of the Digitally sign button in the phone app menu sheet."
+  },
+  "appMenuRecent": "Recent",
+  "@appMenuRecent": {
+    "description": "Section header over the recent files in the phone app menu sheet."
+  },
+  "appMenuSeeAll": "See all",
+  "@appMenuSeeAll": {
+    "description": "Row in the phone app menu sheet that opens the full recent-files list."
+  },
+  "appMenuExport": "Export",
+  "@appMenuExport": {
+    "description": "Phone app menu sheet row (and page title) grouping the export actions: page as image, reduce file size, save as."
+  },
+  "appMenuMoreTools": "More tools",
+  "@appMenuMoreTools": {
+    "description": "Phone app menu sheet row (and page title) grouping the less common document tools: OCR, compare, insert pages."
+  },
+  "settingsTextRecognition": "Text recognition",
+  "@settingsTextRecognition": {
+    "description": "Section header in Settings for OCR (text recognition) options."
+  },
+  "settingsAutoOcrTitle": "Automatically OCR scans",
+  "@settingsAutoOcrTitle": {
+    "description": "Settings switch that runs OCR on its own when a scanned document is opened."
+  },
+  "settingsAutoOcrSubtitle": "Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.",
+  "@settingsAutoOcrSubtitle": {
+    "description": "Explanation under the Automatically OCR scans switch."
+  },
+  "ocrAutoResult": "Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.",
+  "@ocrAutoResult": {
+    "description": "Toast after automatic OCR added a text layer to a scanned document the user opened."
+  },
+  "ocrAutoDocumentChanged": "The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.",
+  "@ocrAutoDocumentChanged": {
+    "description": "Toast when automatic OCR finished but the user had reordered, removed or edited the pages meanwhile, so the result could not be applied."
+  },
+  "ocrAutoOfferTitle": "Keep automatic OCR on?",
+  "@ocrAutoOfferTitle": {
+    "description": "Title of the one-time dialog shown after automatic OCR first adds a text layer to a scanned document, asking whether to keep doing it."
+  },
+  "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
+  "@ocrAutoOfferMessage": {
+    "description": "Body of the one-time dialog after the first automatic OCR."
+  },
+  "ocrAutoOfferKeepOn": "Keep on",
+  "@ocrAutoOfferKeepOn": {
+    "description": "Button in the one-time automatic OCR dialog that keeps automatic OCR enabled."
+  },
+  "ocrAutoOfferTurnOff": "Turn off",
+  "@ocrAutoOfferTurnOff": {
+    "description": "Button in the one-time automatic OCR dialog that disables automatic OCR."
+  },
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "@ocrAutoTurnedOff": {
+    "description": "Toast after the user turned automatic OCR off from the one-time dialog."
   }
 }

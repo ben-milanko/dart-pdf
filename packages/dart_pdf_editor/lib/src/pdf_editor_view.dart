@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -25,6 +25,7 @@ import 'editing/editor_commands.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
+import 'insert_pages_dialog.dart';
 import 'l10n/pdf_l10n.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
@@ -39,6 +40,7 @@ import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
+import 'design/auto_hide_chrome.dart';
 import 'design/editor_presenter.dart';
 import 'design/header_parts.dart';
 import 'design/editor_theme.dart';
@@ -83,6 +85,7 @@ class PdfEditorFeatures {
     this.flatten = true,
     this.colorProcessing = true,
     this.pencilEraserToggle = true,
+    this.autoHideChrome = true,
     this.tools,
     this.toolGroups,
   });
@@ -179,6 +182,14 @@ class PdfEditorFeatures {
   /// [PdfEditingController.togglePencilEraser].
   final bool pencilEraserToggle;
 
+  /// Whether, on a compact (phone) layout, the header and the docked
+  /// toolbar slide away while the user scrolls on through the document and
+  /// come back on a scroll back or a tap on the page - the immersive reading
+  /// mobile PDF apps offer. The chrome stays put while a tool is armed,
+  /// something is selected, a panel sheet is open or the header has focus.
+  /// Wide layouts never hide it.
+  final bool autoHideChrome;
+
   /// The tool buttons to offer, null meaning all of them. See
   /// [PdfEditingToolbar.tools].
   final Set<PdfEditTool>? tools;
@@ -242,6 +253,7 @@ class PdfEditorView extends StatefulWidget {
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.thumbnailDropController,
@@ -261,6 +273,7 @@ class PdfEditorView extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
@@ -350,6 +363,7 @@ class PdfEditorView extends StatefulWidget {
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
+    this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.onSplitPages,
     this.thumbnailDropController,
@@ -369,6 +383,7 @@ class PdfEditorView extends StatefulWidget {
     this.imagePicker,
     this.systemPdfPasteProvider,
     this.systemImagePasteProvider,
+    this.systemImagePasteOverridesLocalClipboard = false,
     this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
@@ -540,6 +555,13 @@ class PdfEditorView extends StatefulWidget {
   /// [PdfEditorFeatures.pageEditing].
   final Future<Uint8List?> Function()? onPickPdfToInsert;
 
+  /// Picks one or more PDFs to insert (empty = cancelled). When given, the
+  /// strip's "Insert PDF…" opens the multi-document insert dialog
+  /// ([showPdfInsertPagesDialog]: per-file page ranges, odd/even, reverse,
+  /// before/after placement, interleave, bookmarks) and takes precedence
+  /// over [onPickPdfToInsert]. Needs [PdfEditorFeatures.pageEditing].
+  final PdfPickInsertFiles? onPickPdfFilesToInsert;
+
   /// Receives a standalone PDF of a user-chosen page range to save (the
   /// thumbnail strip's "Export pages…" action asks for the range, then
   /// hands the bytes here). When null the action is hidden.
@@ -606,6 +628,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.systemImagePasteProvider].
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// See [PdfViewer.systemImagePasteOverridesLocalClipboard].
+  final bool systemImagePasteOverridesLocalClipboard;
 
   /// Supplies an external PDF for vector paste before the in-app clipboard.
   /// See [PdfSystemPdfPasteProvider] for ownership and precedence.
@@ -764,6 +789,10 @@ class PdfEditorView extends StatefulWidget {
 
 class _PdfEditorViewState extends State<PdfEditorView> {
   late PdfShellSessionLifecycle _shell;
+
+  /// Whether the header and docked toolbar show on a compact layout - see
+  /// [PdfEditorFeatures.autoHideChrome].
+  final _chrome = PdfChromeAutoHide();
 
   // Routes the Apple Pencil's native double-tap to the session's eraser
   // toggle. Created only on iOS (the only platform with the gesture) so the
@@ -971,6 +1000,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   @override
   void dispose() {
+    _chrome.dispose();
     _pencil?.dispose();
     _ownedCommands?.dispose();
     if (widget.commands case final commands?) _unbindHostCommands(commands);
@@ -1012,6 +1042,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         alwaysAllowSave: complete && widget.alwaysAllowSave,
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
+        onPickPdfFilesToInsert: complete ? widget.onPickPdfFilesToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
         onSplitPages: complete ? widget.onSplitPages : null,
         thumbnailDropController:
@@ -1032,6 +1063,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         imagePicker: widget.imagePicker,
         systemPdfPasteProvider: widget.systemPdfPasteProvider,
         systemImagePasteProvider: widget.systemImagePasteProvider,
+        systemImagePasteOverridesLocalClipboard:
+            widget.systemImagePasteOverridesLocalClipboard,
         systemTextPasteProvider: widget.systemTextPasteProvider,
         onExportSelectedContentImage: widget.onExportSelectedContentImage,
         onExportCustomStamps: widget.onExportCustomStamps,
@@ -1098,6 +1131,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         flatten: false,
         colorProcessing: false,
         pencilEraserToggle: false,
+        autoHideChrome: f.autoHideChrome,
         tools: f.tools,
         toolGroups: f.toolGroups,
       );
@@ -1387,6 +1421,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 viewerController: _viewer,
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
+                hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: features.pageEditing,
                 dock: prefs.thumbnailSidebarDock,
                 scrollDirection: scrollDirection,
@@ -1399,6 +1434,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 // needs page editing on, export stands on its own
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
+                onPickPdfFilesToInsert:
+                    features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 onSplitPages: widget.onSplitPages,
                 // dropping a PDF between two tiles inserts it there; a
@@ -1488,9 +1525,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 viewerController: _viewer,
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
+                hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: features.pageEditing,
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
+                onPickPdfFilesToInsert:
+                    features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 onSplitPages: widget.onSplitPages,
                 fileDropController: features.pageEditing
@@ -1927,6 +1967,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   onPressed: () => setExtraOpen(panel, !extraOpen(panel)),
                 ),
           ];
+          final compact = constraints.maxWidth < pdfCompactWidthOf(context);
           final header = features.headerBar
               ? _buildHeader(
                   context,
@@ -1940,11 +1981,32 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   panelItems: panelItems,
                   viewModeControls: viewModeControls,
                   viewOptionsControl: viewOptionsControl,
-                  compact: constraints.maxWidth < pdfCompactWidthOf(context),
+                  compact: compact,
                 )
               : null;
+          // Phone chrome steps aside for reading (scroll on to hide, back or
+          // tap to show) but never while it is in use: a drawing/editing
+          // tool armed, something selected, a sheet up, or the grid it
+          // navigates from.
+          final autoHide = features.autoHideChrome && compact;
+          _chrome.pinned = !autoHide ||
+              sheets.isNotEmpty ||
+              gridActive ||
+              // Select is the resting mode the app opens in - reading, not
+              // a tool in use; a selection it makes pins below
+              (session.tool != null && session.tool != PdfEditTool.select) ||
+              session.markupTool != null ||
+              session.hasAnnotationSelection ||
+              session.selectedElement != null;
+          Widget autoHideBar(Widget child, AxisDirection edge) =>
+              PdfAutoHideBar(
+                controller: _chrome,
+                edge: edge,
+                enabled: autoHide,
+                child: child,
+              );
           return Column(children: [
-            if (header != null) header,
+            if (header != null) autoHideBar(header, AxisDirection.up),
             Expanded(
               child: PdfShellPanelLayout(
                 leadingPanels: dockedPanels(PdfPanelDock.left),
@@ -1954,98 +2016,103 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onHostPanelDock: widget.extraPanels.isEmpty
                     ? null
                     : (panel, dock) => prefs.setExtraPanelDock(panel.id, dock),
-                viewer: reflowActive
-                    ? PdfReflowView(
-                        document: session.document,
-                        controller: _viewer,
-                        onShareImage: widget.onShareReflowImage,
-                        backgroundColor: widget.backgroundColor,
-                      )
-                    : PdfViewer(
-                        // PdfViewer binds its controller once, in initState: a host
-                        // handing in a different one (its own in place of ours)
-                        // gets a fresh viewer bound to it, not one left driving
-                        // the replaced controller
-                        key: ObjectKey(_viewer),
-                        document: session.document,
-                        controller: _viewer,
-                        editing: session,
-                        onAction: widget.onAction,
-                        onAnnotationTap: widget.onAnnotationTap,
-                        pageOverlayBuilder: widget.pageOverlayBuilder,
-                        annotationMenuBuilder: widget.annotationMenuBuilder,
-                        textMenuBuilder: widget.textMenuBuilder,
-                        annotationMenuEntries: widget.annotationMenuEntries,
-                        textMenuEntries: widget.textMenuEntries,
-                        formFieldMenuEntries: widget.formFieldMenuEntries,
-                        contextMenuEnabled: widget.contextMenuEnabled,
-                        showSelectionChip: widget.showSelectionChip,
-                        showInlineTextStyleChip: widget.showInlineTextStyleChip,
-                        onContextMenuRequested: widget.onContextMenuRequested,
-                        formImagePicker: widget.formImagePicker,
-                        imagePicker: widget.imagePicker,
-                        systemPdfPasteProvider: widget.systemPdfPasteProvider,
-                        systemImagePasteProvider:
-                            widget.systemImagePasteProvider,
-                        systemTextPasteProvider: widget.systemTextPasteProvider,
-                        onSnapshot: widget.onSnapshot,
-                        onPlaceSignature: widget.onPlaceSignature,
-                        editingTextPrompt: widget.textPrompt,
-                        editingStyledTextPrompt: widget.styledTextPrompt,
-                        editingPalette: widget.palette,
-                        textSelectionEditing: (availableTools == null ||
-                                availableTools.contains(PdfEditTool.content)) &&
-                            (features.toolGroups == null ||
-                                features.toolGroups!
-                                    .contains(PdfEditToolGroup.edit)),
-                        textSelectionMarkup: features.markup &&
-                            (features.toolGroups == null ||
-                                features.toolGroups!
-                                    .contains(PdfEditToolGroup.markup)),
-                        // A floating toolbar on the bottom edge covers the
-                        // viewer: leave a scrollable tail tall enough for its
-                        // bars, so the last page can move fully clear of them
-                        // instead of being trapped underneath. Otherwise (the
-                        // docked bars take their own space) a one-gap margin
-                        // below the last page. Never the bare page spacing:
-                        // with semantics on, a page fitted flush to that
-                        // exact extent left a stale semantics node behind on
-                        // a revision swap ('node.built' - the app's Save As
-                        // and print flows), which a floating toolbar on the
-                        // top edge already hit before docking was the default.
-                        trailingPadding: showToolbar &&
-                                !dockToolbar &&
-                                floatToolbar &&
-                                _toolbarUsesBottom(prefs)
-                            ? 144
-                            : _lastPageGap,
-                        pageLayout: widget.pageLayout,
-                        initialFit: widget.initialFit,
-                        toolShortcuts: availableShortcuts,
-                        backgroundColor: widget.backgroundColor,
-                        pageColor: pageColor,
-                        showAnnotations: prefs.showAnnotations,
-                        showScrollbarChapters: prefs.showScrollbarChapters,
-                        highlightFormFields: prefs.highlightFormFields,
-                        renderWorker: _shell.worker,
-                        autoRenderWorker: widget.autoRenderWorker,
-                        performance: _performance,
-                        tileRasterBackend: widget.tileRasterBackend,
-                        rasterCache: widget.rasterCache,
-                        textCache: widget.textCache,
-                        pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
-                        pageRasterCachePolicy: widget.pageRasterCachePolicy,
-                        pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
-                        documentId: _documentKey,
-                        shortcuts: widget.viewerShortcuts,
-                        // while the full-area page grid overlays the viewer,
-                        // pause the viewer entirely: its (invisible) page
-                        // renders and preview prerender both compete for the
-                        // single render worker and would starve the grid's own
-                        // thumbnails. It stays laid out, so tapping a grid
-                        // page still scrolls it before the grid closes.
-                        active: !gridActive,
-                      ),
+                viewer: PdfChromeAutoHideListener(
+                  controller: _chrome,
+                  child: reflowActive
+                      ? PdfReflowView(
+                          document: session.document,
+                          controller: _viewer,
+                          onShareImage: widget.onShareReflowImage,
+                          backgroundColor: widget.backgroundColor,
+                        )
+                      : PdfViewer(
+                          // PdfViewer binds its controller once, in initState: a host
+                          // handing in a different one (its own in place of ours)
+                          // gets a fresh viewer bound to it, not one left driving
+                          // the replaced controller
+                          key: ObjectKey(_viewer),
+                          document: session.document,
+                          controller: _viewer,
+                          editing: session,
+                          onAction: widget.onAction,
+                          onAnnotationTap: widget.onAnnotationTap,
+                          onPlainTap: autoHide ? _chrome.toggle : null,
+                          pageOverlayBuilder: widget.pageOverlayBuilder,
+                          annotationMenuBuilder: widget.annotationMenuBuilder,
+                          textMenuBuilder: widget.textMenuBuilder,
+                          annotationMenuEntries: widget.annotationMenuEntries,
+                          textMenuEntries: widget.textMenuEntries,
+                          formFieldMenuEntries: widget.formFieldMenuEntries,
+                          contextMenuEnabled: widget.contextMenuEnabled,
+                          showSelectionChip: widget.showSelectionChip,
+                          showInlineTextStyleChip:
+                              widget.showInlineTextStyleChip,
+                          onContextMenuRequested: widget.onContextMenuRequested,
+                          formImagePicker: widget.formImagePicker,
+                          imagePicker: widget.imagePicker,
+                          systemPdfPasteProvider: widget.systemPdfPasteProvider,
+                          systemImagePasteProvider:
+                              widget.systemImagePasteProvider,
+                          systemImagePasteOverridesLocalClipboard:
+                              widget.systemImagePasteOverridesLocalClipboard,
+                          systemTextPasteProvider:
+                              widget.systemTextPasteProvider,
+                          onSnapshot: widget.onSnapshot,
+                          onPlaceSignature: widget.onPlaceSignature,
+                          editingTextPrompt: widget.textPrompt,
+                          editingStyledTextPrompt: widget.styledTextPrompt,
+                          editingPalette: widget.palette,
+                          textSelectionEditing: (availableTools == null ||
+                                  availableTools
+                                      .contains(PdfEditTool.content)) &&
+                              (features.toolGroups == null ||
+                                  features.toolGroups!
+                                      .contains(PdfEditToolGroup.edit)),
+                          textSelectionMarkup: features.markup &&
+                              (features.toolGroups == null ||
+                                  features.toolGroups!
+                                      .contains(PdfEditToolGroup.markup)),
+                          // The desktop toolbar floats over the viewer. Leave a
+                          // scrollable tail tall enough for its dock and
+                          // contextual strip, so the last page can move fully
+                          // clear of the controls instead of being trapped
+                          // underneath them.
+                          trailingPadding: showToolbar &&
+                                  !dockToolbar &&
+                                  floatToolbar &&
+                                  _toolbarUsesBottom(prefs)
+                              ? 144
+                              : _lastPageGap,
+                          pageLayout: widget.pageLayout,
+                          initialFit: widget.initialFit,
+                          toolShortcuts: availableShortcuts,
+                          backgroundColor: widget.backgroundColor,
+                          pageColor: pageColor,
+                          showAnnotations: prefs.showAnnotations,
+                          hiddenAnnotationSubtypes:
+                              prefs.hiddenAnnotationSubtypes,
+                          showScrollbarChapters: prefs.showScrollbarChapters,
+                          highlightFormFields: prefs.highlightFormFields,
+                          renderWorker: _shell.worker,
+                          autoRenderWorker: widget.autoRenderWorker,
+                          performance: _performance,
+                          tileRasterBackend: widget.tileRasterBackend,
+                          rasterCache: widget.rasterCache,
+                          textCache: widget.textCache,
+                          pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
+                          pageRasterCachePolicy: widget.pageRasterCachePolicy,
+                          pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
+                          documentId: _documentKey,
+                          shortcuts: widget.viewerShortcuts,
+                          // while the full-area page grid overlays the viewer,
+                          // pause the viewer entirely: its (invisible) page
+                          // renders and preview prerender both compete for the
+                          // single render worker and would starve the grid's own
+                          // thumbnails. It stays laid out, so tapping a grid
+                          // page still scrolls it before the grid closes.
+                          active: !gridActive,
+                        ),
+                ),
                 trailingPanels: dockedPanels(PdfPanelDock.right),
                 bottomSheets: sheets,
                 overlays: [
@@ -2063,7 +2130,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 floatingToolbarDock: prefs.toolbarDock,
                 // the stock toolbar lays its bars out on every edge itself
                 floatingToolbarFillsViewer: widget.toolbarBuilder == null,
-                dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
+                dockedToolbar: toolbar != null && dockToolbar
+                    ? autoHideBar(toolbar, AxisDirection.down)
+                    : null,
                 toolbarFrame: toolbarFrame,
                 onToolbarDock: (toolbar != null || barsDocked) && !dockToolbar
                     ? (dock) => prefs.toolbarDock = dock

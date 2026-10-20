@@ -16,6 +16,9 @@ final _cache = WebPdfCache();
 
 Future<String?> cacheOpenedPdf(Uint8List bytes) => _cache.put(bytes);
 Future<Uint8List?> readCachedPdf(String key) => _cache.read(key);
+
+/// IndexedDB keys are content hashes, not paths - nothing to re-anchor.
+Future<String?> resolveCachedPdfKey(String cacheKey) async => null;
 Future<Set<String>?> pruneCachedPdfs(Set<String> keep) => _cache.prune(keep);
 Future<PdfCacheUsage?> cachedPdfUsage() => _cache.usage();
 Future<bool> clearCachedPdfs() => _cache.clear();

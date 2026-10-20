@@ -1876,7 +1876,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -2366,6 +2366,197 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection center…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
+
+  @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
+  String get insertPagesTitle => 'Insert pages';
+
+  @override
+  String get insertPagesFiles => 'Files';
+
+  @override
+  String get insertPagesAddFiles => 'Add files…';
+
+  @override
+  String get insertPagesSortByName => 'Sort by name';
+
+  @override
+  String get insertPagesNoFiles => 'Add one or more PDFs to insert.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Couldn\'t open $names. The file may be damaged or password-protected.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pages',
+      one: '1 page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Move up';
+
+  @override
+  String get insertPagesMoveDown => 'Move down';
+
+  @override
+  String get insertPagesRemoveFile => 'Remove from list';
+
+  @override
+  String get insertPagesRange => 'Pages';
+
+  @override
+  String get insertPagesRangeHint => 'All (e.g. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Use pages 1–$count, e.g. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'All pages';
+
+  @override
+  String get insertPagesSubsetOdd => 'Odd pages';
+
+  @override
+  String get insertPagesSubsetEven => 'Even pages';
+
+  @override
+  String get insertPagesReverse => 'Reverse order';
+
+  @override
+  String get insertPagesPlacement => 'Placement';
+
+  @override
+  String get insertPagesBefore => 'Before';
+
+  @override
+  String get insertPagesAfter => 'After';
+
+  @override
+  String get insertPagesFirstPage => 'First page';
+
+  @override
+  String get insertPagesLastPage => 'Last page';
+
+  @override
+  String get insertPagesPage => 'Page';
+
+  @override
+  String get insertPagesPageNumber => 'Page number';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'of $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Enter 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Interleave pages';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.';
+
+  @override
+  String get insertPagesRunInserted => 'Inserted pages each time';
+
+  @override
+  String get insertPagesRunExisting => 'Document pages between';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Include bookmarks';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Add a bookmark for each file';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Inserts $inserted pages',
+      one: 'Inserts 1 page',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total pages',
+      one: '1 page',
+    );
+    return '$_temp0 - the document will have $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page color into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -4240,7 +4431,7 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -4730,6 +4921,197 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbFloatingToolbarsHint =>
       'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
+
+  @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
+  String get insertPagesTitle => 'Insert pages';
+
+  @override
+  String get insertPagesFiles => 'Files';
+
+  @override
+  String get insertPagesAddFiles => 'Add files…';
+
+  @override
+  String get insertPagesSortByName => 'Sort by name';
+
+  @override
+  String get insertPagesNoFiles => 'Add one or more PDFs to insert.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Couldn\'t open $names. The file may be damaged or password-protected.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pages',
+      one: '1 page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Move up';
+
+  @override
+  String get insertPagesMoveDown => 'Move down';
+
+  @override
+  String get insertPagesRemoveFile => 'Remove from list';
+
+  @override
+  String get insertPagesRange => 'Pages';
+
+  @override
+  String get insertPagesRangeHint => 'All (e.g. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Use pages 1–$count, e.g. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'All pages';
+
+  @override
+  String get insertPagesSubsetOdd => 'Odd pages';
+
+  @override
+  String get insertPagesSubsetEven => 'Even pages';
+
+  @override
+  String get insertPagesReverse => 'Reverse order';
+
+  @override
+  String get insertPagesPlacement => 'Placement';
+
+  @override
+  String get insertPagesBefore => 'Before';
+
+  @override
+  String get insertPagesAfter => 'After';
+
+  @override
+  String get insertPagesFirstPage => 'First page';
+
+  @override
+  String get insertPagesLastPage => 'Last page';
+
+  @override
+  String get insertPagesPage => 'Page';
+
+  @override
+  String get insertPagesPageNumber => 'Page number';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'of $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Enter 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Interleave pages';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.';
+
+  @override
+  String get insertPagesRunInserted => 'Inserted pages each time';
+
+  @override
+  String get insertPagesRunExisting => 'Document pages between';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Include bookmarks';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Add a bookmark for each file';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Inserts $inserted pages',
+      one: 'Inserts 1 page',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total pages',
+      one: '1 page',
+    );
+    return '$_temp0 - the document will have $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -6604,7 +6986,7 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbTipSnapshot =>
-      'Snapshot - drag a region to capture it (paste back as vector)';
+      'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)';
 
   @override
   String get tbToolContent => 'Content';
@@ -7094,4 +7476,195 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbFloatingToolbarsHint =>
       'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
+  String get measCustomValueTitle => 'Measurement value';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit measurement value';
+
+  @override
+  String get menuAddLeader => 'Add leader';
+
+  @override
+  String get propLeader => 'Leader';
+
+  @override
+  String get propOutlineWidth => 'Outline width';
+
+  @override
+  String get menuRotateSelection => 'Rotate around selection centre…';
+
+  @override
+  String get menuRotateEach => 'Rotate each annotation…';
+
+  @override
+  String get rotationAngleTitle => 'Rotation (degrees, counterclockwise)';
+
+  @override
+  String get menuGroup => 'Group';
+
+  @override
+  String get menuUngroup => 'Ungroup';
+
+  @override
+  String get menuRemoveLeader => 'Remove leader';
+
+  @override
+  String get menuAddNoteHere => 'Add note here';
+
+  @override
+  String get tbNameMeasureCustom => 'Custom measurement (type value)';
+
+  @override
+  String get insertPagesTitle => 'Insert pages';
+
+  @override
+  String get insertPagesFiles => 'Files';
+
+  @override
+  String get insertPagesAddFiles => 'Add files…';
+
+  @override
+  String get insertPagesSortByName => 'Sort by name';
+
+  @override
+  String get insertPagesNoFiles => 'Add one or more PDFs to insert.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Couldn\'t open $names. The file may be damaged or password-protected.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pages',
+      one: '1 page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Move up';
+
+  @override
+  String get insertPagesMoveDown => 'Move down';
+
+  @override
+  String get insertPagesRemoveFile => 'Remove from list';
+
+  @override
+  String get insertPagesRange => 'Pages';
+
+  @override
+  String get insertPagesRangeHint => 'All (e.g. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Use pages 1–$count, e.g. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'All pages';
+
+  @override
+  String get insertPagesSubsetOdd => 'Odd pages';
+
+  @override
+  String get insertPagesSubsetEven => 'Even pages';
+
+  @override
+  String get insertPagesReverse => 'Reverse order';
+
+  @override
+  String get insertPagesPlacement => 'Placement';
+
+  @override
+  String get insertPagesBefore => 'Before';
+
+  @override
+  String get insertPagesAfter => 'After';
+
+  @override
+  String get insertPagesFirstPage => 'First page';
+
+  @override
+  String get insertPagesLastPage => 'Last page';
+
+  @override
+  String get insertPagesPage => 'Page';
+
+  @override
+  String get insertPagesPageNumber => 'Page number';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'of $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Enter 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Interleave pages';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.';
+
+  @override
+  String get insertPagesRunInserted => 'Inserted pages each time';
+
+  @override
+  String get insertPagesRunExisting => 'Document pages between';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Include bookmarks';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Add a bookmark for each file';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Inserts $inserted pages',
+      one: 'Inserts 1 page',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total pages',
+      one: '1 page',
+    );
+    return '$_temp0 - the document will have $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Insert';
+
+  @override
+  String get shellBakePageColor => 'Save page colour into file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 }

@@ -1,5 +1,36 @@
 # Changelog
 
+## 10.0.0
+
+- Add `buildGlyphRunsPdf` for testing text split into individually positioned glyph runs.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Add `buildScannedPdf`, a fixture of image-only scan pages with optional text and an inline image.
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Extend the JBIG2 encoder fixtures to exercise the optimized generic-region decoder.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- `buildOcrDrawingSheet`: a seeded A3 signalling-drawing sheet (/Rotate 90,
+  ~7pt labels touching track dots) with its ground-truth labels, and
+  `scoreOcrAccuracy` (per-label exact match and CER) for OCR accuracy
+  benchmarks.
+
+## 6.0.0
+
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
 ## 5.1.1
 
 - Version bump to track the 5.1.1 suite.

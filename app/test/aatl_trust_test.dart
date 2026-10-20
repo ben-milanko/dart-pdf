@@ -7,13 +7,14 @@ import 'package:dart_pdf_editor_app/settings_screen.dart';
 import 'package:dart_pdf_editor_app/recents.dart';
 import 'package:dart_pdf_editor_app/signature_trust.dart';
 import 'package:dart_pdf_editor_app/signature_trust_store_io.dart' as store;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_document/trust_lists.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 
 void main() {
@@ -164,7 +165,7 @@ void main() {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
       await tester.pumpWidget(MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
           builder: (context) => TextButton(

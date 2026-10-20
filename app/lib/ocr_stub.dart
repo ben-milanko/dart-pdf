@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfOcrSpan;
 
 import 'ocr_status.dart';
 
@@ -28,8 +29,10 @@ class OnDeviceOcr {
     required Uint8List bytes,
     required String title,
     required void Function(String message) onToast,
-    required void Function(Uint8List result) onComplete,
+    void Function(Uint8List result)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
+    bool automatic = false,
   }) async {
-    onToast('On-device OCR is not available on the web');
+    if (!automatic) onToast('On-device OCR is not available on the web');
   }
 }

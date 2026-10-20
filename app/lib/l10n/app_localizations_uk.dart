@@ -356,6 +356,28 @@ class AppLocalizationsUk extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count документа з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      many:
+          '$count документів з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      few:
+          '$count документи з минулого сеансу більше недоступні. Можливо, їх переміщено, перейменовано або видалено.',
+      one:
+          '$title більше недоступний. Можливо, файл переміщено, перейменовано або видалено.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Не вдалося зберегти $title у вихідне розташування. Можливо, файл переміщено або видалено. Виберіть, куди зберегти.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Не вдалося поставити цифровий підпис: $error';
   }
@@ -799,7 +821,7 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'Веб-OCR завантажує модель «зображення-мова» Florence-2 і запускає її локально за допомогою WebGPU/WASM через Transformers.js. Сторінки PDF залишаються в цьому браузері; лише файли моделі завантажуються під час першого використання.';
+      'Веб-OCR завантажує невелику модель розпізнавання тексту (PP-OCRv5, близько 21 МБ) і запускає її локально за допомогою WebAssembly. Сторінки PDF залишаються в цьому браузері; під час першого використання завантажуються лише файли моделі.';
 
   @override
   String get ocrWebPromptTitle =>
@@ -952,13 +974,19 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows із гілки main.';
+      'Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows/macOS із гілки main.';
 
   @override
   String get settingsUpdates => 'Оновлення';
 
   @override
   String get settingsViewSource => 'Переглянути код на GitHub';
+
+  @override
+  String get settingsReportIssue => 'Повідомити про проблему на GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Надіслати відгук електронною поштою';
 
   @override
   String get undo => 'Відмінити';
@@ -1059,8 +1087,14 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR: сторінка $page з $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Розпізнавання тексту…';
+
+  @override
+  String get ocrChipPreparing => 'Завантаження моделі OCR…';
 
   @override
   String get ocrChipFinishing => 'Завершення OCR…';
@@ -1278,4 +1312,94 @@ class AppLocalizationsUk extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'Примітки до випуску недоступні в цій збірці.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Відкрити PDF-файли: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Відкрити кожен файл в окремій вкладці чи об\'єднати їх в один новий документ? Перетягніть файли, щоб задати порядок.';
+
+  @override
+  String get incomingFilesCombine => 'Об\'єднати';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Об\'єднати PDF-файли: $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Перетягніть файли, щоб задати порядок об\'єднання.';
+
+  @override
+  String get appMenuNew => 'Створити';
+
+  @override
+  String get appMenuOpen => 'Відкрити';
+
+  @override
+  String get appMenuPrint => 'Друк';
+
+  @override
+  String get appMenuSign => 'Підписати';
+
+  @override
+  String get appMenuRecent => 'Нещодавні';
+
+  @override
+  String get appMenuSeeAll => 'Показати всі';
+
+  @override
+  String get appMenuExport => 'Експорт';
+
+  @override
+  String get appMenuMoreTools => 'Інші інструменти';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

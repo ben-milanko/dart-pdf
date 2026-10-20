@@ -17,7 +17,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'app_info.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show debugRepaintRainbowEnabled;
 import 'package:flutter/services.dart';
 // ignore: implementation_imports - the perf facade is deliberately unexported.
@@ -43,6 +43,7 @@ Map<String, String> devToolsBuildIdentity() => <String, String>{
       'appVersion': AppInfo.version,
       'appBuild': AppInfo.buildNumber,
       'buildCommit': AppInfo.buildCommit,
+      'buildChannel': AppInfo.buildChannel,
     };
 
 /// Developer tools panel. Create it only off-release. Docks as a side panel on
@@ -331,6 +332,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'stats': _tools.flutterGpuTileRasterBackend.stats.toJson(),
       },
       'tileRasterPages': PdfTileRasterDiagnostics.instance.snapshot(),
+      'pageViews': PdfPageViewDiagnostics.instance.snapshot(),
       if (store != null)
         'tileStore': {
           'tiles': store.tileCount,

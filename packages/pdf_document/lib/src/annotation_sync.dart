@@ -219,10 +219,31 @@ extension PdfAnnotationSyncEditing on PdfEditor {
           'snapshot carries no /NM — capture it with keepName: true');
     }
     final existing = _findByName(name, pageIndex: pageIndex);
+    // Same-page upserts replace the indirect dictionary. Keep group links
+    // aimed at the replacement instead of the removed incarnation.
+    final groupChildren = existing != null && existing.$1 == pageIndex
+        ? [
+            for (final a in document.page(pageIndex).annotations)
+              if (a.replyType == 'Group' &&
+                  identical(
+                      document.cos.resolve(a.dict['IRT']), existing.$2.dict))
+                a,
+          ]
+        : <PdfAnnotation>[];
     if (existing != null) {
-      removeAnnotation(existing.$1, existing.$2);
+      _removeAnnotations(existing.$1, [existing.$2],
+          repairGroups: existing.$1 != pageIndex);
     }
     pasteAnnotation(pageIndex, snapshot);
+    if (groupChildren.isNotEmpty) {
+      final replacement = _findByName(name, pageIndex: pageIndex)!.$2;
+      final ref = _PdfPageAnnotationList(this, pageIndex)
+          .makeIndirect(replacement.dict);
+      for (final child in groupChildren) {
+        child.dict['IRT'] = ref;
+        _markAnnotationChanged(pageIndex, child.dict, visual: false);
+      }
+    }
   }
 
   /// Removes the annotation whose /NM is [name] — the receiving end of a

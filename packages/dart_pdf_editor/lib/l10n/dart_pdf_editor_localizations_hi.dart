@@ -2372,4 +2372,195 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'टूलबार को विंडो के किनारों पर डॉक करने के बजाय पेज के ऊपर तैराएँ';
+
+  @override
+  String get textVerticalAlign => 'लंबवत संरेखण';
+
+  @override
+  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+
+  @override
+  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+
+  @override
+  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+
+  @override
+  String get measCustomValueTitle => 'माप का मान';
+
+  @override
+  String get menuEditMeasurementValue => 'माप का मान संपादित करें';
+
+  @override
+  String get menuAddLeader => 'लीडर लाइन जोड़ें';
+
+  @override
+  String get propLeader => 'निर्देशक रेखा';
+
+  @override
+  String get propOutlineWidth => 'बाहरी रेखा की मोटाई';
+
+  @override
+  String get menuRotateSelection => 'चयन के केंद्र के चारों ओर घुमाएँ…';
+
+  @override
+  String get menuRotateEach => 'हर टिप्पणी को घुमाएँ…';
+
+  @override
+  String get rotationAngleTitle => 'घुमाव (डिग्री, वामावर्त)';
+
+  @override
+  String get menuGroup => 'समूह बनाएँ';
+
+  @override
+  String get menuUngroup => 'समूह हटाएँ';
+
+  @override
+  String get menuRemoveLeader => 'लीडर लाइन हटाएँ';
+
+  @override
+  String get menuAddNoteHere => 'यहाँ नोट जोड़ें';
+
+  @override
+  String get tbNameMeasureCustom => 'कस्टम माप (मान लिखें)';
+
+  @override
+  String get insertPagesTitle => 'पेज डालें';
+
+  @override
+  String get insertPagesFiles => 'फ़ाइलें';
+
+  @override
+  String get insertPagesAddFiles => 'फ़ाइलें जोड़ें…';
+
+  @override
+  String get insertPagesSortByName => 'नाम से क्रमबद्ध करें';
+
+  @override
+  String get insertPagesNoFiles => 'डालने के लिए एक या अधिक PDF जोड़ें।';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '$names नहीं खुल सकी। फ़ाइल क्षतिग्रस्त या पासवर्ड से सुरक्षित हो सकती है।';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count पेज',
+      one: '1 पेज',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'ऊपर ले जाएँ';
+
+  @override
+  String get insertPagesMoveDown => 'नीचे ले जाएँ';
+
+  @override
+  String get insertPagesRemoveFile => 'सूची से हटाएँ';
+
+  @override
+  String get insertPagesRange => 'पेज';
+
+  @override
+  String get insertPagesRangeHint => 'सभी (जैसे 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'पेज 1–$count इस्तेमाल करें, जैसे 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'सभी पेज';
+
+  @override
+  String get insertPagesSubsetOdd => 'विषम पेज';
+
+  @override
+  String get insertPagesSubsetEven => 'सम पेज';
+
+  @override
+  String get insertPagesReverse => 'उल्टा क्रम';
+
+  @override
+  String get insertPagesPlacement => 'स्थान';
+
+  @override
+  String get insertPagesBefore => 'पहले';
+
+  @override
+  String get insertPagesAfter => 'बाद में';
+
+  @override
+  String get insertPagesFirstPage => 'पहला पेज';
+
+  @override
+  String get insertPagesLastPage => 'आख़िरी पेज';
+
+  @override
+  String get insertPagesPage => 'पेज';
+
+  @override
+  String get insertPagesPageNumber => 'पेज संख्या';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '1–$count दर्ज करें';
+  }
+
+  @override
+  String get insertPagesInterleave => 'पेज बारी-बारी से डालें';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'चुने गए स्थान से डाले गए और मौजूदा पेज बारी-बारी से रखता है—जैसे अलग-अलग स्कैन किए गए विषम और सम पेज फिर से जोड़ने के लिए।';
+
+  @override
+  String get insertPagesRunInserted => 'हर बार डाले जाने वाले पेज';
+
+  @override
+  String get insertPagesRunExisting => 'बीच के दस्तावेज़ पेज';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'बुकमार्क शामिल करें';
+
+  @override
+  String get insertPagesBookmarkFiles => 'हर फ़ाइल के लिए बुकमार्क जोड़ें';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: '$inserted पेज डाले जाएँगे',
+      one: '1 पेज डाला जाएगा',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total पेज',
+      one: '1 पेज',
+    );
+    return '$_temp0 — दस्तावेज़ में $_temp1 होंगे।';
+  }
+
+  @override
+  String get insertPagesConfirm => 'डालें';
+
+  @override
+  String get shellBakePageColor => 'पृष्ठ का रंग फ़ाइल में सहेजें';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।';
 }

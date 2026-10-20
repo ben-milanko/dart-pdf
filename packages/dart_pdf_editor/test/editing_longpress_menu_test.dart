@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -9,8 +9,8 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Touch long-press opens the context menu mice reach by right-clicking:
-// on an annotation (select mode or reader mode), or on empty page area when
-// the clipboard has something to paste. Form fields deliberately do not
+// on an annotation (select mode or reader mode), or on empty page area,
+// where it offers the page actions (paste, add a note, select all). Form fields deliberately do not
 // claim this gesture: their actions live in the contextual toolbar. The
 // recognizer only claims when the press point has an annotation menu to
 // offer, so text selection keeps its long press everywhere else.
@@ -109,7 +109,103 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     });
 
-    testWidgets('long-press on empty area without a clipboard does nothing',
+    // A hold always answers: with nothing to paste, empty page area still
+    // gets the page actions rather than a press that seems to do nothing.
+    testWidgets(
+        'long-press on empty area without a clipboard opens the page '
+        'menu', (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select;
+      await tester.pump();
+
+      await longPressAt(tester, viewPoint(150, 600));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-note')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-select-all-text')),
+          findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    // A finger drifts while it holds; a drift under the touch slop is still
+    // a press (it used to read as a tiny marquee and open nothing).
+    testWidgets('a long-press that drifts a few pixels still opens the menu',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final at = viewPoint(150, 600);
+      final gesture =
+          await tester.startGesture(at, kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(at + const Offset(6, 5));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-note')),
+          findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('Select all from the page menu selects the page text',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await longPressAt(tester, viewPoint(150, 600));
+      expect(controller.selectedText, isEmpty);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-select-all-text')));
+      await tester.pumpAndSettle();
+      expect(controller.selectedText, contains('Page'));
+      expect(editing.document.page(0).annotations, isEmpty);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    // Touch has no Shift/⌘ to ask for a rubber band, so in select mode a
+    // held finger on empty page area draws one instead of doing nothing.
+    testWidgets('long-press-drag on empty area marquee-selects annotations',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..addRectangle(0, const PdfRect(420, 300, 500, 350))
+        ..addRectangle(0, const PdfRect(100, 100, 150, 150))
+        ..tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(viewPoint(280, 470),
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(viewPoint(400, 380));
+      await tester.pump();
+      await gesture.moveTo(viewPoint(520, 280));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(editing.selectedAnnotationSlots.toSet(), {(0, 0), (0, 1)});
+      expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('a cancelled long-press marquee selects nothing',
         (tester) async {
       final editing = await pumpViewer(tester);
       editing
@@ -117,14 +213,105 @@ void main() {
         ..tool = PdfEditTool.select;
       await tester.pump();
 
-      await longPressAt(tester, viewPoint(350, 200));
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
+      final gesture = await tester.startGesture(viewPoint(280, 470),
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(viewPoint(420, 380));
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      expect(editing.selectedAnnotationSlots, isEmpty);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    // (a still hold keeps opening the paste menu - see the paste test above)
+    testWidgets('long-press-drag with a clipboard marquees instead of pasting',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      final gesture = await tester.startGesture(viewPoint(200, 480),
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(viewPoint(420, 380));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('long-press on text in select mode selects text, not a box',
+        (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(300, 400, 400, 450));
+      editing.tool = PdfEditTool.select;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: controller,
+              editing: editing,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // 'Page 1' baseline at (72, 720), 24pt: press mid-word, then drag
+      // down across the rectangle - the word selection extends, and the
+      // rectangle the finger swept over is not marquee-selected
+      final gesture = await tester.startGesture(viewPoint(100, 726),
+          kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(viewPoint(450, 380));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(controller.selectedText, startsWith('Page'));
+      expect(editing.selectedAnnotationSlots, isEmpty);
       await tester.pump(const Duration(milliseconds: 400));
     });
   });
 
   group('reader mode', () {
+    testWidgets(
+        'long-press on empty area with a selection but no tool still pastes',
+        (tester) async {
+      // No tool armed but an annotation selected: the overlay is mounted in
+      // select behaviour and keeps claiming the hold for its paste menu
+      // (only the armed select tool hands empty area to the touch marquee).
+      final editing = await pumpViewer(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..selectAnnotationAt(0, 350, 425)
+        ..copySelectedAnnotations();
+      await tester.pump();
+      expect(editing.tool, isNull);
+      expect(editing.hasAnnotationSelection, isTrue);
+
+      await longPressAt(tester, viewPoint(200, 480));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
+      await tester.tapAt(const Offset(780, 580));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
     testWidgets('long-press on an annotation opens the menu without a tool',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -192,11 +379,9 @@ void main() {
   // `_maybeAnnotationMenu` (`pdf_viewer.dart`) and `_onSecondaryTapUp` so
   // neither annotation nor plain-text menus reach the user.
   group('contextMenuEnabled: false', () {
-    Future<PdfEditingController> pumpViewerNoContextMenu(
-        WidgetTester tester,
+    Future<PdfEditingController> pumpViewerNoContextMenu(WidgetTester tester,
         {Uint8List? bytes}) async {
-      final editing =
-          PdfEditingController(bytes ?? buildMultiPagePdf(1));
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -217,8 +402,7 @@ void main() {
 
     testWidgets(
         'long-press on an annotation in select mode suppresses the menu '
-        'but still selects the annotation',
-        (tester) async {
+        'but still selects the annotation', (tester) async {
       final editing = await pumpViewerNoContextMenu(tester);
       editing
         ..addRectangle(0, const PdfRect(300, 400, 400, 450))
@@ -229,8 +413,7 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0)],
           reason: 'annotation selection still happens; only the popup is '
               'suppressed');
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -243,8 +426,7 @@ void main() {
       expect(editing.tool, isNull);
 
       await longPressAt(tester, viewPoint(350, 425));
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -277,8 +459,7 @@ void main() {
               'suppressed');
       expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
       expect(
-          find.byKey(const ValueKey('pdf-text-menu-select-all')),
-          findsNothing);
+          find.byKey(const ValueKey('pdf-text-menu-select-all')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
   });
@@ -288,6 +469,45 @@ void main() {
   // dropped. The request carries the resolved target (annotation, text,
   // form widget, ...) so the host never has to re-run a hit test.
   group('onContextMenuRequested host takeover', () {
+    testWidgets(
+        'a still long-press on empty area in select mode hands the paste '
+        'gesture to the host on release', (tester) async {
+      final hostCalls = <PdfContextMenuRequest>[];
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              editing: editing,
+              contextMenuEnabled: false,
+              onContextMenuRequested: hostCalls.add,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      await longPressAt(tester, viewPoint(200, 480));
+      expect(hostCalls, hasLength(1));
+      expect(hostCalls.first.target, PdfContextMenuTarget.emptyPage);
+      final (x, y) = hostCalls.first.pagePoint;
+      expect(x, closeTo(200, 0.5));
+      expect(y, closeTo(480, 0.5));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-paste')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
     testWidgets(
         'long-press on an annotation in select mode hands the gesture to '
         'the host instead of opening the stock menu', (tester) async {
@@ -320,8 +540,7 @@ void main() {
               'menu is rerouted');
       expect(hostCalls, hasLength(1),
           reason: 'host takeover fires exactly once per long-press');
-      expect(hostCalls.first.pageIndex, 0,
-          reason: 'pageIndex is forwarded');
+      expect(hostCalls.first.pageIndex, 0, reason: 'pageIndex is forwarded');
       // pagePoint should be in page coordinates near (350, 425).
       final (x, y) = hostCalls.first.pagePoint;
       expect(x, closeTo(350, 0.001));
@@ -331,8 +550,7 @@ void main() {
       expect(hostCalls.first.annotation?.subtype, 'Square');
       expect(hostCalls.first.slot, 0);
       // the stock annotation menu must not pop up either
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -372,8 +590,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     });
 
-    testWidgets(
-        'with contextMenuEnabled: true, host callback is NOT invoked',
+    testWidgets('with contextMenuEnabled: true, host callback is NOT invoked',
         (tester) async {
       // Verify the gate is the suppression itself, not the callback's
       // presence: the default menu is responsible for the gesture.
@@ -406,8 +623,8 @@ void main() {
       expect(hostCalls, 0,
           reason: 'host callback only fires when the stock menu is suppressed');
       // and the stock menu does pop
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-delete')), findsOneWidget);
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
       await tester.pump(const Duration(milliseconds: 400));
@@ -443,8 +660,7 @@ void main() {
       await tester.pump();
       editing.addRectangle(0, const PdfRect(300, 400, 400, 450));
       await tester.pump();
-      expect(editing.tool, isNull,
-          reason: 'reader mode has no active tool');
+      expect(editing.tool, isNull, reason: 'reader mode has no active tool');
 
       await longPressAt(tester, viewPoint(350, 425));
       expect(editing.selectedAnnotationSlots, [(0, 0)],
@@ -453,16 +669,14 @@ void main() {
       expect(hostCalls, hasLength(1),
           reason: 'reader-mode annotation long-press now fires the host '
               'callback exactly once');
-      expect(hostCalls.first.pageIndex, 0,
-          reason: 'pageIndex is forwarded');
+      expect(hostCalls.first.pageIndex, 0, reason: 'pageIndex is forwarded');
       final (x, y) = hostCalls.first.pagePoint;
       expect(x, closeTo(350, 0.001),
           reason: 'pagePoint is in page coordinates');
       expect(y, closeTo(425, 0.001));
       expect(hostCalls.first.target, PdfContextMenuTarget.annotation);
       expect(hostCalls.first.annotation?.subtype, 'Square');
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing,
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing,
           reason: 'the stock annotation menu stays suppressed');
       await tester.pump(const Duration(milliseconds: 400));
     });
@@ -498,8 +712,7 @@ void main() {
       // The annotation is still selected by the long-press (the host
       // refusal only suppresses the popup), and no popup appears.
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
-      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
-          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       // No crash, no exceptions, no leaked routes.
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(milliseconds: 400));
@@ -510,8 +723,7 @@ void main() {
     // text path wins; _onLongPressStart returns before the annotation
     // branch can run). Constructed by adding an annotation over a
     // known-text region and long-pressing there.
-    testWidgets(
-        'text+annotation overlap: host callback fires exactly once',
+    testWidgets('text+annotation overlap: host callback fires exactly once',
         (tester) async {
       var hostCalls = 0;
       final controller = PdfViewerController();

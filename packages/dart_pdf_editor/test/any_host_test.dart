@@ -1,15 +1,16 @@
-// The stock editor under any host: a CupertinoApp or a bare WidgetsApp gets
-// the same working chrome as a MaterialApp - pages, menus, dialogs, sheets,
-// notices, dropdowns, form fields and the text fields' own context menus
-// (which build in the root overlay, outside the editor) - with no
-// FlutterError and no error widget.
+// The stock editor under any host: a legacy (package:flutter/material.dart)
+// MaterialApp, a CupertinoApp (cupertino_ui or legacy) or a bare WidgetsApp
+// gets the same working chrome as a material_ui MaterialApp - pages, menus,
+// dialogs, sheets, notices, dropdowns, form fields and the text fields' own
+// context menus (which build in the root overlay, outside the editor) - with
+// no FlutterError and no error widget.
 
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
@@ -25,7 +26,11 @@ Offset _view(double x, double y) => Offset(x * _scale, (792 - y) * _scale);
 final _png = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
     'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==');
 
-const _nonMaterialHosts = [PdfTestHost.cupertino, PdfTestHost.widgets];
+/// Every host but the material_ui MaterialApp (which needs nothing).
+final _nonMaterialHosts = [
+  for (final host in PdfTestHost.values)
+    if (host != PdfTestHost.material) host,
+];
 
 /// The platforms whose text-field menus differ: Material, Cupertino, and
 /// the desktop toolbar opened by a right-click.

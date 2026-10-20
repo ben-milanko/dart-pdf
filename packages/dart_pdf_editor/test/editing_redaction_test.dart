@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -31,8 +31,8 @@ void main() {
       expect(redact, isNotNull);
       // marking is undoable - nothing burned yet
       expect(editing.canUndo, isTrue);
-      expect(latin1.decode(editing.bytes, allowInvalid: true),
-          contains('Page 1'));
+      expect(
+          latin1.decode(editing.bytes, allowInvalid: true), contains('Page 1'));
     });
 
     test('applyRedactions burns the marks irreversibly', () {
@@ -170,8 +170,10 @@ void main() {
       await tester.pump();
 
       expect(editing.hasRedactionMarks, isTrue);
-      final redact =
-          editing.document.page(0).annotations.singleWhere((a) => a.subtype == 'Redact');
+      final redact = editing.document
+          .page(0)
+          .annotations
+          .singleWhere((a) => a.subtype == 'Redact');
       expect(redact, isNotNull);
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
     });
@@ -226,7 +228,10 @@ void main() {
           final sampleX = (px * scale).round().clamp(0, image.width - 1);
           final sampleY = (py * scale).round().clamp(0, image.height - 1);
           final i = (sampleY * image.width + sampleX) * 4;
-          luma = (data.getUint8(i) + data.getUint8(i + 1) + data.getUint8(i + 2)) ~/ 3;
+          luma = (data.getUint8(i) +
+                  data.getUint8(i + 1) +
+                  data.getUint8(i + 2)) ~/
+              3;
         });
         image.dispose();
         return luma;
@@ -234,8 +239,8 @@ void main() {
 
       // seed the preview from the pre-redaction content: the region is mostly
       // white page (thin "Page 1" glyphs), so it reads light
-      await tester.runAsync(
-          () => cache.renderPreview(0, editing.document.page(0)));
+      await tester
+          .runAsync(() => cache.renderPreview(0, editing.document.page(0)));
       expect(await previewLuma(45, 15), greaterThan(140),
           reason: 'pre-redaction preview is light page');
 
@@ -247,8 +252,8 @@ void main() {
       // old rebind path it stayed "fresh" and this never converged
       var luma = -1;
       for (var i = 0; i < 60; i++) {
-        await tester
-            .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
         luma = await previewLuma(45, 15);
         if (luma >= 0 && luma < 80) break;
@@ -296,7 +301,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // a confirm dialog warns it is irreversible
-      expect(find.byKey(const ValueKey('pdf-redaction-confirm')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-redaction-confirm')), findsOneWidget);
 
       // cancel leaves the mark untouched
       await tester.tap(find.text('Cancel'));

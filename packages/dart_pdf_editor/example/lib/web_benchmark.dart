@@ -27,7 +27,7 @@ import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:web/web.dart' as web;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -74,9 +74,10 @@ class _BenchAppState extends State<_BenchApp> {
       for (var r = 0; r < repeat; r++) {
         for (var i = 0; i < files.length; i++) {
           final name = files[i];
-          _report('pass ${r + 1}/$repeat - file ${i + 1}/${files.length}: $name');
-          final res = await _benchFile(name, scale, maxPages,
-              warmup: warmup && r == 0);
+          _report(
+              'pass ${r + 1}/$repeat - file ${i + 1}/${files.length}: $name');
+          final res =
+              await _benchFile(name, scale, maxPages, warmup: warmup && r == 0);
           final prev = best[name];
           final better = prev == null ||
               (res['error'] == null &&
@@ -131,8 +132,8 @@ class _BenchAppState extends State<_BenchApp> {
     // texture upload paths) don't land on the measured page.
     if (warmup && limit > 0) {
       try {
-        final img = await PdfPageRenderer.renderImage(doc.page(0),
-            pixelRatio: scale);
+        final img =
+            await PdfPageRenderer.renderImage(doc.page(0), pixelRatio: scale);
         await img.toByteData(format: ui.ImageByteFormat.rawRgba);
         img.dispose();
       } catch (_) {}

@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:dart_pdf_editor_app/file_io.dart';
+import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
 import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 import 'package:dart_pdf_editor_app/language_names.dart';
 import 'package:dart_pdf_editor_app/reduce_file_size.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -41,7 +42,7 @@ void main() {
       final pending = Completer<PdfCompressionResult>();
       final bytes = PdfBlankDocument.create();
       await tester.pumpWidget(MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(builder: (context) {
           return TextButton(

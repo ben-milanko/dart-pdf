@@ -1,4 +1,3 @@
-Neu in 5.1.1
+Neu in 10.0.0
 
-- Schnell nacheinander geschriebene Freihandstriche verschwinden nicht mehr von der Seite.
-- Enthält alle Verbesserungen aus 5.1.0.
+Eigene Messwerte auch ohne Maßstab eingeben. Ganze Wörter bearbeiten und Links leichter erkennen. Lesesteuerungen blenden sich auf Telefonen aus und umgehen Displayfalten. Nach der ersten OCR entscheiden, ob sie automatisch aktiv bleibt. Absturz bei großen Scans behoben; Anmerkungen und Bildzuschnitt verbessert.

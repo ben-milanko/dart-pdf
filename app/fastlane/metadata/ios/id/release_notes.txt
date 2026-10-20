@@ -1,4 +1,3 @@
-Baru di 5.1.1
+Baru di 10.0.0
 
-- Tinta yang ditulis cepat secara berturut-turut tidak lagi menghilang dari halaman.
-- Mencakup semua peningkatan dari 5.1.0.
+Ketik nilai pengukuran sendiri tanpa skala. Edit kata utuh dan temukan tautan lebih mudah. Bilah baca tersembunyi di ponsel dan menghindari lipatan layar. Pilih apakah OCR otomatis tetap aktif setelah penggunaan pertama. Perbaikan crash pada pindai besar, tampilan anotasi, dan pemotongan gambar.

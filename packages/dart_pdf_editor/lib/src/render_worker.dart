@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
+import 'annotation_display_filter.dart';
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'region_replay_index.dart';
@@ -144,6 +145,24 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// content walk.
 typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
 
+/// Admission for decoding a record reply on the calling isolate (#998).
+///
+/// A worker records off-thread, but its reply is still decoded
+/// (`deserializeCommands`) on the isolate that asked - a 70k-op plan sheet is
+/// tens of milliseconds of it. A record given a gate calls it with the reply's
+/// top-level command count (see `serializedCommandCount`) once the reply has
+/// arrived and before decoding, and decodes only once the future completes. A
+/// page view uses this to hold a reply too large to replay during a scroll in
+/// its motion-gated UI turn *before* the decode, rather than decode it inside
+/// the gesture only to then wait for the settle.
+///
+/// Completing false drops the reply: the record returns null without decoding.
+/// A [PdfCachingRenderWorker] shares one reply among every caller of a key, so
+/// a caller's gate should complete true - it delays, it does not veto - and
+/// only the cache itself drops a reply it would discard anyway. The backend's
+/// queue is free while a reply waits; only the decode is held.
+typedef PdfRecordDecodeGate = Future<bool> Function(int commandCount);
+
 /// A browser-owned page canvas bound to one render worker.
 ///
 /// This deliberately carries no `dart:ui`, Flutter, or web types: native
@@ -163,6 +182,7 @@ abstract class PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -398,10 +418,11 @@ abstract class PdfRenderWorker {
   ///
   /// [imageDecodeRegion] is a PDF page-space rectangle for a transient
   /// deep-zoom/detail render. When set with [decodeImages] true, the worker
-  /// may decode only the intersecting source pixels of axis-aligned image
-  /// draws and retarget their transforms to that crop. Full-page cached
-  /// renders must leave this null; a region-specific buffer is only correct
-  /// for rasterizing that same visible slice.
+  /// may decode only the intersecting source pixels of each image draw
+  /// (rotated and skewed placements included) and retarget their transforms
+  /// to that crop. Full-page cached renders must leave this null; a
+  /// region-specific buffer is only correct for rasterizing that same visible
+  /// slice.
   ///
   /// [onPartial], when supplied on a full-page decoding record ([decodeImages]
   /// true), receives progressive linework prefixes as the worker walks the page
@@ -409,15 +430,22 @@ abstract class PdfRenderWorker {
   /// (the null fallback, the web worker until its twin lands, and - until the
   /// caching wrapper's shared-stream dedup is in - a [PdfCachingRenderWorker])
   /// simply never call it; the final result is unaffected either way.
+  ///
+  /// [decodeGate], when supplied, is consulted with the reply's command count
+  /// after it arrives and before it is decoded on this isolate - see
+  /// [PdfRecordDecodeGate]. Backends with nothing to decode (the null
+  /// fallback) ignore it.
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   });
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
@@ -478,6 +506,7 @@ abstract class PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -503,6 +532,7 @@ abstract class PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -535,6 +565,7 @@ abstract class PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1045,40 +1076,60 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final urgent = _urgentWorkerFor(priority);
     if (urgent != null) {
       return urgent.record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
         onPartial: onPartial,
+        decodeGate: decodeGate,
       );
     }
     final worker = _lease(pageIndex, priority);
+    var leased = true;
+    void release() {
+      if (!leased) return;
+      leased = false;
+      _release(pageIndex, priority, worker);
+    }
+
     try {
       return await _workers[worker].record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
         onPartial: onPartial,
+        // A reply waiting at its gate no longer occupies the worker: hand the
+        // lease back so routing does not count a parked decode as load.
+        decodeGate: decodeGate == null
+            ? null
+            : (count) {
+                release();
+                return decodeGate(count);
+              },
       );
     } finally {
-      _release(pageIndex, priority, worker);
+      release();
     }
   }
 
@@ -1103,6 +1154,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1113,6 +1165,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].binStrips(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1125,6 +1178,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1135,6 +1189,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].recordStripDetail(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1157,6 +1212,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1164,6 +1220,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       _workers[_workerForPage(pageIndex, priority: priority)].buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,
@@ -1310,6 +1367,7 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
   Future<bool> render(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int width,
     required int height,
     required int pageColor,
@@ -1320,6 +1378,7 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
       _inner.render(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         width: width,
         height: height,
         pageColor: pageColor,
@@ -1337,10 +1396,21 @@ class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
   }
 }
 
-typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
+// The second slot is the annotation selection: whether annotations are drawn,
+// and the hidden-subtype set as a stable string (see
+// [hiddenAnnotationSubtypesKey]) so a toggle never reuses a stale buffer.
+typedef _RecordCacheKey = (
+  int,
+  (bool, String),
+  bool,
+  int,
+  int?,
+  _RegionBucket?
+);
 
 /// Wraps a [PdfRenderWorker] with an LRU cache of completed [record] results,
-/// keyed by (page, annotations, decodeImages, image-ratio bucket,
+/// keyed by (page, annotations + hidden subtypes, decodeImages, image-ratio
+/// bucket,
 /// command-limit, image-decode-region when decoded image bytes are present).
 /// The lazy
 /// page list recycles a [PdfPageView]'s State when it scrolls out of view and
@@ -1540,29 +1610,38 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (!_inner.isActive) {
       return _inner.record(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         priority: priority,
         imagePixelRatio: imagePixelRatio,
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
+        decodeGate: decodeGate,
       );
     }
     final effectiveCommandLimit = decodeImages ? null : commandLimit;
     final effectiveRegion = decodeImages ? imageDecodeRegion : null;
     final key = (
       pageIndex,
-      annotations,
+      (
+        annotations,
+        annotations
+            ? hiddenAnnotationSubtypesKey(hiddenAnnotationSubtypes)
+            : '',
+      ),
       decodeImages,
       _ratioBucket(imagePixelRatio),
       effectiveCommandLimit,
@@ -1596,12 +1675,14 @@ class PdfCachingRenderWorker extends PdfRenderWorker
           key,
           pageIndex,
           annotations: annotations,
+          hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
           priority: priority,
           imagePixelRatio: imagePixelRatio,
           decodeImages: decodeImages,
           imageDecodeRegion: effectiveRegion,
           dispatchEpoch: _epoch,
           streamPartials: onPartial != null,
+          decodeGate: decodeGate,
         );
       }
       return pending.future;
@@ -1617,12 +1698,14 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       key,
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
       imageDecodeRegion: effectiveRegion,
       dispatchEpoch: _epoch,
       streamPartials: onPartial != null,
+      decodeGate: decodeGate,
     );
     // Clear the slot only if it still holds THIS record. An updateRevision may
     // have dropped the entry mid-decode and a newer request re-populated it; a
@@ -1639,18 +1722,21 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     _RecordCacheKey key,
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int priority,
     required double? imagePixelRatio,
     required bool decodeImages,
     required PdfRect? imageDecodeRegion,
     required int dispatchEpoch,
     required bool streamPartials,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     final dispatch = record.beginDispatch(priority);
     _recordAndStore(
       key,
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -1661,6 +1747,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       // Ask the backend for partials only when the dispatching caller opted
       // in. Promotion preserves all existing subscribers on [record].
       onPartial: streamPartials ? record.emit : null,
+      decodeGate: decodeGate,
     ).then(
       (commands) {
         if (record.isCurrent(dispatch)) record.complete(commands);
@@ -1677,6 +1764,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     _RecordCacheKey key,
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int priority,
     required double? imagePixelRatio,
     required bool decodeImages,
@@ -1684,22 +1772,38 @@ class PdfCachingRenderWorker extends PdfRenderWorker
     required int dispatchEpoch,
     required bool Function() isCurrent,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     final timeout = pdfRenderWorkerRecordTimeout;
-    final commands = await _inner
-        .record(
+    // Set once the backend's reply has arrived and is waiting at the gate:
+    // the worker answered, so the watchdog below has nothing to catch.
+    var replied = false;
+    final pending = _inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
       commandLimit: key.$5,
       imageDecodeRegion: imageDecodeRegion,
       onPartial: onPartial,
-    )
-        .timeout(
+      // Every caller of this key shares the one reply, so the dispatcher's gate
+      // only ever delays its decode. The cache adds the one veto it is sure
+      // of: a dispatch superseded while it waited is discarded below anyway,
+      // so it is not decoded at all.
+      decodeGate: decodeGate == null
+          ? null
+          : (count) async {
+              replied = true;
+              return await decodeGate(count) && isCurrent();
+            },
+    );
+    final commands = await pending.timeout(
       timeout,
       onTimeout: () {
+        // A reply parked at its decode gate (a long scroll) is not a wedge.
+        if (replied) return pending;
         // A promoted low-priority dispatch can outlive the foreground result.
         // Its watchdog must not tear down the healthy worker generation.
         if (!isCurrent()) return null;
@@ -1742,6 +1846,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1752,6 +1857,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.binStrips(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1767,6 +1873,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<PdfStripDetail?> recordStripDetail(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -1777,6 +1884,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.recordStripDetail(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         pageToDevice: pageToDevice,
         deviceWidth: deviceWidth,
         deviceHeight: deviceHeight,
@@ -1797,6 +1905,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -1804,6 +1913,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker
       _inner.buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,

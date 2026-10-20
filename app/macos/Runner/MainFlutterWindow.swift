@@ -62,6 +62,7 @@ final class FileAccessExecutor {
 class MainFlutterWindow: NSWindow {
   private let fileAccess = FileAccessExecutor()
   private let trackpadSignature = TrackpadSignatureCapture()
+  private var windowDrop: WindowDropService?
   private var channelsConfigured = false
 
   override func awakeFromNib() {
@@ -105,11 +106,8 @@ class MainFlutterWindow: NSWindow {
     if let appDelegate = NSApp.delegate as? AppDelegate {
       appDelegate.incomingChannel = channel
       channel.setMethodCallHandler { (call, result) in
-        if call.method == "getInitialFile" {
-          result(appDelegate.takeInitialFile())
-          DispatchQueue.main.async {
-            appDelegate.flushPendingFiles()
-          }
+        if call.method == "getInitialFiles" {
+          result(appDelegate.takeInitialFiles())
         } else {
           result(FlutterMethodNotImplemented)
         }
@@ -281,6 +279,11 @@ class MainFlutterWindow: NSWindow {
         return
       }
       if call.method == "readImage" {
+        let externalOnly = (call.arguments as? [String: Any])?["externalOnly"] as? Bool ?? false
+        if externalOnly && SnapshotClipboard.shared.isLocalCopy {
+          result(nil)
+          return
+        }
         result(self.readImageFromClipboard())
         return
       }
@@ -314,6 +317,10 @@ class MainFlutterWindow: NSWindow {
       }
       result(TrackpadSignatureCapture.isAvailable())
     }
+
+    // desktop_drop cannot attach to the headless engine's (absent) implicit
+    // view; Dart registers each window it creates here instead.
+    windowDrop = WindowDropService(binaryMessenger: binaryMessenger)
 
     RegisterGeneratedPlugins(registry: registry)
   }

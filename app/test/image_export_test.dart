@@ -2,7 +2,7 @@
 // rasterize + platform save are exercised through editor_screen elsewhere;
 // here we cover the pure pieces: the dialog's returned options and the
 // suggested-filename builder.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

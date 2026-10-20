@@ -1,0 +1,7 @@
+Novità di 8.0.0
+
+- Combina PDF e alterna le pagine.
+- Cattura aree poligonali e ritaglia le istantanee incollate.
+- Aggiungi più frecce ai richiami mantenendo fissi i punti indicati.
+- Modifica insieme stile e dimensioni di più campi modulo.
+- Decodifica delle scansioni più rapida e anteprime più chiare.

@@ -1,0 +1,6 @@
+Novità di 8.1.0
+
+- Cambia carattere e stile dei campi a discesa e degli elenchi.
+- Nuovo menu mobile per creare, aprire, stampare e firmare.
+- La modifica del testo conserva carattere e a capo. Miglioramenti alla tastiera e ai menu di selezione iOS.
+- Tavolozza completa per penna ed evidenziatore su mobile.

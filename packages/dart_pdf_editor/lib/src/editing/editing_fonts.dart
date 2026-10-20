@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
@@ -148,8 +148,8 @@ void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   if (controller.restyleEditingTextSelection(font: font)) return;
   if (controller.canRestyleSelectedText) {
     controller.restyleSelectedFont(font);
-  } else if (controller.selectedFormFieldName case final name?) {
-    controller.setFormFieldStyle(name, font: font);
+  } else if (controller.canStyleSelectedFormField) {
+    controller.setSelectedFormFieldStyle(font: font);
   } else if (font is PdfStandardFont &&
       controller.canRestyleMeasurementCaption) {
     // a measurement caption is drawn in a base-14 face (/DA resource name),

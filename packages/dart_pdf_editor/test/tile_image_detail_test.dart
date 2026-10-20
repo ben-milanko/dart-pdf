@@ -457,12 +457,14 @@ class _DecliningDetailWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) {
     if (imageDecodeRegion != null) {
       declinedDetailRecords++;
@@ -471,6 +473,7 @@ class _DecliningDetailWorker extends PdfRenderWorker {
     return inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -484,6 +487,7 @@ class _DecliningDetailWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -491,6 +495,7 @@ class _DecliningDetailWorker extends PdfRenderWorker {
       inner.buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,
@@ -524,12 +529,14 @@ class _BlockingFirstDetailWorker extends PdfRenderWorker {
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
+    Set<String> hiddenAnnotationSubtypes = const {},
     int priority = 0,
     double? imagePixelRatio,
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
+    PdfRecordDecodeGate? decodeGate,
   }) async {
     if (imageDecodeRegion != null) {
       detailRecords++;
@@ -548,6 +555,7 @@ class _BlockingFirstDetailWorker extends PdfRenderWorker {
     return inner.record(
       pageIndex,
       annotations: annotations,
+      hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
       priority: priority,
       imagePixelRatio: imagePixelRatio,
       decodeImages: decodeImages,
@@ -561,6 +569,7 @@ class _BlockingFirstDetailWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -568,6 +577,7 @@ class _BlockingFirstDetailWorker extends PdfRenderWorker {
       inner.buildRegionIndex(
         pageIndex,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         maxCommands: maxCommands,
         buildGrid: buildGrid,
         priority: priority,

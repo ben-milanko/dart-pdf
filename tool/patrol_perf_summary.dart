@@ -2,6 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 final _ansiEscape = RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]');
+
+/// The largest backwards step (ms) read as two output streams interleaving
+/// rather than a restarted perf stopwatch.
+const _interleaveToleranceMs = 50;
+
 final _perfLine = RegExp(r'\[perf\s+(\d+)\]\s+(.+)$');
 final _field = RegExp(r'([A-Za-z][A-Za-z0-9_-]*)=([^\s]+)');
 final _workerImageCache = RegExp(r'^(\d+)h/(\d+)m/(\d+)e/(\d+)B$');
@@ -215,18 +220,24 @@ class PatrolPerfTrace {
       // perf stopwatch. A `build` stamp is an explicit segment boundary; a
       // decreasing timestamp is the fallback for unstamped traces. Summing
       // monotonic segments avoids a negative or invented cross-process span.
+      // Lines relayed through the engine's `Shell:` stream can land a few ms
+      // behind the Dart print stream; a step back that small is interleaving,
+      // not a restarted stopwatch.
+      final interleaved = previousTimestamp != null &&
+          timestamp < previousTimestamp &&
+          previousTimestamp - timestamp <= _interleaveToleranceMs;
       final startsSegment = event == 'build' ||
           previousTimestamp == null ||
-          timestamp < previousTimestamp;
+          (timestamp < previousTimestamp && !interleaved);
       if (startsSegment) {
         journeys++;
         // A Patrol app restart resets the stopwatch. Never pair an unfinished
         // scenario in the old process with a completion marker in the next.
         activeScenarios.clear();
-      } else {
+      } else if (!interleaved) {
         durationMs += timestamp - previousTimestamp;
       }
-      previousTimestamp = timestamp;
+      if (!interleaved) previousTimestamp = timestamp;
 
       String? scenarioName;
       String? scenarioPhase;

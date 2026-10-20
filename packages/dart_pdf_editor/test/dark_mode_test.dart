@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -98,27 +98,5 @@ void main() {
     final prefs = PdfEditingPreferences();
     await prefs.ready;
     expect(prefs.themePreference, PdfThemePreference.light);
-  });
-
-  test('the deprecated themeMode still reads and writes the preference',
-      () async {
-    SharedPreferences.setMockInitialValues({});
-    final a = PdfEditingPreferences();
-    await a.ready;
-    // ignore: deprecated_member_use_from_same_package
-    expect(a.themeMode, ThemeMode.system);
-    // ignore: deprecated_member_use_from_same_package
-    a.themeMode = ThemeMode.dark;
-    expect(a.themePreference, PdfThemePreference.dark);
-    await pumpEventQueue();
-
-    final b = PdfEditingPreferences();
-    await b.ready;
-    expect(b.themePreference, PdfThemePreference.dark);
-    // ignore: deprecated_member_use_from_same_package
-    expect(b.themeMode, ThemeMode.dark);
-    b.themePreference = PdfThemePreference.light;
-    // ignore: deprecated_member_use_from_same_package
-    expect(b.themeMode, ThemeMode.light);
   });
 }

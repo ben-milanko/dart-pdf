@@ -25,6 +25,7 @@ export 'src/design/editor_presenter.dart'
         pdfPresentDialog;
 export 'src/design/editor_theme.dart'
     show PdfEditorThemeData, pdfShellCompactWidth;
+export 'src/design/fold.dart';
 export 'src/design/header_parts.dart';
 export 'src/design/material_host.dart'
     show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
@@ -88,10 +89,18 @@ export 'package:pdf_cos/pdf_cos.dart'
         PdfSourceProgress;
 export 'src/http_byte_source.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
+export 'src/l10n/editor_localizations.dart';
+export 'src/legacy/legacy_host_bridge.dart' show kPdfLegacyMaterialBridge;
 export 'src/l10n/pdf_l10n.dart';
 export 'src/image_decoder.dart'
-    show PdfImageCache, pdfImageContentKey, pdfGpuSoftMaskOf;
+    show
+        PdfDocumentImageReference,
+        PdfImageCache,
+        pdfDocumentImageContentKey,
+        pdfImageContentKey,
+        pdfGpuSoftMaskOf;
 export 'src/ocr.dart';
+export 'src/page_color_bake.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
 export 'src/progressive_source.dart';
@@ -103,6 +112,7 @@ export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
 export 'src/split_dialog.dart';
+export 'src/insert_pages_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';

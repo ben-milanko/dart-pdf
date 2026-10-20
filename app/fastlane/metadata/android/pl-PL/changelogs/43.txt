@@ -1,0 +1,6 @@
+Nowości w 7.0.0
+
+- Dokładniejsze i szybsze OCR drobnego druku i rysunków, z czytelniejszym postępem.
+- Otwieraj linki i przytrzymaj, aby zaznaczyć tekst w trybie zaznaczania.
+- Wyniki wyszukiwania pozostają widoczne po powiększeniu.
+- Podgląd atramentu zachowuje wybraną przezroczystość; eksport wektorowy zawiera adnotacje.

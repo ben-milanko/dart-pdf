@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -90,7 +90,8 @@ void main() {
 
       editing.tool = PdfEditTool.freeText;
       expect(editing.preferences.fontSize, 30);
-      expect(editing.preferences.fontFamily.family, PdfStandardFontFamily.serif);
+      expect(
+          editing.preferences.fontFamily.family, PdfStandardFontFamily.serif);
     });
 
     test('captures text markup colour and opacity into the markup scope', () {
@@ -168,7 +169,8 @@ void main() {
       await rightClick(tester, viewPoint(110, 725));
       expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
           findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-set-default')));
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-set-default')));
       await tester.pumpAndSettle();
 
       editing.tool = PdfEditTool.rectangle;

@@ -331,6 +331,44 @@ Nightly build.
       expect(service.downloadUrl, 'https://example.test/nightly.exe');
     });
 
+    test('macOS opts into the nightly DMG; Linux has no nightly channel',
+        () async {
+      final nightly = ReleaseInfo(
+        version: const AppVersion(1, 3, 0),
+        tagName: dartPdfNightlyTag,
+        name: 'DartPDF nightly',
+        notes: '',
+        htmlUrl: 'https://example.test/nightly',
+        assets: const {
+          'dartpdf-nightly-windows-installer.exe':
+              'https://example.test/nightly.exe',
+          'dartpdf-nightly-macos.dmg': 'https://example.test/nightly.dmg',
+        },
+        isNightly: true,
+        commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      final service = _service(
+        '1.3.0',
+        releases: [nightly],
+        currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      );
+      addTearDown(service.dispose);
+      expect(service.nightlySupported, isTrue);
+
+      await service.setNightlyUpdates(true);
+      await service.checkForUpdates(force: true);
+      expect(service.latest, same(nightly));
+      expect(service.downloadAssetName, 'dartpdf-nightly-macos.dmg');
+      expect(service.downloadUrl, 'https://example.test/nightly.dmg');
+
+      final linux = _service('1.3.0',
+          releases: [nightly], platform: TargetPlatform.linux);
+      addTearDown(linux.dispose);
+      expect(linux.nightlySupported, isFalse);
+      await linux.setNightlyUpdates(true);
+      expect(linux.nightlyUpdates, isFalse);
+    });
+
     test('an installed nightly does not offer its own rolling release',
         () async {
       const commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

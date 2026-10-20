@@ -659,12 +659,14 @@ class _BinLogWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
       {bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       int priority = 0,
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
       PdfRect? imageDecodeRegion,
-      PdfPartialRecordSink? onPartial}) async {
+      PdfPartialRecordSink? onPartial,
+      PdfRecordDecodeGate? decodeGate}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -673,6 +675,7 @@ class _BinLogWorker extends PdfRenderWorker {
   Future<StripPlan?> binStrips(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required List<double> pageToDevice,
     required int deviceWidth,
     required int deviceHeight,
@@ -697,6 +700,7 @@ class _BinLogWorker extends PdfRenderWorker {
   Future<PdfRegionReplayIndex?> buildRegionIndex(
     int pageIndex, {
     required bool annotations,
+    Set<String> hiddenAnnotationSubtypes = const {},
     required int maxCommands,
     required bool buildGrid,
     int priority = 0,
@@ -725,12 +729,14 @@ class _DefaultWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
+          Set<String> hiddenAnnotationSubtypes = const {},
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       null;
 
   @override

@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_viewer_example/main.dart';
@@ -52,15 +52,9 @@ void main() {
   }
 
   /// Opens the grouped desktop dock when necessary, then taps its tool.
+  /// Buttons are found by their `pdf-*` keys: the editor's tooltips are
+  /// material_ui widgets, which a legacy `Tooltip` type finder would miss.
   Future<void> tapToolbar(WidgetTester tester, String tooltip) async {
-    Finder buttonFor(String label) => find.byWidgetPredicate(
-          (widget) =>
-              widget is Tooltip &&
-              (widget.message == label ||
-                  (widget.message?.startsWith('$label (') ?? false) ||
-                  (widget.message?.startsWith('$label -') ?? false)),
-        );
-
     final group = switch (tooltip) {
       'Select' => 'select',
       'Draw' => 'draw',
@@ -84,7 +78,15 @@ void main() {
       'Rectangle' => find.byKey(const ValueKey('pdf-tool-rectangle')),
       _ => null,
     };
-    final button = docked ?? buttonFor(tooltip);
+    final key = switch (tooltip) {
+      'Select' => 'pdf-tool-select',
+      'Note' => 'pdf-tool-note',
+      'Digital signature' => 'pdf-tool-signatureBox',
+      'Delete annotation' => 'pdf-delete-selected',
+      'Edit annotation text' => 'pdf-edit-selected-text',
+      _ => '',
+    };
+    final button = (docked ?? find.byKey(ValueKey(key))).first;
     await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pump();

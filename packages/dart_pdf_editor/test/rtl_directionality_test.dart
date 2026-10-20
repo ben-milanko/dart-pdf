@@ -1,5 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Guards the RTL sweep: chrome uses direction-relative geometry
@@ -30,7 +30,8 @@ void main() {
     testWidgets('wide window: pill hugs the trailing edge in both directions',
         (tester) async {
       // 1000px wide, default pill 360 → start inset 1000-360-24 = 616.
-      final margin = await captureToastMargin(tester, size: const Size(1000, 800));
+      final margin =
+          await captureToastMargin(tester, size: const Size(1000, 800));
 
       expect(margin, isA<EdgeInsetsDirectional>());
 
@@ -49,7 +50,8 @@ void main() {
 
     testWidgets('narrow window: symmetric gutter, direction-independent',
         (tester) async {
-      final margin = await captureToastMargin(tester, size: const Size(400, 800));
+      final margin =
+          await captureToastMargin(tester, size: const Size(400, 800));
 
       final ltr = margin.resolve(TextDirection.ltr);
       final rtl = margin.resolve(TextDirection.rtl);

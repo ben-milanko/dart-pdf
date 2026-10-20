@@ -1,7 +1,81 @@
 # Changelog
 
-## Unreleased
+## 10.0.0
 
+- Type the value shown on a drawing into a measurement, even without setting a scale.
+- Edit whole words when a PDF stores their letters separately. Links over empty regions now have a link badge, and a long press on an empty page offers note and text-selection actions.
+- Keep reading controls clear of display folds. On phones, the header and toolbar hide while reading and return when needed. Documents now open in Hand mode on mobile.
+- Choose whether to keep automatic OCR after its first run, and fix an image-lifetime crash when recognising large scans.
+- Keep edited annotations visible after deselection, improve image-crop handles and simplify callout selection.
+- Add GitHub and email feedback links under Settings > About and improve the welcome panel layout.
+- Speed up Indexed image decoding.
+- Update to the 10.0.0 package suite and app build 47.
+
+## 9.0.0
+
+- Group annotations so they move, resize, rotate, copy and paste together, and rotate a selection around its shared centre or each object's own centre.
+- Automatically OCR scanned documents so their text can be selected and searched, unless turned off in Settings. Scans are named after their capture date.
+- Optionally save the page colour into saved and exported PDFs.
+- Bold, italic and underline shortcuts for selected text, and separate styling for callout arrows.
+- Polyline placement with middle-button pan, edge scroll and Ctrl+Z to remove a vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag draws a selection box, selection happens on lift, and tool-sheet tabs arm their first tool.
+- Unembedded serif fonts draw in a serif face, substituted text keeps level baselines, and rotated images sharpen on deep zoom.
+- Fixes for documents showing another document's images, OCR and Sigstore sign-in on iOS, iOS Recents after updates, first launch in unsupported languages and the mobile web status bar.
+- Warn when a recent document's file has moved. The Windows installer offers to close and relaunch a running DartPDF.
+- Smoother scrolling past neighbouring pages.
+- Update to the 9.0.0 package suite and app build 46.
+
+## 8.1.0
+
+- Change dropdown and list-box form fonts, size, colour and alignment.
+- Open New, Open, Print and Sign actions from a phone-friendly bottom sheet.
+- Preserve text fonts, wrapping, baselines and caret position when editing.
+- Improve iOS inline keyboards, text-selection menus and share-sheet filenames.
+- Show the full colour palette for mobile pens and highlighters.
+- Restore Linux AppImage compatibility with Ubuntu 22.04 and correct desktop metadata and website download links.
+- Update to the 8.1.0 package suite and app build 45.
+
+## 8.0.0
+
+- Combine PDFs opened together and insert pages from several documents, with
+  page choices, bookmarks and interleaving.
+- Capture polygon snapshots, crop pasted snapshots and preview their paste
+  position in the page grid.
+- Add multiple callout leaders and move the text box without moving arrow
+  targets. Apply text style changes while editing.
+- Bulk-edit selected form fields' style and size.
+- Show stored thumbnails for unopened tabs and correct thumbnails after page
+  reordering. Refresh fields in pasted template stamps.
+- Restore desktop file drag-and-drop, preserve transparency in pasted images,
+  and open and combine long file paths and larger file selections.
+- Speed up scanned document decoding, preserve enlarged Controls accessibility,
+  place polygon vertices without delay and add Central Kurdish localization.
+- Update to the 8.0.0 package suite. Custom render-worker implementers should
+  read `doc/MIGRATING-8.0.0.md`.
+
+
+## 7.0.0
+
+- Read small print and technical drawings more accurately with OCR, with
+  faster processing and clearer progress. Repeat OCR skips text already
+  present, and text on rotated pages follows the page's reading direction.
+- Open documents in Select mode. Follow links and select text with a long
+  press there; Cmd/Ctrl+A selects page text in Select and Hand modes.
+- Bring search matches into view horizontally when zoomed in.
+- Keep freehand ink previews at the chosen opacity, and include annotations
+  in exported vector snapshots.
+
+- The app is built on `material_ui`, the package Flutter's Material widgets
+  are moving to, instead of the retiring `package:flutter/material.dart`.
+  Nothing should look or behave differently: the editor now takes the app's
+  theme directly instead of through a compatibility layer.
+
+## 6.0.0
+
+- Select page text with the Select tool; double-click a word in Hand mode.
+- Render pages faster with less worker memory, and release cached decodes
+  when memory is tight or the mobile app enters the background.
+- Fix missing deep-zoom detail after zooming quickly.
 - Read-only mode keeps one header bar, like editing: the document controls
   share the app bar instead of a second bar under it.
 - The developer tools panel (F12) docks with the editor's own panels on a

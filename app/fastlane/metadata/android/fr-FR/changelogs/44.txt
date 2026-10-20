@@ -1,0 +1,7 @@
+Nouveautés de 8.0.0
+
+- Combinez des PDF et entrelacez leurs pages.
+- Capturez des zones polygonales et recadrez les captures collées.
+- Ajoutez plusieurs flèches aux annotations en gardant leurs cibles fixes.
+- Modifiez ensemble le style et la taille de plusieurs champs.
+- Décodage des scans plus rapide et aperçus plus clairs.

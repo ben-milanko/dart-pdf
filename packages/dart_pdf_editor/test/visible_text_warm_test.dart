@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -32,12 +32,14 @@ class _TextWorker extends PdfRenderWorker {
   @override
   Future<List<PdfRenderCommand>?> record(int pageIndex,
           {bool annotations = true,
+          Set<String> hiddenAnnotationSubtypes = const {},
           int priority = 0,
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
           PdfRect? imageDecodeRegion,
-          PdfPartialRecordSink? onPartial}) async =>
+          PdfPartialRecordSink? onPartial,
+          PdfRecordDecodeGate? decodeGate}) async =>
       null;
 
   @override

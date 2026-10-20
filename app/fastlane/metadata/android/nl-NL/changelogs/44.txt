@@ -1,0 +1,7 @@
+Nieuw in 8.0.0
+
+- Combineer PDF's en voeg pagina's om en om in.
+- Maak veelhoekige snapshots en snijd geplakte snapshots bij.
+- Voeg meerdere pijlen aan tekstballonnen toe met vaste doelen.
+- Wijzig stijl en grootte van meerdere formuliervelden tegelijk.
+- Snellere verwerking van scans en duidelijkere voorbeelden.

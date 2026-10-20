@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'design/editor_theme.dart';
+import 'design/fold.dart';
 import 'design/material_host.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
@@ -213,7 +214,9 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       ...widget.leadingPanels,
       Expanded(
         key: const ValueKey('pdf-shell-viewer'),
-        child: viewer,
+        // On a foldable held half open the page sits in one pane rather
+        // than bending over the crease; the floating toolbar goes with it.
+        child: PdfFoldAvoid(child: viewer),
       ),
       ...widget.trailingPanels,
     ]);
@@ -1477,29 +1480,37 @@ class _ShellControlGrid extends StatelessWidget {
   final List<PdfShellControlItem> controls;
 
   @override
-  Widget build(BuildContext context) => GridView.count(
-        crossAxisCount: 4,
-        shrinkWrap: true,
-        padding: EdgeInsets.zero,
-        physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: 1.15,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
-        children: [
-          for (final control in controls)
-            _ShellControlTile(
-              key: control.key,
-              icon: control.icon,
-              label: control.label,
-              active: control.selected,
-              enabled: control.enabled,
-              onTap: () {
-                Navigator.of(context).pop();
-                control.onPressed();
-              },
-            ),
-        ],
-      );
+  Widget build(BuildContext context) {
+    // Fixed-aspect grid tiles cannot grow with accessibility text. List rows
+    // let labels wrap and grow naturally inside the sheet's existing scroll.
+    final useList = MediaQuery.textScalerOf(context).scale(11) > 11 * 1.3;
+    final tiles = [
+      for (final control in controls)
+        _ShellControlTile(
+          key: control.key,
+          icon: control.icon,
+          label: control.label,
+          active: control.selected,
+          enabled: control.enabled,
+          useList: useList,
+          onTap: () {
+            Navigator.of(context).pop();
+            control.onPressed();
+          },
+        ),
+    ];
+    if (useList) return Column(children: tiles);
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 1.15,
+      mainAxisSpacing: 6,
+      crossAxisSpacing: 6,
+      children: tiles,
+    );
+  }
 }
 
 class _ShellControlTile extends StatelessWidget {
@@ -1509,6 +1520,7 @@ class _ShellControlTile extends StatelessWidget {
     required this.label,
     required this.active,
     required this.enabled,
+    required this.useList,
     required this.onTap,
   });
 
@@ -1516,6 +1528,7 @@ class _ShellControlTile extends StatelessWidget {
   final String label;
   final bool active;
   final bool enabled;
+  final bool useList;
   final VoidCallback onTap;
 
   @override
@@ -1548,24 +1561,33 @@ class _ShellControlTile extends StatelessWidget {
                     : Colors.transparent,
               ),
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, size: 22, color: fg),
-                  const SizedBox(height: 6),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: fg),
+            child: useList
+                ? ListTile(
+                    enabled: enabled,
+                    selected: active,
+                    leading: Icon(icon, size: 22, color: fg),
+                    title:
+                        Text(label, style: TextStyle(fontSize: 11, color: fg)),
+                  )
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, size: 22, color: fg),
+                        const SizedBox(height: 6),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 11, color: fg),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -1596,6 +1618,7 @@ enum _ViewOption {
   scrollbarChapters,
   formHighlight,
   pageColor,
+  bakePageColor,
   editingGuides,
   floatingToolbars,
   toolbarLayout,
@@ -1637,6 +1660,9 @@ Future<void> _selectViewOption(
         preferences.noteRecentColor(color);
         preferences.pageColor = color;
       }
+    case _ViewOption.bakePageColor:
+      if (!pageColor) return;
+      preferences.bakePageColor = !preferences.bakePageColor;
     case _ViewOption.editingGuides:
       await showPdfEditingGuidesDialog(
         context,
@@ -2043,6 +2069,23 @@ Future<void> showPdfShellViewOptionsSheet(
                       setSheetState(() {});
                     },
                   ),
+                if (pageColor)
+                  SwitchListTile(
+                    key: const ValueKey('pdf-shell-bake-page-color'),
+                    secondary: const Icon(Icons.format_color_fill),
+                    title: Text(pdfL10n(context).shellBakePageColor),
+                    value: preferences.bakePageColor,
+                    onChanged: (_) async {
+                      await _selectViewOption(
+                        context,
+                        _ViewOption.bakePageColor,
+                        preferences: preferences,
+                        pageColor: pageColor,
+                        onAuthorPressed: onAuthorPressed,
+                      );
+                      setSheetState(() {});
+                    },
+                  ),
                 if (editingGuides)
                   ListTile(
                     key: const ValueKey('pdf-shell-editing-guides'),
@@ -2395,6 +2438,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
               trailing: Text(_hex(preferences.pageColor)),
               contentPadding: EdgeInsets.zero,
             ),
+          ),
+        if (pageColor)
+          CheckedPopupMenuItem(
+            key: const ValueKey('pdf-shell-bake-page-color'),
+            value: _ViewOption.bakePageColor,
+            checked: preferences.bakePageColor,
+            child: Text(pdfL10n(context).shellBakePageColor),
           ),
         if (editingGuides)
           PopupMenuItem(

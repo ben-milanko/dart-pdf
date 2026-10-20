@@ -1,0 +1,6 @@
+Baru di 8.1.0
+
+- Ubah font dan gaya kolom formulir dropdown dan daftar.
+- Menu ponsel baru untuk membuat, membuka, mencetak dan menandatangani.
+- Pengeditan teks mempertahankan font dan pembungkusan baris. Papan ketik dan menu pilihan iOS diperbaiki.
+- Palet warna lengkap untuk pena dan penyorot seluler.

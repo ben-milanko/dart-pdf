@@ -17,7 +17,7 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
@@ -70,7 +70,8 @@ CosStream _maskedJpeg() {
 }
 
 void main() {
-  testWidgets('a deferred image /SMask cuts the base instead of painting over '
+  testWidgets(
+      'a deferred image /SMask cuts the base instead of painting over '
       'it', (tester) async {
     await tester.runAsync(() async {
       final cos = CosDocument.open(buildClassicPdf());

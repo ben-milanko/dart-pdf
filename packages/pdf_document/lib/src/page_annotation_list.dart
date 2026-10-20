@@ -92,6 +92,24 @@ class _PdfPageAnnotationList {
     }
   }
 
+  /// /IRT must be an indirect reference, even when the source PDF stored its
+  /// group leader inline in a direct or indirect /Annots array.
+  CosReference makeIndirect(CosDictionary dict) {
+    final existing = _cos.referenceTo(dict);
+    if (existing != null) return existing;
+    final array = _array;
+    if (array == null ||
+        !array.items.any((item) => identical(_cos.resolve(item), dict))) {
+      throw ArgumentError('annotation is not on this page');
+    }
+    final ref = _updater.addObject(dict);
+    _replaceItems([
+      for (final item in array.items)
+        if (identical(_cos.resolve(item), dict)) ref else item,
+    ]);
+    return ref;
+  }
+
   void _replaceItems(List<CosObject> items, {bool removeIfEmpty = false}) {
     final page = _page;
     final raw = _raw;

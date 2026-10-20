@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../dialog.dart';
@@ -9,18 +9,21 @@ import 'editing_controller.dart';
 import 'editing_preferences.dart';
 import '../design/editor_presenter.dart';
 
-/// Shows the document color-processing dialog and returns the number of
-/// page-content color operators rewritten, or null when cancelled.
+/// Shows colour processing for page content and annotations, or only the
+/// supplied [annotationSlots]. Returns the number of changed colour entries
+/// (paint sides for transparent output), or null when cancelled.
 Future<int?> showPdfColorProcessingDialog(
   BuildContext context, {
   required PdfEditingController controller,
   required PdfEditingPreferences preferences,
+  List<(int, int)>? annotationSlots,
 }) {
   return pdfPresentDialog<int>(
     context,
     builder: (context) => _ColorProcessingDialog(
       controller: controller,
       preferences: preferences,
+      annotationSlots: annotationSlots,
     ),
   );
 }
@@ -29,10 +32,12 @@ class _ColorProcessingDialog extends StatefulWidget {
   const _ColorProcessingDialog({
     required this.controller,
     required this.preferences,
+    this.annotationSlots,
   });
 
   final PdfEditingController controller;
   final PdfEditingPreferences preferences;
+  final List<(int, int)>? annotationSlots;
 
   @override
   State<_ColorProcessingDialog> createState() => _ColorProcessingDialogState();
@@ -50,6 +55,10 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
   var _documentColorsLoading = false;
   var _tolerance = 0;
   var _fill = true;
+  var _includePageContent = true;
+  var _includeAnnotations = true;
+  late final Object _sourceDocument;
+  bool get _annotationScope => widget.annotationSlots != null;
   var _stroke = true;
   var _replaceTransparent = false;
   var _applying = false;
@@ -58,6 +67,8 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
   void initState() {
     super.initState();
     _replace = widget.controller.color;
+    _sourceDocument = widget.controller.document;
+    if (_annotationScope) _includePageContent = false;
     _selectedPages = widget.controller.selectedPageCount > 0;
     _refreshDocumentColors(preferFirst: true);
   }
@@ -93,8 +104,11 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
     setState(() => setColor(color));
   }
 
-  Iterable<int>? get _targetPages =>
-      _selectedPages ? widget.controller.selectedPages : null;
+  Iterable<int>? get _targetPages => _annotationScope
+      ? widget.annotationSlots!.map((slot) => slot.$1).toSet()
+      : _selectedPages
+          ? widget.controller.selectedPages
+          : null;
 
   List<int> get _targetPageList {
     final pageCount = widget.controller.document.pageCount;
@@ -110,10 +124,14 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
     final pages = _targetPageList;
     final fill = _fill;
     final stroke = _stroke;
+    final includePageContent = _includePageContent;
+    final includeAnnotations = _includeAnnotations;
     _documentColors = const [];
     _documentColorProgress = 0;
     _documentColorTotal = pages.length;
-    _documentColorsLoading = pages.isNotEmpty && (fill || stroke);
+    _documentColorsLoading = pages.isNotEmpty &&
+        (fill || stroke) &&
+        (includePageContent || includeAnnotations);
     if (!_documentColorsLoading) return;
     SchedulerBinding.instance.addPostFrameCallback(
       (_) => unawaited(_scanDocumentColors(
@@ -121,6 +139,8 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
         pages,
         fill: fill,
         stroke: stroke,
+        includePageContent: includePageContent,
+        includeAnnotations: includeAnnotations,
         preferFirst: preferFirst,
       )),
     );
@@ -133,12 +153,17 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
     required bool fill,
     required bool stroke,
     required bool preferFirst,
+    required bool includePageContent,
+    required bool includeAnnotations,
   }) async {
     if (!mounted || generation != _documentColorScan) return;
     final colors = await widget.controller.documentContentColorsAsync(
       pages: pages,
       fill: fill,
       stroke: stroke,
+      includePageContent: includePageContent,
+      includeAnnotations: includeAnnotations,
+      annotationSlots: widget.annotationSlots,
       isCancelled: () => !mounted || generation != _documentColorScan,
       onProgress: (completed, total) {
         if (!mounted || generation != _documentColorScan) return;
@@ -236,6 +261,10 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
 
   Future<void> _apply() async {
     if (_applying) return;
+    if (!identical(_sourceDocument, widget.controller.document)) {
+      Navigator.of(context).pop(0);
+      return;
+    }
     setState(() => _applying = true);
     await SchedulerBinding.instance.endOfFrame;
     final count = await widget.controller.replaceDocumentColorsAsync(
@@ -246,6 +275,9 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
       fill: _fill,
       stroke: _stroke,
       transparent: _replaceTransparent,
+      includePageContent: _includePageContent,
+      includeAnnotations: _includeAnnotations,
+      annotationSlots: widget.annotationSlots,
     );
     if (!mounted) return;
     Navigator.of(context).pop(count);
@@ -254,8 +286,10 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
   @override
   Widget build(BuildContext context) {
     final selectedCount = widget.controller.selectedPageCount;
-    final canApply =
-        (_fill || _stroke) && !_documentColorsLoading && !_applying;
+    final canApply = (_fill || _stroke) &&
+        (_includePageContent || _includeAnnotations) &&
+        !_documentColorsLoading &&
+        !_applying;
     return PopScope(
       canPop: !_applying,
       child: AlertDialog(
@@ -325,35 +359,68 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                       : (value) => setState(() => _tolerance = value.round()),
                 ),
                 const SizedBox(height: 4),
-                RadioGroup<bool>(
-                  groupValue: _selectedPages,
-                  onChanged: (value) {
-                    if (_applying || value == null) return;
-                    _setSelectedPages(value);
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      RadioListTile<bool>(
-                        key: const ValueKey('pdf-color-process-selected-pages'),
-                        value: true,
-                        enabled: selectedCount > 0 && !_applying,
-                        title: Text(
-                            pdfL10n(context).colorSelectedPages(selectedCount)),
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      RadioListTile<bool>(
-                        key: const ValueKey('pdf-color-process-whole-document'),
-                        value: false,
-                        enabled: !_applying,
-                        title: Text(pdfL10n(context).colorWholeDocument),
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
+                if (_annotationScope)
+                  Text(pdfL10n(context)
+                      .propAnnotationCount(widget.annotationSlots!.length))
+                else ...[
+                  CheckboxListTile(
+                    key: const ValueKey('pdf-color-process-content'),
+                    value: _includePageContent,
+                    onChanged: _applying
+                        ? null
+                        : (value) => setState(() {
+                              _includePageContent = value ?? false;
+                              _restartDocumentColorScan();
+                            }),
+                    title: Text(pdfL10n(context).propSectionContent),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
-                ),
+                  CheckboxListTile(
+                    key: const ValueKey('pdf-color-process-annotations'),
+                    value: _includeAnnotations,
+                    onChanged: _applying
+                        ? null
+                        : (value) => setState(() {
+                              _includeAnnotations = value ?? false;
+                              _restartDocumentColorScan();
+                            }),
+                    title: Text(pdfL10n(context).shellPanelAnnotations),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  RadioGroup<bool>(
+                    groupValue: _selectedPages,
+                    onChanged: (value) {
+                      if (_applying || value == null) return;
+                      _setSelectedPages(value);
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RadioListTile<bool>(
+                          key: const ValueKey(
+                              'pdf-color-process-selected-pages'),
+                          value: true,
+                          enabled: selectedCount > 0 && !_applying,
+                          title: Text(pdfL10n(context)
+                              .colorSelectedPages(selectedCount)),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        RadioListTile<bool>(
+                          key: const ValueKey(
+                              'pdf-color-process-whole-document'),
+                          value: false,
+                          enabled: !_applying,
+                          title: Text(pdfL10n(context).colorWholeDocument),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 CheckboxListTile(
                   key: const ValueKey('pdf-color-process-fill'),
@@ -482,7 +549,7 @@ class _DocumentColors extends StatelessWidget {
     final theme = Theme.of(context);
     if (colors.isEmpty && !loading) {
       return Text(
-        pdfL10n(context).colorNoPageContentColors,
+        pdfL10n(context).colorNoColorsFound,
         style: theme.textTheme.bodySmall,
       );
     }

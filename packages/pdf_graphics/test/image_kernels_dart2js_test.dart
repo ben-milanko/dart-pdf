@@ -67,7 +67,8 @@ void main() {
 
   for (final kernel in [
     '_scaledMaskedDirect8Region',
-    '_scaledImageMaskRegion'
+    // the bit-counting loop of _scaledImageMaskRegion and the /Mask stencil
+    '_stencilCoverage',
   ]) {
     test('$kernel reads its samples natively under dart2js', () {
       final body = _functionBody(js, kernel);

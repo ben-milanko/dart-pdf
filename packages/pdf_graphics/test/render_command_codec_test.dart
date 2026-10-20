@@ -107,7 +107,8 @@ class _TranscriptDevice implements PdfDevice {
   @override
   void drawText(PdfTextRun run) => log.add('text "${run.text}" '
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
-      'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
+      'font=${run.fontName} serif=${run.serif} size=${run.fontSize} '
+      'fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
       'ls=${run.letterSpacing} ws=${run.wordSpacing} '
       'ld=${run.leadingSpace} vw=${run.visibleWidth} '
@@ -203,6 +204,19 @@ void main() {
       expect(a, equals(b));
     });
 
+    test('the header names the command count without a decode', () {
+      final recorder = _record(CosDocument.open(buildClassicPdf()),
+          'q 0 0 1 rg 5 5 20 30 re f Q BT /F1 12 Tf 10 10 Td (hi) Tj ET');
+      final bytes = serializeCommands(recorder.commands)!;
+      expect(serializedCommandCount(bytes), deserializeCommands(bytes).length);
+      // Not a buffer this build reads: a stale worker script, or too short.
+      expect(
+          serializedCommandCount(
+              Uint8List.fromList([bytes[0] + 1, 0, 0, 0, 1])),
+          isNull);
+      expect(serializedCommandCount(Uint8List(0)), isNull);
+    });
+
     test('text opacity survives command serialization', () {
       const run = PdfTextRun(
         text: 'Faded',
@@ -220,6 +234,28 @@ void main() {
       expect(restored.run.fillAlpha, 0.25);
       expect(restored.run.strokeAlpha, 0.6);
     });
+  });
+
+  test("a substituted run keeps its descriptor's Serif flag across the wire",
+      () {
+    // The worker-side painter picks the substitute face from it: losing it
+    // would draw an unembedded serif in Helvetica's shapes off-thread only.
+    for (final serif in [false, true]) {
+      final restored = (deserializeCommands(serializeCommands([
+        PdfDrawTextCommand(PdfTextRun(
+          text: 'biased',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 2.5,
+          fontName: 'Unknown-Regular',
+          serif: serif,
+        )),
+      ])!)
+              .single as PdfDrawTextCommand)
+          .run;
+      expect(restored.serif, serif);
+      expect(restored.fontName, 'Unknown-Regular');
+    }
   });
 
   test('typed and boxed char offsets write the same bytes and read unboxed',
@@ -1399,6 +1435,93 @@ void main() {
       expect(decoded.width, 1);
       expect(decoded.height, 1);
       expect(decoded.rgba, [40, 100, 7, 255]);
+    });
+
+    test('imageDecodeRegion crops and retargets a rotated image draw', () {
+      // A 90-degree placement (u up the page, v leftward), as a landscape
+      // sheet or a rotated scan tile is drawn. Region decode used to refuse
+      // anything but axis-aligned transforms.
+      final cos = CosDocument.open(buildClassicPdf());
+      final raw = <int>[];
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          raw.addAll([x * 40, y * 50, 7]);
+        }
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(raw)),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(0, 400, -400, 0, 500, 200),
+      ));
+
+      final bytes = serializeCommands([command],
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 100,
+          imageDecodeRegion: const PdfRect(200, 300, 300, 400));
+
+      final restored =
+          _imageCommands(deserializeCommands(bytes!)).single.request;
+      final transform = restored.transform;
+      expect(transform.a, closeTo(0, 1e-9));
+      expect(transform.b, closeTo(100, 1e-9));
+      expect(transform.c, closeTo(-100, 1e-9));
+      expect(transform.d, closeTo(0, 1e-9));
+      expect(transform.e, closeTo(300, 1e-9));
+      expect(transform.f, closeTo(300, 1e-9));
+      final decoded = restored.decoded!;
+      expect(decoded.width, 1);
+      expect(decoded.height, 1);
+      expect(decoded.rgba, [40, 50, 7, 255]);
+    });
+
+    test('off-region rotated images do not shrink the visible one', () {
+      // A scan cut into hundreds of rotated tiles: only the tiles under the
+      // detail patch may count against its (viewport-sized) image budget,
+      // otherwise every visible tile is squeezed far below native.
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(100),
+          'Height': const CosInteger(100),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(List.filled(100 * 100, 128))),
+      );
+      PdfDrawImageCommand tile(double x, double y) =>
+          PdfDrawImageCommand(PdfImageRequest(
+            stream: stream,
+            transform: PdfMatrix(0, 10, -10, 0, x + 10, y),
+          ));
+      final commands = [
+        tile(0, 0),
+        for (var i = 1; i <= 200; i++) tile(i * 20.0, 500),
+      ];
+
+      final bytes = serializeCommands(commands,
+          cos: cos,
+          decodeImages: true,
+          maxImagePixelRatio: 10,
+          imageDecodeRegion: const PdfRect(-1, -1, 11, 11));
+
+      final images = _imageCommands(deserializeCommands(bytes!));
+      final visible = images.first.request.decoded!;
+      expect(visible.width, 100);
+      expect(visible.height, 100);
+      for (final offRegion in images.skip(1)) {
+        expect(offRegion.request.decoded!.width, 1);
+      }
     });
 
     test('imageDecodeRegion reuses browser-seeded Flate samples byte-for-byte',

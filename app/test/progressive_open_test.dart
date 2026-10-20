@@ -12,7 +12,7 @@ import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -232,8 +232,9 @@ void main() {
     }
   });
 
-  testWidgets('drops a restored desktop file that has gone missing',
-      (tester) async {
+  testWidgets(
+      'drops a restored desktop file that has gone missing, with a '
+      'warning', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {
       SharedPreferences.setMockInitialValues({
@@ -246,10 +247,14 @@ void main() {
         await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
       });
 
-      // The length probe fails for a missing file, so it is dropped silently -
-      // no tab, no error placeholder.
+      // The length probe fails for a missing file, so it is dropped - no tab,
+      // no error placeholder - and a toast says why instead of failing quietly.
       expect(tabTitle('gone.pdf'), findsNothing);
       expect(find.byType(PdfEditorView), findsNothing);
+      expect(
+          find.text('gone is no longer available. It may have been moved, '
+              'renamed or deleted.'),
+          findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

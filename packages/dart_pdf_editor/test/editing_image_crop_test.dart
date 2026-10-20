@@ -4,7 +4,7 @@ import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_image_crop.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -18,7 +18,8 @@ String appearance(PdfDocument doc, PdfAnnotation annot) =>
 
 void main() {
   group('PdfImageCropOverlay widget', () {
-    testWidgets('dragging the top-right handle shrinks the crop', (tester) async {
+    testWidgets('dragging the top-right handle shrinks the crop',
+        (tester) async {
       const bounds = Rect.fromLTWH(0, 0, 200, 200);
       Rect? changed;
       await tester.pumpWidget(MaterialApp(
@@ -106,6 +107,70 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-crop-cancel')));
       expect(cancelled, isTrue);
     });
+
+    testWidgets('the chips counter-scale with zoom and sit below the crop',
+        (tester) async {
+      Future<Rect> confirmAt(double chromeScale) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Stack(children: [
+              PdfImageCropOverlay(
+                key: ValueKey(chromeScale),
+                bounds: const Rect.fromLTWH(20, 20, 200, 200),
+                initialCrop: const Rect.fromLTWH(20, 20, 200, 200),
+                chromeScale: chromeScale,
+                accentColor: const Color(0xFF1E88E5),
+                onChanged: (_) {},
+                onCommit: () {},
+                onCancel: () {},
+              ),
+            ]),
+          ),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      final rest = await confirmAt(1);
+      // at 4x zoom the overlay draws in page space, so the chip must shrink
+      // to a quarter in the overlay's own frame to stay constant on screen
+      final zoomed = await confirmAt(0.25);
+      expect(zoomed.width, closeTo(rest.width / 4, 0.5));
+      expect(zoomed.height, closeTo(rest.height / 4, 0.5));
+      // below the crop, not over the image
+      expect(rest.top, greaterThanOrEqualTo(220));
+      expect(zoomed.top, greaterThanOrEqualTo(220));
+    });
+    testWidgets('the chips flip above, then inside, when the page runs out',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Future<Rect> confirmFor(Rect bounds) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Stack(children: [
+            PdfImageCropOverlay(
+              key: ValueKey(bounds),
+              bounds: bounds,
+              initialCrop: bounds,
+              chromeScale: 1,
+              accentColor: const Color(0xFF1E88E5),
+              onChanged: (_) {},
+              onCommit: () {},
+              onCancel: () {},
+            ),
+          ]),
+        ));
+        return tester.getRect(find.byKey(const ValueKey('pdf-crop-confirm')));
+      }
+
+      // hugging the page bottom: no room below, so the chips ride above
+      final above = await confirmFor(const Rect.fromLTWH(20, 480, 200, 110));
+      expect(above.bottom, lessThanOrEqualTo(480));
+      // the full page height: no room either side, so they tuck inside
+      final inside = await confirmFor(const Rect.fromLTWH(20, 0, 200, 600));
+      expect(inside.bottom, lessThanOrEqualTo(600));
+      expect(inside.top, greaterThanOrEqualTo(0));
+    });
   });
 
   group('crop overlay in the viewer', () {
@@ -116,8 +181,8 @@ void main() {
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
       // a fully-visible image near the top of the page
-      expect(editing.addImageInRect(
-          0, const PdfRect(150, 520, 350, 700), _png), isTrue);
+      expect(editing.addImageInRect(0, const PdfRect(150, 520, 350, 700), _png),
+          isTrue);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: ListenableBuilder(
@@ -139,7 +204,8 @@ void main() {
         (tester) async {
       final editing = await pumpWithImage(tester);
       expect(editing.canCropSelected, isTrue);
-      expect(find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
 
       editing.beginImageCrop();
       await tester.pump();
@@ -152,7 +218,8 @@ void main() {
       // let the double-tap window and ink ripple timers drain
       await tester.pumpAndSettle(const Duration(milliseconds: 400));
       expect(editing.isCroppingImage, isFalse);
-      expect(find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-image-crop-overlay')), findsNothing);
     });
 
     testWidgets('dragging a handle then confirming crops the image',
@@ -189,7 +256,8 @@ void main() {
       expect(appearance(editing.document, stamp), contains('/Img0 Do'));
     });
 
-    testWidgets('cancel via the overlay chip discards the crop', (tester) async {
+    testWidgets('cancel via the overlay chip discards the crop',
+        (tester) async {
       final editing = await pumpWithImage(tester);
       final rect = editing.selectedAnnotation!.rect;
       editing.beginImageCrop();
@@ -209,8 +277,8 @@ void main() {
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
-      expect(editing.addImageInRect(
-          0, const PdfRect(150, 520, 350, 700), _png), isTrue);
+      expect(editing.addImageInRect(0, const PdfRect(150, 520, 350, 700), _png),
+          isTrue);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: const SizedBox.expand(),
@@ -235,8 +303,8 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 400));
       expect(editing.isCroppingImage, isTrue);
       // the strip now shows the crop Done/Cancel actions
-      expect(find.byKey(const ValueKey('pdf-crop-apply-toolbar')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-crop-apply-toolbar')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-crop-cancel-toolbar')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-crop-image')), findsNothing);

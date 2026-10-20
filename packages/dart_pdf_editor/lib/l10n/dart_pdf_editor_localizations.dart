@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'dart_pdf_editor_localizations_ar.dart';
+import 'dart_pdf_editor_localizations_ckb.dart';
 import 'dart_pdf_editor_localizations_de.dart';
 import 'dart_pdf_editor_localizations_en.dart';
 import 'dart_pdf_editor_localizations_es.dart';
@@ -113,6 +114,7 @@ abstract class DartPdfEditorLocalizations {
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
+    Locale('ckb'),
     Locale('de'),
     Locale('en'),
     Locale('en', 'AU'),
@@ -3481,7 +3483,7 @@ abstract class DartPdfEditorLocalizations {
   /// Tooltip for the snapshot capture tool.
   ///
   /// In en, this message translates to:
-  /// **'Snapshot - drag a region to capture it (paste back as vector)'**
+  /// **'Snapshot - drag a box, or tap out a polygon and double-tap, to capture it (paste back as vector)'**
   String get tbTipSnapshot;
 
   /// Label for the page-content editing tool.
@@ -4305,6 +4307,324 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Float the toolbars over the page instead of docking them to the window edges'**
   String get tbFloatingToolbarsHint;
+
+  /// No description provided for @textVerticalAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical alignment'**
+  String get textVerticalAlign;
+
+  /// No description provided for @textAlignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to top'**
+  String get textAlignTop;
+
+  /// No description provided for @textAlignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to middle'**
+  String get textAlignMiddle;
+
+  /// No description provided for @textAlignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to bottom'**
+  String get textAlignBottom;
+
+  /// Title of the prompt asking for the value a measurement shows (a written value such as 12'-6" replacing the computed one).
+  ///
+  /// In en, this message translates to:
+  /// **'Measurement value'**
+  String get measCustomValueTitle;
+
+  /// Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit measurement value'**
+  String get menuEditMeasurementValue;
+
+  /// Annotation context-menu item that adds another leader line (arrow) to the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Add leader'**
+  String get menuAddLeader;
+
+  /// Properties section for independently styling callout leader lines.
+  ///
+  /// In en, this message translates to:
+  /// **'Leader'**
+  String get propLeader;
+
+  /// Properties control for the callout text box outline width; zero removes it.
+  ///
+  /// In en, this message translates to:
+  /// **'Outline width'**
+  String get propOutlineWidth;
+
+  /// Annotation menu: rotate multiple annotations around their shared centre.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate around selection center…'**
+  String get menuRotateSelection;
+
+  /// Annotation menu: rotate multiple annotations around their individual centres.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate each annotation…'**
+  String get menuRotateEach;
+
+  /// Prompt for a signed rotation angle in degrees; positive rotates counterclockwise.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation (degrees, counterclockwise)'**
+  String get rotationAngleTitle;
+
+  /// Annotation context menu: make the selected annotations one persistent group.
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get menuGroup;
+
+  /// Annotation context menu: dissolve selected groups while retaining their annotations.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungroup'**
+  String get menuUngroup;
+
+  /// Annotation context-menu item that removes the leader line nearest the click point from the selected callout.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove leader'**
+  String get menuRemoveLeader;
+
+  /// Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point.
+  ///
+  /// In en, this message translates to:
+  /// **'Add note here'**
+  String get menuAddNoteHere;
+
+  /// Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom measurement (type value)'**
+  String get tbNameMeasureCustom;
+
+  /// Title of the multi-document insert-pages dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert pages'**
+  String get insertPagesTitle;
+
+  /// Heading over the list of PDFs to insert.
+  ///
+  /// In en, this message translates to:
+  /// **'Files'**
+  String get insertPagesFiles;
+
+  /// Button that picks more PDFs to insert.
+  ///
+  /// In en, this message translates to:
+  /// **'Add files…'**
+  String get insertPagesAddFiles;
+
+  /// Button that sorts the files to insert by file name.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by name'**
+  String get insertPagesSortByName;
+
+  /// Shown when the insert list is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Add one or more PDFs to insert.'**
+  String get insertPagesNoFiles;
+
+  /// Shown when picked files cannot be opened.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open {names}. The file may be damaged or password-protected.'**
+  String insertPagesOpenFailed(String names);
+
+  /// Page count of a file in the insert list.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 page} other{{count} pages}}'**
+  String insertPagesFilePageCount(int count);
+
+  /// Tooltip: move a file earlier in the insert order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get insertPagesMoveUp;
+
+  /// Tooltip: move a file later in the insert order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get insertPagesMoveDown;
+
+  /// Tooltip: drop a file from the insert list.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from list'**
+  String get insertPagesRemoveFile;
+
+  /// Label of a file's page range field.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get insertPagesRange;
+
+  /// Hint of a file's page range field; blank means all pages.
+  ///
+  /// In en, this message translates to:
+  /// **'All (e.g. 1-3, 7)'**
+  String get insertPagesRangeHint;
+
+  /// Validation error for a file's page range.
+  ///
+  /// In en, this message translates to:
+  /// **'Use pages 1–{count}, e.g. 1-3, 7'**
+  String insertPagesRangeInvalid(int count);
+
+  /// Page filter option: every page.
+  ///
+  /// In en, this message translates to:
+  /// **'All pages'**
+  String get insertPagesSubsetAll;
+
+  /// Page filter option: pages 1, 3, 5...
+  ///
+  /// In en, this message translates to:
+  /// **'Odd pages'**
+  String get insertPagesSubsetOdd;
+
+  /// Page filter option: pages 2, 4, 6...
+  ///
+  /// In en, this message translates to:
+  /// **'Even pages'**
+  String get insertPagesSubsetEven;
+
+  /// Checkbox: insert a file's pages last to first.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse order'**
+  String get insertPagesReverse;
+
+  /// Heading over the where-to-insert controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Placement'**
+  String get insertPagesPlacement;
+
+  /// Placement option: insert before the chosen page.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get insertPagesBefore;
+
+  /// Placement option: insert after the chosen page.
+  ///
+  /// In en, this message translates to:
+  /// **'After'**
+  String get insertPagesAfter;
+
+  /// Placement anchor: the document's first page.
+  ///
+  /// In en, this message translates to:
+  /// **'First page'**
+  String get insertPagesFirstPage;
+
+  /// Placement anchor: the document's last page.
+  ///
+  /// In en, this message translates to:
+  /// **'Last page'**
+  String get insertPagesLastPage;
+
+  /// Placement anchor: a page number entered by the user.
+  ///
+  /// In en, this message translates to:
+  /// **'Page'**
+  String get insertPagesPage;
+
+  /// Label of the placement page number field.
+  ///
+  /// In en, this message translates to:
+  /// **'Page number'**
+  String get insertPagesPageNumber;
+
+  /// Suffix after the placement page number, e.g. 'of 12'.
+  ///
+  /// In en, this message translates to:
+  /// **'of {count}'**
+  String insertPagesOfCount(int count);
+
+  /// Validation error for the placement page number.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 1–{count}'**
+  String insertPagesPageInvalid(int count);
+
+  /// Checkbox: weave the inserted pages between the existing ones.
+  ///
+  /// In en, this message translates to:
+  /// **'Interleave pages'**
+  String get insertPagesInterleave;
+
+  /// Explains the interleave option.
+  ///
+  /// In en, this message translates to:
+  /// **'Alternate inserted and existing pages from the placement onward - for example, to rejoin odd and even pages scanned separately.'**
+  String get insertPagesInterleaveHelp;
+
+  /// Interleave: how many inserted pages go in each run.
+  ///
+  /// In en, this message translates to:
+  /// **'Inserted pages each time'**
+  String get insertPagesRunInserted;
+
+  /// Interleave: how many existing pages sit between runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Document pages between'**
+  String get insertPagesRunExisting;
+
+  /// Checkbox: bring each file's bookmarks along.
+  ///
+  /// In en, this message translates to:
+  /// **'Include bookmarks'**
+  String get insertPagesIncludeBookmarks;
+
+  /// Checkbox: add a bookmark named after each file, nesting its own bookmarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a bookmark for each file'**
+  String get insertPagesBookmarkFiles;
+
+  /// Summary of what the insert will do.
+  ///
+  /// In en, this message translates to:
+  /// **'{inserted, plural, =1{Inserts 1 page} other{Inserts {inserted} pages}} - the document will have {total, plural, =1{1 page} other{{total} pages}}.'**
+  String insertPagesSummary(int inserted, int total);
+
+  /// Confirm button of the insert-pages dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert'**
+  String get insertPagesConfirm;
+
+  /// Toggle in View options: when on, saving or exporting paints the chosen page (paper) color into the file so other PDF readers show it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Save page color into file'**
+  String get shellBakePageColor;
+
+  /// Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid.
+  ///
+  /// In en, this message translates to:
+  /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
+  String get pageColorNotBakedSigned;
 }
 
 class _DartPdfEditorLocalizationsDelegate
@@ -4320,6 +4640,7 @@ class _DartPdfEditorLocalizationsDelegate
   @override
   bool isSupported(Locale locale) => <String>[
         'ar',
+        'ckb',
         'de',
         'en',
         'es',
@@ -4375,6 +4696,8 @@ DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
   switch (locale.languageCode) {
     case 'ar':
       return DartPdfEditorLocalizationsAr();
+    case 'ckb':
+      return DartPdfEditorLocalizationsCkb();
     case 'de':
       return DartPdfEditorLocalizationsDe();
     case 'en':

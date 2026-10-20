@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_viewer_example/scroll_indicator_demo.dart';
 import 'package:pdf_viewer_example/demo_document.dart';
@@ -25,8 +25,8 @@ void main() {
     final scroll =
         tester.state<ScrollableState>(find.byType(Scrollable).first).position;
     expect(scroll.pixels, moreOrLessEquals(0, epsilon: 0.5));
-    await tester.drag(find.byKey(const ValueKey('demo-page-scrubber')),
-        const Offset(0, 400));
+    await tester.drag(
+        find.byKey(const ValueKey('demo-page-scrubber')), const Offset(0, 400));
     await tester.pump();
     expect(scroll.pixels, greaterThan(0));
 
@@ -56,8 +56,8 @@ void main() {
     final scroll =
         tester.state<ScrollableState>(find.byType(Scrollable).first).position;
     expect(scroll.pixels, moreOrLessEquals(0, epsilon: 0.5));
-    await tester.drag(find.byKey(const ValueKey('demo-page-scrubber')),
-        const Offset(400, 0));
+    await tester.drag(
+        find.byKey(const ValueKey('demo-page-scrubber')), const Offset(400, 0));
     await tester.pump();
     expect(scroll.pixels, greaterThan(0));
 

@@ -2,7 +2,8 @@
 // host's onPlaceSignature handler runs with the page and the box in PDF user
 // space to collect an identity/appearance and cryptographically sign into it.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -42,8 +43,8 @@ void main() {
         (tester) async {
       int? gotPage;
       PdfRect? gotRect;
-      final editing = await pumpEditor(tester,
-          onPlaceSignature: (context, {required pageIndex, required pageRect}) async {
+      final editing = await pumpEditor(tester, onPlaceSignature: (context,
+          {required pageIndex, required pageRect}) async {
         gotPage = pageIndex;
         gotRect = pageRect;
       });
@@ -65,6 +66,28 @@ void main() {
       expect(gotRect!.top, closeTo(720, 1.0));
       // placement itself writes nothing to the document - the host signs
       expect(editing.document.page(0).annotations, isEmpty);
+      expect(editing.isModified, isFalse);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets(
+        'Escape cancels a signature box mid-drag without signing on release',
+        (tester) async {
+      var placements = 0;
+      final editing = await pumpEditor(tester, onPlaceSignature: (context,
+          {required pageIndex, required pageRect}) async {
+        placements++;
+      });
+      editing.tool = PdfEditTool.signatureBox;
+      await tester.pump();
+      final gesture = await tester.startGesture(view(72, 720));
+      await gesture.moveTo(view(320, 640));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.select);
+      await gesture.up();
+      await tester.pump();
+      expect(placements, 0);
       expect(editing.isModified, isFalse);
       await tester.pump(const Duration(milliseconds: 400));
     });

@@ -1,0 +1,6 @@
+Novedades de 8.1.0
+
+- Cambia la fuente y el estilo de los campos desplegables y de lista.
+- Nuevo menú móvil para crear, abrir, imprimir y firmar.
+- La edición conserva la fuente y los saltos de línea. Mejoras en el teclado y los menús de selección de iOS.
+- Paleta completa para el lápiz y el resaltador móvil.

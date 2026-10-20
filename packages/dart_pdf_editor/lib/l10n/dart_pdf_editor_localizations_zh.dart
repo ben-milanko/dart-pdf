@@ -2333,6 +2333,183 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbFloatingToolbarsHint => '让工具栏浮动在页面上，而不是停靠在窗口边缘';
+
+  @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
+
+  @override
+  String get measCustomValueTitle => '测量值';
+
+  @override
+  String get menuEditMeasurementValue => '编辑测量值';
+
+  @override
+  String get menuAddLeader => '添加引线';
+
+  @override
+  String get propLeader => '引线';
+
+  @override
+  String get propOutlineWidth => '轮廓宽度';
+
+  @override
+  String get menuRotateSelection => '围绕选择中心旋转…';
+
+  @override
+  String get menuRotateEach => '分别旋转各个批注…';
+
+  @override
+  String get rotationAngleTitle => '旋转角度（度，逆时针）';
+
+  @override
+  String get menuGroup => '组合';
+
+  @override
+  String get menuUngroup => '取消组合';
+
+  @override
+  String get menuRemoveLeader => '移除引线';
+
+  @override
+  String get menuAddNoteHere => '在此添加注释';
+
+  @override
+  String get tbNameMeasureCustom => '自定义测量（输入数值）';
+
+  @override
+  String get insertPagesTitle => '插入页面';
+
+  @override
+  String get insertPagesFiles => '文件';
+
+  @override
+  String get insertPagesAddFiles => '添加文件…';
+
+  @override
+  String get insertPagesSortByName => '按名称排序';
+
+  @override
+  String get insertPagesNoFiles => '请添加一个或多个要插入的 PDF。';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '无法打开 $names。文件可能已损坏或受密码保护。';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 页',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => '上移';
+
+  @override
+  String get insertPagesMoveDown => '下移';
+
+  @override
+  String get insertPagesRemoveFile => '从列表中移除';
+
+  @override
+  String get insertPagesRange => '页面';
+
+  @override
+  String get insertPagesRangeHint => '全部（例如 1-3, 7）';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return '请使用第 1–$count 页，例如 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => '所有页面';
+
+  @override
+  String get insertPagesSubsetOdd => '奇数页';
+
+  @override
+  String get insertPagesSubsetEven => '偶数页';
+
+  @override
+  String get insertPagesReverse => '倒序';
+
+  @override
+  String get insertPagesPlacement => '位置';
+
+  @override
+  String get insertPagesBefore => '之前';
+
+  @override
+  String get insertPagesAfter => '之后';
+
+  @override
+  String get insertPagesFirstPage => '第一页';
+
+  @override
+  String get insertPagesLastPage => '最后一页';
+
+  @override
+  String get insertPagesPage => '页面';
+
+  @override
+  String get insertPagesPageNumber => '页码';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '请输入 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => '交错插入页面';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      '从指定位置开始交替放置插入页和现有页，例如用于合并分开扫描的奇数页和偶数页。';
+
+  @override
+  String get insertPagesRunInserted => '每次插入的页数';
+
+  @override
+  String get insertPagesRunExisting => '间隔的文档页数';
+
+  @override
+  String get insertPagesIncludeBookmarks => '包含书签';
+
+  @override
+  String get insertPagesBookmarkFiles => '为每个文件添加书签';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    return '将插入 $inserted 页，文档共 $total 页。';
+  }
+
+  @override
+  String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '将页面颜色保存到文件';
+
+  @override
+  String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4665,4 +4842,181 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbFloatingToolbarsHint => '讓工具列浮動在頁面上，而不是停駐在視窗邊緣';
+
+  @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
+
+  @override
+  String get measCustomValueTitle => '測量值';
+
+  @override
+  String get menuEditMeasurementValue => '編輯測量值';
+
+  @override
+  String get menuAddLeader => '新增引線';
+
+  @override
+  String get propLeader => '引線';
+
+  @override
+  String get propOutlineWidth => '輪廓寬度';
+
+  @override
+  String get menuRotateSelection => '圍繞選取中心旋轉…';
+
+  @override
+  String get menuRotateEach => '分別旋轉各個註解…';
+
+  @override
+  String get rotationAngleTitle => '旋轉角度（度，逆時針）';
+
+  @override
+  String get menuGroup => '群組';
+
+  @override
+  String get menuUngroup => '取消群組';
+
+  @override
+  String get menuRemoveLeader => '移除引線';
+
+  @override
+  String get menuAddNoteHere => '在此新增註解';
+
+  @override
+  String get tbNameMeasureCustom => '自訂測量（輸入數值）';
+
+  @override
+  String get insertPagesTitle => '插入頁面';
+
+  @override
+  String get insertPagesFiles => '檔案';
+
+  @override
+  String get insertPagesAddFiles => '新增檔案…';
+
+  @override
+  String get insertPagesSortByName => '依名稱排序';
+
+  @override
+  String get insertPagesNoFiles => '請新增一個或多個要插入的 PDF。';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return '無法開啟 $names。檔案可能已損毀或受密碼保護。';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 頁',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => '上移';
+
+  @override
+  String get insertPagesMoveDown => '下移';
+
+  @override
+  String get insertPagesRemoveFile => '從清單中移除';
+
+  @override
+  String get insertPagesRange => '頁面';
+
+  @override
+  String get insertPagesRangeHint => '全部（例如 1-3, 7）';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return '請使用第 1–$count 頁，例如 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => '所有頁面';
+
+  @override
+  String get insertPagesSubsetOdd => '奇數頁';
+
+  @override
+  String get insertPagesSubsetEven => '偶數頁';
+
+  @override
+  String get insertPagesReverse => '反向順序';
+
+  @override
+  String get insertPagesPlacement => '位置';
+
+  @override
+  String get insertPagesBefore => '之前';
+
+  @override
+  String get insertPagesAfter => '之後';
+
+  @override
+  String get insertPagesFirstPage => '第一頁';
+
+  @override
+  String get insertPagesLastPage => '最後一頁';
+
+  @override
+  String get insertPagesPage => '頁面';
+
+  @override
+  String get insertPagesPageNumber => '頁碼';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return '請輸入 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => '交錯插入頁面';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      '從指定位置開始交替放置插入頁與現有頁，例如用於合併分開掃描的奇數頁與偶數頁。';
+
+  @override
+  String get insertPagesRunInserted => '每次插入的頁數';
+
+  @override
+  String get insertPagesRunExisting => '間隔的文件頁數';
+
+  @override
+  String get insertPagesIncludeBookmarks => '包含書籤';
+
+  @override
+  String get insertPagesBookmarkFiles => '為每個檔案新增書籤';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    return '將插入 $inserted 頁，文件共 $total 頁。';
+  }
+
+  @override
+  String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '將頁面顏色儲存至檔案';
+
+  @override
+  String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
 }

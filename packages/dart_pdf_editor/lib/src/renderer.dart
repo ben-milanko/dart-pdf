@@ -7,6 +7,7 @@ import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'annotation_display_filter.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
 import 'page_geometry.dart';
@@ -115,6 +116,7 @@ class PdfPageRenderPlan {
   const PdfPageRenderPlan({
     this.pageColor = const Color(0xFFFFFFFF),
     this.annotations = true,
+    this.hiddenAnnotationSubtypes = const {},
     this.rotation,
     this.paper = true,
   });
@@ -131,6 +133,11 @@ class PdfPageRenderPlan {
   /// Whether page annotations are included in the render.
   final bool annotations;
 
+  /// Annotation /Subtype names left out of the render even while
+  /// [annotations] is true (e.g. `{'Link'}`). Display-only, like
+  /// [annotations]; the document is untouched.
+  final Set<String> hiddenAnnotationSubtypes;
+
   /// Display rotation override. Null uses the page's own /Rotate.
   final int? rotation;
 
@@ -142,12 +149,14 @@ class PdfPageRenderPlan {
       other is PdfPageRenderPlan &&
       pageColor == other.pageColor &&
       annotations == other.annotations &&
+      sameHiddenAnnotationSubtypes(
+          hiddenAnnotationSubtypes, other.hiddenAnnotationSubtypes) &&
       rotation == other.rotation &&
       paper == other.paper;
 
   @override
-  int get hashCode =>
-      Object.hash(pageColor.toARGB32(), annotations, rotation, paper);
+  int get hashCode => Object.hash(pageColor.toARGB32(), annotations,
+      hiddenAnnotationSubtypesHash(hiddenAnnotationSubtypes), rotation, paper);
 }
 
 /// Rasterizes PDF pages.
@@ -170,12 +179,18 @@ class PdfPageRenderer {
   /// stamps, form fields...) out of the render - the clean underlying
   /// page. Display-only, like [pageColor]; the document is untouched.
   ///
+  /// [hiddenAnnotationSubtypes] leaves out every annotation of those
+  /// /Subtypes (the viewer's display filter, e.g. `{'Link'}`).
+  ///
   /// [skipAnnotation] omits the annotations it matches while keeping the
   /// rest - the "lift" model behind a live drag/resize preview, so the
-  /// page reads as the artwork minus the one being edited.
+  /// page reads as the artwork minus the one being edited. It combines with
+  /// [hiddenAnnotationSubtypes]: an annotation either one matches is left
+  /// out.
   static Future<ui.Picture> renderPicture(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       bool Function(PdfAnnotation)? skipAnnotation,
       int? rotation}) async {
     return renderPictureWithPlan(
@@ -183,6 +198,7 @@ class PdfPageRenderer {
       PdfPageRenderPlan(
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
       ),
       skipAnnotation: skipAnnotation,
@@ -221,7 +237,8 @@ class PdfPageRenderer {
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
     if (plan.annotations) {
-      collecting.drawAnnotations(page, skip: skipAnnotation);
+      collecting.drawAnnotations(page,
+          skip: skipAnnotation, skipSubtypes: plan.hiddenAnnotationSubtypes);
     }
     final images = await decodeImages(cos, collector.streams,
         cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
@@ -237,7 +254,10 @@ class PdfPageRenderer {
     final painting = PdfInterpreter(
         cos: cos, device: CanvasPdfDevice(canvas, images: images))
       ..drawPageOperations(page, pageOps);
-    if (plan.annotations) painting.drawAnnotations(page, skip: skipAnnotation);
+    if (plan.annotations) {
+      painting.drawAnnotations(page,
+          skip: skipAnnotation, skipSubtypes: plan.hiddenAnnotationSubtypes);
+    }
     final picture = recorder.endRecording();
     // The picture retains its own reference to every drawn image, so the
     // decode handles (clones from the cache, or fresh decodes) can be freed
@@ -266,6 +286,7 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPictureRecorded(PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       bool Function(PdfAnnotation)? skipAnnotation,
       int? rotation}) async {
     return renderPictureRecordedWithPlan(
@@ -273,6 +294,7 @@ class PdfPageRenderer {
       PdfPageRenderPlan(
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
       ),
       skipAnnotation: skipAnnotation,
@@ -296,7 +318,10 @@ class PdfPageRenderer {
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
       ..drawPageContent(page, page.contentBytes());
-    if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    if (plan.annotations) {
+      recording.drawAnnotations(page,
+          skip: skipAnnotation, skipSubtypes: plan.hiddenAnnotationSubtypes);
+    }
 
     final images = await decodeImages(cos, recorder.imageRequests,
         cache: PdfImageCache.instance,
@@ -699,6 +724,7 @@ class PdfPageRenderer {
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
+      Set<String> hiddenAnnotationSubtypes = const {},
       bool recorded = true,
       int? rotation}) async {
     return renderImageWithPlan(
@@ -706,6 +732,7 @@ class PdfPageRenderer {
       plan: PdfPageRenderPlan(
         pageColor: pageColor,
         annotations: annotations,
+        hiddenAnnotationSubtypes: hiddenAnnotationSubtypes,
         rotation: rotation,
       ),
       pixelRatio: pixelRatio,
@@ -763,7 +790,10 @@ class PdfPageRenderer {
     final collecting =
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
-    if (plan.annotations) collecting.drawAnnotations(page);
+    if (plan.annotations) {
+      collecting.drawAnnotations(page,
+          skipSubtypes: plan.hiddenAnnotationSubtypes);
+    }
     // Cap image decodes to display resolution just like the canvas bitmap path
     // ([renderImageWithPlan]), so the two devices stay pixel-parity on scaled
     // images instead of one decoding sharper than the other.
@@ -793,7 +823,10 @@ class PdfPageRenderer {
     final sw = Stopwatch()..start();
     final painting = PdfInterpreter(cos: cos, device: device)
       ..drawPageOperations(page, pageOps);
-    if (plan.annotations) painting.drawAnnotations(page);
+    if (plan.annotations) {
+      painting.drawAnnotations(page,
+          skipSubtypes: plan.hiddenAnnotationSubtypes);
+    }
     stripInterpretMicros += sw.elapsedMicroseconds;
     await device.finish();
 
@@ -1012,7 +1045,9 @@ class PdfPageColorSampler {
     final commands = worker == null || pageIndex == null
         ? null
         : await worker.record(pageIndex,
-            annotations: renderPlan.annotations, imagePixelRatio: scale);
+            annotations: renderPlan.annotations,
+            hiddenAnnotationSubtypes: renderPlan.hiddenAnnotationSubtypes,
+            imagePixelRatio: scale);
     final picture = commands != null
         ? await PdfPageRenderer.pictureFromCommandsWithPlan(
             page, commands, renderPlan, maxImagePixelRatio: scale)

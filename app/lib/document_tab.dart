@@ -61,17 +61,28 @@ class DocumentHandoff {
 /// while the full bytes stream in, an [error] placeholder, or a two-file
 /// [comparison].
 class DocumentTab {
-  /// A document opens as a reader, not as an editor: the session starts in
-  /// explicit Hand mode, so a mouse drag pans the page instead of starting a
-  /// text selection and a touch long-press does not select text. Every tool,
-  /// text selection included, stays one toolbar click away.
-  static PdfEditingController _handModeController(
+  /// Whether a new document opens in Hand mode rather than Select mode.
+  ///
+  /// On a phone or tablet (Android/iOS, native or mobile web) a finger on
+  /// the page should scroll and pinch, not grab what is under it, so the
+  /// document opens in Hand mode. Everywhere else it opens in Select mode,
+  /// so a click picks, moves and resizes what is on the page straight away.
+  /// Either way the other mode and every tool stay one toolbar tap away.
+  static bool get opensInHandMode =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  static PdfEditingController _initialModeController(
     Uint8List bytes,
     PdfEditingPreferences preferences,
   ) {
     final controller = PdfEditingController(bytes,
-        preferences: preferences, formSecretStore: appFormSecretStore)
-      ..activateHandMode();
+        preferences: preferences, formSecretStore: appFormSecretStore);
+    if (opensInHandMode) {
+      controller.activateHandMode();
+    } else {
+      controller.tool = PdfEditTool.select;
+    }
     // Off-web: live revocation checks + EU trusted list roots for the
     // signature panel (see signature_trust.dart).
     SignatureTrust.platformDefault?.attach(controller);
@@ -102,7 +113,7 @@ class DocumentTab {
     this.cachePath,
     bool initiallyDirty = false,
     int? savedLength,
-  })  : session = _handModeController(bytes, preferences),
+  })  : session = _initialModeController(bytes, preferences),
         viewer = PdfViewerController(),
         // Normally the opened bytes *are* the saved baseline. Crash recovery is
         // the exception: it reopens a document at the revision that was in
@@ -257,6 +268,10 @@ class DocumentTab {
   /// placeholder frame is still on screen (build can run several times).
   bool materializing = false;
 
+  /// Whether automatic OCR has already looked at this tab's document (see
+  /// `EditorScreen._maybeAutoOcr`), so it runs at most once per tab.
+  bool autoOcrChecked = false;
+
   /// The writable on-disk origin (desktop), when the document was opened from
   /// a real path. Save writes back here; updated when a Save As lands on a new
   /// path. Null means save-as only.
@@ -292,7 +307,9 @@ class DocumentTab {
   bool get isComparison => compareAfter != null;
 
   /// True when the document has edits not yet written to disk.
-  bool get isDirty => session != null && session!.bytes.length != savedLength;
+  bool get isDirty =>
+      session != null &&
+      (session!.hasPendingInk || session!.bytes.length != savedLength);
 
   /// True until this document has been saved at least once. A brand-new
   /// document (created via New, [initiallyDirty]) has no saved baseline, so

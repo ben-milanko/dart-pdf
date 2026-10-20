@@ -1,0 +1,6 @@
+New in 7.0.0
+
+- More accurate, faster OCR for small print and drawings, with clearer progress.
+- Follow links and long-press to select text in Select mode.
+- Search matches stay visible when zoomed in.
+- Ink previews keep your chosen opacity; vector exports include annotations.

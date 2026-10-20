@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart'
     show PointerDeviceKind, kLongPressTimeout;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -133,7 +133,8 @@ void main() {
         ..addInkStroke(0, [(120, 90), (140, 95)]);
       expect(editing.hasPendingInk, isTrue);
       expect(editing.strokesOn(0), hasLength(2));
-      expect(editing.isModified, isFalse, reason: 'nothing committed yet');
+      expect(editing.isModified, isTrue, reason: 'visible ink needs saving');
+      expect(editing.document.page(0).annotations, isEmpty);
 
       editing.finishInk();
       expect(editing.hasPendingInk, isFalse);
@@ -929,7 +930,7 @@ void main() {
       await tester.pump();
 
       expect(editing.strokesOn(0), hasLength(1));
-      expect(editing.isModified, isFalse);
+      expect(editing.isModified, isTrue);
       editing.finishInk();
       expect(editing.document.page(0).annotations.single.subtype, 'Ink');
       await settle(tester);

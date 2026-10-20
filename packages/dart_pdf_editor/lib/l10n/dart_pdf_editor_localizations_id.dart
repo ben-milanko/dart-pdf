@@ -2377,4 +2377,197 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela';
+
+  @override
+  String get textVerticalAlign => 'Perataan vertikal';
+
+  @override
+  String get textAlignTop => 'Ratakan teks ke atas';
+
+  @override
+  String get textAlignMiddle => 'Ratakan teks ke tengah secara vertikal';
+
+  @override
+  String get textAlignBottom => 'Ratakan teks ke bawah';
+
+  @override
+  String get measCustomValueTitle => 'Nilai ukuran';
+
+  @override
+  String get menuEditMeasurementValue => 'Edit nilai ukuran';
+
+  @override
+  String get menuAddLeader => 'Tambah garis penunjuk';
+
+  @override
+  String get propLeader => 'Garis penunjuk';
+
+  @override
+  String get propOutlineWidth => 'Ketebalan garis tepi';
+
+  @override
+  String get menuRotateSelection => 'Putar di sekitar pusat pilihan…';
+
+  @override
+  String get menuRotateEach => 'Putar setiap anotasi…';
+
+  @override
+  String get rotationAngleTitle =>
+      'Rotasi (derajat, berlawanan arah jarum jam)';
+
+  @override
+  String get menuGroup => 'Kelompokkan';
+
+  @override
+  String get menuUngroup => 'Pisahkan kelompok';
+
+  @override
+  String get menuRemoveLeader => 'Hapus garis penunjuk';
+
+  @override
+  String get menuAddNoteHere => 'Tambahkan catatan di sini';
+
+  @override
+  String get tbNameMeasureCustom => 'Ukuran khusus (ketik nilai)';
+
+  @override
+  String get insertPagesTitle => 'Sisipkan halaman';
+
+  @override
+  String get insertPagesFiles => 'File';
+
+  @override
+  String get insertPagesAddFiles => 'Tambahkan file…';
+
+  @override
+  String get insertPagesSortByName => 'Urutkan menurut nama';
+
+  @override
+  String get insertPagesNoFiles =>
+      'Tambahkan satu atau beberapa PDF untuk disisipkan.';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'Tidak dapat membuka $names. File mungkin rusak atau dilindungi kata sandi.';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count halaman',
+      one: '1 halaman',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'Pindah ke atas';
+
+  @override
+  String get insertPagesMoveDown => 'Pindah ke bawah';
+
+  @override
+  String get insertPagesRemoveFile => 'Hapus dari daftar';
+
+  @override
+  String get insertPagesRange => 'Halaman';
+
+  @override
+  String get insertPagesRangeHint => 'Semua (mis. 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'Gunakan halaman 1–$count, mis. 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'Semua halaman';
+
+  @override
+  String get insertPagesSubsetOdd => 'Halaman ganjil';
+
+  @override
+  String get insertPagesSubsetEven => 'Halaman genap';
+
+  @override
+  String get insertPagesReverse => 'Urutan terbalik';
+
+  @override
+  String get insertPagesPlacement => 'Penempatan';
+
+  @override
+  String get insertPagesBefore => 'Sebelum';
+
+  @override
+  String get insertPagesAfter => 'Sesudah';
+
+  @override
+  String get insertPagesFirstPage => 'Halaman pertama';
+
+  @override
+  String get insertPagesLastPage => 'Halaman terakhir';
+
+  @override
+  String get insertPagesPage => 'Halaman';
+
+  @override
+  String get insertPagesPageNumber => 'Nomor halaman';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return 'dari $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'Masukkan 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'Selang-seling halaman';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'Menyelang-nyelingkan halaman sisipan dan halaman yang ada mulai dari penempatan—misalnya untuk menggabungkan kembali halaman ganjil dan genap yang dipindai terpisah.';
+
+  @override
+  String get insertPagesRunInserted => 'Halaman sisipan tiap kali';
+
+  @override
+  String get insertPagesRunExisting => 'Halaman dokumen di antaranya';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'Sertakan penanda';
+
+  @override
+  String get insertPagesBookmarkFiles => 'Tambahkan penanda untuk setiap file';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      inserted,
+      locale: localeName,
+      other: 'Menyisipkan $inserted halaman',
+      one: 'Menyisipkan 1 halaman',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$total halaman',
+      one: '1 halaman',
+    );
+    return '$_temp0—dokumen akan memiliki $_temp1.';
+  }
+
+  @override
+  String get insertPagesConfirm => 'Sisipkan';
+
+  @override
+  String get shellBakePageColor => 'Simpan warna halaman ke file';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.';
 }

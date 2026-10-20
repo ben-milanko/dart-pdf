@@ -13,12 +13,13 @@ import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/doc_scan.dart';
 
 import 'test_finders.dart';
 
@@ -73,8 +74,24 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('menu-scan-document')));
     await tester.pumpAndSettle();
 
-    // A brand-new untitled tab now holds the scan.
-    expect(findMiddleEllipsisText('Untitled.pdf'), findsOneWidget);
+    // A brand-new tab named for today's date now holds the scan.
+    final title = scanDocumentTitle(DateTime.now(), const {});
+    expect(findMiddleEllipsisText(title), findsOneWidget);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsNothing);
+  });
+
+  test('scan titles carry the capture date and stay unique', () {
+    final day = DateTime(2026, 3, 7, 14, 31);
+    expect(scanDocumentTitle(day, const {}), 'Scan 2026-03-07.pdf');
+    expect(
+      scanDocumentTitle(day, const {'Scan 2026-03-07.pdf'}),
+      'Scan 2026-03-07 (2).pdf',
+    );
+    expect(
+      scanDocumentTitle(
+          day, const {'Scan 2026-03-07.pdf', 'Scan 2026-03-07 (2).pdf'}),
+      'Scan 2026-03-07 (3).pdf',
+    );
   });
 
   testWidgets('no Insert scan entry without a document open', (tester) async {

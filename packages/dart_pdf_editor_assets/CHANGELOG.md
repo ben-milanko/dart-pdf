@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 10.0.0
+
+- Regenerate the bundled web render worker for the 10.0.0 suite.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Align with dart_pdf_editor 8.0.0 and regenerate the bundled render worker with annotation subtype filtering.
+
+
+## 7.0.0
+
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
+
+## 6.0.0
 
 - Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
   matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44

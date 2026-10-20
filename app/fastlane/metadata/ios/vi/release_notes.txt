@@ -1,4 +1,3 @@
-Có gì mới trong 5.1.1
+Mới trong 10.0.0
 
-- Nét mực viết nhanh liên tiếp không còn biến mất khỏi trang.
-- Bao gồm mọi cải tiến của 5.1.0.
+Nhập giá trị đo riêng ngay cả khi chưa đặt tỷ lệ. Sửa cả từ và nhận biết liên kết dễ hơn. Thanh đọc tự ẩn trên điện thoại và tránh nếp gấp màn hình. Chọn có giữ OCR tự động sau lần đầu hay không. Sửa lỗi thoát khi quét lớn, cải thiện hiển thị chú thích và cắt ảnh.

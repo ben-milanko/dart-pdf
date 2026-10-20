@@ -2361,4 +2361,182 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tbFloatingToolbarsHint =>
       'แสดงแถบเครื่องมือลอยเหนือหน้าแทนการเชื่อมไว้ที่ขอบหน้าต่าง';
+
+  @override
+  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
+
+  @override
+  String get textAlignTop => 'จัดข้อความชิดบน';
+
+  @override
+  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
+
+  @override
+  String get textAlignBottom => 'จัดข้อความชิดล่าง';
+
+  @override
+  String get measCustomValueTitle => 'ค่าการวัด';
+
+  @override
+  String get menuEditMeasurementValue => 'แก้ไขค่าการวัด';
+
+  @override
+  String get menuAddLeader => 'เพิ่มเส้นชี้';
+
+  @override
+  String get propLeader => 'เส้นชี้';
+
+  @override
+  String get propOutlineWidth => 'ความหนาเส้นขอบ';
+
+  @override
+  String get menuRotateSelection => 'หมุนรอบจุดกึ่งกลางของส่วนที่เลือก…';
+
+  @override
+  String get menuRotateEach => 'หมุนคำอธิบายประกอบแต่ละรายการ…';
+
+  @override
+  String get rotationAngleTitle => 'การหมุน (องศา ทวนเข็มนาฬิกา)';
+
+  @override
+  String get menuGroup => 'จัดกลุ่ม';
+
+  @override
+  String get menuUngroup => 'ยกเลิกการจัดกลุ่ม';
+
+  @override
+  String get menuRemoveLeader => 'นำเส้นชี้ออก';
+
+  @override
+  String get menuAddNoteHere => 'เพิ่มบันทึกที่นี่';
+
+  @override
+  String get tbNameMeasureCustom => 'การวัดแบบกำหนดเอง (พิมพ์ค่า)';
+
+  @override
+  String get insertPagesTitle => 'แทรกหน้า';
+
+  @override
+  String get insertPagesFiles => 'ไฟล์';
+
+  @override
+  String get insertPagesAddFiles => 'เพิ่มไฟล์…';
+
+  @override
+  String get insertPagesSortByName => 'เรียงตามชื่อ';
+
+  @override
+  String get insertPagesNoFiles => 'เพิ่ม PDF อย่างน้อยหนึ่งไฟล์เพื่อแทรก';
+
+  @override
+  String insertPagesOpenFailed(String names) {
+    return 'เปิด $names ไม่ได้ ไฟล์อาจเสียหายหรือมีการป้องกันด้วยรหัสผ่าน';
+  }
+
+  @override
+  String insertPagesFilePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count หน้า',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get insertPagesMoveUp => 'ย้ายขึ้น';
+
+  @override
+  String get insertPagesMoveDown => 'ย้ายลง';
+
+  @override
+  String get insertPagesRemoveFile => 'นำออกจากรายการ';
+
+  @override
+  String get insertPagesRange => 'หน้า';
+
+  @override
+  String get insertPagesRangeHint => 'ทั้งหมด (เช่น 1-3, 7)';
+
+  @override
+  String insertPagesRangeInvalid(int count) {
+    return 'ใช้หน้า 1–$count เช่น 1-3, 7';
+  }
+
+  @override
+  String get insertPagesSubsetAll => 'ทุกหน้า';
+
+  @override
+  String get insertPagesSubsetOdd => 'หน้าคี่';
+
+  @override
+  String get insertPagesSubsetEven => 'หน้าคู่';
+
+  @override
+  String get insertPagesReverse => 'ลำดับย้อนกลับ';
+
+  @override
+  String get insertPagesPlacement => 'ตำแหน่ง';
+
+  @override
+  String get insertPagesBefore => 'ก่อน';
+
+  @override
+  String get insertPagesAfter => 'หลัง';
+
+  @override
+  String get insertPagesFirstPage => 'หน้าแรก';
+
+  @override
+  String get insertPagesLastPage => 'หน้าสุดท้าย';
+
+  @override
+  String get insertPagesPage => 'หน้า';
+
+  @override
+  String get insertPagesPageNumber => 'เลขหน้า';
+
+  @override
+  String insertPagesOfCount(int count) {
+    return '/ $count';
+  }
+
+  @override
+  String insertPagesPageInvalid(int count) {
+    return 'ป้อน 1–$count';
+  }
+
+  @override
+  String get insertPagesInterleave => 'แทรกสลับหน้า';
+
+  @override
+  String get insertPagesInterleaveHelp =>
+      'สลับหน้าที่แทรกกับหน้าเดิมตั้งแต่ตำแหน่งที่เลือก เช่น เพื่อรวมหน้าคี่และหน้าคู่ที่สแกนแยกกัน';
+
+  @override
+  String get insertPagesRunInserted => 'จำนวนหน้าที่แทรกแต่ละครั้ง';
+
+  @override
+  String get insertPagesRunExisting => 'จำนวนหน้าเอกสารที่คั่น';
+
+  @override
+  String get insertPagesIncludeBookmarks => 'รวมบุ๊กมาร์ก';
+
+  @override
+  String get insertPagesBookmarkFiles => 'เพิ่มบุ๊กมาร์กสำหรับแต่ละไฟล์';
+
+  @override
+  String insertPagesSummary(int inserted, int total) {
+    return 'จะแทรก $inserted หน้า เอกสารจะมีทั้งหมด $total หน้า';
+  }
+
+  @override
+  String get insertPagesConfirm => 'แทรก';
+
+  @override
+  String get shellBakePageColor => 'บันทึกสีหน้าลงในไฟล์';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
 }

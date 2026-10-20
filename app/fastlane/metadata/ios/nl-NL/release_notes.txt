@@ -1,4 +1,3 @@
-Nieuw in 5.1.1
+Nieuw in 10.0.0
 
-- Snel achter elkaar geschreven inkt verdwijnt niet meer van de pagina.
-- Bevat alle verbeteringen uit 5.1.0.
+Voer eigen meetwaarden in, ook zonder schaal. Bewerk hele woorden en herken links beter. Leesbalken verdwijnen op telefoons en vermijden schermvouwen. Kies na de eerste OCR of automatische herkenning aanblijft. Een crash bij grote scans is opgelost; annotaties en afbeeldingen bijsnijden zijn verbeterd.

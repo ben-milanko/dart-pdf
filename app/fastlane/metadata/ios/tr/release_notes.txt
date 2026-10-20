@@ -1,4 +1,3 @@
-5.1.1'daki yenilikler
+10.0.0 yenilikleri
 
-- Art arda hızlıca yazılan mürekkep artık sayfadan kaybolmuyor.
-- 5.1.0 sürümündeki tüm iyileştirmeleri içerir.
+Ölçek olmadan kendi ölçüm değerlerinizi yazın. Sözcükleri bütün olarak düzenleyin ve bağlantıları kolayca bulun. Okuma çubukları telefonlarda gizlenir, ekran katlarını aşmaz. İlk OCR işleminden sonra otomatik tanımayı sürdürüp sürdürmeyeceğinizi seçin. Büyük taramalardaki çökme düzeltildi; açıklamalar ve kırpma iyileştirildi.

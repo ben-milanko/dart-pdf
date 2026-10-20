@@ -1,4 +1,3 @@
-Nowości w 5.1.1
+Nowości w 10.0.0
 
-- Pismo odręczne pisane szybko raz za razem nie znika już ze strony.
-- Zawiera wszystkie ulepszenia z wersji 5.1.0.
+Wpisuj własne wartości pomiarów bez ustawiania skali. Edytuj całe słowa i łatwiej rozpoznawaj linki. Paski czytania chowają się na telefonach i omijają zgięcia ekranu. Po pierwszym OCR zdecyduj, czy pozostawić automatyczne rozpoznawanie. Naprawiono awarię dużych skanów oraz poprawiono adnotacje i kadrowanie.

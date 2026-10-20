@@ -1,0 +1,6 @@
+Nieuw in 8.1.0
+
+- Wijzig lettertype en stijl van vervolgkeuze- en lijstvelden.
+- Nieuw telefoonmenu voor maken, openen, afdrukken en ondertekenen.
+- Tekstbewerking behoudt lettertype en regelafbreking. Verbeterde iOS-toetsenborden en selectiemenu’s.
+- Volledig kleurenpalet voor pen en markeerstift op mobiel.

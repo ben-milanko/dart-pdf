@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../design/material_host.dart';
 import '../l10n/pdf_l10n.dart';

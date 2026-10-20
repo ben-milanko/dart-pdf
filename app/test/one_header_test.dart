@@ -6,7 +6,8 @@
 // save, as on desktop.
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -72,8 +73,10 @@ void main() {
   }
 
   Future<void> pressSave(WidgetTester tester) async {
-    // focus inside the editor, where its shortcuts listen
-    await tester.tap(find.byType(PdfViewer), warnIfMissed: false);
+    // focus inside the editor, where its shortcuts listen - with a mouse
+    // click, since a finger tap on the page would hide the phone chrome
+    await tester.tap(find.byType(PdfViewer),
+        kind: PointerDeviceKind.mouse, warnIfMissed: false);
     await tester.pump(const Duration(milliseconds: 400));
     for (final modifier in [
       LogicalKeyboardKey.metaLeft,

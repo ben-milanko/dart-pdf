@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -58,8 +58,8 @@ void main() {
 
       // one undo restores them all
       editing.undo();
-      expect(editing.document.page(0).annotations[1].rect.left,
-          closeTo(250, 0.5));
+      expect(
+          editing.document.page(0).annotations[1].rect.left, closeTo(250, 0.5));
     });
 
     test('align top lines the highest edges up', () {
@@ -193,8 +193,8 @@ void main() {
           find.byKey(const ValueKey('pdf-align-distributeHorizontal')));
       expect(button.onPressed, isNull, reason: 'disabled with two selected');
       // edge alignment is still live
-      final left = tester.widget<IconButton>(
-          find.byKey(const ValueKey('pdf-align-left')));
+      final left = tester
+          .widget<IconButton>(find.byKey(const ValueKey('pdf-align-left')));
       expect(left.onPressed, isNotNull);
     });
   });

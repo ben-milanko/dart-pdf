@@ -1,7 +1,116 @@
 # Changelog
 
-## Unreleased
+## 10.0.0
 
+- **BREAKING:** add `PdfEditTool.measureCustom` and four abstract localization getters. Update exhaustive tool switches and custom localization implementations; see `doc/MIGRATING-10.0.0.md`.
+- Add written-value measurements, word-level editing across split glyph runs, link badges and empty-page context-menu actions.
+- Adapt shells and floating controls to separating display folds. Hide compact header and toolbar chrome while reading, with `autoHideChrome: false` available to opt out.
+- Keep edited annotations visible after deselection, remove the pen cursor after a stroke, simplify callout selection and improve image-crop controls.
+- Fix cloning a disposed image when OCR decodes a large scan.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` implementations must accept, and forward if they delegate, the new `decodeGate` parameter on `record`. See `doc/MIGRATING-9.0.0.md`.
+- Group annotations so they select, move, resize, rotate, copy and paste as one object, and rotate a selection around its shared centre or each object's own centre.
+- Optionally bake the page colour into saved and exported PDFs and page images (`PdfEditingPreferences.bakePageColor`, `pdfBakePageColor`). Signed documents save unbaked.
+- Toggle bold, italic and underline on selected text with Ctrl/Cmd+B, I and U, and style callout leaders separately from the box outline.
+- Polyline placement supports middle-button pan, edge auto-scroll and Ctrl+Z to remove the last vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag in Select mode draws a selection box, selection happens on lift, and switching tool-sheet tabs arms that tab's first tool.
+- Draw unembedded serif fonts in a serif substitute and fit substituted glyphs to their slots, including level baselines on Impeller.
+- Fix one document showing another's images when both have an image at the same object number, and re-sharpen rotated images on deep zoom.
+- Smoother scrolling: off-screen neighbours no longer render beside the focused page, and large worker replies wait out a wheel scroll before decoding.
+
+## 8.1.0
+
+- Style dropdown and list-box form fields, including mixed selections with text fields. Add `selectedFormStyleFieldNames` and retain `selectedFormTextFieldNames` as a deprecated alias.
+- Preserve free-text fonts, wrapping and baselines when editing, and keep the caret aligned after resizing text.
+- Keep the iOS text-selection menu clear of the style chip and open the keyboard reliably for inline text in iOS browsers.
+- Show the full colour palette in the mobile pen and highlighter tune menu.
+
+## 8.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` and `PdfPageSurfaceSession` implementations must accept and forward `hiddenAnnotationSubtypes` on the affected rendering methods. See `doc/MIGRATING-8.0.0.md`.
+- Add display-only annotation subtype filtering, including consistent caches, hit testing and worker rendering.
+- Insert pages from multiple documents with interleaving and insertion options.
+- Capture polygon snapshots, crop pasted snapshots and show the paste position in the page grid.
+- Add multiple callout leaders, keep arrow targets fixed when moving the box, and apply style changes while editing text.
+- Bulk-edit selected form fields' style and dimensions.
+- Fix thumbnail identity after page reorders, stamp-template refresh on paste and enlarged Controls accessibility.
+- Add Central Kurdish localizations and remove the double-tap delay when placing polygon vertices.
+
+
+## 7.0.0
+
+- Open documents in Select mode; links and host page widgets remain usable,
+  and long-press selects text there. Cmd/Ctrl+A selects page text in Select
+  and Hand modes.
+- Pan horizontally to a search match when zoomed in.
+- Keep freehand ink previews at the committed opacity and align desktop text
+  context-menu actions with the touch selection chip.
+- Skip OCR spans already present in page text and show clearer OCR progress.
+- **BREAKING: built on `material_ui`.** The library's widgets now come from
+  `package:material_ui` (and `package:cupertino_ui`) instead of
+  `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,
+  `ThemeData`, `MaterialLocalizations`, `ScaffoldMessenger`, `InputDecoration`
+  and friends are different types from the legacy ones. Hosts on either
+  library keep working; see `doc/MIGRATING-7.0.0.md`.
+  - A host on the legacy `MaterialApp` keeps its look: a small bridge
+    carries the host theme's colour scheme, text and icon themes, platform
+    and density into the editor, and shows notices as SnackBars on the host's
+    `ScaffoldMessenger`. Legacy component themes and `ThemeExtension`s no
+    longer reach the editor; use `PdfEditorThemeData` or a material_ui `Theme`
+    around the editor instead. Build with
+    `--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false` to compile the bridge out
+    when no host uses the legacy library (`kPdfLegacyMaterialBridge`).
+  - `PdfMaterialHost` (installed by `PdfViewer`, `PdfReader`, `PdfEditorView`
+    and `PdfComparisonView`) now supplies material_ui's localizations,
+    `Theme` and surface whenever the host lacks them - a legacy
+    `MaterialApp`, a `CupertinoApp` or a `WidgetsApp`. It installs the
+    material_ui and cupertino_ui localizations for the ambient locale
+    whenever they are missing, which also fixes a crash under a material_ui
+    app that registered the generated delegate list with a locale material_ui
+    does not cover by default (Ukrainian, for one).
+  - Add `PdfEditorLocalizations.delegates` (the editor's delegate plus
+    material_ui's `GlobalMaterialLocalizations.delegates`) and
+    `PdfEditorLocalizations.supportedLocales`, the recommended list for an
+    app's `localizationsDelegates`. The generated
+    `DartPdfEditorLocalizations.localizationsDelegates` still lists the legacy
+    `flutter_localizations` delegates, which suit a legacy host only.
+  - Add `PdfEditorThemeData.primary` and `PdfEditorThemeData.brightness`:
+    set either and the stock chrome draws with a colour scheme seeded from
+    them, whatever theme the host has.
+  - Remove the APIs deprecated in 5.x and kept through 6.0.0:
+    `PdfEditingPreferences.themeMode` (use `themePreference`), the
+    `ButtonStyleButton` form of `PdfDialogSubmit` (use
+    `PdfDialogSubmit.action`), and `pdfSearchInputBorder` (use
+    `pdfSearchFieldBorderRadius`).
+  - Public parameters typed with Material classes now take the material_ui
+    ones (`PdfDropdown.decoration` is a material_ui `InputDecoration`).
+  - Tests that import the legacy library find nothing with type-based finders
+    on editor widgets (`find.byType(TextField)` matches the legacy class);
+    use the `pdf-*` keys or import material_ui.
+  - Requires Flutter 3.47.0 (`flutter: '>=3.47.0'`, material_ui 1.4's floor);
+    the Dart language version stays 3.5.
+- Toolbar strips (the open tool group's card) draw their own ink surface, so
+  pressed and hovered splashes show over the card's fill under every host.
+
+## 6.0.0
+
+- Breaking: `PdfDialogSubmit.child` is now `Widget`, so an arbitrary host
+  control can be the submit action. Code reading Material button properties
+  from it must keep its own button reference or check/cast the widget type.
+  The original constructor, `themeMode` and `pdfSearchInputBorder` remain
+  available and deprecated; their removal is deferred to 7.0.0.
+- `PdfRenderWorker` gains `trimMemory()`: subclasses inherit its no-op default;
+  hosts using `implements PdfRenderWorker` must implement the new method.
+  Workers now use platform-sized decode budgets and release reconstructible
+  caches on memory pressure and mobile backgrounding.
+- Stream native render records directly into the command buffer and keep text
+  offsets in unboxed typed arrays, reducing allocation and worker memory.
+- Fix deep zoom losing its scene when a later zoom supersedes an image refine.
+- The Select tool selects page text as well as annotations. Hand mode retains
+  double-click word selection while single drags pan the page.
 - Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
   editor's own dialogs use: its options open through the
   `PdfEditorPresenter`'s menu, so it works under any host. Companion
@@ -15,15 +124,15 @@
   saved theme choice as an editor-owned enum instead of Material's
   `ThemeMode`. It is stored under the same key, so a choice saved by an older
   build reads back. `themeMode` still works and is deprecated (removed in
-  6.0.0); map the new value to `ThemeMode` in the host.
+  7.0.0); map the new value to `ThemeMode` in the host.
 - Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
   a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
-  deprecated (removed in 6.0.0). Enter now tells a focused command button
+  deprecated (removed in 7.0.0). Enter now tells a focused command button
   (which keeps Enter) from a focused value control such as segments, a
   dropdown or a checkbox (Enter submits) by semantics role rather than by
   Material widget type, so controls from any design system classify the same.
 - Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
-  `OutlineInputBorder`) is deprecated (removed in 6.0.0).
+  `OutlineInputBorder`) is deprecated (removed in 7.0.0).
 - Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
   `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
   `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,

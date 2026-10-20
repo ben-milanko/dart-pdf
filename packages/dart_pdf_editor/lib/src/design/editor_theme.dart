@@ -1,6 +1,6 @@
 // The editor's design tokens: widgets-layer values only (colours, text
 // styles, lengths), so they read the same under a Material, Cupertino or
-// plain widgets host and survive the 6.0 switch to material_ui unchanged.
+// plain widgets host and survive the 7.0 switch to material_ui unchanged.
 
 import 'dart:ui' show lerpDouble;
 
@@ -39,6 +39,8 @@ const double pdfShellCompactWidth = 700;
 class PdfEditorThemeData {
   /// Tokens; nulls keep the stock values.
   const PdfEditorThemeData({
+    this.primary,
+    this.brightness,
     this.viewer,
     this.success,
     this.warning,
@@ -50,8 +52,9 @@ class PdfEditorThemeData {
   });
 
   /// The stock tokens: the values the editor used before tokens existed.
-  /// [sectionLabel] and [viewer] stay null - their stock looks derive from
-  /// the ambient colour scheme and [PdfViewerThemeData]'s own fallbacks.
+  /// [primary], [brightness], [sectionLabel] and [viewer] stay null - their
+  /// stock looks derive from the host's theme, the ambient colour scheme and
+  /// [PdfViewerThemeData]'s own fallbacks.
   static const PdfEditorThemeData fallback = PdfEditorThemeData(
     success: Color(0xFF4CAF50),
     warning: Color(0xFFFF9800),
@@ -60,6 +63,17 @@ class PdfEditorThemeData {
     compactWidth: pdfShellCompactWidth,
     toastLift: 96,
   );
+
+  /// The chrome's key colour. With it (or [brightness]) set, the stock
+  /// chrome draws with a Material colour scheme seeded from it, whatever
+  /// theme the host app has - the way to colour the editor from a host
+  /// that has no material_ui `Theme` (a legacy `MaterialApp`'s component
+  /// themes do not reach it). Null follows the host's theme.
+  final Color? primary;
+
+  /// Light or dark chrome, independent of the host's theme (see [primary]).
+  /// Null follows the host's theme.
+  final Brightness? brightness;
 
   /// Canvas tokens (selection, chrome, guides, rulers, ...). Installed as
   /// the editor's [PdfViewerTheme] beneath any ambient one; a widget's own
@@ -101,6 +115,8 @@ class PdfEditorThemeData {
   PdfEditorThemeData merge(PdfEditorThemeData? other) {
     if (other == null) return this;
     return PdfEditorThemeData(
+      primary: other.primary ?? primary,
+      brightness: other.brightness ?? brightness,
       viewer: viewer == null ? other.viewer : viewer!.merge(other.viewer),
       success: other.success ?? success,
       warning: other.warning ?? warning,
@@ -116,6 +132,8 @@ class PdfEditorThemeData {
 
   /// A copy with the given fields replaced.
   PdfEditorThemeData copyWith({
+    Color? primary,
+    Brightness? brightness,
     PdfViewerThemeData? viewer,
     Color? success,
     Color? warning,
@@ -126,6 +144,8 @@ class PdfEditorThemeData {
     double? toastLift,
   }) =>
       PdfEditorThemeData(
+        primary: primary ?? this.primary,
+        brightness: brightness ?? this.brightness,
         viewer: viewer ?? this.viewer,
         success: success ?? this.success,
         warning: warning ?? this.warning,
@@ -141,6 +161,8 @@ class PdfEditorThemeData {
       PdfEditorThemeData? a, PdfEditorThemeData? b, double t) {
     if (identical(a, b) && a != null) return a;
     return PdfEditorThemeData(
+      primary: Color.lerp(a?.primary, b?.primary, t),
+      brightness: t < 0.5 ? a?.brightness : b?.brightness,
       viewer: PdfViewerThemeData.lerp(a?.viewer, b?.viewer, t),
       success: Color.lerp(a?.success, b?.success, t),
       warning: Color.lerp(a?.warning, b?.warning, t),
@@ -155,6 +177,8 @@ class PdfEditorThemeData {
   @override
   bool operator ==(Object other) =>
       other is PdfEditorThemeData &&
+      other.primary == primary &&
+      other.brightness == brightness &&
       other.viewer == viewer &&
       other.success == success &&
       other.warning == warning &&
@@ -165,8 +189,8 @@ class PdfEditorThemeData {
       other.toastLift == toastLift;
 
   @override
-  int get hashCode => Object.hash(viewer, success, warning, danger, info,
-      sectionLabel, compactWidth, toastLift);
+  int get hashCode => Object.hash(primary, brightness, viewer, success, warning,
+      danger, info, sectionLabel, compactWidth, toastLift);
 }
 
 /// The compact-layout width in effect at [context]

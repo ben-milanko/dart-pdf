@@ -355,6 +355,24 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count documentos da sua última sessão não estão mais disponíveis. Podem ter sido movidos, renomeados ou excluídos.',
+      one:
+          '$title não está mais disponível. Pode ter sido movido, renomeado ou excluído.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Não foi possível salvar $title no local original. Pode ter sido movido ou excluído. Escolha onde salvar.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Não foi possível assinar digitalmente: $error';
   }
@@ -793,7 +811,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      'O OCR web baixa um modelo de linguagem e visão Florence-2 e o executa localmente com WebGPU/WASM através do Transformers.js. As páginas do PDF permanecem neste navegador; apenas os arquivos do modelo são buscados no primeiro uso.';
+      'O OCR web descarrega um pequeno modelo de reconhecimento de texto (PP-OCRv5, cerca de 21 MB) e executa-o localmente com WebAssembly. As páginas do PDF ficam neste navegador; apenas os ficheiros do modelo são obtidos, na primeira utilização.';
 
   @override
   String get ocrWebPromptTitle => 'Executar OCR com IA neste navegador?';
@@ -943,13 +961,19 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      'Receba notificações automáticas para compilações de teste do Windows não assinadas da main.';
+      'Receba notificações automáticas para compilações de teste do Windows/macOS não assinadas da main.';
 
   @override
   String get settingsUpdates => 'Atualizações';
 
   @override
   String get settingsViewSource => 'Ver código-fonte no GitHub';
+
+  @override
+  String get settingsReportIssue => 'Relatar um problema no GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Enviar feedback por e-mail';
 
   @override
   String get undo => 'Desfazer';
@@ -1049,8 +1073,14 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR página $page de $pageCount';
   }
+
+  @override
+  String get ocrChipRecognisingText => 'Lendo texto…';
+
+  @override
+  String get ocrChipPreparing => 'Carregando modelo de OCR…';
 
   @override
   String get ocrChipFinishing => 'Concluindo OCR…';
@@ -1270,4 +1300,94 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get whatsNewUnavailable =>
       'As notas de versão não estão disponíveis nesta compilação.';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Abrir $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      'Abrir cada arquivo em sua própria aba ou combiná-los em um novo documento? Arraste os arquivos para definir a ordem.';
+
+  @override
+  String get incomingFilesCombine => 'Combinar';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Combinar $count PDFs',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage =>
+      'Arraste os arquivos para definir a ordem da combinação.';
+
+  @override
+  String get appMenuNew => 'Novo';
+
+  @override
+  String get appMenuOpen => 'Abrir';
+
+  @override
+  String get appMenuPrint => 'Imprimir';
+
+  @override
+  String get appMenuSign => 'Assinar';
+
+  @override
+  String get appMenuRecent => 'Recentes';
+
+  @override
+  String get appMenuSeeAll => 'Ver tudo';
+
+  @override
+  String get appMenuExport => 'Exportar';
+
+  @override
+  String get appMenuMoreTools => 'Mais ferramentas';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

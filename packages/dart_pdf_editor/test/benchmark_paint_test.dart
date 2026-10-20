@@ -13,7 +13,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -59,7 +59,8 @@ class _TimingDevice implements PdfDevice {
   @override
   void restore() => _timed('save/restore', inner.restore);
   @override
-  void setBlendMode(PdfBlendMode m) => _timed('blend', () => inner.setBlendMode(m));
+  void setBlendMode(PdfBlendMode m) =>
+      _timed('blend', () => inner.setBlendMode(m));
   @override
   void setOverprint(
           {required bool fill, required bool stroke, required int mode}) =>
@@ -72,7 +73,8 @@ class _TimingDevice implements PdfDevice {
   void fillPathGradient(PdfPath p, PdfFillRule r, PdfGradient g, double a) =>
       _timed('fillGradient', () => inner.fillPathGradient(p, r, g, a));
   @override
-  void fillMesh(PdfMesh m, double a) => _timed('fillMesh', () => inner.fillMesh(m, a));
+  void fillMesh(PdfMesh m, double a) =>
+      _timed('fillMesh', () => inner.fillMesh(m, a));
   @override
   void strokePath(PdfPath p, PdfColor c, PdfStroke s, double a) =>
       _timed('strokePath', () => inner.strokePath(p, c, s, a));
@@ -88,6 +90,7 @@ class _TimingDevice implements PdfDevice {
             : 'text-substituted';
     _timed(bucket, () => inner.drawText(run));
   }
+
   @override
   void drawImage(PdfImageRequest req) =>
       _timed('drawImage', () => inner.drawImage(req));
@@ -134,7 +137,8 @@ class _TimingDevice implements PdfDevice {
       inclusive = _sw.elapsedMicroseconds - start;
       _sw.stop();
       counts['softmask'] = (counts['softmask'] ?? 0) + 1;
-      micros['softmask'] = (micros['softmask'] ?? 0) + (inclusive - _maskNestUs);
+      micros['softmask'] =
+          (micros['softmask'] ?? 0) + (inclusive - _maskNestUs);
       _maskNestUs = savedNest;
     }
   }
@@ -244,11 +248,14 @@ void main() {
       // ignore: avoid_print
       print('  paint-pass total:          ${per(paintUs)} ms/page');
       // ignore: avoid_print
-      print('  interpreter walk overhead: ${per(walkUs)} ms/page  (${pct(walkUs)}%)');
+      print(
+          '  interpreter walk overhead: ${per(walkUs)} ms/page  (${pct(walkUs)}%)');
       // ignore: avoid_print
-      print('  device callbacks total:    ${per(callbackUs)} ms/page  (${pct(callbackUs)}%)');
+      print(
+          '  device callbacks total:    ${per(callbackUs)} ms/page  (${pct(callbackUs)}%)');
       // ignore: avoid_print
-      print('  --- device callbacks by category (ms/page, % of paint, calls/page, us/call) ---');
+      print(
+          '  --- device callbacks by category (ms/page, % of paint, calls/page, us/call) ---');
       final keys = micros.keys.toList()
         ..sort((a, b) => micros[b]!.compareTo(micros[a]!));
       for (final k in keys) {

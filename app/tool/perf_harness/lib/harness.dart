@@ -96,6 +96,7 @@
 //   window.__perfBusy() / __perfPageReady(index) / __perfPageVisible(index)
 //   window.__perfGoToPage(index) / __perfCenterPage(index)
 //   window.__perfSetZoom(scale)
+//   window.__perfSetZoomTracked(scale, page) / __perfZoomReadyAt()
 //   window.__perfViewSync() / __perfApplyViewSync(json)
 //   window.__perfSearch(query) / __perfSearchBusy() / __perfSearchQuery()
 //   window.__perfSearchCount()
@@ -108,6 +109,9 @@ import 'dart:math' as math;
 import 'dart:ui' show FramePhase;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+// This workspace-only benchmark targets the actual interaction layer.
+// ignore: implementation_imports
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 // PdfRect isn't in the dart_pdf_editor barrel's `show` list; pull it directly
 // (app depends on pdf_document). The edit scenarios' annotation coords, and
 // editlat's content move.
@@ -115,7 +119,7 @@ import 'package:pdf_document/pdf_document.dart'
     show PdfContentEditing, PdfElementKind, PdfRect;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 
 // ---------------------------------------------------------------------------
@@ -530,6 +534,7 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   /// The scenarios that touch the editor mount the editing stack.
   bool get _isEdit =>
       _scenario == 'edit' ||
+      _scenario == 'resize' ||
       _scenario == 'hover' ||
       _scenario == 'editlat' ||
       _scenario == 'toolbar';
@@ -725,6 +730,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveSearch(coldOpen);
         case 'edit':
           await _driveEdit(coldOpen);
+        case 'resize':
+          await _driveResize(coldOpen);
         case 'editlat':
           await _driveEditLatency(coldOpen);
         case 'hover':
@@ -834,6 +841,52 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
         ((JSNumber rawZoom) {
           _viewer.setZoom(rawZoom.toDartDouble);
         }).toJS);
+    // Zoom readiness as a historical timestamp (#999). The driver used to poll
+    // "zoom applied, page visible, not busy" about every 20 ms, which put up
+    // to a poll interval of noise on every sample - enough to hide a one-frame
+    // win. A tracked zoom records the first instant that holds instead: on a
+    // render-activity change (a render finishing is exactly when it can turn
+    // true) or at the end of a frame. Never before the first frame after the
+    // zoom, because that frame's build is what asks the pages for the new
+    // geometry - until then the scheduler is idle only because nothing has
+    // asked yet.
+    double? zoomTarget;
+    var zoomPage = -1;
+    var zoomReadyAt = -1.0;
+    var zoomFramed = false;
+    void checkZoomReady() {
+      final target = zoomTarget;
+      if (target == null || !zoomFramed || zoomReadyAt >= 0) return;
+      if ((_viewer.zoom - target).abs() < 0.02 &&
+          !_viewer.isPageRenderBusy &&
+          _viewer.visiblePageRegion(zoomPage) != null) {
+        zoomReadyAt = _browserEpochNow();
+      }
+    }
+
+    void checkZoomReadyEachFrame(Duration _) {
+      if (zoomTarget == null || zoomReadyAt >= 0) return;
+      zoomFramed = true;
+      checkZoomReady();
+      if (zoomReadyAt < 0) {
+        SchedulerBinding.instance.addPostFrameCallback(checkZoomReadyEachFrame);
+      }
+    }
+
+    _viewer.pageRenderActivity.addListener(checkZoomReady);
+    _setGlobal(
+        '__perfSetZoomTracked',
+        ((JSNumber rawZoom, JSNumber rawPage) {
+          zoomTarget = rawZoom.toDartDouble;
+          zoomPage = rawPage.toDartInt;
+          zoomReadyAt = -1;
+          zoomFramed = false;
+          _viewer.setZoom(rawZoom.toDartDouble);
+          SchedulerBinding.instance
+            ..addPostFrameCallback(checkZoomReadyEachFrame)
+            ..ensureVisualUpdate();
+        }).toJS);
+    _setGlobal('__perfZoomReadyAt', (() => zoomReadyAt.toJS).toJS);
     _setGlobal(
         '__perfScrollToNormalized',
         ((JSNumber rawPosition) {
@@ -1519,6 +1572,96 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       _metric('hoverBuildMsP95', builds[((builds.length - 1) * 0.95).round()]);
       _metric('hoverBuildMsMax', builds.last);
     }
+  }
+
+  // Pointer dispatch includes synchronous drag-start work, but excludes the
+  // deferred clean render and PDF commit. Each completed resize is undone.
+  Future<void> _driveResize(Stopwatch coldOpen) async {
+    if (await _awaitPageCount(coldOpen) <= 0) {
+      throw StateError('pageCount never became positive');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final editing = _editing!;
+    editing.tool = PdfEditTool.select;
+    // Arming the tool mounts EditingPageOverlay on the next frame.
+    await WidgetsBinding.instance.endOfFrame;
+    Element? overlayElement;
+    void findOverlay(Element element) {
+      if (overlayElement != null) return;
+      if (element.widget case EditingPageOverlay(pageIndex: 0)) {
+        overlayElement = element;
+        return;
+      }
+      element.visitChildren(findOverlay);
+    }
+
+    void locate() {
+      overlayElement = null;
+      WidgetsBinding.instance.rootElement?.visitChildren(findOverlay);
+      if (overlayElement == null) throw StateError('page 0 overlay is missing');
+    }
+
+    locate();
+    final geometry = (overlayElement!.widget as EditingPageOverlay).geometry;
+    editing.addFreeText(
+        0,
+        geometry.toPageRect(const Rect.fromLTWH(80, 80, 240, 80)),
+        'Resize this wrapped text box');
+    final slot = editing.document.page(0).annotations.length - 1;
+    editing.selectAnnotation(0, slot);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final dispatch = <double>[];
+    var missedCommits = 0;
+    const device = 79;
+    const delta = Offset(48, 24);
+    for (var round = 0; round < 6; round++) {
+      locate();
+      final overlay = overlayElement!.widget as EditingPageOverlay;
+      final box = overlayElement!.findRenderObject()! as RenderBox;
+      final local = overlay.geometry
+          .toViewRect(editing.selectedAnnotation!.rect)
+          .bottomRight;
+      final at = box.localToGlobal(local);
+      if (round == 0) {
+        GestureBinding.instance.handlePointerEvent(PointerAddedEvent(
+            position: at, kind: PointerDeviceKind.mouse, device: device));
+      }
+      final revisionBefore = editing.revisionId;
+      final pointer = 500 + round;
+      GestureBinding.instance.handlePointerEvent(PointerDownEvent(
+          pointer: pointer,
+          position: at,
+          kind: PointerDeviceKind.mouse,
+          device: device,
+          buttons: kPrimaryMouseButton));
+      final timer = Stopwatch()..start();
+      GestureBinding.instance.handlePointerEvent(PointerMoveEvent(
+          pointer: pointer,
+          position: at + delta,
+          delta: delta,
+          kind: PointerDeviceKind.mouse,
+          device: device,
+          buttons: kPrimaryMouseButton));
+      dispatch.add(timer.elapsedMicroseconds / 1000);
+      await WidgetsBinding.instance.endOfFrame;
+      // The real drag must have started and produced a resize preview.
+      final preview = _elementByKey(const ValueKey('pdf-text-resize-preview'));
+      if (preview == null) throw StateError('resize preview did not appear');
+      GestureBinding.instance.handlePointerEvent(PointerUpEvent(
+          pointer: pointer,
+          position: at + delta,
+          kind: PointerDeviceKind.mouse,
+          device: device));
+      if (editing.revisionId == revisionBefore) missedCommits++;
+      editing.undo();
+      editing.selectAnnotation(0, slot);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    dispatch.sort();
+    _metric('resizeStartDispatchMsP50', dispatch[dispatch.length ~/ 2]);
+    _metric('resizeStartDispatchMsP95', dispatch.last);
+    _metric('resizeRounds', dispatch.length);
+    _metric('resizeMissedCommits', missedCommits);
   }
 
   // ----- toolbar: arming tools through the stock editor chrome ------------

@@ -8,7 +8,9 @@
 /// [Jbig2Decoder] reads back:
 ///
 /// * MQ arithmetic coding (Annex E), no Huffman tables;
-/// * generic region template 0 with the nominal AT pixels, TPGDON off;
+/// * generic region template 0 with the nominal AT pixels, TPGDON off, for
+///   symbols; a standalone page of one immediate generic region with any
+///   template and AT pixels ([encodeJbig2GenericPage]);
 /// * one symbol dictionary segment (SDHUFF=0, REFAGG=0) per globals stream;
 /// * one page-info + one immediate text region segment (SBHUFF=0, SBSTRIPS=1,
 ///   TOPLEFT reference corner) per page stream, optionally with per-instance
@@ -284,6 +286,63 @@ Uint8List encodeJbig2TextPage({
   ]);
 }
 
+/// Encodes [bitmap] as a self-contained JBIG2 page stream: page information
+/// plus one immediate lossless generic region (MMR=0, TPGDON off) coded with
+/// generic [template] 0-3 and the adaptive pixels [at] - four for template 0,
+/// one otherwise; the nominal ones when omitted (T.88 §6.2.5.3).
+///
+/// This is the MRC scanner shape: a full-page text/line-art mask in a single
+/// generic region, no symbol dictionary.
+Uint8List encodeJbig2GenericPage(
+  Jbig2Bitmap bitmap, {
+  int template = 0,
+  List<(int, int)>? at,
+}) {
+  if (template < 0 || template > 3) throw ArgumentError.value(template);
+  final adaptive = at ?? _nominalGenericAt[template];
+  if (adaptive.length != (template == 0 ? 4 : 1)) {
+    throw ArgumentError('template $template takes '
+        '${template == 0 ? 4 : 1} AT pixels');
+  }
+  final pageInfo = BytesBuilder()
+    ..add(_u32(bitmap.width))
+    ..add(_u32(bitmap.height))
+    ..add(_u32(0)) // X resolution: unknown
+    ..add(_u32(0)) // Y resolution: unknown
+    ..addByte(1) // flags: lossless, default pixel 0, default OR combination
+    ..add(_u16(0)); // striping information
+
+  final mq = _MqEncoder();
+  _encodeGenericWith(mq, _ArithContexts(1 << 16), bitmap,
+      [..._genericTemplates[template], ...adaptive]);
+  final region = BytesBuilder()
+    ..add(_u32(bitmap.width)) // region width
+    ..add(_u32(bitmap.height)) // region height
+    ..add(_u32(0)) // region X
+    ..add(_u32(0)) // region Y
+    ..addByte(0) // external combination operator: OR
+    ..addByte(template << 1) // MMR=0, GBTEMPLATE, TPGDON=0
+    ..add(_atBytes(adaptive))
+    ..add(mq.flush());
+
+  return Uint8List.fromList([
+    ..._segment(
+      number: 1,
+      type: 48, // page information
+      referred: const [],
+      page: 1,
+      payload: pageInfo.takeBytes(),
+    ),
+    ..._segment(
+      number: 2,
+      type: 38, // immediate lossless generic region
+      referred: const [],
+      page: 1,
+      payload: region.takeBytes(),
+    ),
+  ]);
+}
+
 // The symbol dictionary lives in the globals stream as segment 0; every page's
 // text region refers to it by that number.
 const _globalsDictionarySegment = 0;
@@ -298,13 +357,47 @@ const _template0 = [
   (-4, 0), (-3, 0), (-2, 0), (-1, 0),
 ];
 
+/// The fixed pixels of generic templates 0-3 (T.88 figures 3-6), without
+/// the AT slots.
+const _genericTemplates = [
+  _template0,
+  [
+    (-1, -2), (0, -2), (1, -2), (2, -2), //
+    (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1),
+    (-3, 0), (-2, 0), (-1, 0),
+  ],
+  [
+    (-1, -2), (0, -2), (1, -2), //
+    (-2, -1), (-1, -1), (0, -1), (1, -1),
+    (-2, 0), (-1, 0),
+  ],
+  [
+    (-3, -1), (-2, -1), (-1, -1), (0, -1), (1, -1), //
+    (-4, 0), (-3, 0), (-2, 0), (-1, 0),
+  ],
+];
+
+/// Nominal AT pixels per generic template (T.88 §6.2.5.3).
+const _nominalGenericAt = [
+  _nominalAt,
+  [(3, -1)],
+  [(2, -1)],
+  [(2, -1)],
+];
+
 /// Encodes [bitmap] with the generic region procedure (§6.2), template 0.
+void _encodeGeneric(_MqEncoder mq, _ArithContexts cx, Jbig2Bitmap bitmap) =>
+    _encodeGenericWith(mq, cx, bitmap, [..._template0, ..._nominalAt]);
+
+/// Encodes [bitmap] with the generic region procedure over the template
+/// [pixels] (fixed plus AT).
 ///
 /// The context is the combined template sorted by row then column, most
 /// significant bit first - the same order the decoder builds it in, which is
 /// all that has to agree.
-void _encodeGeneric(_MqEncoder mq, _ArithContexts cx, Jbig2Bitmap bitmap) {
-  final pixels = [..._template0, ..._nominalAt]
+void _encodeGenericWith(_MqEncoder mq, _ArithContexts cx, Jbig2Bitmap bitmap,
+    List<(int, int)> template) {
+  final pixels = [...template]
     ..sort((a, b) => a.$2 != b.$2 ? a.$2 - b.$2 : a.$1 - b.$1);
   for (var y = 0; y < bitmap.height; y++) {
     for (var x = 0; x < bitmap.width; x++) {
@@ -386,8 +479,9 @@ List<int> _u16(int v) => [(v >> 8) & 0xFF, v & 0xFF];
 List<int> _u32(int v) =>
     [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF];
 
-List<int> _atBytes(List<(int, int)> at) =>
-    [for (final (x, y) in at) ...[x & 0xFF, y & 0xFF]];
+List<int> _atBytes(List<(int, int)> at) => [
+      for (final (x, y) in at) ...[x & 0xFF, y & 0xFF]
+    ];
 
 /// Adaptive probability state for one arithmetic context set.
 class _ArithContexts {

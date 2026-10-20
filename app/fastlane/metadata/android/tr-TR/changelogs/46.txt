@@ -1,0 +1,8 @@
+9.0.0 sürümündeki yenilikler
+
+- Ek açıklamaları gruplayıp birlikte taşıyın, boyutlandırın ve döndürün.
+- Taranmış belgelere otomatik OCR uygulanır, böylece aranabilirler.
+- Sayfa rengini isteğe bağlı olarak PDF'lere kaydedin.
+- Metin biçimlendirme kısayolları ve ayrı açıklama oku stilleri.
+- Daha kolay çoklu çizgi çizimi ve sayfa sıralama.
+- Daha iyi serif yazı tipleri, daha net döndürülmüş görseller ve daha akıcı kaydırma.

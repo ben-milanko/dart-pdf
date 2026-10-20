@@ -13,6 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'annotation_display_filter.dart';
 import 'compression_worker_protocol.dart';
 import 'font_substitution.dart';
 import 'region_replay_index.dart';
@@ -56,7 +57,7 @@ class _PageSurfaceBitmapKey {
   );
 
   final int pageIndex;
-  final bool annotations;
+  final PdfAnnotationLayerSpec annotations;
   final int width;
   final int height;
   final int pageColor;
@@ -251,6 +252,10 @@ bool _presentPageSurfaceBitmap(
 /// - `{kind:'detail', id, page, annotations, m0..m5, deviceWidth, deviceHeight,
 ///   pixelRatio, regionLeft..regionTop}` → replies with transferable command
 ///   and plan buffers produced by one cancellable worker job.
+///
+/// Every page request may also carry `hiddenAnnotationSubtypes` (an array of
+/// /Subtype names) next to `annotations`: those annotations are left out of
+/// the recording (the viewer's display-only subtype filter).
 void runPdfRenderWorker() {
   installPdfJpegAccelerator();
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
@@ -593,8 +598,7 @@ void runPdfRenderWorker() {
     if (kind == 'surface') {
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
       final pageIndex = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
-      final annotations =
-          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final annotations = _annotationLayerSpec(data);
       final surfaceId =
           (data.getProperty('surfaceId'.toJS) as JSNumber).toDartInt;
       final width =
@@ -838,8 +842,7 @@ void runPdfRenderWorker() {
     if (kind == 'bin' || kind == 'detail') {
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
       final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
-      final annotations =
-          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final annotations = _annotationLayerSpec(data);
       final matrix = <double>[
         for (var i = 0; i < 6; i++)
           (data.getProperty('m$i'.toJS) as JSNumber).toDartDouble,
@@ -948,8 +951,7 @@ void runPdfRenderWorker() {
     if (kind == 'regionIndex') {
       final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
       final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
-      final annotations =
-          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final annotations = _annotationLayerSpec(data);
       final maxCommands =
           (data.getProperty('maxCommands'.toJS) as JSNumber).toDartInt;
       final buildGrid =
@@ -1076,8 +1078,7 @@ void runPdfRenderWorker() {
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
-    final annotations =
-        (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+    final annotations = _annotationLayerSpec(data);
     final imagePixelRatio =
         (data.getProperty('imageRatio'.toJS) as JSNumber?)?.toDartDouble;
     // Default true so an older client that doesn't send the flag still decodes.
@@ -1292,7 +1293,7 @@ Future<Uint8List?> _recordPageAsync(
   PdfWorkerTranscriptCache cache,
   bool reuseTranscripts,
   int pageIndex,
-  bool annotations,
+  PdfAnnotationLayerSpec annotations,
   double? imagePixelRatio,
   bool decodeImages,
   int? commandLimit,
@@ -1332,7 +1333,7 @@ Future<Uint8List?> _recordPageAsync(
     if (previewOperationLimit == null) {
       cache.textCache.record(pageIndex, recorder.commands);
     }
-    if (annotations) interpreter.drawAnnotations(page);
+    annotations.drawOn(interpreter, page);
     if (interpretClock != null) {
       interpretClock.stop();
       timings!.interpretUs += interpretClock.elapsedMicroseconds;
@@ -1451,7 +1452,7 @@ Future<Uint8List?> _binStripsAsync(
   PdfDocument document,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
-  bool annotations,
+  PdfAnnotationLayerSpec annotations,
   List<double> matrix,
   int deviceWidth,
   int deviceHeight,
@@ -1502,7 +1503,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   _BrowserFlateSampleCache flateSampleCache,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
-  bool annotations,
+  PdfAnnotationLayerSpec annotations,
   List<double> matrix,
   int deviceWidth,
   int deviceHeight,
@@ -1651,7 +1652,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
   PdfDocument document,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
-  bool annotations,
+  PdfAnnotationLayerSpec annotations,
   int maxCommands,
   bool buildGrid,
   PdfCancellationToken token, {
@@ -1701,16 +1702,15 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           continue;
         }
         // Region records eventually pass through serializeCommands, whose
-        // imageDecodeRegion path replaces an axis-aligned off-region draw with
+        // imageDecodeRegion path replaces an off-region draw with
         // one transparent pixel. Do not predecode that draw first. The native
         // Flate acceleration used to inflate and colour-convert every image on
         // the page here, only for the serializer to throw almost all of those
         // pixels away. A tiled CAD sheet with 52 requests consequently spent
         // ~8.5 s per small pan and queued newer viewport regions behind stale
-        // work. Unsupported rotated/skewed transforms deliberately keep the
-        // general path: the serializer cannot region-retarget those either.
+        // work.
         if (imageDecodeRegion != null &&
-            _axisAlignedImageOutsideRegion(request, imageDecodeRegion)) {
+            _imageOutsideRegion(request, imageDecodeRegion)) {
           tally?.regionSkip();
           out.add(command);
           continue;
@@ -1924,26 +1924,23 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   return changed ? out : commands;
 }
 
-bool _axisAlignedImageOutsideRegion(
+/// Whether the page-space bounds of [request]'s image miss [region] - the same
+/// test serializeCommands' region plan uses to ship a transparent pixel
+/// instead (any invertible placement, rotated or skewed included).
+bool _imageOutsideRegion(
   PdfImageRequest request,
   PdfRect region,
 ) {
-  final transform = request.transform;
+  final t = request.transform;
   const epsilon = 1e-9;
-  if (transform.a.abs() <= epsilon ||
-      transform.d.abs() <= epsilon ||
-      transform.b.abs() > epsilon ||
-      transform.c.abs() > epsilon) {
-    return false;
-  }
-  final left = math.min(transform.e, transform.e + transform.a);
-  final right = math.max(transform.e, transform.e + transform.a);
-  final bottom = math.min(transform.f, transform.f + transform.d);
-  final top = math.max(transform.f, transform.f + transform.d);
-  return right <= region.left ||
-      left >= region.right ||
-      top <= region.bottom ||
-      bottom >= region.top;
+  final det = t.a * t.d - t.b * t.c;
+  if (!(det.abs() > epsilon) || !det.isFinite) return false;
+  final xs = [t.e, t.e + t.a, t.e + t.c, t.e + t.a + t.c];
+  final ys = [t.f, t.f + t.b, t.f + t.d, t.f + t.b + t.d];
+  return xs.reduce(math.max) <= region.left ||
+      xs.reduce(math.min) >= region.right ||
+      ys.reduce(math.max) <= region.bottom ||
+      ys.reduce(math.min) >= region.top;
 }
 
 (int, int)? _browserFlateTarget(
@@ -2930,7 +2927,7 @@ Map<String, _WorkerSubstituteFace> _workerSubstituteFaces(
     if (command is! PdfDrawTextCommand) continue;
     final run = command.run;
     if (run.invisible || run.text.isEmpty) continue;
-    final substitute = pdfBundledSubstituteFor(run.fontName);
+    final substitute = pdfBundledSubstituteFor(run.fontName, serif: run.serif);
     final bold = pdfSubstituteIsBold(run.fontName);
     final italic = pdfSubstituteIsItalic(run.fontName);
     final face = (
@@ -3075,4 +3072,18 @@ class _BrowserDecodedImage {
   final Uint8List rgba;
   final int width;
   final int height;
+}
+
+/// Reads a request's annotation selection: the `annotations` flag plus the
+/// optional `hiddenAnnotationSubtypes` name array.
+PdfAnnotationLayerSpec _annotationLayerSpec(JSObject data) {
+  final draw = (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+  if (!draw) return PdfAnnotationLayerSpec.none;
+  final hidden = data.getProperty('hiddenAnnotationSubtypes'.toJS);
+  if (hidden == null || hidden.isUndefinedOrNull) {
+    return PdfAnnotationLayerSpec.all;
+  }
+  return PdfAnnotationLayerSpec(true, {
+    for (final name in (hidden as JSArray<JSString>).toDart) name.toDart,
+  });
 }

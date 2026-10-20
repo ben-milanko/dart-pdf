@@ -344,6 +344,22 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '上次会话中的 $count 个文档已不可用，可能已被移动、重命名或删除。',
+      one: '$title 已不可用，可能已被移动、重命名或删除。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '无法将 $title 保存到原位置，它可能已被移动或删除。请选择保存位置。';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return '无法进行数字签名：$error';
   }
@@ -772,7 +788,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get ocrWebPromptBody =>
-      '网页 OCR 会下载一个 Florence-2 视觉语言模型，并通过 Transformers.js 使用 WebGPU/WASM 在本地运行。PDF 页面会保留在此浏览器中；仅在首次使用时获取模型文件。';
+      '网页 OCR 会下载一个小型文字识别模型（PP-OCRv5，约 21 MB），并通过 WebAssembly 在本地运行。PDF 页面保留在此浏览器中；仅在首次使用时获取模型文件。';
 
   @override
   String get ocrWebPromptTitle => '在此浏览器中运行 AI OCR？';
@@ -918,13 +934,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自动接收来自 main 的未签名 Windows 测试版本更新通知。';
+      '自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
 
   @override
   String get settingsViewSource => '在 GitHub 上查看源代码';
+
+  @override
+  String get settingsReportIssue => '在 GitHub 上报告问题';
+
+  @override
+  String get settingsEmailFeedback => '通过电子邮件发送反馈';
 
   @override
   String get undo => '撤销';
@@ -1016,8 +1038,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 页';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在识别文本…';
+
+  @override
+  String get ocrChipPreparing => '正在加载 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';
@@ -1221,6 +1249,95 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get whatsNewUnavailable => '此版本不提供发行说明。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '打开 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '在各自的标签页中打开每个文件,还是将它们合并为一个新文档?拖动文件可设置合并顺序。';
+
+  @override
+  String get incomingFilesCombine => '合并';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合并 $count 个 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖动文件可设置合并顺序。';
+
+  @override
+  String get appMenuNew => '新建';
+
+  @override
+  String get appMenuOpen => '打开';
+
+  @override
+  String get appMenuPrint => '打印';
+
+  @override
+  String get appMenuSign => '签名';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '导出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1560,6 +1677,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String editorCouldNotReopen(String title) {
     return '無法重新開啟 $title';
+  }
+
+  @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '上次工作階段中的 $count 份文件已無法使用，可能已被移動、重新命名或刪除。',
+      one: '$title 已無法使用，可能已被移動、重新命名或刪除。',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '無法將 $title 儲存到原位置，它可能已被移動或刪除。請選擇儲存位置。';
   }
 
   @override
@@ -1991,7 +2124,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get ocrWebPromptBody =>
-      '網頁 OCR 會下載 Florence-2 視覺語言模型，並透過 Transformers.js 以 WebGPU/WASM 在本機執行。PDF 頁面會保留在此瀏覽器中；只有模型檔案會在首次使用時擷取。';
+      '網頁 OCR 會下載一個小型文字辨識模型（PP-OCRv5，約 21 MB），並透過 WebAssembly 在本機執行。PDF 頁面會留在此瀏覽器中；只在首次使用時取得模型檔案。';
 
   @override
   String get ocrWebPromptTitle => '在此瀏覽器中執行 AI OCR？';
@@ -2137,13 +2270,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get settingsNightlyUpdatesSubtitle =>
-      '自動接收來自 main 的未簽署 Windows 測試版本更新通知。';
+      '自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';
 
   @override
   String get settingsViewSource => '在 GitHub 上檢視原始碼';
+
+  @override
+  String get settingsReportIssue => '在 GitHub 上回報問題';
+
+  @override
+  String get settingsEmailFeedback => '透過電子郵件傳送意見回饋';
 
   @override
   String get undo => '復原';
@@ -2236,8 +2375,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String ocrChipRecognising(int page, int pageCount) {
-    return 'OCR $page/$pageCount';
+    return 'OCR 第 $page/$pageCount 頁';
   }
+
+  @override
+  String get ocrChipRecognisingText => '正在辨識文字…';
+
+  @override
+  String get ocrChipPreparing => '正在載入 OCR 模型…';
 
   @override
   String get ocrChipFinishing => '正在完成 OCR…';
@@ -2441,4 +2586,93 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get whatsNewUnavailable => '此版本未提供版本資訊。';
+
+  @override
+  String incomingFilesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '開啟 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesMessage =>
+      '要在各自的分頁中開啟每個檔案,還是將它們合併成一份新文件?拖曳檔案即可設定合併順序。';
+
+  @override
+  String get incomingFilesCombine => '合併';
+
+  @override
+  String incomingFilesCombineTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '合併 $count 個 PDF',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get incomingFilesCombineMessage => '拖曳檔案即可設定合併順序。';
+
+  @override
+  String get appMenuNew => '新增';
+
+  @override
+  String get appMenuOpen => '開啟';
+
+  @override
+  String get appMenuPrint => '列印';
+
+  @override
+  String get appMenuSign => '簽署';
+
+  @override
+  String get appMenuRecent => '最近';
+
+  @override
+  String get appMenuSeeAll => '查看全部';
+
+  @override
+  String get appMenuExport => '匯出';
+
+  @override
+  String get appMenuMoreTools => '更多工具';
+
+  @override
+  String get settingsTextRecognition => 'Text recognition';
+
+  @override
+  String get settingsAutoOcrTitle => 'Automatically OCR scans';
+
+  @override
+  String get settingsAutoOcrSubtitle =>
+      'Adds a selectable, searchable text layer when you open a scanned document. Text is recognized on this device.';
+
+  @override
+  String get ocrAutoResult =>
+      'Text recognized - this scan is now searchable and selectable. Automatic OCR can be turned off in Settings.';
+
+  @override
+  String get ocrAutoDocumentChanged =>
+      'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

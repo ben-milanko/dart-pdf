@@ -1,0 +1,6 @@
+8.1.0 yenilikleri
+
+- Açılır menü ve liste form alanlarının yazı tipini ve stilini değiştirin.
+- Oluşturma, açma, yazdırma ve imzalama için yeni telefon menüsü.
+- Metin düzenlerken yazı tipi ve satır kaydırma korunur. iOS klavyesi ve seçim menüleri iyileştirildi.
+- Mobil kalem ve vurgulayıcı için tam renk paleti.
