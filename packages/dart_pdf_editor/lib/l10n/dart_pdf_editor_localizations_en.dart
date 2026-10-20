@@ -447,6 +447,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recolor…';
 
   @override
+  String get menuSaveAsImage => 'Save as image…';
+
+  @override
   String get menuRemoveNode => 'Remove node';
 
   @override
@@ -2928,6 +2931,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuRecolour => 'Recolour…';
 
   @override
+  String get menuSaveAsImage => 'Save as image…';
+
+  @override
   String get menuRemoveNode => 'Remove node';
 
   @override
@@ -5407,6 +5413,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuRecolour => 'Recolour…';
+
+  @override
+  String get menuSaveAsImage => 'Save as image…';
 
   @override
   String get menuRemoveNode => 'Remove node';

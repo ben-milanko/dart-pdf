@@ -267,6 +267,7 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 /// [pagePoint] is known, Add note here plus Select all (when
 /// [onSelectAllText] is given). [entriesBuilder] rewrites the rows last (see
 /// [PdfAnnotationMenuEntriesBuilder]).
+/// [onSaveImage] adds Save as image for one selected vector snapshot.
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
@@ -280,6 +281,7 @@ Future<void> showPdfAnnotationMenu({
   VoidCallback? onPaste,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
+  PdfSelectedContentImageHandler? onSaveImage,
   VoidCallback? onSelectAllText,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
@@ -536,6 +538,21 @@ Future<void> showPdfAnnotationMenu({
             preferences: request.controller.preferences,
             annotationSlots: request.slots,
           );
+        },
+      ),
+    // A pasted snapshot is vector, so it saves as a fresh render at print
+    // resolution rather than as the pixels on screen.
+    if (hasSelection &&
+        onSaveImage != null &&
+        controller.canExportSelectedSnapshotImage)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-snapshot-image'),
+        label: pdfL10n(context).menuSaveAsImage,
+        icon: Icons.download_outlined,
+        onSelected: (request) async {
+          final image = await request.controller.exportSelectedSnapshotImage();
+          if (image == null || !context.mounted) return;
+          await onSaveImage(context, image);
         },
       ),
     if (hasSelection && controller.canApplySelectedStyleAsDefault)

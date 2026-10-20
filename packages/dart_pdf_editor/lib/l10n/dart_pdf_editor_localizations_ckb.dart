@@ -449,6 +449,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuRecolour => 'گۆڕینی ڕەنگ…';
 
   @override
+  String get menuSaveAsImage => 'پاشەکەوتکردن وەک وێنە…';
+
+  @override
   String get menuRemoveNode => 'لابردنی گرێ';
 
   @override

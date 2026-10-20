@@ -930,6 +930,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Recolor…'**
   String get menuRecolour;
 
+  /// Annotation context-menu item that saves a pasted vector snapshot as a PNG image file.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as image…'**
+  String get menuSaveAsImage;
+
   /// Annotation context-menu item that removes the nearest vertex of a polyline or polygon.
   ///
   /// In en, this message translates to:

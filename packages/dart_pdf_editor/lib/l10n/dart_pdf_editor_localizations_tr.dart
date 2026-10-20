@@ -447,6 +447,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Yeniden renklendir…';
 
   @override
+  String get menuSaveAsImage => 'Görsel olarak kaydet…';
+
+  @override
   String get menuRemoveNode => 'Düğümü kaldır';
 
   @override

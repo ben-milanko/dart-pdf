@@ -132,6 +132,7 @@
   "menuLock": "Lock",
   "menuUnlock": "Unlock",
   "menuRecolour": "Recolour…",
+  "menuSaveAsImage": "Save as image…",
   "menuRemoveNode": "Remove node",
   "menuRemoveLeader": "Remove leader",
   "menuAddNoteHere": "Add note here",

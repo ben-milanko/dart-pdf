@@ -553,6 +553,10 @@
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
   },
+  "menuSaveAsImage": "Save as image…",
+  "@menuSaveAsImage": {
+    "description": "Annotation context-menu item that saves a pasted vector snapshot as a PNG image file."
+  },
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
