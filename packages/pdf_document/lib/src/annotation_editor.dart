@@ -6822,8 +6822,8 @@ extension PdfAnnotationEditing on PdfEditor {
     return rect;
   }
 
-  /// Greedy word wrap with [font]'s metrics; a single word longer than
-  /// [maxWidth] overflows (and is clipped by the appearance).
+  /// Word wrap with [font]'s metrics, splitting overlong words at grapheme
+  /// boundaries so CJK paragraphs and long tokens remain visible.
   List<String> _wrap(
     String text,
     double fontSize,
@@ -6838,6 +6838,7 @@ extension PdfAnnotationEditing on PdfEditor {
         (candidate) => _advanceWidth(font, candidate, fontSize,
             charSpacing: charSpacing, horizontalScale: horizontalScale),
         tolerance: _wrapTolerance,
+        breakLongWords: true,
       );
 
   /// The horizontal advance of [text] at [fontSize] in [font], including the

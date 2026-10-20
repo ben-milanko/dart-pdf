@@ -700,6 +700,38 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('committing an unbroken paragraph keeps its wrapped lines',
+        (tester) async {
+      const text = 'LONGUNBROKENANNOTATIONPARAGRAPH';
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(145, 500));
+      await tester.enterText(find.byKey(editorKey), text);
+      await tester.pump();
+      await tap(tester, view(450, 400));
+      expect(find.byKey(editorKey), findsNothing);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, text);
+      final operations = ContentStreamParser.parse(
+          editing.document.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(
+          operations.where((o) => o.operator == 'Tj').length, greaterThan(1));
+      editing.undo();
+      expect(editing.document.page(0).annotations, isEmpty);
+      editing.redo();
+      final reopened = PdfDocument.open(editing.bytes);
+      final saved = reopened.page(0).annotations.single;
+      expect(saved.contents, text);
+      expect(
+          ContentStreamParser.parse(
+                  reopened.cos.decodeStreamData(saved.normalAppearance!))
+              .where((o) => o.operator == 'Tj')
+              .length,
+          greaterThan(1));
+      await settle(tester);
+    });
+
     testWidgets('the inline editor follows RTL text while typing',
         (tester) async {
       const rtl = 'ڕێباز';

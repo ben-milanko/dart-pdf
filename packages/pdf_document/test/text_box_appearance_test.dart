@@ -44,6 +44,26 @@ void main() {
       expect(pdfWrapText('aaaaaaa bb', 5, byChars), ['aaaaaaa', 'bb']);
     });
 
+    test('free-text wrapping splits overlong tokens and CJK paragraphs', () {
+      expect(pdfWrapText('aaaaaaa bb', 5, byChars, breakLongWords: true),
+          ['aaaaa', 'aa bb']);
+      expect(pdfWrapText('日本語中国語韓国語', 3, byChars, breakLongWords: true),
+          ['日本語', '中国語', '韓国語']);
+      expect(pdfWrapText('ab\r\ncd\ref', 2, byChars, breakLongWords: true),
+          ['ab', 'cd', 'ef']);
+    });
+
+    test('long-word splitting preserves combining and supplementary characters',
+        () {
+      const text = 'e\u0301e\u0301𠮷𠮷';
+      final lines = pdfWrapText(text, 2, byChars, breakLongWords: true);
+      expect(lines, ['e\u0301', 'e\u0301', '𠮷', '𠮷']);
+      expect(lines.join(), text);
+      // A single grapheme wider than the box cannot be split further.
+      expect(pdfWrapText('e\u0301x', 1, byChars, breakLongWords: true),
+          ['e\u0301', 'x']);
+    });
+
     test('tolerance keeps a line that rounds a hair over the width', () {
       // width == maxWidth + tolerance/2 stays on the line; without the
       // tolerance the strict `>` test would wrap it.
@@ -71,10 +91,8 @@ void main() {
     test('clamp pins an overflowing line to the left padding', () {
       // Unclamped, a 200-wide line would start off the left edge.
       expect(pdfTextBoxLineX(PdfTextAlign.center, box, 200, 3), -50);
-      expect(
-          pdfTextBoxLineX(PdfTextAlign.center, box, 200, 3, clamp: true), 3);
-      expect(
-          pdfTextBoxLineX(PdfTextAlign.right, box, 200, 3, clamp: true), 3);
+      expect(pdfTextBoxLineX(PdfTextAlign.center, box, 200, 3, clamp: true), 3);
+      expect(pdfTextBoxLineX(PdfTextAlign.right, box, 200, 3, clamp: true), 3);
     });
   });
 
@@ -85,7 +103,10 @@ void main() {
     test('clips, opens a text object, and selects the font', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['Hi'],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 3,
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 3,
           lineHeight: 12);
       final content = _content(w);
       expect(content, contains('0 0 100 50 re'));
@@ -99,7 +120,10 @@ void main() {
     test('centre quadding centres the line horizontally', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['Hi'],
-          font: font, fontSize: 10, align: PdfTextAlign.center, padding: 3,
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.center,
+          padding: 3,
           lineHeight: 12);
       final width = font.measure('Hi', 10);
       final (x, _) = _baselines(_content(w)).single;
@@ -109,7 +133,10 @@ void main() {
     test('top anchoring puts the first baseline one ascent below the top', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['a', 'b'],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 3,
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 3,
           lineHeight: 12);
       final lines = _baselines(_content(w));
       final ascent = 10 * font.ascent / 1000;
@@ -122,18 +149,26 @@ void main() {
       const shortBox = PdfRect(0, 0, 100, 20);
       final w = ContentWriter();
       writePdfTextBox(w, shortBox, ['x'],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 3,
-          lineHeight: 12, vAlign: PdfTextBoxVAlign.centerLine);
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 3,
+          lineHeight: 12,
+          vAlign: PdfTextBoxVAlign.centerLine);
       final ascent = 10 * font.ascent / 1000;
-      expect(_baselines(_content(w)).single.$2,
-          closeTo((20 - ascent) / 2, 1e-6));
+      expect(
+          _baselines(_content(w)).single.$2, closeTo((20 - ascent) / 2, 1e-6));
     });
 
     test('centreBlock centres the whole block vertically', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['a', 'b'],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 0,
-          lineHeight: 12, vAlign: PdfTextBoxVAlign.centerBlock);
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 0,
+          lineHeight: 12,
+          vAlign: PdfTextBoxVAlign.centerBlock);
       final ascent = 10 * font.ascent / 1000;
       final blockTop = (50 + 2 * 12) / 2;
       // Half the per-line leading sits above the first ascent so the block's
@@ -152,28 +187,39 @@ void main() {
       const fontSize = 10.0, lineHeight = 12.0;
       final w = ContentWriter();
       writePdfTextBox(w, box, ['a', 'b'],
-          font: font, fontSize: fontSize, align: PdfTextAlign.left, padding: 0,
-          lineHeight: lineHeight, vAlign: PdfTextBoxVAlign.centerBlock);
+          font: font,
+          fontSize: fontSize,
+          align: PdfTextAlign.left,
+          padding: 0,
+          lineHeight: lineHeight,
+          vAlign: PdfTextBoxVAlign.centerBlock);
       final ascent = fontSize * font.ascent / 1000;
       const descent = fontSize * 207 / 1000; // Helvetica descent, per 1000 em
       final lines = _baselines(_content(w));
       final topMargin = box.top - (lines.first.$2 + ascent);
       final bottomMargin = (lines.last.$2 - descent) - box.bottom;
       expect(topMargin, greaterThan(0));
-      expect(topMargin - bottomMargin,
-          closeTo(ascent + descent - fontSize, 1e-6));
+      expect(
+          topMargin - bottomMargin, closeTo(ascent + descent - fontSize, 1e-6));
     });
 
     test('leading emits a TL only when asked', () {
       final withLeading = ContentWriter();
       writePdfTextBox(withLeading, box, ['x'],
-          font: font, fontSize: 12, align: PdfTextAlign.left, padding: 3,
-          lineHeight: 24, leading: true);
+          font: font,
+          fontSize: 12,
+          align: PdfTextAlign.left,
+          padding: 3,
+          lineHeight: 24,
+          leading: true);
       expect(_content(withLeading), contains('24 TL'));
 
       final without = ContentWriter();
       writePdfTextBox(without, box, ['x'],
-          font: font, fontSize: 12, align: PdfTextAlign.left, padding: 3,
+          font: font,
+          fontSize: 12,
+          align: PdfTextAlign.left,
+          padding: 3,
           lineHeight: 24);
       expect(_content(without), isNot(contains('TL')));
     });
@@ -181,7 +227,10 @@ void main() {
     test('writeColor and emitLine hooks control paint and encoding', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['Hi'],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 3,
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 3,
           lineHeight: 12,
           writeColor: (cw) => cw.raw('1 0 0 rg'),
           emitLine: (cw, line) => cw.showText('[$line]'));
@@ -193,8 +242,12 @@ void main() {
     test('underlineColor draws a filled rule under each non-empty line', () {
       final w = ContentWriter();
       writePdfTextBox(w, box, ['Hi', ''],
-          font: font, fontSize: 10, align: PdfTextAlign.left, padding: 3,
-          lineHeight: 12, underlineColor: 0x000000);
+          font: font,
+          fontSize: 10,
+          align: PdfTextAlign.left,
+          padding: 3,
+          lineHeight: 12,
+          underlineColor: 0x000000);
       final content = _content(w);
       final afterText = content.substring(content.indexOf('ET'));
       // exactly one filled rule, for the single non-empty line, and it is
