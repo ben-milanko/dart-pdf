@@ -115,17 +115,7 @@ class CcittDecoder {
     var white = true;
     for (final transition in transitions) {
       final end = transition.clamp(0, columns);
-      if (!white) {
-        for (var x = position; x < end; x++) {
-          final byte = x >> 3;
-          final bit = 0x80 >> (x & 7);
-          if (blackIs1) {
-            row[byte] |= bit;
-          } else {
-            row[byte] &= ~bit;
-          }
-        }
-      }
+      if (!white) _fillSpan(row, position, end, set: blackIs1);
       position = end;
       white = !white;
     }
@@ -135,6 +125,31 @@ class CcittDecoder {
       if (pad > 0) row[rowBytes - 1] &= 0xFF << pad;
     }
     return row;
+  }
+
+  /// Sets (or clears) bits `[start, end)` of a packed row. Whole interior
+  /// bytes go through [Uint8List.fillRange]; only the two partial edge
+  /// bytes are masked. A solid 1728-column run costs ~3 writes instead of
+  /// 1728 read-modify-writes.
+  static void _fillSpan(Uint8List row, int start, int end,
+      {required bool set}) {
+    if (start >= end) return;
+    final firstByte = start >> 3;
+    final lastByte = (end - 1) >> 3;
+    // bits at or right of `start` within its byte
+    final head = 0xFF >> (start & 7);
+    // bits at or left of `end - 1` within its byte
+    final tail = (0xFF << (7 - ((end - 1) & 7))) & 0xFF;
+    if (firstByte == lastByte) {
+      final mask = head & tail;
+      row[firstByte] = set ? row[firstByte] | mask : row[firstByte] & ~mask;
+      return;
+    }
+    row[firstByte] = set ? row[firstByte] | head : row[firstByte] & ~head;
+    if (lastByte > firstByte + 1) {
+      row.fillRange(firstByte + 1, lastByte, set ? 0xFF : 0x00);
+    }
+    row[lastByte] = set ? row[lastByte] | tail : row[lastByte] & ~tail;
   }
 
   /// Consumes EOL codes (000000000001) and the zero fill bits that may
@@ -182,12 +197,36 @@ class CcittDecoder {
     var a0 = -1;
     var white = true;
 
+    // A well-formed row's a0 never decreases, and `reference` is sorted,
+    // so the scan for b1 can resume where the last one stopped instead of
+    // restarting at 0 - the difference between O(transitions) and O(1)
+    // amortized per mode code. Broken input can violate either premise, so
+    // the cursor is only trusted when the row is actually sorted, and it
+    // rewinds if a0 moves backwards (a VL code can do that on bad data).
+    var sorted = true;
+    for (var i = 1; i < reference.length; i++) {
+      if (reference[i] < reference[i - 1]) {
+        sorted = false;
+        break;
+      }
+    }
+    var cursor = 0;
+
     // b1: first reference transition right of a0 with opposite color of
     // a0; reference holds alternating white→black, black→white changes
     int b1Index() {
-      var index = 0;
-      while (index < reference.length && reference[index] <= a0) {
-        index++;
+      int index;
+      if (sorted) {
+        if (cursor > 0 && reference[cursor - 1] > a0) cursor = 0;
+        while (cursor < reference.length && reference[cursor] <= a0) {
+          cursor++;
+        }
+        index = cursor;
+      } else {
+        index = 0;
+        while (index < reference.length && reference[index] <= a0) {
+          index++;
+        }
       }
       // transitions at even indices flip white→black - those are the
       // "opposite of white" changes
@@ -249,15 +288,41 @@ class CcittDecoder {
       _reader.skip(12);
       return _Mode.eol;
     }
-    // the codes are prefix-free, so first match wins
-    for (final (bits, length, mode) in _modeCodes) {
-      if (_reader.peek(length) == bits) {
-        _reader.skip(length);
-        return mode;
+    final available = _reader.remainingBits;
+    if (available <= 0) return null;
+    // one peek of the longest mode code (7 bits), zero-padded at the very
+    // end of the data, then a single table hit - see [_modeLookup]
+    final prefix = available >= _modeCodeMaxBits
+        ? _reader.peek(_modeCodeMaxBits)!
+        : _reader.peek(available)! << (_modeCodeMaxBits - available);
+    final entry = _modeLookup[prefix];
+    if (entry == 0) return null;
+    final length = entry & 0xF;
+    // a code the padding completed isn't really present
+    if (length > available) return null;
+    _reader.skip(length);
+    return _Mode.values[(entry >> 4) - 1];
+  }
+
+  static const _modeCodeMaxBits = 7;
+
+  /// Prefix-indexed mode table: `_modeLookup[next 7 bits]` is
+  /// `((mode.index + 1) << 4) | codeLength`, or 0 for no match. Codes are
+  /// prefix-free, so each fills the block of longer prefixes beneath it;
+  /// shorter codes are laid down first and never overwritten, preserving
+  /// the old "first match wins" order exactly.
+  static final Int32List _modeLookup = () {
+    final table = Int32List(1 << _modeCodeMaxBits);
+    final byLength = [..._modeCodes]..sort((a, b) => a.$2.compareTo(b.$2));
+    for (final (bits, length, mode) in byLength) {
+      final shift = _modeCodeMaxBits - length;
+      final start = bits << shift;
+      for (var i = start; i < start + (1 << shift); i++) {
+        if (table[i] == 0) table[i] = ((mode.index + 1) << 4) | length;
       }
     }
-    return null;
-  }
+    return table;
+  }();
 
   /// 2-D mode codes (T.4 table 4): V0 `1`, VR1 `011`, VL1 `010`,
   /// H `001`, P `0001`, VR2 `000011`, VL2 `000010`, VR3 `0000011`,
@@ -288,17 +353,46 @@ class CcittDecoder {
   }
 
   int? _readRunCode({required bool white}) {
-    final table = white ? _whiteCodes : _blackCodes;
-    for (var length = white ? 4 : 2; length <= 13; length++) {
-      final peeked = _reader.peek(length);
-      if (peeked == null) break;
-      final run = table[(length << 16) | peeked];
-      if (run != null) {
-        _reader.skip(length);
-        return run;
+    final table = white ? _whiteLookup : _blackLookup;
+    final available = _reader.remainingBits;
+    if (available <= 0) return null;
+    // one peek of the longest run code (13 bits) instead of re-peeking
+    // once per candidate length; zero-padded at the end of the data
+    final prefix = available >= _runCodeMaxBits
+        ? _reader.peek(_runCodeMaxBits)!
+        : _reader.peek(available)! << (_runCodeMaxBits - available);
+    final entry = table[prefix];
+    if (entry == 0) return null;
+    final length = entry & 0xF;
+    // a code the padding completed isn't really present
+    if (length > available) return null;
+    _reader.skip(length);
+    return entry >> 4;
+  }
+
+  static const _runCodeMaxBits = 13;
+
+  /// Prefix-indexed run tables built from [_whiteCodes]/[_blackCodes]:
+  /// `table[next 13 bits]` is `(runLength << 4) | codeLength`, 0 for no
+  /// match. A run length of 0 is representable because `codeLength` is
+  /// never 0. Same shortest-code-wins ordering as [_modeLookup].
+  static final Int32List _whiteLookup = _buildRunLookup(_whiteCodes);
+  static final Int32List _blackLookup = _buildRunLookup(_blackCodes);
+
+  static Int32List _buildRunLookup(Map<int, int> codes) {
+    final table = Int32List(1 << _runCodeMaxBits);
+    final keys = codes.keys.toList()
+      ..sort((a, b) => (a >> 16).compareTo(b >> 16));
+    for (final key in keys) {
+      final length = key >> 16;
+      final shift = _runCodeMaxBits - length;
+      final start = (key & 0xFFFF) << shift;
+      final entry = (codes[key]! << 4) | length;
+      for (var i = start; i < start + (1 << shift); i++) {
+        if (table[i] == 0) table[i] = entry;
       }
     }
-    return null;
+    return table;
   }
 
   // ---------- code tables (ITU-T T.4) ----------
@@ -425,21 +519,25 @@ class _Bits {
     return true;
   }
 
-  /// Peeks [count] bits, or null when fewer remain.
+  /// Bits left before the end of the data.
+  int get remainingBits {
+    if (atEnd) return 0;
+    return (data.length - _byte) * 8 - _bit;
+  }
+
+  /// Peeks [count] bits, or null when fewer remain. Callers ask for at
+  /// most 13 bits, so with a bit offset below 8 this touches at most three
+  /// bytes - accumulated whole rather than one bit at a time.
   int? peek(int count) {
-    var byte = _byte;
-    var bit = _bit;
-    var value = 0;
-    for (var i = 0; i < count; i++) {
-      if (byte >= data.length) return null;
-      value = (value << 1) | ((data[byte] >> (7 - bit)) & 1);
-      bit++;
-      if (bit == 8) {
-        bit = 0;
-        byte++;
-      }
+    if (count <= 0) return 0;
+    if (count > remainingBits) return null;
+    final need = _bit + count;
+    final byteCount = (need + 7) >> 3;
+    var accumulator = 0;
+    for (var i = 0; i < byteCount; i++) {
+      accumulator = (accumulator << 8) | data[_byte + i];
     }
-    return value;
+    return (accumulator >> (byteCount * 8 - need)) & ((1 << count) - 1);
   }
 
   int? tryRead(int count) {

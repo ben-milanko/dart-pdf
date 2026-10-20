@@ -92,6 +92,24 @@ class _PdfPageAnnotationList {
     }
   }
 
+  /// /IRT must be an indirect reference, even when the source PDF stored its
+  /// group leader inline in a direct or indirect /Annots array.
+  CosReference makeIndirect(CosDictionary dict) {
+    final existing = _cos.referenceTo(dict);
+    if (existing != null) return existing;
+    final array = _array;
+    if (array == null ||
+        !array.items.any((item) => identical(_cos.resolve(item), dict))) {
+      throw ArgumentError('annotation is not on this page');
+    }
+    final ref = _updater.addObject(dict);
+    _replaceItems([
+      for (final item in array.items)
+        if (identical(_cos.resolve(item), dict)) ref else item,
+    ]);
+    return ref;
+  }
+
   void _replaceItems(List<CosObject> items, {bool removeIfEmpty = false}) {
     final page = _page;
     final raw = _raw;
@@ -105,6 +123,12 @@ class _PdfPageAnnotationList {
     final next = CosArray(items);
     if (raw is CosReference && _cos.resolve(raw) is CosArray) {
       _updater.replaceObject(raw.objectNumber, next);
+      // A single editor transaction can remove and then re-add an annotation
+      // (for example when a FreeText property change regenerates its
+      // appearance). Make the replacement visible to that transaction's
+      // next `/Annots` read; otherwise resolve(raw) returns the original
+      // cached array and the append resurrects the removed annotation.
+      _cos.adoptObject(raw, next);
     } else {
       page.dict['Annots'] = next;
       _updater.markChanged(page.dict);

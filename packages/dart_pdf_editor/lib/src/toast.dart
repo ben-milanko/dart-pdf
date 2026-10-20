@@ -1,4 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+
+import 'design/editor_theme.dart';
+import 'design/fold.dart';
 
 /// Margin that floats a [SnackBar] clear of the editor's bottom chrome -
 /// the floating editing toolbar dock (and any device safe-area inset
@@ -14,15 +17,38 @@ import 'package:flutter/material.dart';
 /// ```
 ///
 /// On wide windows (≥600px) the toast is a compact [pill]-wide bubble in
-/// the bottom-right corner so it never covers the page; on narrow windows
-/// it spans the width with a 16px gutter.
-EdgeInsets pdfFloatingToastMargin(BuildContext context, {double pill = 360}) {
+/// the bottom trailing corner (bottom-right in LTR, bottom-left in RTL) so it
+/// never covers the page; on narrow windows it spans the width with a 16px
+/// gutter. On a foldable held half open the toast stays on the trailing pane
+/// instead of crossing the crease.
+EdgeInsetsGeometry pdfFloatingToastMargin(BuildContext context,
+    {double pill = 360}) {
   final size = MediaQuery.sizeOf(context);
   // The dock sits at the bottom; lift the toast above it AND above the
   // device's bottom safe-area inset, which the dock pads itself out by.
-  final bottom = 96.0 + MediaQuery.paddingOf(context).bottom;
+  final bottom = PdfEditorThemeData.of(context).toastLift! +
+      MediaQuery.paddingOf(context).bottom;
+  // A foldable held open like a book: keep the toast on the trailing pane
+  // rather than across the crease. [crease] is how far the trailing pane's
+  // inner edge sits from the leading edge of the window.
+  final fold = pdfSeparatingFoldOf(context);
+  double crease = 0;
+  if (fold != null && fold.direction == Axis.horizontal) {
+    crease = Directionality.maybeOf(context) == TextDirection.rtl
+        ? size.width - fold.bounds.left
+        : fold.bounds.right;
+  }
   if (size.width >= 600) {
-    return EdgeInsets.only(left: size.width - pill - 24, right: 24, bottom: bottom);
+    // Directional so the pill hugs the trailing edge (bottom-right in LTR,
+    // bottom-left in RTL) instead of always the physical right.
+    final start = size.width - pill - 24;
+    return EdgeInsetsDirectional.only(
+        start: crease > 0 && start < crease + 24 ? crease + 24 : start,
+        end: 24,
+        bottom: bottom);
+  }
+  if (crease > 0) {
+    return EdgeInsetsDirectional.fromSTEB(crease + 16, 0, 16, bottom);
   }
   return EdgeInsets.fromLTRB(16, 0, 16, bottom);
 }

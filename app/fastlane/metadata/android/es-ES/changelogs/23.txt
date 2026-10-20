@@ -1,0 +1,5 @@
+Novedades de 3.2.0
+
+• Visualización más rápida y estable con una caché de páginas adaptada a la memoria y menos renderizado duplicado.
+• Mejor compatibilidad con FreeText y llamadas, y selección más precisa de marcas multilínea.
+• Corrige pausas de carga, retrasos al restaurar sesiones y el zoom Ctrl/Cmd+rueda tras dibujar con restricciones.

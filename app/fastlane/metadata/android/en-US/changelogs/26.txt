@@ -1,0 +1,7 @@
+New in 3.4.0
+
+• Copy and paste annotations between open documents.
+• Drop PDFs between page thumbnails to insert pages exactly where you want them.
+• Save placed stamps back to your stamp collection and see selected annotation colours in the toolbar.
+• Text selection and substituted-font rendering now align more precisely.
+• Faster tab grids, smoother trackpad zooming, safer progressive file access, and more reliable print previews.

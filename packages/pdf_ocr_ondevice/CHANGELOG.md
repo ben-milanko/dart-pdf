@@ -1,5 +1,180 @@
 # Changelog
 
+## 10.0.0
+
+- Update dependency constraints for the 10.0.0 suite; no public API changes in this package.
+
+## 9.0.0
+
+- Add an optional detection pixel-area cap (`PpOcrPipeline.detectionPixelLimit`, `detectionResize(pixelLimit:)`) for memory-bound backends. This fixes browser OCR on iOS.
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Align dependency constraints with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Much better accuracy on small print and technical drawings, and ~4x
+  faster. On a synthetic A3 signalling sheet (`buildOcrDrawingSheet` in
+  `pdf_test_fixtures`) exact label reads go from 18% to 95% (CER 69% -> 1.4%).
+  - Detection no longer squeezes the page to 960 px: `detectionSideLimit`
+    defaults to 4000 (PaddleOCR's PP-OCRv5 cap). At 960 a drawing's ~5pt
+    labels fused with the symbols beside them and read as garbage.
+  - DB unclip is DB's own distance offset (`area * ratio / perimeter`,
+    ratio 1.5) instead of scaling the box 1.6x about its centre; box score
+    threshold 0.6 (PaddleOCR's).
+  - Recognition keeps each line's aspect, padding to at least 320 px
+    (`recognitionInput(minWidth:)`; the record gains `paddedWidth`), instead
+    of squashing every line into 512 px. `OnnxOcrModelRunner` gains
+    `recognitionMinWidth`; `recognitionMaxWidth` is now only a safety cap
+    (default 3200).
+  - Recognized lines go through `cleanRecognizedText`: drawing symbols
+    (Geometric Shapes, `● ▲ ▼`) are removed and symbol-only lines dropped
+    (`OnnxOcrModelRunner(cleanText: false)` keeps the raw output).
+  - New `OnDeviceOcrEngine.pixelRatioFor(page)`: 216 dpi, capped at 4000 px a
+    side - pass it to `applyOcr` instead of `pixelRatio: 2`.
+  - Model outputs are read straight from ONNX Runtime's buffer instead of
+    through `OrtValueTensor.value`'s nested lists, which cost ~3x the
+    inference itself. Adds a direct `ffi` dependency.
+- New web-safe library `package:pdf_ocr_ondevice/pp_ocr.dart`: the
+  pipeline is now `PpOcrPipeline` (plain Dart) over a `PpOcrInference`
+  backend - `OnnxOcrModelRunner` is that pipeline over native ONNX Runtime,
+  and a browser can supply onnxruntime-web (the DartPDF app now does, in place
+  of Florence-2). `OcrRunnerEngine` is the backend-agnostic `PdfOcrEngine`
+  (`OnDeviceOcrEngine` extends it; `pixelRatioFor` lives there too).
+- Recognition runs in aspect-sorted batches of 6 lines
+  (`recognitionBatchSize`, PaddleOCR's default), each padded to its own widest
+  line: identical readings, page time halved again (37 s -> 19 s on the
+  benchmark sheet).
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
+
+## 6.0.0
+
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
+  matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
+  (`ReorderableListView.onReorderItem`), so this strands nobody.
+
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
+## 5.1.0
+
+- Version bump to track the 5.1.0 suite.
+
+## 5.0.0
+
+- Version bump to track the 5.0.0 suite.
+
+## 4.5.0
+
+- Align dependency constraints with the dart-pdf 4.5.0 package suite.
+
+## 4.4.0
+
+- Align dependency constraints with the dart-pdf 4.4.0 package suite.
+
+## 4.3.0
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public
+  on-device OCR API changes since 4.1.0.
+
+## 4.1.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.1.0. No public
+  on-device OCR API changes since 4.0.0.
+
+## 4.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 4.0.0. No public
+  on-device OCR API changes since 3.8.0.
+
+## 3.8.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.8.0. No public
+  on-device OCR API changes since 3.7.0.
+
+## 3.7.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.7.0. No public
+  on-device OCR API changes since 3.6.0.
+
+## 3.6.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.6.0. No public
+  on-device OCR API changes since 3.5.1.
+
+## 3.5.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.5.1. No public
+  on-device OCR API changes since 3.5.0.
+
+## 3.5.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.5.0. No public
+  on-device OCR API changes since 3.4.0.
+
+## 3.4.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.4.0. No public
+  on-device OCR API changes since 3.3.1.
+
+## 3.3.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.3.1. No public
+  on-device OCR API changes since 3.3.0.
+
+## 3.3.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.3.0. No public
+  on-device OCR API changes since 3.2.0.
+
+## 3.2.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.2.0. No public
+  on-device OCR API changes since 3.1.1.
+
+## 3.1.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.1.1. No public
+  on-device OCR API changes since 3.1.0.
+
+## 3.1.0
+
+- Lockstep release to align with `dart_pdf_editor` 3.1.0. No public on-device
+  OCR API changes since 3.0.0.
+
+## 3.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 3.0.0. No public
+  on-device OCR API changes since 2.1.0.
+
+## 2.1.0
+
+- Version bump to align with `dart_pdf_editor` 2.1.0. No public on-device OCR API
+  changes since 2.0.0.
+
+## 2.0.0
+
+- Version bump to align with `dart_pdf_editor` 2.0.0. No public on-device OCR
+  API changes since 1.4.7.
+
+## 1.4.7
+
+- Version bump to align with `dart_pdf_editor` 1.4.7. No public on-device OCR
+  API changes since 1.4.6.
+
 ## 1.4.6
 
 - Version bump to align with `dart_pdf_editor` 1.4.6. No public on-device OCR

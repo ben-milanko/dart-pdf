@@ -1,0 +1,4 @@
+5.1.1'daki yenilikler
+
+- Art arda hızlıca yazılan mürekkep artık sayfadan kaybolmuyor.
+- 5.1.0 sürümündeki tüm iyileştirmeleri içerir.

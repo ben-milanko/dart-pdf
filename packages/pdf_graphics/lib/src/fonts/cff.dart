@@ -491,6 +491,203 @@ class CffFont {
   }
 }
 
+/// One CFF-flavoured OpenType face with its Unicode cmap preserved.
+///
+/// [CffFont] also parses a standalone OpenType `CFF ` table, but PDF-embedded
+/// fonts already supply character-to-glyph mappings separately. Native font
+/// substitution needs the sfnt container's cmap instead. This wrapper keeps
+/// that mapping and selects a face from a TrueType collection (`ttcf`) while
+/// delegating Type 2 charstrings and advances to [CffFont].
+class OpenTypeCffFont {
+  OpenTypeCffFont._(this._font, this._cmaps);
+
+  /// Parses one CFF OpenType face. Returns null for TrueType `glyf` faces,
+  /// malformed inputs, missing Unicode cmaps, or an invalid collection index.
+  static OpenTypeCffFont? parse(
+    Uint8List bytes, {
+    int collectionIndex = 0,
+  }) {
+    try {
+      final reader = _Reader(bytes);
+      var faceOffset = 0;
+      var scaler = reader.u32();
+      if (scaler == 0x74746366 /* ttcf */) {
+        reader.u32(); // version
+        final count = reader.u32();
+        if (count == 0 || collectionIndex < 0 || collectionIndex >= count) {
+          return null;
+        }
+        reader.seek(12 + collectionIndex * 4);
+        faceOffset = reader.u32();
+        reader.seek(faceOffset);
+        scaler = reader.u32();
+      } else if (collectionIndex != 0) {
+        return null;
+      }
+      if (scaler != 0x4F54544F /* OTTO */) return null;
+
+      final tableCount = reader.u16();
+      reader.skip(6);
+      (int, int)? cffTable;
+      (int, int)? cmapTable;
+      for (var index = 0; index < tableCount; index++) {
+        final tag = String.fromCharCodes([
+          reader.u8(),
+          reader.u8(),
+          reader.u8(),
+          reader.u8(),
+        ]);
+        reader.u32(); // checksum
+        final offset = reader.u32();
+        final length = reader.u32();
+        if (tag == 'CFF ') cffTable = (offset, length);
+        if (tag == 'cmap') cmapTable = (offset, length);
+      }
+      if (cffTable == null || cmapTable == null) return null;
+      final cffEnd = cffTable.$1 + cffTable.$2;
+      final cmapEnd = cmapTable.$1 + cmapTable.$2;
+      if (cffTable.$1 < 0 ||
+          cffEnd > bytes.length ||
+          cmapTable.$1 < 0 ||
+          cmapEnd > bytes.length) {
+        return null;
+      }
+      final font = CffFont.parse(
+        Uint8List.sublistView(bytes, cffTable.$1, cffEnd),
+      );
+      if (font == null) return null;
+
+      reader.seek(cmapTable.$1 + 2);
+      final cmapCount = reader.u16();
+      final cmaps = <_OpenTypeCmap>[];
+      for (var index = 0; index < cmapCount; index++) {
+        final platform = reader.u16();
+        final encoding = reader.u16();
+        final offset = reader.u32();
+        final absolute = cmapTable.$1 + offset;
+        if (absolute >= cmapTable.$1 && absolute < cmapEnd) {
+          cmaps.add(_OpenTypeCmap(bytes, absolute, platform, encoding));
+        }
+      }
+      if (cmaps.isEmpty) return null;
+      return OpenTypeCffFont._(font, List.unmodifiable(cmaps));
+    } on Object {
+      return null;
+    }
+  }
+
+  final CffFont _font;
+  final List<_OpenTypeCmap> _cmaps;
+
+  int get numGlyphs => _font.numGlyphs;
+
+  /// Maps one Unicode scalar through the face's Unicode cmap.
+  int gidForUnicode(int codePoint) {
+    for (final cmap in _cmaps) {
+      final unicode =
+          (cmap.platform == 3 && (cmap.encoding == 1 || cmap.encoding == 10)) ||
+              cmap.platform == 0;
+      if (!unicode) continue;
+      final glyph = cmap.lookup(codePoint);
+      if (glyph != 0) return glyph;
+    }
+    return 0;
+  }
+
+  PdfPath? outlineForGlyph(int glyphId) => _font.outlineForGlyph(glyphId);
+
+  double? advanceForGlyph(int glyphId) => _font.advanceForGlyph(glyphId);
+}
+
+class _OpenTypeCmap {
+  const _OpenTypeCmap(
+    this._bytes,
+    this._offset,
+    this.platform,
+    this.encoding,
+  );
+
+  final Uint8List _bytes;
+  final int _offset;
+  final int platform;
+  final int encoding;
+
+  int lookup(int codePoint) {
+    try {
+      final reader = _Reader(_bytes)..seek(_offset);
+      return switch (reader.u16()) {
+        0 => _format0(reader, codePoint),
+        4 => _format4(reader, codePoint),
+        6 => _format6(reader, codePoint),
+        12 => _format12(reader, codePoint),
+        _ => 0,
+      };
+    } on Object {
+      return 0;
+    }
+  }
+
+  int _format0(_Reader reader, int codePoint) {
+    if (codePoint < 0 || codePoint > 0xFF) return 0;
+    reader.skip(4);
+    reader.skip(codePoint);
+    return reader.u8();
+  }
+
+  int _format4(_Reader reader, int codePoint) {
+    if (codePoint < 0 || codePoint > 0xFFFF) return 0;
+    reader.skip(4); // length, language
+    final segmentCount = reader.u16() ~/ 2;
+    reader.skip(6);
+    final endCodesAt = reader.position;
+    var segment = -1;
+    for (var index = 0; index < segmentCount; index++) {
+      if (reader.u16() >= codePoint) {
+        segment = index;
+        break;
+      }
+    }
+    if (segment < 0) return 0;
+    final startCodesAt = endCodesAt + segmentCount * 2 + 2;
+    reader.seek(startCodesAt + segment * 2);
+    final startCode = reader.u16();
+    if (codePoint < startCode) return 0;
+    final idDeltaAt = startCodesAt + segmentCount * 2;
+    reader.seek(idDeltaAt + segment * 2);
+    final idDelta = reader.s16();
+    final rangeOffsetAt = idDeltaAt + segmentCount * 2 + segment * 2;
+    reader.seek(rangeOffsetAt);
+    final rangeOffset = reader.u16();
+    if (rangeOffset == 0) return (codePoint + idDelta) & 0xFFFF;
+    reader.seek(rangeOffsetAt + rangeOffset + (codePoint - startCode) * 2);
+    final glyph = reader.u16();
+    return glyph == 0 ? 0 : (glyph + idDelta) & 0xFFFF;
+  }
+
+  int _format6(_Reader reader, int codePoint) {
+    reader.skip(4);
+    final first = reader.u16();
+    final count = reader.u16();
+    if (codePoint < first || codePoint >= first + count) return 0;
+    reader.skip((codePoint - first) * 2);
+    return reader.u16();
+  }
+
+  int _format12(_Reader reader, int codePoint) {
+    reader.skip(10);
+    final count = reader.u32();
+    for (var index = 0; index < count; index++) {
+      final start = reader.u32();
+      final end = reader.u32();
+      final firstGlyph = reader.u32();
+      if (codePoint >= start && codePoint <= end) {
+        return firstGlyph + codePoint - start;
+      }
+    }
+    return 0;
+  }
+}
+
 class _PrivateDict {
   const _PrivateDict(this.subrs, this.defaultWidthX, this.nominalWidthX);
 
@@ -871,12 +1068,28 @@ class _Reader {
 
   void seek(int p) => position = p;
 
+  void skip(int n) => position += n;
+
   int u8() => bytes[position++];
 
   int u16() {
     final v = (bytes[position] << 8) | bytes[position + 1];
     position += 2;
     return v;
+  }
+
+  int s16() {
+    final value = u16();
+    return value > 0x7FFF ? value - 0x10000 : value;
+  }
+
+  int u32() {
+    final value = (bytes[position] << 24) |
+        (bytes[position + 1] << 16) |
+        (bytes[position + 2] << 8) |
+        bytes[position + 3];
+    position += 4;
+    return value;
   }
 }
 

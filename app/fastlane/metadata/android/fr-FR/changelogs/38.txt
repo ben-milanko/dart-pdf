@@ -1,0 +1,9 @@
+Nouveautés de la 4.5.0
+
+- Découvrez les nouveautés de chaque version dans Réglages > À propos.
+- Texte et tracés PDF plus nets sous Linux.
+- Les pages exportées s'ouvrent dans un nouvel onglet.
+- Passez des pages au texte redistribué ou à la grille de pages depuis une seule commande.
+- Espacement des lettres correct pour les polices standard non incorporées.
+- Meilleure sélection de texte entre colonnes et en chinois, japonais et coréen.
+- Le texte en contour s'affiche désormais clairement.

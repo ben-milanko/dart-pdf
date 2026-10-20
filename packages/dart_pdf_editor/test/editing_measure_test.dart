@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -12,8 +12,7 @@ void main() {
   const readoutKey = ValueKey('pdf-measure-readout');
 
   group('calibration and the controller scale', () {
-    test('calibrateScale derives units per point from a reference segment',
-        () {
+    test('calibrateScale derives units per point from a reference segment', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       expect(editing.hasMeasurementScale, isFalse);
@@ -22,26 +21,38 @@ void main() {
       editing.calibrateScale((100, 100), (316, 100), 60, 'ft');
 
       expect(editing.hasMeasurementScale, isTrue);
-      final scale = editing.measurementScale!;
+      final scale = editing.preferences.measurementScale!;
       expect(scale.unitLabel, 'ft');
       expect(scale.unitsPerPoint, closeTo(60 / 216, 1e-9));
       // 1 in = 72 pt → 72 × (60/216) = 20 ft
       expect(scale.ratioLabel, '1 in = 20 ft');
     });
 
+    test('the controller measurementScale forwarder round-trips preferences',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(editing.measurementScale, isNull);
+
+      final scale =
+          PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
+      editing.measurementScale = scale;
+      // The getter reads through to preferences; the setter wrote it there.
+      expect(editing.measurementScale, same(scale));
+      expect(editing.preferences.measurementScale, same(scale));
+    });
+
     test('live readouts compute distance, perimeter, and area', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
 
       expect(editing.measuredDistance((100, 100), (316, 100)), '60 ft');
       expect(
-          editing.measuredPerimeter(
-              const [(100, 100), (172, 100), (172, 172)]),
+          editing.measuredPerimeter(const [(100, 100), (172, 100), (172, 172)]),
           '40 ft');
-      expect(
-          editing.measuredArea(const [(0, 0), (72, 0), (72, 72), (0, 72)]),
+      expect(editing.measuredArea(const [(0, 0), (72, 0), (72, 72), (0, 72)]),
           '400 ft²');
     });
 
@@ -49,7 +60,7 @@ void main() {
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
 
       editing.addMeasurement(
@@ -61,16 +72,15 @@ void main() {
       expect(annotation.measurementText, '60 ft');
     });
 
-    test('new measurements adopt the active caption font and line endings',
-        () {
+    test('new measurements adopt the active caption font and line endings', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.fontFamily = PdfStandardFont.times;
-      editing.fontSize = 14;
-      editing.lineStartEnding = PdfLineEnding.openArrow;
-      editing.lineEndEnding = PdfLineEnding.closedArrow;
+      editing.preferences.fontSize = 14;
+      editing.preferences.lineStartEnding = PdfLineEnding.openArrow;
+      editing.preferences.lineEndEnding = PdfLineEnding.closedArrow;
 
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -86,7 +96,7 @@ void main() {
     test('changing a selected measurement keeps its caption visible', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -97,8 +107,7 @@ void main() {
       // the reported bug: a width change must not drop the label
       final annot = editing.document.page(0).annotations.single;
       final stream = annot.normalAppearance!;
-      final text =
-          latin1.decode(editing.document.cos.decodeStreamData(stream));
+      final text = latin1.decode(editing.document.cos.decodeStreamData(stream));
       expect(text, contains('(60 ft)'));
       expect(annot.borderWidth, 6);
     });
@@ -106,7 +115,7 @@ void main() {
     test('the panel can restyle a selected measurement caption font', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -123,9 +132,8 @@ void main() {
       final annot = editing.document.page(0).annotations.single;
       expect(annot.defaultAppearance, contains('/TiRo 18 Tf'));
       expect(editing.selectedMeasurementCaptionStyle?.size, 18);
-      final text =
-          latin1.decode(editing.document.cos.decodeStreamData(
-              annot.normalAppearance!));
+      final text = latin1.decode(
+          editing.document.cos.decodeStreamData(annot.normalAppearance!));
       expect(text, contains('/TiRo 18 Tf')); // redrawn in the new face
       expect(text, contains('(60 ft)')); // label kept
     });
@@ -208,7 +216,7 @@ void main() {
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: PdfScaleDialog())));
       await tester.pumpAndSettle();
-      final dropdown = tester.widget<DropdownButton<String>>(
+      final dropdown = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('pdf-scale-unit')));
       return dropdown.value!;
     }
@@ -233,7 +241,7 @@ void main() {
         ),
       ));
       await tester.pumpAndSettle();
-      final dropdown = tester.widget<DropdownButton<String>>(
+      final dropdown = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('pdf-scale-unit')));
       expect(dropdown.value, 'cm');
     });
@@ -245,7 +253,7 @@ void main() {
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: PdfScaleDialog())));
       await tester.pumpAndSettle();
-      final dropdown = tester.widget<DropdownButton<String>>(
+      final dropdown = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('pdf-scale-page-unit')));
       return dropdown.value!;
     }
@@ -266,8 +274,7 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => ElevatedButton(
-              onPressed: () async =>
-                  result = await showPdfScaleDialog(context),
+              onPressed: () async => result = await showPdfScaleDialog(context),
               child: const Text('open'),
             ),
           ),
@@ -277,7 +284,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Defaults to "1 cm = N m" in a metric region.
-      final pageUnit = tester.widget<DropdownButton<String>>(
+      final pageUnit = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('pdf-scale-page-unit')));
       expect(pageUnit.value, 'cm');
       await tester.enterText(
@@ -297,8 +304,8 @@ void main() {
   group('calibrate by drawing a reference segment', () {
     testWidgets('the scale dialog hides Calibrate without a callback',
         (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-          home: Scaffold(body: PdfScaleDialog())));
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: PdfScaleDialog())));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-scale-calibrate')), findsNothing);
     });
@@ -310,8 +317,8 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => ElevatedButton(
-              onPressed: () => showPdfScaleDialog(context,
-                  onCalibrate: () => called++),
+              onPressed: () =>
+                  showPdfScaleDialog(context, onCalibrate: () => called++),
               child: const Text('open'),
             ),
           ),
@@ -369,7 +376,7 @@ void main() {
 
       // the calibration-length dialog asks how long the drawn line is
       expect(find.byKey(const ValueKey('pdf-calibrate-value')), findsOneWidget);
-      final unit = tester.widget<DropdownButton<String>>(
+      final unit = tester.widget<PdfDropdown<String>>(
           find.byKey(const ValueKey('pdf-calibrate-unit')));
       expect(unit.value, 'ft'); // US device region
       await tester.enterText(
@@ -378,7 +385,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(editing.hasMeasurementScale, isTrue);
-      final result = editing.measurementScale!;
+      final result = editing.preferences.measurementScale!;
       expect(result.unitLabel, 'ft');
       // 50 ft over 200 page points
       expect(result.unitsPerPoint, closeTo(50 / 200, 1e-6));
@@ -435,7 +442,7 @@ void main() {
         WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(2))
-        ..measurementScale =
+        ..preferences.measurementScale =
             PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);

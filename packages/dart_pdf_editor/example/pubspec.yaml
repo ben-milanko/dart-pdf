@@ -1,30 +1,54 @@
 name: pdf_viewer_example
 description: Example PDF viewer built on dart_pdf_editor.
-version: 1.4.6
+version: 10.0.0+47
 publish_to: none
 resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.24.0'
+  flutter: '>=3.47.0'
 
 dependencies:
+  # The Cupertino host demo (lib/cupertino_host.dart).
+  cupertino_ui: ^1.1.2
   file_selector: ^1.0.3
   flutter:
     sdk: flutter
-  pdf_document: ^1.4.6
-  pdf_graphics: ^1.4.6
-  dart_pdf_editor: ^1.4.6
-  pdf_ocr_vlm: ^1.4.6
-  share_plus: ^13.2.0
-  url_launcher: ^6.3.0
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  material_ui: ^1.6.0
+  pdf_document: ^10.0.0
+  pdf_graphics: ^10.0.0
+  dart_pdf_editor: ^10.0.0
+  dart_pdf_editor_flutter_gpu: ^0.9.0
+  # Optional bundled editor fonts + web render worker (registered in main()).
+  dart_pdf_editor_assets: ^10.0.0
+  pdf_ocr_vlm: ^10.0.0
+  share_plus: ^13.3.1
+  url_launcher: ^6.3.3
   web: ^1.1.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-  shared_preferences: ^2.3.0
+  image: ^4.12.0
+  patrol: 4.10.0
+  pdf_test_fixtures: '>=6.0.0 <11.0.0'
+  shared_preferences: ^2.5.6
+
+patrol:
+  app_name: pdf_viewer_example
+  android:
+    package_name: dev.milanko.pdf_viewer_example
+  ios:
+    bundle_id: dev.milanko.pdfViewerExample
+  macos:
+    bundle_id: dev.milanko.pdfViewerExample
 
 flutter:
   uses-material-design: true
+  # Generate the AppLocalizations bundle from lib/l10n (see l10n.yaml); the
+  # generated Dart is checked in.
+  generate: true

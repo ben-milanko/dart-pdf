@@ -1,0 +1,6 @@
+Nouveautés de la version 3.6.0
+
+- Les panneaux d’annotations sont plus faciles à parcourir, gardent la sélection visible et préservent l’opacité du texte.
+- Les zones de texte Bluebeam conservent alignement, espacement et position du curseur.
+- Les onglets de documents peuvent maintenant être glissés entre plusieurs fenêtres.
+- Le texte substitué est mieux espacé, avec des correctifs pour les pages obsolètes et les dossiers cloud.

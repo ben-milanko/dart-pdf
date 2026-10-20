@@ -1,0 +1,21 @@
+DartPDF is een PDF-editor die volledig op uw apparaat draait.
+
+Open een willekeurige PDF om erin te markeren, formulieren in te vullen, te ondertekenen, inhoud te redigeren, pagina's te herordenen of de tekst en afbeeldingen op de pagina te bewerken. Wijzigingen worden opgeslagen in het oorspronkelijke bestand.
+
+Er wordt niets geüpload. Geen account, geen synchronisatie en geen advertenties.
+
+Functies:
+
+• Markeren, onderstrepen, doorhalen en inkt uit de vrije hand
+• Vormen, pijlen, tekstvakken, notities en stempels
+• Bestaande tekst bewerken en afbeeldingen toevoegen
+• Redactie die de bedekte tekst en afbeeldingen uit het bestand verwijdert, niet alleen uit beeld
+• Formuliervelden invullen (tekst, selectievakjes, keuzerondjes, vervolgkeuzelijsten) of uw eigen velden toevoegen
+• Overal geplaatste getekende handtekeningen, plus digitale PAdES-handtekeningen met certificaat
+• OCR voor gescande PDF's, zodat tekst kan worden geselecteerd en doorzocht
+• Pagina's herordenen, verwijderen en exporteren naar een nieuw bestand
+• Zoeken in de volledige tekst, tekstselectie en koppelingen
+• Twee versies naast elkaar vergelijken
+• Met een wachtwoord beveiligde bestanden openen
+
+Werkt op Android, iPhone, iPad en Mac, plus Windows, Linux en het web. Opent PDF's vanuit uw bestandsbeheer, deelbladen of via slepen en neerzetten. Lichte en donkere thema's.

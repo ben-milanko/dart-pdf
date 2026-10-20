@@ -2,6 +2,7 @@
 // repeated (text, font, colour) runs reuse one laid-out painter, and (b) never
 // change a pixel - a warm (cache-hot) render is byte-identical to a cold one,
 // for both substituted text and embedded-font glyph outlines.
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -23,6 +24,67 @@ Future<Uint8List> _raster(PdfPage page) async {
   }
 }
 
+Future<Uint8List> _rasterOutlineBatch({
+  required bool batched,
+  bool overlapping = false,
+}) async {
+  final previous = CanvasPdfDevice.batchEmbeddedTextOutlines;
+  CanvasPdfDevice.batchEmbeddedTextOutlines = batched;
+  try {
+    const outline = PdfPath([
+      PdfMoveTo(0, 0),
+      PdfLineTo(0.8, 0),
+      PdfLineTo(0.6, 1),
+      PdfLineTo(0.2, 1),
+      PdfClosePath(),
+    ]);
+    PdfDrawTextCommand run(double x, PdfColor color) => PdfDrawTextCommand(
+          PdfTextRun(
+            text: 'A',
+            transform: PdfMatrix(36, 0, 0, 36, x, 45),
+            color: color,
+            width: 0.8,
+            glyphs: const [
+              PdfGlyphPlacement(offset: 0, outline: outline),
+            ],
+          ),
+        );
+    final commands = <PdfRenderCommand>[
+      run(8, PdfColor.black),
+      run(overlapping ? 8 : 48, PdfColor.black),
+      run(88, const PdfColor(0.8, 0.1, 0.1)),
+      run(128, PdfColor.black),
+    ];
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+    replayCommands(commands, CanvasPdfDevice(canvas));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(172, 64);
+    picture.dispose();
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      return Uint8List.fromList(data!.buffer.asUint8List());
+    } finally {
+      image.dispose();
+    }
+  } finally {
+    CanvasPdfDevice.batchEmbeddedTextOutlines = previous;
+  }
+}
+
+/// A line of substituted text at pen offsets the fixed-pitch test font agrees
+/// with, so each word is one piece.
+PdfTextRun _line(String text, {double y = 80}) => PdfTextRun(
+      text: text,
+      charOffsets: [for (var i = 0; i <= text.length; i++) i.toDouble()],
+      transform: PdfMatrix(8, 0, 0, 8, 10, y),
+      color: const PdfColor(0, 0, 0),
+      width: text.length.toDouble(),
+      fontName: 'Helvetica',
+      fontSize: 8,
+    );
+
 const _copiedArabicLine =
     '\u2067اﻟﺣﻣد لله رب اﻟﻌﺎﻟﻣﯾن) 2 (اﻟرﺣﻣن اﻟرﺣﯾم) 3 (ﻣﺎﻟك ﯾوم\u2069';
 
@@ -31,10 +93,13 @@ bool _dejavuLoaded = false;
 Future<void> _loadBundledDejavu() async {
   if (_dejavuLoaded) return;
   _dejavuLoaded = true;
-  final data = await rootBundle
-      .load('packages/dart_pdf_editor/assets/fonts/DejaVuSans.ttf');
-  final loader = FontLoader('packages/dart_pdf_editor/DejaVu Sans')
-    ..addFont(Future.value(data));
+  // DejaVu now ships in dart_pdf_editor_assets, which this package's test asset
+  // bundle can't reach; read the moved file and register it under the family
+  // name the default fallback list expects.
+  final bytes = File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
+      .readAsBytesSync();
+  final loader = FontLoader('packages/dart_pdf_editor_assets/DejaVu Sans')
+    ..addFont(Future.value(ByteData.sublistView(bytes)));
   await loader.load();
 }
 
@@ -104,26 +169,146 @@ void main() {
       CanvasPdfDevice.clearTextLayoutCache();
       final page = PdfDocument.open(buildClassicPdf()).page(0);
 
+      // A Latin run is now painted per character at the PDF's own offsets
+      // (#649), so its shaping is memoized in the glyph cache rather than the
+      // run cache - an alphabet's worth of entries, shared by every run that
+      // uses those characters.
       await _raster(page);
-      final afterFirst = CanvasPdfDevice.debugTextLayoutCacheLength;
+      final afterFirst = CanvasPdfDevice.debugGlyphLayoutCacheLength;
       expect(afterFirst, greaterThan(0),
           reason: 'standard-font runs should be cached');
 
-      // Re-rendering the same page hits the cache for every run - no new
+      // Re-rendering the same page hits the cache for every character - no new
       // entries appear.
       await _raster(page);
-      expect(CanvasPdfDevice.debugTextLayoutCacheLength, afterFirst,
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, afterFirst,
           reason: 'a re-render is all cache hits, no new layouts');
     });
   });
 
-  testWidgets('clearTextLayoutCache empties the cache', (tester) async {
+  testWidgets('a run that keeps whole-run shaping caches as a run',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Arabic needs joining and reordering, so it is not placeable per
+      // character (#649) and stays on whole-run shaping - and on the run cache.
+      CanvasPdfDevice.clearTextLayoutCache();
+      await _rasterSubstitutedArabic(throughDevice: true);
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, greaterThan(0));
+    });
+  });
+
+  testWidgets('the run cache keys on exact values, NaN included',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Lowercase text with no offset table is neither placed (#649) nor
+      // composed (#454), so every run below is a whole-run layout in the run
+      // cache - one entry per distinct key.
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      void draw(PdfColor color, {double fillAlpha = 1}) =>
+          device.drawText(PdfTextRun(
+            text: 'office hours',
+            transform: const PdfMatrix(12, 0, 0, 12, 20, 80),
+            color: color,
+            fillAlpha: fillAlpha,
+            width: 6,
+            fontName: 'Helvetica',
+            fontSize: 12,
+          ));
+
+      draw(const PdfColor(0.2, 0.2, 0.2));
+      draw(const PdfColor(0.2, 0.2, 0.2));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 1,
+          reason: 'an identical run reuses its layout');
+
+      // Closer than one 8-bit step: the painter bakes the exact colour in, so
+      // the two must not share a layout.
+      draw(const PdfColor(0.2, 0.2, 0.2001));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 2);
+
+      // A NaN that reaches the key must still find its own entry. A key
+      // unequal to itself would add a fresh entry per draw - and could never
+      // be found again to evict.
+      draw(const PdfColor(0.2, 0.2, 0.2), fillAlpha: double.nan);
+      draw(const PdfColor(0.2, 0.2, 0.2), fillAlpha: double.nan);
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 3,
+          reason: 'NaN must compare equal to itself in the key');
+      recorder.endRecording().dispose();
+      CanvasPdfDevice.clearTextLayoutCache();
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 0);
+    });
+  });
+
+  testWidgets('a word placed in two runs is shaped once', (tester) async {
+    await tester.runAsync(() async {
+      // Two lines of prose share a word. Each line is its own run-cache entry
+      // (text and offsets differ), but the shared word is one piece.
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      device.drawText(_line('office hours'));
+      final afterFirst = CanvasPdfDevice.debugPieceLayoutCacheLength;
+      expect(afterFirst, 2, reason: 'one piece per word');
+      CanvasPdfDevice.debugResetTextShape();
+      device.drawText(_line('office again', y: 60));
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 2);
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, afterFirst + 1);
+      // 'again' is new - its three new letters plus the word itself. 'office'
+      // is not shaped again.
+      expect(CanvasPdfDevice.debugTextPainterBuilds, 4);
+      recorder.endRecording().dispose();
+    });
+  });
+
+  testWidgets('shared pieces outlive whichever cache lets go first',
+      (tester) async {
+    await tester.runAsync(() async {
+      CanvasPdfDevice.clearTextLayoutCache();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+
+      // The piece cache drops 'office' (1,024 newer pieces) while the run that
+      // holds it stays cached: a warm repaint of that run must still find its
+      // piece alive.
+      device.drawText(_line('office hours'));
+      for (var i = 0; i < 1100; i++) {
+        device.drawText(_line('w${i}x', y: 10));
+      }
+      device.drawText(_line('office hours'));
+
+      // The run cache drops the run (2,048 newer runs of digits, which compose
+      // and never reach the piece cache) while the piece cache still holds its
+      // words: a new line reusing one must get it alive.
+      CanvasPdfDevice.clearTextLayoutCache();
+      device.drawText(_line('office hours'));
+      for (var i = 0; i < 2100; i++) {
+        device.drawText(_line('${100000 + i}', y: 10));
+      }
+      device.drawText(_line('office again'));
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(200, 100);
+      image.dispose();
+      picture.dispose();
+    });
+  });
+
+  testWidgets('clearTextLayoutCache empties every text cache', (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       await _raster(page);
+      await _rasterSubstitutedArabic(throughDevice: true);
+      final recorder = ui.PictureRecorder();
+      CanvasPdfDevice(ui.Canvas(recorder)).drawText(_line('office hours'));
+      recorder.endRecording().dispose();
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, greaterThan(0));
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, greaterThan(0));
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, greaterThan(0));
       CanvasPdfDevice.clearTextLayoutCache();
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, 0);
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, 0);
+      expect(CanvasPdfDevice.debugPieceLayoutCacheLength, 0);
     });
   });
 
@@ -150,6 +335,40 @@ void main() {
     });
   });
 
+  testWidgets('batched embedded outlines are raster-equivalent',
+      (tester) async {
+    await tester.runAsync(() async {
+      final individual = await _rasterOutlineBatch(batched: false);
+      final batched = await _rasterOutlineBatch(batched: true);
+      var maxDifference = 0;
+      var outOfToleranceChannels = 0;
+      for (var i = 0; i < individual.length; i++) {
+        final difference = (individual[i] - batched[i]).abs();
+        if (difference > maxDifference) maxDifference = difference;
+        if (difference > 8) outOfToleranceChannels++;
+      }
+      // Skia may quantize an edge a few channel values differently when the
+      // same contours arrive in one path instead of several draw calls. This
+      // stays within the renderer corpus' channel tolerance (8) and is limited
+      // to a minute fraction of antialiased edge pixels.
+      expect(maxDifference, lessThanOrEqualTo(8));
+      expect(outOfToleranceChannels, 0);
+    });
+  });
+
+  testWidgets('overlapping embedded outlines keep separate paint coverage',
+      (tester) async {
+    await tester.runAsync(() async {
+      final individual =
+          await _rasterOutlineBatch(batched: false, overlapping: true);
+      final batched =
+          await _rasterOutlineBatch(batched: true, overlapping: true);
+      expect(batched, individual,
+          reason: 'overlapping runs must flush instead of changing winding or '
+              'alpha coverage inside one combined path');
+    });
+  });
+
   testWidgets(
       'substituted text renders copied Arabic presentation forms through the bundled fallback',
       (tester) async {
@@ -159,7 +378,7 @@ void main() {
 
       expect(
         CanvasPdfDevice.debugDefaultFontFallbacks,
-        contains('packages/dart_pdf_editor/DejaVu Sans'),
+        contains('packages/dart_pdf_editor_assets/DejaVu Sans'),
       );
       final expected = await _rasterSubstitutedArabic(throughDevice: false);
       final missing = await _rasterSubstitutedArabic(

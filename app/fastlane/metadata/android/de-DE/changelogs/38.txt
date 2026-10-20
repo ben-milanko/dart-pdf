@@ -1,0 +1,9 @@
+Neu in 4.5.0
+
+- Neuerungen jeder Version unter Einstellungen > Info ansehen.
+- Schärferer PDF-Text und schärfere Linien unter Linux.
+- Exportierte Seiten öffnen sich in einem neuen Tab.
+- Zwischen Seiten, umbrochenem Text und Seitenraster mit einem Schalter wechseln.
+- Korrekte Laufweite für Text in nicht eingebetteten Standardschriften.
+- Bessere Textauswahl über Spalten hinweg und in Chinesisch, Japanisch und Koreanisch.
+- Konturierter Text wird jetzt deutlich dargestellt.

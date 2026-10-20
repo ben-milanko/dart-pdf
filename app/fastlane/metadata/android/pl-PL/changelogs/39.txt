@@ -1,0 +1,9 @@
+Nowości w 5.0.0
+
+- Formularze liczą sumy, formatują wartości i sprawdzają wpisy.
+- Tab przenosi między polami; wybór kilku pozycji w polach listy.
+- Hasła z formularzy zostają w bezpiecznym magazynie urządzenia, nie w PDF.
+- Twórz przyciski opcji, listy rozwijane, pola listy i pola podpisu.
+- Podpisuj pliki PDF chronione hasłem.
+- Sprawdzanie unieważnienia podpisów; listy zaufania UE i opcjonalnie Adobe.
+- Tekst w Calibri z dokumentów Office wygląda teraz poprawnie.

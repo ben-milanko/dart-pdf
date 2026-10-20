@@ -1,0 +1,9 @@
+Baru di 5.0.0
+
+- Formulir menghitung total, memformat nilai, dan memeriksa isian.
+- Tab untuk pindah antarkolom; pilih beberapa item di kotak daftar.
+- Kata sandi formulir tetap di penyimpanan aman perangkat, tidak di PDF.
+- Buat tombol radio, menu tarik-turun, kotak daftar, dan kolom tanda tangan.
+- Tanda tangani PDF yang dilindungi kata sandi.
+- Cek pencabutan tanda tangan; daftar kepercayaan UE dan Adobe (opsional).
+- Teks Calibri dari dokumen Office kini tampil benar.

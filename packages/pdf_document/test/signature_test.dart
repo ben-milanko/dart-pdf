@@ -60,6 +60,42 @@ Uint8List buildEmptySigFieldPdf() {
   return ascii(buffer.toString());
 }
 
+/// A one-page PDF whose AcroForm /Fields is an *indirect* array (object 7),
+/// holding one existing text field. Signing this without reusing a field
+/// creates a new signature field and must append it to that indirect array.
+Uint8List buildIndirectFieldsPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (Fill in) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields 7 0 R '
+        '/SigFlags 3 >> >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /FT /Tx /T (Name) /Type /Annot /Subtype /Widget '
+        '/Rect [100 100 300 150] /F 4 /P 3 0 R >>',
+    '[6 0 R]', // the indirect /Fields array
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// The decoded content of a field's /AP /N appearance form, or null.
 String? appearanceContent(PdfDocument doc, PdfFormField field) {
   final widget = field.widgets.first;
@@ -76,6 +112,50 @@ String shownText(String content) => RegExp(r'\(([^)]*)\) Tj')
     .allMatches(content)
     .map((m) => m.group(1))
     .join(' ');
+
+/// One `q <clip> W n BT /F <size> Tf ... ET` block of an appearance: the clip
+/// rectangle the text is confined to and the baselines drawn inside it.
+class TextBlock {
+  TextBlock(this.clipBottom, this.clipTop, this.size, this.baselines);
+
+  final double clipBottom, clipTop, size;
+  final List<double> baselines;
+
+  // Helvetica's nominal metrics, the same ones the layout places against.
+  double get inkTop => baselines.first + size * 718 / 1000;
+  double get inkBottom => baselines.last - size * 207 / 1000;
+
+  double get topMargin => clipTop - inkTop;
+  double get bottomMargin => inkBottom - clipBottom;
+}
+
+/// Parses every clipped text block out of an appearance stream.
+List<TextBlock> textBlocks(String content) {
+  final blocks = <TextBlock>[];
+  final re = RegExp(
+      r'([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\s+W\s+n\s+BT\s+'
+      r'/\w+ ([\d.]+) Tf(.*?)ET',
+      dotAll: true);
+  for (final m in re.allMatches(content)) {
+    final bottom = double.parse(m.group(2)!);
+    final height = double.parse(m.group(4)!);
+    final size = double.parse(m.group(5)!);
+    final baselines = <double>[];
+    var y = 0.0;
+    var first = true;
+    for (final td
+        in RegExp(r'([\d.-]+) ([\d.-]+) Td').allMatches(m.group(6)!)) {
+      final dy = double.parse(td.group(2)!);
+      y = first ? dy : y + dy;
+      first = false;
+      baselines.add(y);
+    }
+    if (baselines.isNotEmpty) {
+      blocks.add(TextBlock(bottom, bottom + height, size, baselines));
+    }
+  }
+  return blocks;
+}
 
 void main() {
   group('visible signature box', () {
@@ -175,6 +255,44 @@ void main() {
       expect(shown, isNot(contains('Location:')));
     });
 
+    test('the box shows the signing time in the local offset, not UTC', () {
+      // A local (non-UTC) signingTime keeps its own offset in the visible box
+      // and the /M date; the CMS signingTime attribute is still UTC.
+      final localTime =
+          DateTime(2026, 6, 10, 12, 0, 0); // terminal's local zone
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: localTime,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      String two(int v) => v.toString().padLeft(2, '0');
+      final off = localTime.timeZoneOffset;
+      final sign = off.isNegative ? '-' : '+';
+      final offset =
+          "$sign${two(off.abs().inHours)}'${two(off.abs().inMinutes % 60)}'";
+      final shown = shownText(appearanceContent(doc, signature.field)!);
+      expect(shown, contains('Date: 2026.06.10 12:00:00 $offset'));
+
+      // the /M entry carries the same local offset, not a UTC Z
+      final text = String.fromCharCodes(signed);
+      if (off == Duration.zero) {
+        expect(text, contains('D:20260610120000Z'));
+      } else {
+        expect(text, contains('D:20260610120000$offset'));
+      }
+
+      // the CMS signingTime attribute normalises to the equivalent UTC instant
+      expect(signature.signingTime, localTime.toUtc());
+    });
+
     test('a graphic renders in the left panel as an image XObject', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(
@@ -204,6 +322,113 @@ void main() {
       expect(shownText(content), isNot(contains('Dart PDF Test Signer Dart')));
     });
 
+    test('a background image covers the box behind the text, clipped', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 320, 700),
+          backgroundImage: PdfEmbeddableImage.png(_png),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final widget = signature.field.widgets.first;
+      final ap = doc.cos.resolve(widget['AP']) as CosDictionary;
+      final form = doc.cos.resolve(ap['N']) as CosStream;
+      final resources =
+          doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+      final xobjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+      expect(xobjects.entries.keys, contains('SigBg'));
+
+      final content = String.fromCharCodes(doc.cos.decodeStreamData(form));
+      // clipped to the box and drawn before the border stroke, and the
+      // signer name still renders on top (not replaced, unlike /graphic).
+      expect(content, contains('W'));
+      expect(content, contains('/SigBg Do'));
+      expect(content.indexOf('/SigBg Do'), lessThan(content.indexOf('S\n')));
+      expect(shownText(content), contains('Digitally signed by'));
+      // drawn semi-transparently via an alpha ExtGState (readable over it)
+      expect(content, contains('/SigBgGs gs'));
+      final ext = doc.cos.resolve(resources['ExtGState']) as CosDictionary;
+      final gs = doc.cos.resolve(ext['SigBgGs']) as CosDictionary;
+      expect((gs['ca'] as CosReal).value, closeTo(0.2, 1e-6));
+    });
+
+    test('repeatPages stamps the same box on the other pages, one signature',
+        () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [1, 2],
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+
+      // still exactly one cryptographic signature, valid over the whole file
+      final signatures = PdfSignature.of(doc);
+      expect(signatures, hasLength(1));
+      expect(signatures.single.validate().intact, isTrue);
+
+      // the field widget is on page 0; pages 1 and 2 carry a matching stamp
+      // that reuses the very same appearance stream object
+      final widget = signatures.single.field.widgets.first;
+      final formRef = widget['AP'] is CosDictionary
+          ? (widget['AP'] as CosDictionary)['N']
+          : null;
+      CosObject? apnOf(PdfAnnotation a) {
+        final ap = doc.cos.resolve(a.dict['AP']);
+        return ap is CosDictionary ? ap['N'] : null;
+      }
+
+      for (final page in [1, 2]) {
+        final stamps = doc.page(page).annotations.where((a) =>
+            a.subtype == 'Stamp' && apnOf(a).toString() == formRef.toString());
+        expect(stamps, hasLength(1), reason: 'page $page');
+        expect(stamps.single.rect.left, closeTo(72, 0.5));
+      }
+      // page 0 has only the signature widget, no extra stamp
+      expect(
+          doc.page(0).annotations.where((a) => a.subtype == 'Stamp'), isEmpty);
+    });
+
+    test('a long signer name is wrapped to fit, not clipped', () {
+      const email = 'verylong.name@example-company.com';
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        signerName: email,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 222, 660), // a narrow box
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final field = PdfSignature.of(doc).single.field;
+      expect(PdfSignature.of(doc).single.validate().intact, isTrue);
+      final content = appearanceContent(doc, field)!;
+
+      // the full email never appears as one unbroken run - it is broken to
+      // fit the narrow box rather than drawn oversized and clipped
+      expect(content, isNot(contains('($email)')));
+      // but its characters are preserved (the wrapped chunks reconstruct it)
+      final shown = RegExp(r'\(([^)]*)\) Tj')
+          .allMatches(content)
+          .map((m) => m.group(1)!)
+          .join();
+      expect(shown, contains(email));
+    });
+
     test('a details-only box (no name/graphic) omits the left panel', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(
@@ -226,6 +451,96 @@ void main() {
       final shown = shownText(content);
       expect(shown, isNot(contains('Digitally signed by')));
       expect(shown, contains('Reason: Approval'));
+    });
+
+    // A short, wide "sign on this line" box used to lose the top of its first
+    // detail line and the bottom of its last: a flat 4pt margin took over 40%
+    // of a ~20pt box's height, the auto-fit loop gave up at a 4pt floor while
+    // the block was still taller than what was left, and the centred overflow
+    // ran past the clip at both ends at once.
+    test('a short box keeps every detail line inside the clip', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approved',
+        signingTime: signedAt,
+        appearance: PdfSignatureAppearance(
+          rect: const PdfRect(72, 600, 268, 619.66),
+          graphic: PdfEmbeddableImage.png(_png),
+          backgroundColor: 0xDDE8F7,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      final content = appearanceContent(doc, signature.field)!;
+      expect(shownText(content), contains('Digitally signed by'));
+
+      final block = textBlocks(content).single;
+      expect(block.baselines, hasLength(3));
+      expect(block.topMargin, greaterThan(0));
+      expect(block.bottomMargin, greaterThan(0));
+    });
+
+    // Both panels, across the box shapes people actually draw.
+    test('no box shape clips its text at the top or the bottom', () {
+      for (final w in <double>[120, 196, 300, 420]) {
+        for (final h in <double>[14, 19.66, 26, 44, 72, 100]) {
+          for (final graphic in [true, false]) {
+            final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+            final signed = editor.saveSigned(
+              privateKey: key,
+              certificates: [cert],
+              reason: 'Approved',
+              location: 'Melbourne, AU',
+              signingTime: signedAt,
+              appearance: PdfSignatureAppearance(
+                rect: PdfRect(40, 400, 40 + w, 400 + h),
+                graphic: graphic ? PdfEmbeddableImage.png(_png) : null,
+                backgroundColor: 0xDDE8F7,
+              ),
+            );
+            final doc = PdfDocument.open(signed);
+            final content =
+                appearanceContent(doc, PdfSignature.of(doc).single.field)!;
+            final blocks = textBlocks(content);
+            expect(blocks, isNotEmpty, reason: 'w=$w h=$h graphic=$graphic');
+            for (final block in blocks) {
+              final where = 'w=$w h=$h graphic=$graphic size=${block.size}';
+              expect(block.topMargin, greaterThanOrEqualTo(0), reason: where);
+              expect(block.bottomMargin, greaterThanOrEqualTo(0),
+                  reason: where);
+            }
+          }
+        }
+      }
+    });
+
+    // The last resort, for a box too short for the block at any size: the
+    // overflow must leave by the bottom only, never shave the first line.
+    test('a box too short for its text still keeps the first line whole', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        reason: 'Approved for release by the engineering review board',
+        location: 'Melbourne, Victoria, Australia (head office)',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 192, 608),
+          backgroundColor: 0xDDE8F7,
+          showName: false,
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final block =
+          textBlocks(appearanceContent(doc, PdfSignature.of(doc).single.field)!)
+              .single;
+      // genuinely overfull, so the clip does bite - but only at the bottom
+      expect(block.bottomMargin, lessThan(0));
+      expect(block.topMargin, greaterThanOrEqualTo(0));
     });
 
     test('no appearance keeps an invisible field (backward compatible)', () {
@@ -258,8 +573,8 @@ void main() {
       expect(result.signatureValid, isTrue);
       expect(result.coversWholeDocument, isTrue);
       expect(result.signedAt, signedAt);
-      expect(result.signerCertificate?.subjectCommonName,
-          'Dart PDF Test Signer');
+      expect(
+          result.signerCertificate?.subjectCommonName, 'Dart PDF Test Signer');
     });
 
     test('the signature field lands in the AcroForm and on the page', () {
@@ -369,6 +684,152 @@ void main() {
     });
   });
 
+  group('validation reuse', () {
+    int covered(PdfSignature signature) {
+      final ranges = signature.byteRange;
+      return ranges[1] + ranges[3];
+    }
+
+    test('a signature merged in from another file has no signable range', () {
+      final source = PdfDocument.open(signedFixture());
+      final own = PdfSignature.of(source).single;
+      expect(own.hasSignableByteRange, isTrue);
+
+      // the field comes over with the pages, its /ByteRange still pointing
+      // into the source file
+      final merged = PdfDocument.open(
+          (PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+                ..appendPagesFrom(source))
+              .save());
+      final foreign = PdfSignature.of(merged).single;
+      expect(foreign.byteRange, own.byteRange);
+      expect(foreign.hasSignableByteRange, isFalse);
+      expect(foreign.cryptoCore(), isNull);
+      PdfSignature.debugHashedBytes = 0;
+      final result = foreign.validate();
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(result.intact, isFalse);
+      expect(result.problems.single, contains('/ByteRange'));
+    });
+
+    test('validating again at the same revision hashes nothing', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      PdfSignature.debugHashedBytes = 0;
+      final first = signature.validate();
+      expect(first.intact, isTrue);
+      expect(PdfSignature.debugHashedBytes, covered(signature));
+
+      // a trust store arriving, or the panel asking again
+      PdfSignature.debugHashedBytes = 0;
+      final store = PdfTrustStore()..addPem(testSignerCertPem);
+      final again = PdfSignature.of(doc).single.validate(trustStore: store);
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(again.intact, isTrue);
+      expect(again.chainTrusted, isNotNull); // the chain is still built
+      expect(again.problems, first.problems);
+    });
+
+    test('the problems list is unmodifiable', () {
+      final signedDoc = PdfDocument.open(signedFixture());
+      final doc =
+          PdfDocument.open((PdfEditor(signedDoc)..rotatePage(0, 90)).save());
+      final signature = PdfSignature.of(doc).single;
+      for (final result in [
+        signature.validate(),
+        signature.validate(
+            trustStore: PdfTrustStore()..addPem(testSignerCertPem)),
+      ]) {
+        expect(result.problems.single, contains('updated after'));
+        expect(() => result.problems.add('x'), throwsUnsupportedError);
+        expect(() => result.problems.clear(), throwsUnsupportedError);
+        expect(() => result.certificates.clear(), throwsUnsupportedError);
+      }
+      // the next validation is unaffected
+      expect(signature.validate().problems, hasLength(1));
+    });
+
+    test('an in-place edit of /Contents is noticed at the same revision', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().signatureValid, isTrue);
+      final contents = signature.contents;
+      var end = contents.length - 1;
+      while (end > 0 && contents[end] == 0) {
+        end--;
+      }
+      contents[end] ^= 0xFF;
+      final result = signature.validate();
+      expect(result.signatureValid, isFalse);
+      expect(result.digestMatches, isTrue);
+    });
+
+    test('an incremental revision applied in place re-derives coverage', () {
+      final doc = PdfDocument.open(signedFixture());
+      final before = PdfSignature.of(doc).single;
+      expect(before.validate().coversWholeDocument, isTrue);
+
+      final updated =
+          doc.withIncrementalUpdate((PdfEditor(doc)..rotatePage(1, 90)).save());
+      final after = PdfSignature.of(updated).single;
+      // same COS layer, same signature dictionary: only the bytes moved on
+      expect(identical(after.dict, before.dict), isTrue);
+      PdfSignature.debugHashedBytes = 0;
+      final result = after.validate();
+      expect(result.intact, isTrue);
+      expect(result.coversWholeDocument, isFalse);
+      expect(result.problems.single, contains('updated after'));
+      // a new revision is a new buffer: the signed bytes are hashed again
+      expect(PdfSignature.debugHashedBytes, covered(after));
+    });
+
+    test('a redaction burn reports the signature broken', () {
+      final doc = PdfDocument.open(signedFixture());
+      expect(PdfSignature.of(doc).single.validate().intact, isTrue);
+      final burned = (PdfEditor(doc)
+            ..addRedaction(0, [const PdfRect(72, 700, 300, 740)]))
+          .applyRedactions();
+      final result =
+          PdfSignature.of(PdfDocument.open(burned)).single.validate();
+      expect(result.intact, isFalse);
+      expect(result.problems, isNotEmpty);
+    });
+
+    test('a core resolver is consulted, and a foreign core is ignored', () {
+      final doc = PdfDocument.open(signedFixture());
+      final signature = PdfSignature.of(doc).single;
+      final core = signature.cryptoCore()!;
+      expect(core.describes(signature), isTrue);
+      expect(core.coveredEnd, doc.cos.bytes.length);
+      expect(core.signatureValid, isTrue);
+
+      // a fresh document of the same bytes: the resolver's core is used
+      final other = PdfSignature.of(PdfDocument.open(doc.cos.bytes)).single;
+      var asked = 0;
+      PdfSignature.debugHashedBytes = 0;
+      final reused = other.validate(cores: (s, compute) {
+        asked++;
+        return core;
+      });
+      expect(asked, 1);
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(reused.intact, isTrue);
+
+      // a core computed for another signature dictionary is not trusted
+      final twice = PdfDocument.open(PdfEditor(doc).saveSigned(
+          privateKey: key,
+          certificates: [cert],
+          signingTime: signedAt.add(const Duration(days: 1))));
+      final second = PdfSignature.of(twice)[1];
+      expect(core.describes(second), isFalse);
+      PdfSignature.debugHashedBytes = 0;
+      final fresh = second.validate(cores: (s, compute) => core);
+      expect(PdfSignature.debugHashedBytes, covered(second));
+      expect(fresh.intact, isTrue);
+      expect(fresh.coversWholeDocument, isTrue);
+    });
+  });
+
   group('chain of trust', () {
     // safely inside the test certificates' 20-year validity window
     final chainSignedAt = DateTime.utc(2027, 1, 1, 12);
@@ -396,21 +857,19 @@ void main() {
     test('a CA-signed signature chains to the trusted root', () {
       final doc = PdfDocument.open(chainSignedFixture());
       final store = PdfTrustStore()..addPem(testCaCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.intact, isTrue);
       expect(result.chainTrusted, isTrue);
       expect(result.chainProblems, isEmpty);
-      expect(result.trustChain.first.subjectCommonName,
-          'Dart PDF Chain Signer');
+      expect(
+          result.trustChain.first.subjectCommonName, 'Dart PDF Chain Signer');
       expect(result.trustChain.last.subjectCommonName, 'Dart PDF Test CA');
     });
 
     test('an unrelated trust store rejects the chain', () {
       final doc = PdfDocument.open(chainSignedFixture());
       final store = PdfTrustStore()..addPem(testSignerCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.intact, isTrue, reason: 'integrity is separate');
       expect(result.chainTrusted, isFalse);
       expect(result.chainProblems, isNotEmpty);
@@ -424,13 +883,36 @@ void main() {
         signingTime: chainSignedAt,
       ));
       final store = PdfTrustStore()..addPem(testSignerCertPem);
-      final result =
-          PdfSignature.of(doc).single.validate(trustStore: store);
+      final result = PdfSignature.of(doc).single.validate(trustStore: store);
       expect(result.chainTrusted, isTrue);
-      final empty = PdfSignature.of(doc)
-          .single
-          .validate(trustStore: PdfTrustStore());
+      final empty =
+          PdfSignature.of(doc).single.validate(trustStore: PdfTrustStore());
       expect(empty.chainTrusted, isFalse);
+    });
+  });
+
+  group('indirect AcroForm /Fields array', () {
+    test('a new signature field is appended when /Fields is indirect', () {
+      // Regression for the in-place mutation of a resolved indirect /Fields
+      // array: the added field object was never re-serialised, so the new
+      // signature was dropped from the AcroForm on save.
+      final editor = PdfEditor(PdfDocument.open(buildIndirectFieldsPdf()));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+      );
+      final doc = PdfDocument.open(signed);
+
+      final acroForm = doc.cos.resolve(doc.catalog['AcroForm']);
+      expect(acroForm, isA<CosDictionary>());
+      final fields = doc.cos.resolve((acroForm as CosDictionary)['Fields']);
+      expect(fields, isA<CosArray>());
+      // both the original text field and the new signature field are present
+      expect((fields as CosArray).items, hasLength(2));
+
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
     });
   });
 }

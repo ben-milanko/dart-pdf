@@ -8,6 +8,7 @@ import '../exceptions.dart';
 import '../objects.dart';
 import 'aes.dart';
 import 'rc4.dart';
+import 'sha2_digest.dart';
 
 /// Which cipher a class of content (strings or streams) uses.
 enum PdfCipher { none, rc4, aes128, aes256 }
@@ -87,8 +88,7 @@ class StandardSecurityHandler {
         }
         final cf = resolve(encrypt['CF']);
         final filter = cf is CosDictionary ? resolve(cf[name.value]) : null;
-        final method =
-            filter is CosDictionary ? resolve(filter['CFM']) : null;
+        final method = filter is CosDictionary ? resolve(filter['CFM']) : null;
         return switch (method is CosName ? method.value : '') {
           'V2' => PdfCipher.rc4,
           'AESV2' => PdfCipher.aes128,
@@ -106,8 +106,7 @@ class StandardSecurityHandler {
 
     final Uint8List fileKey;
     if (revision >= 5) {
-      fileKey = _authenticateAes256(
-          encrypt, password, o, u, revision, resolve);
+      fileKey = _authenticateAes256(encrypt, password, o, u, revision, resolve);
     } else {
       fileKey = _authenticateClassic(password, o, u, p, revision,
           v == 1 ? 40 : lengthBits, firstId ?? Uint8List(0), encryptMetadata);
@@ -188,8 +187,8 @@ class StandardSecurityHandler {
     bool encryptMetadata,
   ) {
     // try as the user password
-    var key = _computeClassicKey(_pad(password), o, p, revision, lengthBits,
-        firstId, encryptMetadata);
+    var key = _computeClassicKey(
+        _pad(password), o, p, revision, lengthBits, firstId, encryptMetadata);
     if (_checkUser(key, u, revision, firstId)) return key;
 
     // try as the owner password (Algorithm 7): decrypt /O into the user
@@ -280,13 +279,159 @@ class StandardSecurityHandler {
       for (var i = 0; i < 16; i++) {
         sum += e[i];
       }
+      // sha2Digest: package:crypto's SHA-384/512 is ~13x slower under dart2js
+      // and was most of a browser R6 open (see sha2_digest.dart).
       k = switch (sum % 3) {
         0 => sha256.convert(e).bytes,
-        1 => sha384.convert(e).bytes,
-        _ => sha512.convert(e).bytes,
+        1 => sha2Digest(sha384, e),
+        _ => sha2Digest(sha512, e),
       };
     }
     return Uint8List.fromList(k.sublist(0, 32));
+  }
+
+  // ---------- object-graph operations ----------
+
+  /// Whether [stream]'s payload is actually encrypted, per the exempt-stream
+  /// policy shared by loading and saving: cross-reference streams are never
+  /// encrypted (§7.5.8.2), /Metadata is exempt under /EncryptMetadata false,
+  /// and a /Crypt filter whose /Name is /Identity (or absent - the default)
+  /// marks the bytes as already plain. [resolve] follows indirect dictionary
+  /// entries (/Type, /Filter, /DecodeParms).
+  bool streamPayloadIsEncrypted(
+      CosStream stream, CosObject Function(CosObject?) resolve) {
+    final dict = stream.dictionary;
+    final type = resolve(dict['Type']);
+    if (type is CosName && type.value == 'XRef') return false;
+    if (type is CosName && type.value == 'Metadata' && !encryptMetadata) {
+      return false;
+    }
+    final filter = resolve(dict['Filter']);
+    final hasCrypt = filter is CosName && filter.value == 'Crypt' ||
+        filter is CosArray &&
+            filter.items.any((f) {
+              final name = resolve(f);
+              return name is CosName && name.value == 'Crypt';
+            });
+    if (hasCrypt) {
+      var parms = resolve(dict['DecodeParms']);
+      if (parms is CosArray && filter is CosArray) {
+        // aligned with the filter array; find the /Crypt slot
+        final slots = parms;
+        parms = CosNull.instance;
+        for (var i = 0; i < filter.items.length && i < slots.length; i++) {
+          final name = resolve(filter.items[i]);
+          if (name is CosName && name.value == 'Crypt') {
+            parms = resolve(slots[i]);
+            break;
+          }
+        }
+      }
+      if (parms is! CosDictionary) return false;
+      final name = resolve(parms['Name']);
+      return name is CosName && name.value != 'Identity';
+    }
+    return true;
+  }
+
+  /// Whether [key] of [dict] is a signature dictionary's /Contents - the
+  /// one string ISO 32000 §7.6.1 exempts from encryption, so the CMS blob (or
+  /// RFC 3161 token) sits in the file as plain hex that the /ByteRange gap
+  /// can be patched with after the rest of the revision is encrypted. A
+  /// signature dictionary is recognised by `/Type /Sig` or `/DocTimeStamp`,
+  /// or - since /Type is optional there - by carrying a /ByteRange. Shared
+  /// by [decryptObjectGraph] and [encryptObjectGraph] so a signature read
+  /// back is byte-for-byte the one written.
+  static bool isSignatureContents(CosDictionary dict, String key) {
+    if (key != 'Contents') return false;
+    final type = dict['Type'];
+    if (type is CosName &&
+        (type.value == 'Sig' || type.value == 'DocTimeStamp')) {
+      return true;
+    }
+    return dict.entries.containsKey('ByteRange');
+  }
+
+  /// Decrypts every string in [object]'s graph in place under the
+  /// ([objectNumber], [generation]) key. References are leaves, so a single
+  /// indirect object's graph is a tree. A stream's payload is left as raw
+  /// file bytes for lazy decoding (see [decryptStream]); only its
+  /// dictionary strings are touched here.
+  void decryptObjectGraph(CosObject object, int objectNumber, int generation) {
+    switch (object) {
+      case CosArray():
+        for (var i = 0; i < object.items.length; i++) {
+          final item = object.items[i];
+          if (item is CosString) {
+            object.items[i] = CosString(
+                decryptString(item.bytes, objectNumber, generation),
+                isHex: item.isHex);
+          } else {
+            decryptObjectGraph(item, objectNumber, generation);
+          }
+        }
+      case CosDictionary():
+        for (final key in object.entries.keys.toList()) {
+          final value = object.entries[key]!;
+          if (value is CosString) {
+            if (isSignatureContents(object, key)) continue;
+            object.entries[key] = CosString(
+                decryptString(value.bytes, objectNumber, generation),
+                isHex: value.isHex);
+          } else {
+            decryptObjectGraph(value, objectNumber, generation);
+          }
+        }
+      case CosStream():
+        decryptObjectGraph(object.dictionary, objectNumber, generation);
+      default:
+        break;
+    }
+  }
+
+  /// Deep-copies [object] with every string and non-exempt stream payload
+  /// encrypted under the ([objectNumber], [generation]) key, leaving the
+  /// original graph untouched so later edits in the same session keep their
+  /// plaintext. A stream whose [keepsFileCiphertext] reports its payload as
+  /// still the file's original bytes passes through verbatim (it is already
+  /// ciphertext); exempt streams (cross-reference, unencrypted /Metadata,
+  /// /Crypt-Identity - see [streamPayloadIsEncrypted]) stay plain. [resolve]
+  /// follows indirect dictionary entries for the exempt-policy check.
+  CosObject encryptObjectGraph(
+    CosObject object,
+    int objectNumber,
+    int generation, {
+    required CosObject Function(CosObject?) resolve,
+    required bool Function(CosStream) keepsFileCiphertext,
+  }) {
+    CosObject copy(CosObject value) {
+      switch (value) {
+        case CosString():
+          return CosString(encryptString(value.bytes, objectNumber, generation),
+              isHex: value.isHex);
+        case CosArray():
+          return CosArray([for (final item in value.items) copy(item)]);
+        case CosStream():
+          final dict = copy(value.dictionary) as CosDictionary;
+          if (keepsFileCiphertext(value) ||
+              !streamPayloadIsEncrypted(value, resolve)) {
+            return CosStream(dict, value.rawBytes);
+          }
+          final cipher =
+              encryptStream(value.rawBytes, objectNumber, generation);
+          dict['Length'] = CosInteger(cipher.length);
+          return CosStream(dict, cipher);
+        case CosDictionary():
+          final out = CosDictionary();
+          value.entries.forEach((key, v) => out[key] =
+              v is CosString && isSignatureContents(value, key) ? v : copy(v));
+          return out;
+        default:
+          return value;
+      }
+    }
+
+    return copy(object);
   }
 
   // ---------- per-object decryption ----------
@@ -323,9 +468,7 @@ class StandardSecurityHandler {
         return rc4(_objectKey(objectNumber, generation, aes: false), data);
       case PdfCipher.aes128:
         return Aes.encryptContent(
-            _objectKey(objectNumber, generation, aes: true),
-            data,
-            randomIv());
+            _objectKey(objectNumber, generation, aes: true), data, randomIv());
       case PdfCipher.aes256:
         return Aes.encryptContent(_fileKey, data, randomIv());
     }
@@ -346,9 +489,36 @@ class StandardSecurityHandler {
     }
   }
 
+  // Memo for the most recent [_objectKey] derivation.
+  //
+  // One entry is enough because the access pattern is strictly per-object:
+  // decryptObjectGraph / encryptObjectGraph walk one indirect object's whole
+  // graph under a fixed (objectNumber, generation), so every string in that
+  // object asks for the same key. A 50-string object cost 50 MD5s over the
+  // file key; it now costs one. A wider cache would grow with the object
+  // count for no additional hit rate.
+  int? _memoObject;
+  int? _memoGeneration;
+  bool? _memoAes;
+  Uint8List? _memoKey;
+
   /// Algorithm 1: file key + object number and generation (+ the AES salt).
   /// AES-256 (R5/R6) uses the file key directly.
-  Uint8List _objectKey(int objectNumber, int generation,
+  Uint8List _objectKey(int objectNumber, int generation, {required bool aes}) {
+    if (_memoObject == objectNumber &&
+        _memoGeneration == generation &&
+        _memoAes == aes) {
+      return _memoKey!;
+    }
+    final key = _deriveObjectKey(objectNumber, generation, aes: aes);
+    _memoObject = objectNumber;
+    _memoGeneration = generation;
+    _memoAes = aes;
+    _memoKey = key;
+    return key;
+  }
+
+  Uint8List _deriveObjectKey(int objectNumber, int generation,
       {required bool aes}) {
     final input = BytesBuilder()
       ..add(_fileKey)

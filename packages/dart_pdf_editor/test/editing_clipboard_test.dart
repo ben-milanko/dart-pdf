@@ -2,11 +2,13 @@
 // context menu) and restyling a selected annotation (controller +
 // toolbar wiring).
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart'
     show PointerDeviceKind, kSecondaryMouseButton;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -20,6 +22,10 @@ final _png = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide annotation clipboard by default;
+    // start each test from empty so one test's copy can't leak into the next.
+    PdfAnnotationSnapshotClipboard.instance.clear();
+    PdfSnapshotClipboard.instance.clear();
   });
 
   group('controller clipboard', () {
@@ -75,7 +81,7 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(1, 0)]);
     });
 
-    test('paste centers on a point and clamps into the crop box', () {
+    test('paste centers on a point, off the page edge included', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(editing.dispose);
@@ -86,10 +92,38 @@ void main() {
       expect(editing.document.page(0).annotations[1].rect,
           const PdfRect(225, 350, 375, 450));
 
-      // a corner point clamps the 150×100 group inside the page
+      // a corner point is the point: the 150×100 group centers there and
+      // hangs off the page rather than jumping back inside it
       editing.pasteAnnotations(0, at: (5, 5));
       expect(editing.document.page(0).annotations[2].rect,
-          const PdfRect(0, 0, 150, 100));
+          const PdfRect(-70, -45, 80, 55));
+    });
+
+    test('the point-less paste cascade stays tethered to the page', () {
+      // Without a point to paste at there is nothing the user aimed at, so
+      // the cascade keeps a strip of the copy on the paper instead of
+      // marching it off the edge over repeats.
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(500, 40, 600, 100));
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+
+      final box = editing.document.page(0).cropBox;
+      for (var i = 0; i < 40; i++) {
+        editing.pasteAnnotations(0);
+      }
+      const tether = PdfEditingController.pageTether;
+      expect(editing.document.page(0).annotations, hasLength(41));
+      for (final annotation in editing.document.page(0).annotations) {
+        final rect = annotation.rect;
+        final overlapX =
+            math.min(rect.right, box.right) - math.max(rect.left, box.left);
+        final overlapY =
+            math.min(rect.top, box.top) - math.max(rect.bottom, box.bottom);
+        expect(overlapX, greaterThanOrEqualTo(tether - 1e-6));
+        expect(overlapY, greaterThanOrEqualTo(tether - 1e-6));
+      }
     });
 
     test('cut removes in one undo step and the clipboard survives undo', () {
@@ -125,6 +159,129 @@ void main() {
       expect(pasted.rect.left, closeTo(112, 1e-6));
     });
 
+    group('pasting a template stamp', () {
+      final template = PdfStampTemplate(
+        width: 240,
+        height: 96,
+        components: [
+          PdfStampTemplateComponent.rectangle(
+              x: 6, y: 16, width: 228, height: 64, color: 0x2E7D32),
+          PdfStampTemplateComponent.text(
+              x: 20,
+              y: 30,
+              width: 200,
+              height: 36,
+              text: 'APPROVED {{date}}',
+              color: 0x2E7D32),
+        ],
+      );
+
+      PdfEditingController placeAndCopy(PdfStampTemplate template) {
+        final editing = PdfEditingController(buildMultiPagePdf(2))
+          ..stampTemplateClock = (() => DateTime(2026, 8, 6))
+          ..activeStamp = PdfCustomStamp(
+            text: 'APPROVED {{date}}',
+            color: 0x2E7D32,
+            template: template,
+            type: 'Approval',
+            tags: const ['audit'],
+          );
+        addTearDown(editing.dispose);
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+        editing
+          ..tool = PdfEditTool.select
+          ..selectAnnotation(0, 0)
+          ..copySelectedAnnotations();
+        return editing;
+      }
+
+      test('fills its fields in again with today\'s date', () {
+        final editing = placeAndCopy(template);
+        final original = editing.document.page(0).annotations.single;
+        expect(original.contents, 'APPROVED 2026-08-06');
+
+        editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+        expect(editing.pasteAnnotations(0), isTrue);
+        final annotations = editing.document.page(0).annotations;
+        expect(annotations, hasLength(2));
+        final pasted = annotations[1];
+        expect(pasted.contents, 'APPROVED 2026-09-01');
+        final appearance = latin1.decode(
+            editing.document.cos.decodeStreamData(pasted.normalAppearance!));
+        expect(appearance, contains('2026-09-01'));
+        expect(appearance, isNot(contains('2026-08-06')));
+        // same design, place, size and metadata - only the fields moved on
+        expect(pasted.stampTemplate, template);
+        expect(pasted.color, 0x2E7D32);
+        expect(pasted.stampType, 'Approval');
+        expect(pasted.stampTags, ['audit']);
+        expect(pasted.rect.left, closeTo(original.rect.left + 12, 1e-6));
+        expect(pasted.rect.top, closeTo(original.rect.top - 12, 1e-6));
+        expect(pasted.rect.width, closeTo(original.rect.width, 1e-6));
+        expect(pasted.rect.height, closeTo(original.rect.height, 1e-6));
+        expect(editing.selectedAnnotationSlots, [(0, 1)]);
+        // the source stamp keeps the day it was placed
+        expect(annotations[0].contents, 'APPROVED 2026-08-06');
+
+        // still one revision
+        editing.undo();
+        expect(editing.document.page(0).annotations, hasLength(1));
+      });
+
+      test('pasted onto another page or at a point, the date refreshes too',
+          () {
+        final editing = placeAndCopy(template)
+          ..stampTemplateClock = (() => DateTime(2026, 9, 1));
+        expect(editing.pasteAnnotations(1), isTrue);
+        expect(editing.pasteAnnotations(0, at: (200, 200)), isTrue);
+        expect(editing.document.page(1).annotations.single.contents,
+            'APPROVED 2026-09-01');
+        final atPoint = editing.document.page(0).annotations[1];
+        expect(atPoint.contents, 'APPROVED 2026-09-01');
+        expect(
+            (atPoint.rect.left + atPoint.rect.right) / 2, closeTo(200, 1e-6));
+        expect(
+            (atPoint.rect.bottom + atPoint.rect.top) / 2, closeTo(200, 1e-6));
+      });
+
+      test('a design with no fields pastes verbatim', () {
+        final fixed = PdfStampTemplate(
+          width: 240,
+          height: 96,
+          components: [
+            PdfStampTemplateComponent.text(
+                x: 20,
+                y: 30,
+                width: 200,
+                height: 36,
+                text: 'APPROVED',
+                color: 0x2E7D32),
+          ],
+        );
+        final editing = placeAndCopy(fixed);
+        final original = editing.document.page(0).annotations.single;
+        expect(editing.pasteAnnotations(0), isTrue);
+        final pasted = editing.document.page(0).annotations[1];
+        expect(editing.document.cos.decodeStreamData(pasted.normalAppearance!),
+            editing.document.cos.decodeStreamData(original.normalAppearance!));
+      });
+
+      test('a rotated stamp keeps its turned appearance and old date', () {
+        final editing = placeAndCopy(template);
+        editing.rotateSelected(30);
+        editing.copySelectedAnnotations();
+        final original = editing.document.page(0).annotations.single;
+
+        editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+        expect(editing.pasteAnnotations(0), isTrue);
+        final pasted = editing.document.page(0).annotations[1];
+        // re-rendering would lose the rotation, so this copies as-is
+        expect(pasted.contents, 'APPROVED 2026-08-06');
+        expect(pasted.rect.width, closeTo(original.rect.width, 1e-6));
+        expect(pasted.rect.height, closeTo(original.rect.height, 1e-6));
+      });
+    });
+
     test('applySelectedAnnotationsToPages copies selection to other pages', () {
       final editing = PdfEditingController(buildMultiPagePdf(3))
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
@@ -146,6 +303,162 @@ void main() {
       expect(editing.document.page(1).annotations, isEmpty);
       expect(editing.document.page(2).annotations, isEmpty);
       expect(editing.document.page(0).annotations, hasLength(1));
+    });
+  });
+
+  group('PdfAnnotationSnapshotClipboard', () {
+    test('set / clear notify, and clearing an empty clipboard does not', () {
+      final clip = PdfAnnotationSnapshotClipboard();
+      var notified = 0;
+      clip.addListener(() => notified++);
+      expect(clip.isEmpty, isTrue);
+      expect(clip.length, 0);
+      // clearing an already-empty clipboard is a silent no-op
+      clip.clear();
+      expect(notified, 0);
+
+      final source =
+          PdfEditingController(buildMultiPagePdf(1), annotationClipboard: clip)
+            ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(source.dispose);
+      source.selectAnnotation(0, 0);
+      expect(source.copySelectedAnnotations(), 1);
+      expect(clip.isNotEmpty, isTrue);
+      expect(clip.length, 1);
+      expect(identical(clip.sourceOwner, source), isTrue);
+      expect(clip.sourcePage, 0);
+      expect(notified, 1);
+
+      clip.clear();
+      expect(clip.isEmpty, isTrue);
+      expect(clip.sourceOwner, isNull);
+      expect(clip.sourcePage, -1);
+      expect(notified, 2);
+      clip.clear();
+      expect(notified, 2);
+    });
+
+    test('a controller defaults to the shared process-wide instance', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(
+          identical(editing.annotationClipboard,
+              PdfAnnotationSnapshotClipboard.instance),
+          isTrue);
+    });
+
+    test('a private clipboard isolates a controller from the shared one', () {
+      final shared = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(shared.dispose);
+      final isolated = PdfEditingController(buildMultiPagePdf(1),
+          annotationClipboard: PdfAnnotationSnapshotClipboard());
+      addTearDown(isolated.dispose);
+
+      shared.selectAnnotation(0, 0);
+      shared.copySelectedAnnotations();
+
+      expect(isolated.hasAnnotationClipboard, isFalse);
+      expect(isolated.pasteAnnotations(0), isFalse);
+      expect(isolated.document.page(0).annotations, isEmpty);
+    });
+  });
+
+  group('clipboard shared across document tabs', () {
+    test('an annotation copied in one tab pastes into another', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFFE53935)
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+      expect(b.hasAnnotationClipboard, isFalse);
+
+      a.selectAnnotation(0, 0);
+      expect(a.copySelectedAnnotations(), 1);
+      // the copy lights up Paste in the other tab
+      expect(b.hasAnnotationClipboard, isTrue);
+
+      expect(b.pasteAnnotations(0), isTrue);
+      final pasted = b.document.page(0).annotations.single;
+      expect(pasted.subtype, 'Square');
+      expect(pasted.color, 0xE53935);
+      // a different document is never "the source page": no cascade, the
+      // annotation lands exactly where it was copied from
+      expect(pasted.rect, const PdfRect(100, 650, 250, 750));
+      expect(b.selectedAnnotationSlots, [(0, 0)]);
+
+      // the source document is untouched by the paste, and one undo in the
+      // receiving tab removes it
+      expect(a.document.page(0).annotations, hasLength(1));
+      b.undo();
+      expect(b.document.page(0).annotations, isEmpty);
+    });
+
+    test('filling the clipboard in one tab notifies the others', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+      var notified = 0;
+      b.addListener(() => notified++);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      expect(notified, greaterThan(0),
+          reason: 'paste affordances in other tabs rebuild live');
+    });
+
+    test('repeat pastes into another tab cascade', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      b.pasteAnnotations(0);
+      b.pasteAnnotations(0);
+
+      final annotations = b.document.page(0).annotations;
+      expect(annotations[0].rect.left, closeTo(100, 1e-6));
+      expect(annotations[1].rect.left, closeTo(112, 1e-6));
+    });
+
+    test('the clipboard outlives the tab it was copied from', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.cutSelectedAnnotations();
+      a.dispose(); // the source tab is closed
+
+      expect(b.hasAnnotationClipboard, isTrue);
+      expect(b.pasteAnnotations(0), isTrue);
+      expect(b.document.page(0).annotations.single.subtype, 'Square');
+    });
+
+    test('a copy in one tab replaces what another tab copied', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1))
+        ..addEllipse(0, const PdfRect(300, 650, 380, 720));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      b.selectAnnotation(0, 0);
+      b.copySelectedAnnotations();
+
+      // the most recent copy wins everywhere, so pasting back in the first
+      // tab yields the *other* tab's annotation
+      expect(a.pasteAnnotations(0), isTrue);
+      expect(a.document.page(0).annotations.last.subtype, 'Circle');
     });
   });
 
@@ -196,8 +509,8 @@ void main() {
     test('selectedAnnotationStyle reads the current style', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFFE53935)
-        ..strokeWidth = 4
-        ..opacity = 0.5
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(editing.dispose);
       expect(editing.selectedAnnotationStyle, isNull);
@@ -238,7 +551,9 @@ void main() {
         WidgetTester tester,
         {int pages = 2,
         bool toolbar = false,
-        PdfSystemImagePasteProvider? systemImagePasteProvider}) async {
+        PdfSystemPdfPasteProvider? systemPdfPasteProvider,
+        PdfSystemImagePasteProvider? systemImagePasteProvider,
+        PdfSystemTextPasteProvider? systemTextPasteProvider}) async {
       final editing = PdfEditingController(buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
@@ -252,7 +567,9 @@ void main() {
               document: editing.document,
               controller: viewer,
               editing: editing,
+              systemPdfPasteProvider: systemPdfPasteProvider,
               systemImagePasteProvider: systemImagePasteProvider,
+              systemTextPasteProvider: systemTextPasteProvider,
             ),
           ),
           bottomNavigationBar: toolbar
@@ -287,6 +604,121 @@ void main() {
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
     }
+
+    testWidgets('external PDF beats stale local copies and the raster fallback',
+        (tester) async {
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      var imageReads = 0;
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => PdfClipboardPdf(pdf),
+          systemImagePasteProvider: (_) async {
+            imageReads++;
+            return _png;
+          });
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      final stamp = editing.document.page(0).annotations.last;
+      expect(stamp.subtype, 'Stamp');
+      expect(stamp.rect, const PdfRect(320, 480, 480, 520));
+      expect(editing.canRecolorSnapshotSelected, isTrue);
+      expect(imageReads, 0);
+    });
+
+    testWidgets('unavailable PDF support preserves local vector paste',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => throw StateError('denied'));
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      final snapshot = editing.snapshotClipboard.snapshot;
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.subtype, 'Stamp');
+      expect(editing.snapshotClipboard.snapshot, same(snapshot));
+    });
+
+    testWidgets('invalid PDF falls back to image and text providers',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async => PdfClipboardPdf(_png),
+          systemImagePasteProvider: (_) async => null,
+          systemTextPasteProvider: (_) async => 'fallback');
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.contents, 'fallback');
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
+    testWidgets(
+        'a delayed PDF read cannot paste into a revised or closed viewer',
+        (tester) async {
+      final pending = Completer<PdfClipboardPdf?>();
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) => pending.future);
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      pending.complete(PdfClipboardPdf(buildMultiPagePdf(1)));
+      await settle(tester);
+      expect(editing.document.page(0).annotations.single.subtype, 'Square');
+      expect(editing.hasSnapshotClipboard, isFalse);
+    });
+
+    testWidgets(
+        'empty-page context Paste reads PDF only on selection and uses the menu point',
+        (tester) async {
+      var reads = 0;
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final (editing, _) =
+          await pumpEditor(tester, systemPdfPasteProvider: (_) async {
+        reads++;
+        return PdfClipboardPdf(pdf);
+      });
+      await tester.tapAt(view(400, 500),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await settle(tester);
+      expect(reads, 0);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-paste')));
+      await settle(tester);
+      expect(reads, 1);
+      expect(editing.document.page(0).annotations.single.rect,
+          const PdfRect(320, 480, 480, 520));
+    });
+
+    testWidgets(
+        'an unchanged external clipboard yields to a newer local copy; recopying wins',
+        (tester) async {
+      Object token = Object();
+      final pdf = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740))
+          .toPdfBytes();
+      final (editing, _) = await pumpEditor(tester,
+          systemPdfPasteProvider: (_) async =>
+              PdfClipboardPdf(pdf, changeToken: token));
+      await tester.tapAt(view(400, 500), kind: PointerDeviceKind.mouse);
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      editing.addRectangle(0, const PdfRect(10, 10, 30, 30));
+      editing.selectAnnotation(0, 1);
+      editing.copySelectedAnnotations();
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.last.subtype, 'Square');
+      token = Object(); // another app copies the same PDF again
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await settle(tester);
+      expect(editing.document.page(0).annotations.last.subtype, 'Stamp');
+      expect(editing.hasAnnotationClipboard, isFalse);
+    });
 
     testWidgets('Ctrl+C copies the selection and Ctrl+V pastes',
         (tester) async {
@@ -359,6 +791,77 @@ void main() {
       expect(annotation.contents, 'Pasted note');
       expect(annotation.rect, const PdfRect(290, 384.6, 510, 415.4));
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await settle(tester);
+    });
+
+    testWidgets('Ctrl+V prefers systemTextPasteProvider over Flutter Clipboard',
+        (tester) async {
+      // Flutter's Clipboard.getData is unreliable on the web; the host injects
+      // a provider (browser Async Clipboard API). It must win over the
+      // platform channel and never fall through to it.
+      var channelReads = 0;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          channelReads++;
+          return const <String, Object?>{'text': 'From Flutter clipboard'};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      var textReads = 0;
+      final (editing, _) = await pumpEditor(
+        tester,
+        systemTextPasteProvider: (context) async {
+          textReads++;
+          return 'From host provider';
+        },
+      );
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await tester.pump();
+
+      expect(textReads, 1);
+      expect(channelReads, 0);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'From host provider');
+      await settle(tester);
+    });
+
+    testWidgets(
+        'Ctrl+V falls back to systemTextPasteProvider when no image is present',
+        (tester) async {
+      // The web paste path: the image read finds nothing, so paste must
+      // consult the text provider (rather than giving up).
+      var imageReads = 0;
+      var textReads = 0;
+      final (editing, _) = await pumpEditor(
+        tester,
+        systemImagePasteProvider: (context) async {
+          imageReads++;
+          return null;
+        },
+        systemTextPasteProvider: (context) async {
+          textReads++;
+          return 'Fallback note';
+        },
+      );
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await tester.pump();
+
+      expect(imageReads, 1);
+      expect(textReads, 1);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'Fallback note');
       await settle(tester);
     });
 
@@ -523,7 +1026,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpEditor(tester, toolbar: true);
       editing
-        ..strokeWidth = 2
+        ..preferences.strokeWidth = 2
         ..addRectangle(0, const PdfRect(100, 650, 250, 750))
         ..selectAnnotation(0, 0);
       await tester.pump();
@@ -542,13 +1045,13 @@ void main() {
 
       // the stroke slider shows the selected annotation's width (scope to
       // the popup - the strip also carries an inline opacity slider)
-      final menuSlider = find.descendant(
-          of: find.byType(MenuAnchor), matching: find.byType(Slider));
-      final slider = tester.widget(menuSlider.first) as Slider;
+      final menuSlider =
+          find.byKey(const ValueKey('pdf-tune-stroke-width-slider'));
+      final slider = tester.widget<Slider>(menuSlider);
       expect(slider.value, closeTo(2, 1e-6));
 
       // dragging it restyles on release
-      await tester.drag(menuSlider.first, const Offset(150, 0));
+      await tester.drag(menuSlider, const Offset(150, 0));
       await tester.pumpAndSettle();
       final width = editing.document.page(0).annotations.single.borderWidth!;
       expect(width, greaterThan(2));

@@ -1,0 +1,21 @@
+DartPDF ist ein PDF-Editor, der komplett auf Ihrem Gerät läuft.
+
+Öffnen Sie ein beliebiges PDF, um es mit Anmerkungen zu versehen, Formulare auszufüllen, es zu signieren, Inhalte zu schwärzen, Seiten neu anzuordnen oder Text und Bilder auf der Seite zu bearbeiten. Änderungen werden in der Originaldatei gespeichert.
+
+Es wird nichts hochgeladen. Kein Konto, keine Synchronisierung, keine Werbung.
+
+Funktionen:
+
+• Hervorheben, Unterstreichen, Durchstreichen und Freihandzeichnen
+• Formen, Pfeile, Textfelder, Notizen und Stempel
+• Vorhandenen Text bearbeiten und Bilder hinzufügen
+• Schwärzung, die den überdeckten Text und die Bilder wirklich aus der Datei entfernt, nicht nur aus der Ansicht
+• Formularfelder ausfüllen (Text, Kontrollkästchen, Optionsfelder, Dropdown-Listen) oder eigene hinzufügen
+• Gezeichnete Unterschriften an beliebiger Stelle sowie zertifikatsbasierte digitale PAdES-Signaturen
+• Gescannte PDFs per OCR erfassen, damit Text ausgewählt und durchsucht werden kann
+• Seiten neu anordnen, löschen und in eine neue Datei exportieren
+• Volltextsuche, Textauswahl und Links
+• Zwei Versionen nebeneinander vergleichen
+• Passwortgeschützte Dateien öffnen
+
+Läuft auf iPhone, iPad und Mac. Öffnet PDFs aus der Dateien-App, über Teilen-Menüs oder per Drag & Drop. Helles und dunkles Design.

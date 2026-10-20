@@ -5,33 +5,49 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 
 import 'annotation.dart';
+import 'annotation_groups.dart';
 import 'comments.dart';
+import 'compressor.dart';
 import 'content_elements.dart';
 import 'content_writer.dart';
 import 'document.dart';
+import 'document_identity.dart';
 import 'font_embedder.dart';
 import 'form.dart';
+import 'form_scripts.dart';
 import 'image.dart';
+import 'matrix_geometry.dart';
 import 'measure.dart';
 import 'outline.dart';
 import 'pades.dart';
 import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
+import 'signing_identity.dart';
+import 'simple_font.dart';
+import 'splitter.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
-import 'type0_metrics.dart';
+import 'content_run_rewriter.dart';
+import 'text_box_appearance.dart';
+import 'type0_font.dart';
 import 'xmp.dart';
+
+// Preserve the compression result API for callers importing this library.
+export 'compressor.dart';
 
 part 'annotation_clipboard.dart';
 part 'annotation_editor.dart';
+part 'annotation_group_editor.dart';
 part 'annotation_sync.dart';
 part 'comment_editor.dart';
 part 'attachment_editor.dart';
 part 'content_editor.dart';
+part 'content_region_clip.dart';
 part 'color_processing.dart';
 part 'content_editor_type0.dart';
 part 'content_reflow.dart';
@@ -39,13 +55,17 @@ part 'header_footer.dart';
 part 'outline_editor.dart';
 part 'page_labels_editor.dart';
 part 'page_annotation_list.dart';
+part 'page_background.dart';
 part 'redaction.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
+part 'form_scripts_editor.dart';
 part 'form_styling.dart';
 part 'ocr_editor.dart';
 part 'pades_editor.dart';
 part 'page_editor.dart';
+part 'page_insert.dart';
+part 'document_merge.dart';
 part 'signature_editor.dart';
 part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';
@@ -62,6 +82,7 @@ class PdfEditImpact {
     required this.contentPages,
     required this.annotationPages,
     required this.pageStructureChanged,
+    required this.pageOrderOnly,
     required this.destructive,
   });
 
@@ -71,6 +92,7 @@ class PdfEditImpact {
     contentPages: <int>{},
     annotationPages: <int>{},
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -80,6 +102,7 @@ class PdfEditImpact {
     contentPages: null,
     annotationPages: null,
     pageStructureChanged: false,
+    pageOrderOnly: false,
     destructive: false,
   );
 
@@ -101,6 +124,7 @@ class PdfEditImpact {
       contentPages: content,
       annotationPages: annotations,
       pageStructureChanged: false,
+      pageOrderOnly: false,
       destructive: false,
     );
   }
@@ -111,6 +135,7 @@ class PdfEditImpact {
     required Iterable<int>? contentPages,
     required Iterable<int>? annotationPages,
     bool pageStructureChanged = false,
+    bool pageOrderOnly = false,
     bool destructive = false,
   }) =>
       PdfEditImpact._(
@@ -122,6 +147,7 @@ class PdfEditImpact {
             ? null
             : Set<int>.unmodifiable(annotationPages),
         pageStructureChanged: pageStructureChanged,
+        pageOrderOnly: pageOrderOnly,
         destructive: destructive,
       );
 
@@ -137,6 +163,14 @@ class PdfEditImpact {
   /// Whether page indices/geometry may have shifted across the document.
   final bool pageStructureChanged;
 
+  /// Whether the structural change only permutes the existing page leaves.
+  ///
+  /// No page was inserted, removed, or imported by the structural portion of
+  /// the edit. Hosts may reconcile presentation state by stable indirect
+  /// identity after verifying the new tree and that the page impact lanes are
+  /// empty (a transaction may still combine a reorder with another mutation).
+  final bool pageOrderOnly;
+
   /// Whether existing page content was irreversibly removed.
   final bool destructive;
 }
@@ -147,6 +181,7 @@ class _PdfEditImpactBuilder {
   Set<int>? contentPages = <int>{};
   Set<int>? annotationPages = <int>{};
   bool pageStructureChanged = false;
+  bool pageOrderOnly = false;
   bool destructive = false;
 
   Set<int>? _merge(Set<int>? current, Iterable<int>? next) {
@@ -160,13 +195,18 @@ class _PdfEditImpactBuilder {
     Iterable<int>? content = const <int>[],
     Iterable<int>? annotations = const <int>[],
     bool structure = false,
+    bool orderOnly = false,
     bool removesContent = false,
   }) {
     known = true;
     visualPages = _merge(visualPages, visual);
     contentPages = _merge(contentPages, content);
     annotationPages = _merge(annotationPages, annotations);
-    pageStructureChanged |= structure;
+    if (structure) {
+      pageOrderOnly =
+          pageStructureChanged ? pageOrderOnly && orderOnly : orderOnly;
+      pageStructureChanged = true;
+    }
     destructive |= removesContent;
   }
 
@@ -182,6 +222,7 @@ class _PdfEditImpactBuilder {
           ? null
           : Set<int>.unmodifiable(annotationPages!),
       pageStructureChanged: pageStructureChanged,
+      pageOrderOnly: pageOrderOnly,
       destructive: destructive,
     );
   }
@@ -227,18 +268,20 @@ class PdfEditor {
 
   void _markVisual(Iterable<int>? pages) => _impact.add(visual: pages);
 
-  void _markAnnotations(Iterable<int> pages, {bool visual = true}) =>
+  void _markAnnotations(Iterable<int>? pages, {bool visual = true}) =>
       _impact.add(visual: visual ? pages : const <int>[], annotations: pages);
 
   void _markContent(Iterable<int> pages) =>
       _impact.add(visual: pages, content: pages);
 
-  void _markStructure() => _impact.add(
-        visual: null,
-        content: null,
-        annotations: null,
-        structure: true,
-      );
+  void _markStructure({bool orderOnly = false}) => orderOnly
+      ? _impact.add(structure: true, orderOnly: true)
+      : _impact.add(
+          visual: null,
+          content: null,
+          annotations: null,
+          structure: true,
+        );
 
   void _markDestructive([Iterable<int>? pages]) => _impact.add(
         visual: pages,
@@ -297,4 +340,45 @@ class PdfEditor {
 
   /// The full bytes of the edited file (original + incremental update).
   Uint8List save() => _updater.save();
+
+  /// Only the bytes to append to the source document to form the edited file
+  /// (see [CosIncrementalUpdater.saveTail]).
+  ///
+  /// For a caller that already holds the source bytes and keeps revisions as
+  /// prefixes of one buffer, this avoids re-materialising the whole file per
+  /// save. The bytes are only valid appended directly to the document this
+  /// editor was built over.
+  Uint8List saveTail() => _updater.saveTail();
+
+  /// Produces an optimised copy including pending unsaved edits.
+  ///
+  /// See [PdfCompressor] for the independent lossless and opt-in image passes.
+  /// The original editor session and its incremental history remain intact.
+  /// [deflateLevel] overrides the matching option for backwards compatibility.
+  PdfCompressionResult compress({
+    int? deflateLevel,
+    PdfCompressionOptions options = const PdfCompressionOptions(),
+  }) {
+    if (document.cos.isEncrypted) {
+      throw ArgumentError('Cannot optimise an encrypted document. '
+          'Decrypt a copy first.');
+    }
+    if (document.cos.populatedRanges != null) {
+      throw ArgumentError('Load the complete document before optimising it.');
+    }
+    final current = _updater.hasChanges ? _updater.save() : document.cos.bytes;
+    return PdfCompressor.optimize(PdfDocument.open(current),
+        options: deflateLevel == null
+            ? options
+            : PdfCompressionOptions(
+                recompressStreams: options.recompressStreams,
+                removeUnusedResources: options.removeUnusedResources,
+                deduplicate: options.deduplicate,
+                subsetFonts: options.subsetFonts,
+                targetDpi: options.targetDpi,
+                jpegQuality: options.jpegQuality,
+                deflateLevel: deflateLevel,
+                allowInvalidateSignatures: options.allowInvalidateSignatures,
+              ));
+  }
 }

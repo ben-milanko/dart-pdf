@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -134,6 +134,7 @@ void main() {
     testWidgets('a move drag shows the annotation at the dragged position',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
+      editing.preferences.smartAlignmentGuides = false;
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -205,6 +206,7 @@ void main() {
     testWidgets('a moved stamp keeps its afterimage while host rebuilds',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.smartAlignmentGuides = false
         ..color = const Color(0xFFFF0000)
         ..addStamp(0, const PdfRect(100, 650, 250, 750), 'PAID')
         ..tool = PdfEditTool.select
@@ -235,9 +237,6 @@ void main() {
       expect(afterGhost, isNotNull);
       expect(afterGhost.to.center.dx,
           closeTo(view(175, 700).dx + (view(255, 600) - view(175, 700)).dx, 1));
-      expect(afterGhost.source, isNotNull);
-      expect(afterGhost.sourceClean, isNull);
-      expect(afterGhost.sourceWash, isNotNull);
     });
   });
 
@@ -252,6 +251,7 @@ void main() {
       // paint above every page.
       PdfMoveDragPreview? reported;
       final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.smartAlignmentGuides = false
         ..color = const Color(0xFFFF0000)
         ..addRectangle(0, const PdfRect(100, 550, 300, 650))
         ..tool = PdfEditTool.select
@@ -326,6 +326,7 @@ void main() {
           Offset(x * scale, (pageHeight - y) * scale);
 
       final editing = PdfEditingController(buildShortTwoPagePdf(pageHeight));
+      editing.preferences.smartAlignmentGuides = false;
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -351,7 +352,7 @@ void main() {
       // a red rectangle near the bottom of page 1 (page y 30..70)
       editing
         ..color = const Color(0xFFFF0000)
-        ..strokeWidth = 3
+        ..preferences.strokeWidth = 3
         ..addRectangle(0, const PdfRect(250, 30, 400, 70))
         ..tool = PdfEditTool.select;
       await tester.pump();

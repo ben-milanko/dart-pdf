@@ -3,9 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  dart_pdf_printing
   desktop_drop
   file_selector_linux
-  printing
+  flutter_doc_scanner
+  flutter_secure_storage_linux
   url_launcher_linux
 )
 

@@ -1,0 +1,9 @@
+Nouveautés de la 5.1.0
+
+- Signez du doigt sur le trackpad.
+- Les listes d'annotations montrent chaque marque comme sur la page.
+- Sur écran tactile, les actions de ligne sont dans un menu ⋮.
+- Les tampons déplacés ne laissent plus de cadre blanc.
+- Modifier les pages ne peut plus en perdre une dans certains PDF.
+- Les signatures numériques P-521 sont désormais validées.
+- Plus rapide : fichiers chiffrés, signatures, JPEG 2000, grands plans.

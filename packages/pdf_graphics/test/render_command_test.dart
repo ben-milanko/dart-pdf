@@ -73,6 +73,10 @@ class _TranscriptDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) => log.add('blend ${mode.name}');
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      log.add('overprint $fill $stroke $mode');
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>
@@ -143,6 +147,28 @@ void main() {
         expect(_recorded(content), equals(direct));
       });
     });
+  });
+
+  test('translated image preserves a late retained-pixel cache identity', () {
+    final request = PdfImageRequest(
+      stream: CosStream(CosDictionary(), Uint8List(0)),
+      transform: PdfMatrix.identity,
+      isInline: true,
+    );
+    request.retainDecodedPixels(
+      PdfDecodedPixels(Uint8List.fromList([10, 20, 30, 255]), 1, 1),
+    );
+    final recorder = RecordingPdfDevice();
+
+    TranslatingPdfDevice(recorder, 12, 34).drawImage(request);
+
+    final translated =
+        (recorder.commands.single as PdfDrawImageCommand).request;
+    expect(translated.decoded, same(request.decoded));
+    expect(translated.decodedWidth, isNull);
+    expect(translated.decodedHeight, isNull);
+    expect(translated.transform.e, 12);
+    expect(translated.transform.f, 34);
   });
 
   // Real pages exercise the serialization-fragile callbacks the synthetic

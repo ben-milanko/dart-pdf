@@ -1,10 +1,14 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../design/material_host.dart';
+import '../dialog.dart';
+import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
+import '../design/editor_presenter.dart';
 
 /// Dockable PDF outline/bookmarks panel.
 ///
@@ -17,7 +21,7 @@ class PdfBookmarkSidebar extends StatefulWidget {
     required this.controller,
     required this.viewerController,
     this.editable = true,
-    this.side = PdfSidebarSide.left,
+    this.dock = PdfPanelDock.left,
     this.bottomSheet = false,
     this.width = 260,
     this.minWidth = 200,
@@ -29,7 +33,7 @@ class PdfBookmarkSidebar extends StatefulWidget {
   final PdfEditingController controller;
   final PdfViewerController viewerController;
   final bool editable;
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
   final bool bottomSheet;
   final double width;
   final double minWidth;
@@ -91,7 +95,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     final result = await _showBookmarkDialog(
       context,
       pageCount: controller.document.pageCount,
-      initialTitle: 'Page ${page + 1}',
+      initialTitle: pdfL10n(context).bookmarkPageLabel(page + 1),
       initialPageIndex: page,
       initialOpen: true,
       editing: false,
@@ -136,6 +140,9 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     final closeButton = geometry.closeButton(
       key: const ValueKey('pdf-bookmark-panel-close'),
     );
+    final moveHandle = geometry.moveHandle(
+      key: const ValueKey('pdf-bookmark-panel-move'),
+    );
     final showTitle = !widget.bottomSheet;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -143,7 +150,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
       child: Row(children: [
         if (showTitle)
           Expanded(
-            child: Text('Bookmarks',
+            child: Text(pdfL10n(context).bookmarkTitle,
                 style: Theme.of(context).textTheme.titleSmall,
                 overflow: TextOverflow.ellipsis),
           )
@@ -152,11 +159,12 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
         if (widget.editable)
           IconButton(
             key: const ValueKey('pdf-bookmark-add'),
-            tooltip: 'Add bookmark',
+            tooltip: pdfL10n(context).bookmarkAdd,
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.add),
             onPressed: () => _addBookmark(context),
           ),
+        if (moveHandle != null) moveHandle,
         if (closeButton != null) closeButton,
       ]),
     );
@@ -173,7 +181,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
             Icon(Icons.bookmarks_outlined,
                 size: 34, color: scheme.onSurfaceVariant),
             const SizedBox(height: 10),
-            Text('No bookmarks',
+            Text(pdfL10n(context).bookmarkEmpty,
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium
@@ -184,7 +192,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                 key: const ValueKey('pdf-bookmark-empty-add'),
                 onPressed: () => _addBookmark(context),
                 icon: const Icon(Icons.add),
-                label: const Text('Add bookmark'),
+                label: Text(pdfL10n(context).bookmarkAdd),
               ),
             ],
           ],
@@ -210,8 +218,8 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
           );
     final scheme = Theme.of(context).colorScheme;
     final pageLabel = destination == null
-        ? 'No destination'
-        : 'Page ${destination.pageIndex + 1}';
+        ? pdfL10n(context).bookmarkNoDestination
+        : pdfL10n(context).bookmarkPageLabel(destination.pageIndex + 1);
     final actionsVisible =
         !pdfPanelControlsRevealOnHover() || _hoveredPath == pathKey;
     final titleStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -227,7 +235,8 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
         key: ValueKey('pdf-bookmark-tile-$pathKey'),
         onTap: destination == null ? null : () => _activate(item),
         child: Padding(
-          padding: EdgeInsets.only(left: 6 + row.depth * 16.0, right: 4),
+          padding:
+              EdgeInsetsDirectional.only(start: 6 + row.depth * 16.0, end: 4),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 46),
             child: Row(children: [
@@ -236,7 +245,9 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                 child: hasChildren
                     ? IconButton(
                         key: ValueKey('pdf-bookmark-toggle-$pathKey'),
-                        tooltip: expanded ? 'Collapse' : 'Expand',
+                        tooltip: expanded
+                            ? pdfL10n(context).bookmarkCollapse
+                            : pdfL10n(context).bookmarkExpand,
                         constraints: const BoxConstraints.tightFor(
                             width: 28, height: 28),
                         padding: EdgeInsets.zero,
@@ -256,7 +267,10 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item.title.isEmpty ? 'Untitled' : item.title,
+                      Text(
+                          item.title.isEmpty
+                              ? pdfL10n(context).bookmarkUntitled
+                              : item.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: titleStyle),
@@ -272,13 +286,17 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                   ),
                 ),
               ),
-              if (widget.editable)
+              if (widget.editable && !pdfPanelControlsRevealOnHover())
+                // Touch shows row actions permanently, so they live in one
+                // "more" (⋮) menu instead of a strip of icons on every row.
+                _moreMenu(context, row, pathKey)
+              else if (widget.editable)
                 Visibility(
                   visible: actionsVisible,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(
                       key: ValueKey('pdf-bookmark-add-child-$pathKey'),
-                      tooltip: 'Add child bookmark',
+                      tooltip: pdfL10n(context).bookmarkAddChild,
                       icon:
                           const Icon(Icons.subdirectory_arrow_right, size: 19),
                       onPressed: () =>
@@ -286,13 +304,13 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
                     ),
                     IconButton(
                       key: ValueKey('pdf-bookmark-edit-$pathKey'),
-                      tooltip: 'Edit bookmark',
+                      tooltip: pdfL10n(context).bookmarkEdit,
                       icon: const Icon(Icons.edit_outlined, size: 19),
                       onPressed: () => _editBookmark(context, row),
                     ),
                     IconButton(
                       key: ValueKey('pdf-bookmark-delete-$pathKey'),
-                      tooltip: 'Delete bookmark',
+                      tooltip: pdfL10n(context).bookmarkDelete,
                       icon: const Icon(Icons.delete_outline, size: 19),
                       onPressed: () => _deleteBookmark(row),
                     ),
@@ -302,6 +320,49 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
           ),
         ),
       ),
+    );
+  }
+
+  /// A touch row's "more" (⋮) menu: Add child, Edit and Delete. The items
+  /// keep the desktop buttons' keys.
+  Widget _moreMenu(BuildContext context, _BookmarkRow row, String pathKey) {
+    final l10n = pdfL10n(context);
+    Widget item(IconData icon, String label) => Row(children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 12),
+          Flexible(child: Text(label)),
+        ]);
+    return PopupMenuButton<_BookmarkAction>(
+      key: ValueKey('pdf-bookmark-more-$pathKey'),
+      icon: const Icon(Icons.more_vert, size: 20),
+      tooltip: l10n.sidebarMore,
+      onSelected: (action) {
+        switch (action) {
+          case _BookmarkAction.addChild:
+            _addBookmark(context, parentPath: row.path);
+          case _BookmarkAction.edit:
+            _editBookmark(context, row);
+          case _BookmarkAction.delete:
+            _deleteBookmark(row);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-add-child-$pathKey'),
+          value: _BookmarkAction.addChild,
+          child: item(Icons.subdirectory_arrow_right, l10n.bookmarkAddChild),
+        ),
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-edit-$pathKey'),
+          value: _BookmarkAction.edit,
+          child: item(Icons.edit_outlined, l10n.bookmarkEdit),
+        ),
+        PopupMenuItem(
+          key: ValueKey('pdf-bookmark-delete-$pathKey'),
+          value: _BookmarkAction.delete,
+          child: item(Icons.delete_outline, l10n.bookmarkDelete),
+        ),
+      ],
     );
   }
 
@@ -349,7 +410,8 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
       persistedWidth: controller.preferences.bookmarkSidebarWidth,
       onPersistWidth: (width) =>
           controller.preferences.bookmarkSidebarWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.bookmarks,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-bookmark-resize-grip'),
@@ -394,8 +456,8 @@ Future<_BookmarkEditResult?> _showBookmarkDialog(
   required bool initialOpen,
   required bool editing,
 }) =>
-    showDialog<_BookmarkEditResult>(
-      context: context,
+    pdfPresentDialog<_BookmarkEditResult>(
+      context,
       builder: (context) => _BookmarkDialog(
         pageCount: pageCount,
         initialTitle: initialTitle,
@@ -450,7 +512,9 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.editing ? 'Edit bookmark' : 'Add bookmark'),
+        title: Text(widget.editing
+            ? pdfL10n(context).bookmarkEdit
+            : pdfL10n(context).bookmarkAdd),
         content: SizedBox(
           width: 320,
           child: Column(
@@ -460,28 +524,31 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
                 key: const ValueKey('pdf-bookmark-title'),
                 controller: _title,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: pdfL10n(context).bookmarkTitleLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 textInputAction: TextInputAction.next,
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               const SizedBox(height: 12),
               TextField(
                 key: const ValueKey('pdf-bookmark-page'),
                 controller: _page,
                 decoration: InputDecoration(
-                  labelText: 'Page',
-                  helperText: '1-${widget.pageCount}',
+                  labelText: pdfL10n(context).bookmarkPageFieldLabel,
+                  helperText:
+                      pdfL10n(context).bookmarkPageRangeHint(widget.pageCount),
                   border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                contextMenuBuilder: pdfTextContextMenu,
               ),
               CheckboxListTile(
                 key: const ValueKey('pdf-bookmark-open'),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Expanded by default'),
+                title: Text(pdfL10n(context).bookmarkExpandedByDefault),
                 value: _open,
                 onChanged: (value) => setState(() => _open = value ?? _open),
               ),
@@ -491,13 +558,17 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(pdfL10n(context).cancel),
           ),
-          FilledButton(
-            key: const ValueKey('pdf-bookmark-save'),
-            onPressed: _save,
-            child: const Text('Save'),
-          ),
+          PdfDialogSubmit.action(
+              onSubmit: _save,
+              child: FilledButton(
+                key: const ValueKey('pdf-bookmark-save'),
+                onPressed: _save,
+                child: Text(pdfL10n(context).save),
+              )),
         ],
       );
 }
+
+enum _BookmarkAction { addChild, edit, delete }

@@ -29,7 +29,7 @@ import 'render_smoke_test.dart' show loadSystemFonts;
 const _zoomSequence = [1.0, 1.5, 2.4, 1.2, 3.0];
 const _targetWidth = 2382.0;
 const _targetHeight = 1684.0;
-const _maxPixels = 1 << 24;
+const _maxPixels = PdfPageRasterGeometry.maxPixels;
 const _maxDimension = 8192.0;
 const _defaultFiles = ['WAT_L0001_S.pdf', 'ly9-far-cad.pdf#4'];
 

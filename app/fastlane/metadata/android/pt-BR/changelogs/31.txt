@@ -1,0 +1,6 @@
+Novidades da versão 3.7.0
+
+- As páginas são renderizadas enquanto você rola, em vez de surgirem ao parar, e as já lidas voltam na hora.
+- Localizar e substituir no painel de busca: substitua uma ocorrência ou todas em uma única etapa.
+- Corrigido o texto embaralhado e as edições erradas na ferramenta de conteúdo com fontes de subconjunto.
+- Corrigida uma falha ao abrir ou salvar um arquivo.

@@ -33,24 +33,35 @@ class TrueTypeFont {
   List<_CmapSubtable>? _cmaps;
   Map<String, int>? _postNames;
 
-  static TrueTypeFont? parse(Uint8List bytes) {
+  /// Parses one TrueType face.
+  ///
+  /// [collectionIndex] selects a zero-based face from a TrueType collection
+  /// (`ttcf`). Ordinary single-face fonts only accept index zero. Returning
+  /// null keeps callers on their existing substitution/fallback path when the
+  /// face is absent, malformed, or CFF-flavoured.
+  static TrueTypeFont? parse(Uint8List bytes, {int collectionIndex = 0}) {
     try {
-      return _parse(bytes);
+      return _parse(bytes, collectionIndex: collectionIndex);
     } on Object {
       return null;
     }
   }
 
-  static TrueTypeFont? _parse(Uint8List bytes) {
+  static TrueTypeFont? _parse(Uint8List bytes, {required int collectionIndex}) {
     final r = _Reader(bytes);
     var scaler = r.u32();
     if (scaler == 0x74746366 /* 'ttcf' collection */) {
       r.u32(); // version
       final count = r.u32();
-      if (count == 0) return null;
-      final first = r.u32();
-      r.seek(first);
+      if (count == 0 || collectionIndex < 0 || collectionIndex >= count) {
+        return null;
+      }
+      r.skip(collectionIndex * 4);
+      final offset = r.u32();
+      r.seek(offset);
       scaler = r.u32();
+    } else if (collectionIndex != 0) {
+      return null;
     }
     if (scaler == 0x4F54544F /* 'OTTO' */) return null; // CFF outlines
     if (scaler != 0x00010000 && scaler != 0x74727565 /* 'true' */) {
@@ -60,8 +71,7 @@ class TrueTypeFont {
     r.skip(6);
     final tables = <String, (int, int)>{};
     for (var i = 0; i < numTables; i++) {
-      final tag = String.fromCharCodes(
-          [r.u8(), r.u8(), r.u8(), r.u8()]);
+      final tag = String.fromCharCodes([r.u8(), r.u8(), r.u8(), r.u8()]);
       r.u32(); // checksum
       final offset = r.u32();
       final length = r.u32();
@@ -129,9 +139,9 @@ class TrueTypeFont {
   /// Maps a Unicode code point through the font's Unicode cmaps.
   int gidForUnicode(int codePoint) {
     for (final cmap in _cmapSubtables()) {
-      final unicode = (cmap.platform == 3 &&
-              (cmap.encoding == 1 || cmap.encoding == 10)) ||
-          cmap.platform == 0;
+      final unicode =
+          (cmap.platform == 3 && (cmap.encoding == 1 || cmap.encoding == 10)) ||
+              cmap.platform == 0;
       if (!unicode) continue;
       final gid = cmap.lookup(codePoint);
       if (gid != 0) return gid;
@@ -188,8 +198,7 @@ class TrueTypeFont {
       while (r.position < end) {
         final len = r.u8();
         if (r.position + len > end) break;
-        extra.add(String.fromCharCodes(
-            [for (var i = 0; i < len; i++) r.u8()]));
+        extra.add(String.fromCharCodes([for (var i = 0; i < len; i++) r.u8()]));
       }
       final map = <String, int>{};
       for (var gid = 0; gid < count; gid++) {
@@ -292,8 +301,8 @@ class TrueTypeFont {
     for (final end in endPoints) {
       final contour = <_Point>[];
       for (var i = start; i <= end && i < pointCount; i++) {
-        contour.add(_Point(
-            xs[i].toDouble(), ys[i].toDouble(), flags[i] & 0x01 != 0));
+        contour.add(
+            _Point(xs[i].toDouble(), ys[i].toDouble(), flags[i] & 0x01 != 0));
       }
       if (contour.isNotEmpty) contours.add(contour);
       start = end + 1;
@@ -424,8 +433,8 @@ class TrueTypeFont {
           final platform = r.u16();
           final encoding = r.u16();
           final offset = r.u32();
-          result.add(
-              _CmapSubtable(_bytes, cmap.$1 + offset, platform, encoding));
+          result
+              .add(_CmapSubtable(_bytes, cmap.$1 + offset, platform, encoding));
         }
       } on Object {
         // broken cmap: act as if absent
@@ -570,41 +579,262 @@ class _Reader {
 /// name index points into this list for indices < 258 (Apple TrueType
 /// Reference, the `post` table). Custom names follow as Pascal strings.
 const List<String> _macGlyphNames = [
-  '.notdef', '.null', 'nonmarkingreturn', 'space', 'exclam', 'quotedbl',
-  'numbersign', 'dollar', 'percent', 'ampersand', 'quotesingle', 'parenleft',
-  'parenright', 'asterisk', 'plus', 'comma', 'hyphen', 'period', 'slash',
-  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
-  'nine', 'colon', 'semicolon', 'less', 'equal', 'greater', 'question', 'at',
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-  'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'bracketleft',
-  'backslash', 'bracketright', 'asciicircum', 'underscore', 'grave', 'a', 'b',
-  'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
-  'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'braceleft', 'bar',
-  'braceright', 'asciitilde', 'Adieresis', 'Aring', 'Ccedilla', 'Eacute',
-  'Ntilde', 'Odieresis', 'Udieresis', 'aacute', 'agrave', 'acircumflex',
-  'adieresis', 'atilde', 'aring', 'ccedilla', 'eacute', 'egrave',
-  'ecircumflex', 'edieresis', 'iacute', 'igrave', 'icircumflex', 'idieresis',
-  'ntilde', 'oacute', 'ograve', 'ocircumflex', 'odieresis', 'otilde', 'uacute',
-  'ugrave', 'ucircumflex', 'udieresis', 'dagger', 'degree', 'cent', 'sterling',
-  'section', 'bullet', 'paragraph', 'germandbls', 'registered', 'copyright',
-  'trademark', 'acute', 'dieresis', 'notequal', 'AE', 'Oslash', 'infinity',
-  'plusminus', 'lessequal', 'greaterequal', 'yen', 'mu', 'partialdiff',
-  'summation', 'product', 'pi', 'integral', 'ordfeminine', 'ordmasculine',
-  'Omega', 'ae', 'oslash', 'questiondown', 'exclamdown', 'logicalnot',
-  'radical', 'florin', 'approxequal', 'Delta', 'guillemotleft',
-  'guillemotright', 'ellipsis', 'nonbreakingspace', 'Agrave', 'Atilde',
-  'Otilde', 'OE', 'oe', 'endash', 'emdash', 'quotedblleft', 'quotedblright',
-  'quoteleft', 'quoteright', 'divide', 'lozenge', 'ydieresis', 'Ydieresis',
-  'fraction', 'currency', 'guilsinglleft', 'guilsinglright', 'fi', 'fl',
-  'daggerdbl', 'periodcentered', 'quotesinglbase', 'quotedblbase',
-  'perthousand', 'Acircumflex', 'Ecircumflex', 'Aacute', 'Edieresis', 'Egrave',
-  'Iacute', 'Icircumflex', 'Idieresis', 'Igrave', 'Oacute', 'Ocircumflex',
-  'apple', 'Ograve', 'Uacute', 'Ucircumflex', 'Ugrave', 'dotlessi',
-  'circumflex', 'tilde', 'macron', 'breve', 'dotaccent', 'ring', 'cedilla',
-  'hungarumlaut', 'ogonek', 'caron', 'Lslash', 'lslash', 'Scaron', 'scaron',
-  'Zcaron', 'zcaron', 'brokenbar', 'Eth', 'eth', 'Yacute', 'yacute', 'Thorn',
-  'thorn', 'minus', 'multiply', 'onesuperior', 'twosuperior', 'threesuperior',
-  'onehalf', 'onequarter', 'threequarters', 'franc', 'Gbreve', 'gbreve',
-  'Idotaccent', 'Scedilla', 'scedilla', 'Cacute', 'cacute', 'Ccaron', 'ccaron',
+  '.notdef',
+  '.null',
+  'nonmarkingreturn',
+  'space',
+  'exclam',
+  'quotedbl',
+  'numbersign',
+  'dollar',
+  'percent',
+  'ampersand',
+  'quotesingle',
+  'parenleft',
+  'parenright',
+  'asterisk',
+  'plus',
+  'comma',
+  'hyphen',
+  'period',
+  'slash',
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'colon',
+  'semicolon',
+  'less',
+  'equal',
+  'greater',
+  'question',
+  'at',
+  'A',
+  'B',
+  'C',
+  'D',
+  'E',
+  'F',
+  'G',
+  'H',
+  'I',
+  'J',
+  'K',
+  'L',
+  'M',
+  'N',
+  'O',
+  'P',
+  'Q',
+  'R',
+  'S',
+  'T',
+  'U',
+  'V',
+  'W',
+  'X',
+  'Y',
+  'Z',
+  'bracketleft',
+  'backslash',
+  'bracketright',
+  'asciicircum',
+  'underscore',
+  'grave',
+  'a',
+  'b',
+  'c',
+  'd',
+  'e',
+  'f',
+  'g',
+  'h',
+  'i',
+  'j',
+  'k',
+  'l',
+  'm',
+  'n',
+  'o',
+  'p',
+  'q',
+  'r',
+  's',
+  't',
+  'u',
+  'v',
+  'w',
+  'x',
+  'y',
+  'z',
+  'braceleft',
+  'bar',
+  'braceright',
+  'asciitilde',
+  'Adieresis',
+  'Aring',
+  'Ccedilla',
+  'Eacute',
+  'Ntilde',
+  'Odieresis',
+  'Udieresis',
+  'aacute',
+  'agrave',
+  'acircumflex',
+  'adieresis',
+  'atilde',
+  'aring',
+  'ccedilla',
+  'eacute',
+  'egrave',
+  'ecircumflex',
+  'edieresis',
+  'iacute',
+  'igrave',
+  'icircumflex',
+  'idieresis',
+  'ntilde',
+  'oacute',
+  'ograve',
+  'ocircumflex',
+  'odieresis',
+  'otilde',
+  'uacute',
+  'ugrave',
+  'ucircumflex',
+  'udieresis',
+  'dagger',
+  'degree',
+  'cent',
+  'sterling',
+  'section',
+  'bullet',
+  'paragraph',
+  'germandbls',
+  'registered',
+  'copyright',
+  'trademark',
+  'acute',
+  'dieresis',
+  'notequal',
+  'AE',
+  'Oslash',
+  'infinity',
+  'plusminus',
+  'lessequal',
+  'greaterequal',
+  'yen',
+  'mu',
+  'partialdiff',
+  'summation',
+  'product',
+  'pi',
+  'integral',
+  'ordfeminine',
+  'ordmasculine',
+  'Omega',
+  'ae',
+  'oslash',
+  'questiondown',
+  'exclamdown',
+  'logicalnot',
+  'radical',
+  'florin',
+  'approxequal',
+  'Delta',
+  'guillemotleft',
+  'guillemotright',
+  'ellipsis',
+  'nonbreakingspace',
+  'Agrave',
+  'Atilde',
+  'Otilde',
+  'OE',
+  'oe',
+  'endash',
+  'emdash',
+  'quotedblleft',
+  'quotedblright',
+  'quoteleft',
+  'quoteright',
+  'divide',
+  'lozenge',
+  'ydieresis',
+  'Ydieresis',
+  'fraction',
+  'currency',
+  'guilsinglleft',
+  'guilsinglright',
+  'fi',
+  'fl',
+  'daggerdbl',
+  'periodcentered',
+  'quotesinglbase',
+  'quotedblbase',
+  'perthousand',
+  'Acircumflex',
+  'Ecircumflex',
+  'Aacute',
+  'Edieresis',
+  'Egrave',
+  'Iacute',
+  'Icircumflex',
+  'Idieresis',
+  'Igrave',
+  'Oacute',
+  'Ocircumflex',
+  'apple',
+  'Ograve',
+  'Uacute',
+  'Ucircumflex',
+  'Ugrave',
+  'dotlessi',
+  'circumflex',
+  'tilde',
+  'macron',
+  'breve',
+  'dotaccent',
+  'ring',
+  'cedilla',
+  'hungarumlaut',
+  'ogonek',
+  'caron',
+  'Lslash',
+  'lslash',
+  'Scaron',
+  'scaron',
+  'Zcaron',
+  'zcaron',
+  'brokenbar',
+  'Eth',
+  'eth',
+  'Yacute',
+  'yacute',
+  'Thorn',
+  'thorn',
+  'minus',
+  'multiply',
+  'onesuperior',
+  'twosuperior',
+  'threesuperior',
+  'onehalf',
+  'onequarter',
+  'threequarters',
+  'franc',
+  'Gbreve',
+  'gbreve',
+  'Idotaccent',
+  'Scedilla',
+  'scedilla',
+  'Cacute',
+  'cacute',
+  'Ccaron',
+  'ccaron',
   'dcroat',
 ];

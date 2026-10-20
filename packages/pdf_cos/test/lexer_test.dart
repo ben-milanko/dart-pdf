@@ -42,8 +42,7 @@ void main() {
         final intDigits = rng.nextInt(8);
         final fracDigits = rng.nextInt(15 - intDigits);
         final sign = ['', '-', '+'][rng.nextInt(3)];
-        final intPart =
-            List.generate(intDigits, (_) => rng.nextInt(10)).join();
+        final intPart = List.generate(intDigits, (_) => rng.nextInt(10)).join();
         final fracPart =
             List.generate(fracDigits, (_) => rng.nextInt(10)).join();
         final s = '$sign$intPart.$fracPart';
@@ -59,6 +58,49 @@ void main() {
       // >15 digits falls back to the string path - still exact
       expect(lex('123456789.0123456789').realValue,
           double.parse('123456789.0123456789'));
+    });
+
+    test('numeric fast and fallback paths preserve token boundaries', () {
+      for (final source in [
+        '.000068328212',
+        '-.0017587801',
+        '999999999999999.', // last exact fast-path real
+        '9999999999999999.', // first fallback real
+        '.000000000000001',
+        '.0000000000000001',
+        '-9223372036854775808', // int64 minimum needs the fallback
+        '+000000000000000017',
+        '00000000000000000017',
+      ]) {
+        final lexer = CosLexer(ascii('$source/Next'));
+        final token = lexer.nextToken();
+        expect(token.value,
+            source.contains('.') ? double.parse(source) : int.parse(source),
+            reason: source);
+        expect(lexer.position, source.length, reason: source);
+        expect(lexer.nextToken().textValue, 'Next', reason: source);
+      }
+    });
+
+    test('real signed zero and permissive bare-dot syntax survive', () {
+      for (final source in ['-0.', '-.0', '-0.0000000000000000', '-.']) {
+        final token = lex(source);
+        expect(token.type, CosTokenType.real, reason: source);
+        expect(token.realValue, 0, reason: source);
+        expect(token.realValue.isNegative, isTrue, reason: source);
+      }
+      expect(lex('.').realValue, 0);
+      expect(lex('+.').realValue, 0);
+    });
+
+    test('malformed numeric tokens consume all signs and dots', () {
+      for (final source in ['1.2.3', '1.-2', '.1+2', '++1', '+', '-']) {
+        final lexer = CosLexer(ascii('$source/Next'));
+        expect(() => lexer.nextToken(), throwsA(isA<CosParseException>()),
+            reason: source);
+        expect(lexer.position, source.length, reason: source);
+        expect(lexer.nextToken().textValue, 'Next', reason: source);
+      }
     });
 
     test('large integers parse exactly, matching int.tryParse', () {
@@ -112,8 +154,7 @@ void main() {
     });
 
     test('escapes', () {
-      expect(String.fromCharCodes(lex(r'(a\(b\)c\\d)').bytesValue),
-          r'a(b)c\d');
+      expect(String.fromCharCodes(lex(r'(a\(b\)c\\d)').bytesValue), r'a(b)c\d');
       expect(lex(r'(\n\r\t)').bytesValue, [0x0A, 0x0D, 0x09]);
     });
 
@@ -155,6 +196,59 @@ void main() {
       CosTokenType.keyword,
       CosTokenType.keyword,
     ]);
+  });
+
+  test('explicit token buffer is reused and overwritten', () {
+    final lexer = CosLexer(ascii('12 /Name m'));
+    final buffer = CosTokenBuffer();
+
+    final integer = lexer.nextToken(buffer);
+    expect(identical(integer, buffer), isTrue);
+    expect((integer.type, integer.intValue, integer.offset),
+        (CosTokenType.integer, 12, 0));
+
+    final name = lexer.nextToken(buffer);
+    expect(identical(name, integer), isTrue);
+    expect((name.type, name.textValue, name.offset),
+        (CosTokenType.name, 'Name', 3));
+
+    final keyword = lexer.nextToken(buffer);
+    expect(identical(keyword, integer), isTrue);
+    expect((keyword.type, keyword.textValue, keyword.offset),
+        (CosTokenType.keyword, 'm', 9));
+
+    expect(identical(lexer.nextToken(buffer), buffer), isTrue);
+    expect((buffer.type, buffer.value, buffer.offset),
+        (CosTokenType.eof, null, 10));
+  });
+
+  test('token buffer carries a packed keyword code for short keywords only',
+      () {
+    final lexer = CosLexer(ascii('re { } BDC true abcd 1.5 -0.0 /re 7 EMC'));
+    final buffer = CosTokenBuffer();
+    (Object?, int) next() {
+      final token = lexer.nextToken(buffer);
+      return (token.value, buffer.keywordCode);
+    }
+
+    expect(next(), ('re', 0x6572));
+    // Braces are keyword tokens but never operators: no code, so a consumer
+    // dispatching on it cannot re-run the previous operator.
+    expect(next(), ('{', -1));
+    expect(next(), ('}', -1));
+    expect(next(), ('BDC', 0x434442));
+    expect(next(), ('true', -1));
+    expect(next(), ('abcd', -1));
+    // Reals are stored unboxed and still read back through every accessor.
+    expect(next(), (1.5, -1));
+    expect(buffer.realValue, 1.5);
+    lexer.nextToken(buffer);
+    expect((buffer.type, buffer.realValue.isNegative, buffer.value),
+        (CosTokenType.real, true, -0.0));
+    expect(next(), ('re', -1)); // a name
+    expect(buffer.type, CosTokenType.name);
+    expect(next(), (7, -1));
+    expect(next(), ('EMC', 0x434d45));
   });
 
   test('comments are skipped', () {

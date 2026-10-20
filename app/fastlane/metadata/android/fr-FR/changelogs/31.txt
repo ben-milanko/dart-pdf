@@ -1,0 +1,6 @@
+Nouveautés de la version 3.7.0
+
+- Les pages s'affichent pendant le défilement au lieu d'attendre l'arrêt, et les pages déjà lues reviennent instantanément.
+- Rechercher et remplacer dans le panneau de recherche : remplacez une occurrence ou toutes en une seule étape.
+- Correction du texte illisible et des modifications erronées de l'outil de contenu avec les polices sous-ensembles.
+- Correction d'un plantage à l'ouverture ou à l'enregistrement d'un fichier.

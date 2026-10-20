@@ -1,0 +1,9 @@
+Novità della 4.5.0
+
+- Scopri le novità di ogni versione in Impostazioni > Info.
+- Testo e linee dei PDF più nitidi su Linux.
+- Le pagine esportate si aprono in una nuova scheda.
+- Passa tra pagine, testo riadattato e griglia delle pagine da un unico comando.
+- Spaziatura corretta delle lettere per i font standard non incorporati.
+- Selezione del testo migliore tra colonne e in cinese, giapponese e coreano.
+- Il testo con contorno ora viene disegnato in modo chiaro.

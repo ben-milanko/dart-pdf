@@ -1,0 +1,5 @@
+Neu in 3.2.0
+
+• Schnellere, stabilere Anzeige durch speicherbewusstes Seiten-Caching und weniger doppelte Renderarbeit.
+• Bessere FreeText- und Callout-Kompatibilität sowie präzisere Auswahl mehrzeiliger Markierungen.
+• Behebt Ladepausen, Verzögerungen bei der Sitzungswiederherstellung und Ctrl/Cmd-Mausrad-Zoom nach eingeschränktem Zeichnen.

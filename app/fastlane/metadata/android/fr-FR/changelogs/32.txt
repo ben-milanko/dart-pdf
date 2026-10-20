@@ -1,0 +1,6 @@
+Nouveautés de la version 3.8.0
+
+- Parcourez les PDF récents avec des aperçus de pages consultables.
+- Modifiez les annotations hors de la page, restylez les sélections mixtes et choisissez la couleur et l'épaisseur de la signature.
+- Prévisualisez les impressions avant de les lancer.
+- Défilement et zoom plus fluides sur les grands plans, avec des correctifs pour le curseur, les menus et les plantages.

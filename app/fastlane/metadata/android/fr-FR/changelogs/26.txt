@@ -1,0 +1,7 @@
+Nouveautés de la version 3.4.0
+
+• Copiez-collez des annotations entre documents ouverts.
+• Déposez des PDF entre les miniatures pour insérer les pages où vous le souhaitez.
+• Enregistrez les tampons placés et voyez la couleur de l’annotation sélectionnée dans la barre d’outils.
+• La sélection de texte et les polices de substitution sont mieux alignées.
+• Grilles d’onglets plus rapides, zoom au pavé tactile plus fluide, accès progressif plus sûr et aperçus d’impression plus fiables.

@@ -1,0 +1,11 @@
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+# Deferred loading is deliberately OFF - see the note in
+# packages/dart_pdf_editor/l10n.yaml and doc/i18n.md. With it on, a runtime
+# language switch only takes effect once the locale's library loads
+# asynchronously (a network chunk fetch on web), so the picker appears to do
+# nothing; synchronous loading keeps the switch instant. tool/trim_locales.sh
+# controls which locales a release build compiles.
+use-deferred-loading: false

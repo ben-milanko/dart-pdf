@@ -1,6 +1,74 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
+
+/// Builds a minimal but valid RGB matrix/TRC ICC profile whose transform is,
+/// by construction, the identity to sRGB: its primaries are the linear-sRGB→
+/// XYZ(D50) matrix that inverts the profile's own XYZ→sRGB step, and its TRC
+/// is the sRGB decode curve (gamma → linear). Decoding then re-encoding a
+/// value therefore returns it unchanged - the shape #531's DetectSRGB probe
+/// must recognise. Deterministic and license-free (no third-party bytes).
+Uint8List buildSrgbIccProfile() {
+  // rXYZ/gXYZ/bXYZ columns = the bradford-adapted linear-sRGB→XYZ(D50) matrix
+  // (inverse of the matrix in icc.dart's _xyzD50ToSrgb).
+  const cols = [
+    [0.4360747, 0.2225045, 0.0139322], // rXYZ
+    [0.3850649, 0.7168786, 0.0971045], // gXYZ
+    [0.1430804, 0.0606169, 0.7141733], // bXYZ
+  ];
+  // sRGB decode (gamma-encoded → linear), sampled into a 1024-entry curv.
+  double decode(double v) =>
+      v <= 0.04045 ? v / 12.92 : math.pow((v + 0.055) / 1.055, 2.4).toDouble();
+
+  final tags = <String, Uint8List>{};
+  for (final (i, sig) in ['rXYZ', 'gXYZ', 'bXYZ'].indexed) {
+    final b = ByteData(20);
+    b.setUint32(0, 0x58595A20); // 'XYZ '
+    for (var c = 0; c < 3; c++) {
+      b.setInt32(8 + c * 4, (cols[i][c] * 65536).round());
+    }
+    tags[sig] = b.buffer.asUint8List();
+  }
+  const n = 1024;
+  final curv = ByteData(12 + n * 2);
+  curv.setUint32(0, 0x63757276); // 'curv'
+  curv.setUint32(8, n);
+  for (var i = 0; i < n; i++) {
+    curv.setUint16(12 + i * 2, (decode(i / (n - 1)) * 65535).round());
+  }
+  final curvBytes = curv.buffer.asUint8List();
+  for (final sig in ['rTRC', 'gTRC', 'bTRC']) {
+    tags[sig] = curvBytes;
+  }
+
+  final entries = tags.entries.toList();
+  final tableSize = 132 + entries.length * 12;
+  var dataOffset = tableSize;
+  final offsets = <String, int>{};
+  for (final e in entries) {
+    offsets[e.key] = dataOffset;
+    dataOffset += e.value.length;
+    if (dataOffset % 4 != 0) dataOffset += 4 - (dataOffset % 4);
+  }
+  final out = Uint8List(dataOffset);
+  final view = ByteData.sublistView(out);
+  view.setUint32(16, 0x52474220); // 'RGB '
+  view.setUint32(20, 0x58595A20); // 'XYZ '
+  view.setUint32(128, entries.length);
+  for (final (i, e) in entries.indexed) {
+    final base = 132 + i * 12;
+    out.setRange(base, base + 4, e.key.codeUnits);
+    view.setUint32(base + 4, offsets[e.key]!);
+    view.setUint32(base + 8, e.value.length);
+  }
+  for (final e in entries) {
+    out.setRange(offsets[e.key]!, offsets[e.key]! + e.value.length, e.value);
+  }
+  return out;
+}
 
 /// Reference values produced by littleCMS (via ImageMagick) for the same
 /// profiles and inputs.
@@ -16,18 +84,15 @@ void main() {
     expect(profile.channels, 3);
     expectSrgb(
         profile.toSrgb([128 / 255, 64 / 255, 200 / 255]), [146, 62, 205]);
-    expectSrgb(
-        profile.toSrgb([200 / 255, 180 / 255, 30 / 255]), [209, 181, 0]);
-    expectSrgb(
-        profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 151, 86]);
+    expectSrgb(profile.toSrgb([200 / 255, 180 / 255, 30 / 255]), [209, 181, 0]);
+    expectSrgb(profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 151, 86]);
   });
 
   test('v4 parametric-curve RGB profiles (Display P3) match littleCMS', () {
     final profile = IccProfile.parse(displayP3Icc())!;
     expectSrgb(
         profile.toSrgb([128 / 255, 64 / 255, 200 / 255]), [138, 59, 207]);
-    expectSrgb(
-        profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 153, 84]);
+    expectSrgb(profile.toSrgb([40 / 255, 150 / 255, 90 / 255]), [0, 153, 84]);
   });
 
   test('gray TRC profiles match littleCMS', () {
@@ -47,9 +112,173 @@ void main() {
         [180, 142, 105]);
   });
 
+  test('a LUT profile stays correct across interleaved calls (#451)', () {
+    // The LUT pipeline reuses per-profile scratch buffers instead of
+    // allocating five lists per pixel. That is only sound if nothing survives
+    // one call into the next, and a leak would be invisible to a test that
+    // converts a single colour: the first call would still be right.
+    //
+    // So drive the profile the way an image does - the same instance, many
+    // colours, out of order, revisited - and require the pinned littleCMS
+    // values to hold every time regardless of what was converted in between.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    const cases = <(List<double>, List<int>)>[
+      ([1, 0, 0, 0], [0, 164, 219]), // cyan
+      ([0, 0, 0, 1], [25, 26, 25]), // rich black
+      ([50 / 255, 100 / 255, 150 / 255, 20 / 255], [180, 142, 105]),
+    ];
+
+    for (var round = 0; round < 4; round++) {
+      // Interleave in both directions, and push unrelated colours through
+      // between the pinned ones so any retained state would be the wrong one.
+      for (final (input, want) in cases) {
+        profile.toSrgb([0.2, 0.4, 0.6, 0.8]);
+        expectSrgb(profile.toSrgb(input), want);
+      }
+      for (final (input, want) in cases.reversed) {
+        expectSrgb(profile.toSrgb(input), want);
+      }
+    }
+
+    // The caller passes a reused buffer too; the profile must not retain it.
+    final scratch = Float64List(4);
+    for (final (input, want) in cases) {
+      scratch.setAll(0, input);
+      final color = profile.toSrgb(scratch);
+      scratch.fillRange(0, 4, 0); // clobber after the call
+      expectSrgb(color, want);
+    }
+  });
+
+  test('sRGB-equivalent profiles are detected and bypassed (#531)', () {
+    final profile = IccProfile.parse(buildSrgbIccProfile())!;
+    expect(profile.channels, 3);
+    expect(profile.isSrgb, isTrue,
+        reason: 'an identity-to-sRGB profile must be flagged');
+    expect(profile.rgb8Transform, isNull,
+        reason: 'a bypassed profile needs no 8-bit fast path');
+    // Sanity: it really is (near-)identity where the flag promises no-op.
+    for (final v in [0, 40, 128, 200, 255]) {
+      final c = profile.toSrgb([v / 255, v / 255, v / 255]);
+      expect((c.red * 255 - v).abs(), lessThanOrEqualTo(1));
+    }
+  });
+
+  test('non-sRGB matrix/TRC profiles keep their transform (#531)', () {
+    // Detection precision: wide-gamut profiles must NOT be flagged, or their
+    // colours would decode wrong.
+    final adobe = IccProfile.parse(adobeRgb1998Icc())!;
+    final p3 = IccProfile.parse(displayP3Icc())!;
+    expect(adobe.isSrgb, isFalse);
+    expect(p3.isSrgb, isFalse);
+    // The allocation-free 8-bit fast path matches the scalar transform.
+    final fast = adobe.rgb8Transform!;
+    for (final (r, g, b) in [(128, 64, 200), (200, 180, 30), (40, 150, 90)]) {
+      final rgb = Uint8List.fromList([r, g, b]);
+      final out = Uint8List(4);
+      fast(rgb, 0, out, 0);
+      final scalar = adobe.toSrgb([r / 255, g / 255, b / 255]);
+      expect((out[0] - (scalar.red * 255).round()).abs(), lessThanOrEqualTo(1));
+      expect(
+          (out[1] - (scalar.green * 255).round()).abs(), lessThanOrEqualTo(1));
+      expect(
+          (out[2] - (scalar.blue * 255).round()).abs(), lessThanOrEqualTo(1));
+    }
+  });
+
+  test('gray sRGB-equivalent profiles are also detected (#531)', () {
+    // The generic gray profile is a distinct dot-gain curve, so it must keep
+    // its transform (regression guard on the gray probe).
+    expect(IccProfile.parse(genericGrayIcc())!.isSrgb, isFalse);
+  });
+
   test('garbage parses to null, not an exception', () {
     expect(IccProfile.parse(ascii('not a profile at all')), isNull);
     final truncated = adobeRgb1998Icc().sublist(0, 200);
     expect(IccProfile.parse(truncated), isNull);
   });
+
+  test('a LUT profile cut short inside any intent table parses to null', () {
+    // Every A2B/B2A table is still read eagerly, so damage anywhere in one -
+    // not only in the perceptual table - rejects the whole profile at parse
+    // time and callers fall back to device colour. The fixture aliases all
+    // three intents to one table each way; relocating one intent's table to
+    // the end of the file lets the cut land in that table alone.
+    for (final sig in ['A2B1', 'B2A2']) {
+      final (bytes, start, size) = relocateIccTag(genericCmykIcc(), sig);
+      expect(IccProfile.parse(bytes), isNotNull, reason: sig);
+      for (final cut in [start + 60, start + size ~/ 2, start + size - 1]) {
+        expect(IccProfile.parse(Uint8List.sublistView(bytes, 0, cut)), isNull,
+            reason: '$sig cut at $cut of ${bytes.length}');
+      }
+    }
+  });
+
+  test('intent tags answer the same whether or not they share a table', () {
+    // Aliased intent tags parse their shared table once; a tag with a table
+    // of its own must resolve to exactly the same transform.
+    final shared = IccProfile.parse(genericCmykIcc())!;
+    for (final sig in ['A2B1', 'A2B2', 'B2A1', 'B2A2']) {
+      final own = IccProfile.parse(relocateIccTag(genericCmykIcc(), sig).$1)!;
+      for (final intent in PdfRenderingIntent.values) {
+        for (final cmyk in const [
+          [0.0, 0.0, 0.0, 0.0],
+          [1.0, 0.0, 0.0, 0.0],
+          [0.2, 0.4, 0.6, 0.8],
+          [0.9, 0.1, 0.5, 0.3],
+        ]) {
+          expect(own.toSrgb(cmyk, intent: intent),
+              shared.toSrgb(cmyk, intent: intent),
+              reason: '$sig $intent $cmyk');
+          expect(own.toPcs(cmyk, intent: intent),
+              shared.toPcs(cmyk, intent: intent));
+        }
+        expect(own.fromPcs(const [0.3, 0.25, 0.2], intent: intent),
+            shared.fromPcs(const [0.3, 0.25, 0.2], intent: intent));
+      }
+    }
+  });
+
+  test('black points are computed once per intent', () {
+    // They are asked for on every relative-colorimetric conversion through an
+    // output profile, so they are cached; the cached answer must be the one a
+    // fresh computation gives, separately for each intent.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    for (final intent in PdfRenderingIntent.values) {
+      final source = profile.sourceBlackPoint(intent: intent);
+      expect(source, profile.toPcs(const [1.0, 1.0, 1.0, 1.0], intent: intent));
+      expect(profile.sourceBlackPoint(intent: intent), same(source));
+
+      final destination = profile.destinationBlackPoint(intent: intent);
+      final device = profile.fromPcs(const [0.0, 0.0, 0.0], intent: intent)!;
+      expect(destination, profile.toPcs(device, intent: intent));
+      expect(profile.destinationBlackPoint(intent: intent), same(destination));
+    }
+    final gray = IccProfile.parse(genericGrayIcc())!;
+    expect(gray.destinationBlackPoint(), gray.toPcs(const [0.0]),
+        reason: 'no B2A table: the source black stands in');
+  });
+}
+
+/// [profile] with the [sig] tag's table copied to the (4-aligned) end of the
+/// file and the tag pointed at the copy, so it no longer shares an offset with
+/// any other tag. Returns the bytes and the copy's offset and size.
+(Uint8List, int, int) relocateIccTag(Uint8List profile, String sig) {
+  final view = ByteData.sublistView(profile);
+  final count = view.getUint32(128);
+  for (var i = 0; i < count; i++) {
+    final entry = 132 + i * 12;
+    if (String.fromCharCodes(profile, entry, entry + 4) != sig) continue;
+    final offset = view.getUint32(entry + 4);
+    final size = view.getUint32(entry + 8);
+    final start = (profile.length + 3) & ~3;
+    final out = Uint8List(start + size)
+      ..setRange(0, profile.length, profile)
+      ..setRange(start, start + size, profile, offset);
+    ByteData.sublistView(out)
+      ..setUint32(0, out.length) // header profile size
+      ..setUint32(entry + 4, start);
+    return (out, start, size);
+  }
+  throw ArgumentError.value(sig, 'sig', 'no such tag');
 }

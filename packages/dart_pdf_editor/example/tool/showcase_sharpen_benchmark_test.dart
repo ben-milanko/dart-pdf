@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_viewer_example/demo_document.dart';
 
 int _percentile(List<int> values, double fraction) {

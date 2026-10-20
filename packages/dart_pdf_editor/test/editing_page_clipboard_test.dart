@@ -3,11 +3,12 @@
 // pasting, and the thumbnail-view UI (selection-bar buttons, the context
 // menu, the ⌘/Ctrl+C/X/V shortcuts, and the header paste entry).
 
-import 'package:flutter/gestures.dart' show kSecondaryButton;
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kSecondaryButton;
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,12 +53,38 @@ void main() {
       addTearDown(PdfPageClipboard.instance.clear);
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      expect(identical(editing.pageClipboard, PdfPageClipboard.instance),
-          isTrue);
+      expect(
+          identical(editing.pageClipboard, PdfPageClipboard.instance), isTrue);
     });
   });
 
   group('controller copy / paste', () {
+    test('removePages drops the given pages in one undoable edit', () {
+      final editing = PdfEditingController(buildMultiPagePdf(4),
+          pageClipboard: PdfPageClipboard());
+      addTearDown(editing.dispose);
+      editing.selectPage(3);
+
+      expect(editing.removePages([2, 0, 2, 9]), isTrue);
+      expect(labelsOf(editing.document), ['Page 2', 'Page 4']);
+      expect(editing.hasPageSelection, isFalse);
+
+      editing.undo();
+      expect(
+          labelsOf(editing.document), ['Page 1', 'Page 2', 'Page 3', 'Page 4']);
+    });
+
+    test('removePages refuses nothing valid, or emptying the document', () {
+      final editing = PdfEditingController(buildMultiPagePdf(2),
+          pageClipboard: PdfPageClipboard());
+      addTearDown(editing.dispose);
+      expect(editing.removePages(const []), isFalse);
+      expect(editing.removePages([5, -1]), isFalse);
+      expect(editing.removePages([0, 1]), isFalse);
+      expect(editing.document.pageCount, 2);
+      expect(editing.canUndo, isFalse);
+    });
+
     test('copy fills the clipboard without touching the document', () {
       final clip = PdfPageClipboard();
       final editing =
@@ -90,8 +117,8 @@ void main() {
       editing.copyPages([0]); // "Page 1"
 
       expect(editing.pastePages(at: 2), isTrue);
-      expect(labelsOf(editing.document),
-          ['Page 1', 'Page 2', 'Page 1', 'Page 3']);
+      expect(
+          labelsOf(editing.document), ['Page 1', 'Page 2', 'Page 1', 'Page 3']);
       // the pasted run is selected so the strip highlights what landed
       expect(editing.selectedPages, [2]);
 
@@ -172,10 +199,12 @@ void main() {
     test('pages copied in one controller paste into another sharing the clip',
         () {
       final clip = PdfPageClipboard();
-      final tabA = PdfEditingController(buildMultiPagePdf(3), pageClipboard: clip)
-        ..addBlankPage(); // keep this session distinct
+      final tabA =
+          PdfEditingController(buildMultiPagePdf(3), pageClipboard: clip)
+            ..addBlankPage(); // keep this session distinct
       addTearDown(tabA.dispose);
-      final tabB = PdfEditingController(buildMultiPagePdf(2), pageClipboard: clip);
+      final tabB =
+          PdfEditingController(buildMultiPagePdf(2), pageClipboard: clip);
       addTearDown(tabB.dispose);
 
       expect(tabA.copyPages([0, 2]), isTrue); // "Page 1", "Page 3"
@@ -213,7 +242,8 @@ void main() {
       addTearDown(tester.view.reset);
     }
 
-    Future<({PdfEditingController editing, PdfViewerController viewer})> pumpGrid(
+    Future<({PdfEditingController editing, PdfViewerController viewer})>
+        pumpGrid(
       WidgetTester tester, {
       int pages = 4,
       PdfEditingController? controller,
@@ -302,6 +332,39 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('Ctrl+Z undoes a paste and Ctrl+Shift+Z redoes it',
+        (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 2);
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      refs.editing.copyPages([0]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 1']);
+      expect(refs.editing.selectedPages, [2]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2']);
+      // the pasted page is gone, so is its selection
+      expect(refs.editing.hasPageSelection, isFalse);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 1']);
+      await drain(tester);
+    });
+
     testWidgets('⌘X cuts the selection', (tester) async {
       wideScreen(tester);
       final refs = await pumpGrid(tester, pages: 3);
@@ -314,6 +377,24 @@ void main() {
       await tester.pump();
       expect(labelsOf(refs.editing.document), ['Page 1', 'Page 3']);
       expect(refs.editing.pageClipboard.pageCount, 1);
+      await drain(tester);
+    });
+
+    testWidgets('Delete removes the grid selection', (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 4);
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(refs.editing.selectedPages, [1, 2]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 4']);
+      expect(refs.editing.hasPageSelection, isFalse);
       await drain(tester);
     });
 
@@ -330,8 +411,7 @@ void main() {
       await tester
           .tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')));
       await tester.pumpAndSettle();
-      await tester
-          .tap(find.byKey(const ValueKey('pdf-thumbnail-paste-pages')));
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-paste-pages')));
       await tester.pumpAndSettle();
       // the header paste lands after the current page (index 0)
       expect(labelsOf(refs.editing.document), ['Page 1', 'Page 1', 'Page 2']);
@@ -360,6 +440,248 @@ void main() {
       expect(labelsOf(refs.editing.document),
           ['Page 1', 'Page 2', 'Page 3', 'Page 1']);
       await drain(tester);
+    });
+  });
+
+  group('PdfThumbnailSidebar paste indicator', () {
+    Future<({PdfEditingController editing, PdfViewerController viewer})>
+        pumpStrip(
+      WidgetTester tester, {
+      int pages = 4,
+    }) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final editing = PdfEditingController(buildMultiPagePdf(pages),
+          pageClipboard: PdfPageClipboard());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      return (editing: editing, viewer: viewer);
+    }
+
+    Finder marker(int i) =>
+        find.byKey(ValueKey('pdf-thumbnail-paste-indicator-$i'));
+
+    testWidgets('hovering the strip marks where a copied page would paste',
+        (tester) async {
+      // the insertion mark is a desktop-hover affordance - pin a desktop
+      // platform so hover is treated as reliable (touch has no hover). The
+      // override must clear before the test body ends, so reset in finally.
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpStrip(tester, pages: 4);
+
+        // hover Page 2 (index 1) with a mouse before anything is copied
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(find.text('Page 2')));
+        await tester.pump();
+        // nothing on the clipboard yet - no insertion mark
+        expect(marker(1), findsNothing);
+
+        // copy a page: the hovered tile now shows the insertion bar, alone
+        refs.editing.copyPages([0]);
+        await tester.pump();
+        expect(marker(1), findsOneWidget);
+        expect(marker(0), findsNothing);
+        expect(marker(2), findsNothing);
+
+        // the mark follows the cursor to another tile
+        await mouse.moveTo(tester.getCenter(find.text('Page 3')));
+        await tester.pump();
+        expect(marker(1), findsNothing);
+        expect(marker(2), findsOneWidget);
+
+        // leaving the strip clears it
+        await mouse.moveTo(const Offset(700, 700));
+        await tester.pump();
+        expect(marker(2), findsNothing);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('⌘/Ctrl+V lands after the hovered tile, not the selection',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpStrip(tester, pages: 3);
+
+        // select page 1 (the non-hover paste anchor) and copy it
+        await tester.tap(find.text('Page 1'));
+        await tester.pump();
+        expect(refs.editing.selectedPages, [0]);
+        refs.editing.copyPages([0]);
+        await tester.pump();
+
+        // hover Page 3 (index 2): the mark, and the paste, follow the cursor
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(find.text('Page 3')));
+        await tester.pump();
+        expect(marker(2), findsOneWidget);
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+
+        // pasted after the hovered Page 3, not after the selected Page 1
+        expect(labelsOf(refs.editing.document),
+            ['Page 1', 'Page 2', 'Page 3', 'Page 1']);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+    testWidgets('⌘/Ctrl+Z in the strip undoes its paste', (tester) async {
+      final refs = await pumpStrip(tester, pages: 3);
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      refs.editing.copyPages([0]);
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document),
+          ['Page 1', 'Page 1', 'Page 2', 'Page 3']);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 2', 'Page 3']);
+      expect(refs.editing.canRedo, isTrue);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyY);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document),
+          ['Page 1', 'Page 1', 'Page 2', 'Page 3']);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+  });
+
+  group('PdfThumbnailView paste indicator', () {
+    Future<({PdfEditingController editing, PdfViewerController viewer})>
+        pumpGrid(
+      WidgetTester tester, {
+      int pages = 4,
+    }) async {
+      tester.view.physicalSize = const Size(1000, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final editing = PdfEditingController(buildMultiPagePdf(pages),
+          pageClipboard: PdfPageClipboard());
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfThumbnailView(controller: editing, viewerController: viewer),
+        ),
+      ));
+      await tester.pump();
+      return (editing: editing, viewer: viewer);
+    }
+
+    Finder marker(int i) =>
+        find.byKey(ValueKey('pdf-thumbnail-paste-indicator-$i'));
+    Finder cell(int i) => find.byKey(ValueKey('pdf-thumbnail-grid-cell-$i'));
+
+    testWidgets('hovering the grid marks where a copied page would paste',
+        (tester) async {
+      // a desktop-hover affordance, as in the strip - see its copy
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpGrid(tester, pages: 4);
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(cell(1)));
+        await tester.pump();
+        // nothing on the clipboard yet - no insertion mark
+        expect(marker(1), findsNothing);
+
+        // copy a page: the hovered cell now shows the insertion bar, alone
+        refs.editing.copyPages([0]);
+        await tester.pump();
+        expect(marker(1), findsOneWidget);
+        expect(marker(0), findsNothing);
+        expect(marker(2), findsNothing);
+
+        // the bar stands along the cell's trailing (right, in LTR) edge -
+        // the gap between it and the next cell, where the pages will land
+        final bar = tester.getRect(marker(1));
+        final cellRect = tester.getRect(cell(1));
+        expect(bar.height, greaterThan(bar.width));
+        expect(bar.right, closeTo(cellRect.right, 4));
+        expect(bar.left, greaterThan(cellRect.center.dx));
+
+        // the mark follows the cursor to another cell
+        await mouse.moveTo(tester.getCenter(cell(2)));
+        await tester.pump();
+        expect(marker(1), findsNothing);
+        expect(marker(2), findsOneWidget);
+
+        // leaving the grid's cells clears it
+        await mouse.moveTo(const Offset(990, 890));
+        await tester.pump();
+        expect(marker(2), findsNothing);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('⌘/Ctrl+V lands after the hovered cell, not the selection',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final refs = await pumpGrid(tester, pages: 3);
+
+        await tester.tap(find.text('Page 1'));
+        await tester.pump();
+        expect(refs.editing.selectedPages, [0]);
+        refs.editing.copyPages([0]);
+        await tester.pump();
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        addTearDown(mouse.removePointer);
+        await mouse.moveTo(tester.getCenter(cell(2)));
+        await tester.pump();
+        expect(marker(2), findsOneWidget);
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pump();
+
+        // pasted after the hovered Page 3, not after the selected Page 1
+        expect(labelsOf(refs.editing.document),
+            ['Page 1', 'Page 2', 'Page 3', 'Page 1']);
+        await tester.pump(const Duration(seconds: 2)); // drain tile renders
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
   });
 }

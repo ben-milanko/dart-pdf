@@ -1,0 +1,7 @@
+3.1.0'daki yenilikler
+
+• Kâğıt belgeleri doğrudan PDF'ye tarayın veya kamerayla fotoğraf çekin.
+• Kaydedilmemiş değişiklikler yansıtılır ve bir çökmeden sonra geri yüklenir.
+• Yeni araçlar: köprüler, görüntü kırpma, açıklama kilitleme ve her araç için kısayollar.
+• Gerçeğe uygun overprint işleme; daha hızlı, aşamalı sayfa görüntüleme.
+• Kaydederken PDF'nin boyutunu kayıpsız küçültün.

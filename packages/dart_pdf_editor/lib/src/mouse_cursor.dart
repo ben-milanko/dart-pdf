@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 /// The platform-independent cursor glyphs used by the PDF chrome.
@@ -291,10 +291,9 @@ void _paintText(Canvas canvas, double s) {
     ..strokeCap = StrokeCap.round;
   for (final paint in [outline, face]) {
     canvas.drawLine(Offset(0, -9.5 * s), Offset(0, 9.5 * s), paint);
-    canvas.drawLine(Offset(-3.5 * s, -9.5 * s),
-        Offset(3.5 * s, -9.5 * s), paint);
-    canvas.drawLine(Offset(-3.5 * s, 9.5 * s),
-        Offset(3.5 * s, 9.5 * s), paint);
+    canvas.drawLine(
+        Offset(-3.5 * s, -9.5 * s), Offset(3.5 * s, -9.5 * s), paint);
+    canvas.drawLine(Offset(-3.5 * s, 9.5 * s), Offset(3.5 * s, 9.5 * s), paint);
   }
 }
 

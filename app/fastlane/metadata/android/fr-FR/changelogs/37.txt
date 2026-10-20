@@ -1,0 +1,8 @@
+Nouveautés de la version 4.4.0
+
+- Imprimez directement sous Windows et conservez vos réglages d'impression entre les travaux.
+- Zoomez jusqu'à 10000%, avec des préréglages pour les vues les plus proches.
+- Ouvrez et faites défiler plus vite les dessins vectoriels denses.
+- Sélectionnez et recherchez le texte plus tôt sur les pages lourdes.
+- Définissez l'alignement vertical des champs de texte de formulaire.
+- Affichez le fichier enregistré dans l'Explorateur après un Enregistrer sous.

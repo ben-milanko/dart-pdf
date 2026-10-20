@@ -1,5 +1,363 @@
 # Changelog
 
+## 10.0.0
+
+- Speed up Indexed image decoding with a palette lookup table and direct box-filter downsampling.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Add `pdfPageLooksScanned` and `pdfDocumentLooksScanned` to decide when a document needs OCR.
+- Carry the font descriptor's Serif flag on `PdfTextRun.serif` and `PdfFontInfo.isSerif`, so unembedded serif fonts can use a serif substitute.
+- Add `serializedCommandCount` to size a worker reply without decoding it. The render-command format version is now 12.
+- Crop rotated and skewed images in region-limited decodes, so they sharpen again on deep zoom.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Optimize image-mask compositing and scan decoding without changing decoded pixels.
+- Allow annotation drawing to filter by annotation subtype.
+- Align with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Add `ocrSpansNotIn` to skip OCR spans already covered by page text.
+- Align dependency constraints with the dart-pdf 7.0.0 package suite.
+
+## 6.0.0
+
+- Add `PdfStreamingCommandWriter` for native workers to record directly to
+  the existing v11 wire format, avoiding an intermediate command graph.
+- Store extracted and decoded character offsets in typed arrays.
+- Budget reusable and target-sized image decodes separately and expose
+  `PdfImageDecodeCache.maxTransientEntryBytes` for worker memory policy.
+- Align dependency constraints with the dart-pdf 6.0.0 package suite.
+
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
+## 5.1.0
+
+- Output change: downscaled 8-bit images under a same-size stencil /Mask or
+  8-bit /SMask are composited exactly. The targeted decode used to size the
+  mask to the target and point-sample it back onto the native image, which
+  averaged in base colour the mask hides along its edges and disagreed with
+  deep-zoom slices. Eligible downscales (single-Flate 8-bit DeviceRGB or
+  DeviceGray with identity /Decode) now equal a full decode followed by a
+  downsample. Only mask-edge pixels move; the Ghent, overprint and pdf.js
+  render tests are unchanged. The same kernel serves deep-zoom regions of
+  masked images, which used to decode the whole native image, and stencil
+  coverage steps over blank words (both byte-identical).
+- Render-command codec wire format v10 then v11. v10 sends only the part of a
+  fill's or stroke's paint that changed and writes paths as aligned float32
+  blocks (serialize about 0.5x, deserialize 0.4-0.76x on CAD pages). v11
+  sends a Type3 glyph cell once per page and back-references it for every
+  later stamp (a bitmap-font page's record 23 MB -> 2.3 MB). Buffers are
+  not compatible across versions: `deserializeCommands` and
+  `deserializePageText` now throw `FormatException` on a buffer from another
+  format version instead of misreading it (the worker hosts already fall
+  back to local rendering).
+- Cache luminosity-mask decodes in `PdfImageDecodeCache` at native
+  resolution, so a mask shared across pages, thumbnails and deep-zoom patches
+  decodes once. The cache key separates them from ordinary DeviceGray decodes.
+- Keep `PdfColorContext` across revisions while the document's OutputIntent
+  profile streams are unchanged. Every edit used to re-inflate and re-parse the
+  profile, and the stale contexts filled the image-overprint substitute memo,
+  so after a few edits image overprint silently stopped and 11 of the 54 Ghent
+  files drifted from their first rendering.
+- Parse ICC profiles into typed tables (a press profile parses in 1.8 ms
+  instead of 30 ms and keeps 6.9 MB instead of 28.5 MB), parse aliased
+  A2B/B2A tags once and cache black points per intent. A truncated profile
+  still parses to null.
+- Speed up colour work in image decoding, byte-identical: a two-value table
+  for 1-bit gray (JBIG2 scans), memoised ICC RGB pixels and a 16-bit gray
+  table under an OutputIntent, and memoised `deviceCmyk`/`deviceGray`.
+- Speed up the overprint colorant buffer, output-identical: it starts lazily
+  at the first read, so pages that declare overprint but never read the
+  buffer rasterize nothing; glyph runs that overprint only unknown backdrop
+  are settled from cached outline bounds; transparency groups merge only the
+  rows they touched; the rasterizer uses typed edge tables and reads packed
+  paths through their cursor; and spatial image-overprint substitutes are
+  memoised per backdrop entry. A page that declares overprint no longer fails
+  when a fill its buffer never reads has non-finite coordinates.
+- Build glyph outline paths only for the two readers that need them (tiling
+  text fills and the colorant buffer). Every embedded-font run used to build
+  and discard a page-space copy of its outlines, up to half of a text page's
+  interpretation.
+- Run the common numeric operators (`m l c v y h re`, painting, `q Q cm w`,
+  text positioning and state) straight from the content cursor on an int
+  opcode: the content walk takes 0.66-0.75x on vector-dense pages.
+- Speed up text extraction: tiling and Type3 cells that cannot produce text
+  are skipped (a hatch-filled sheet extracts in 2.5 ms instead of 68.5 ms),
+  left-to-right lines skip the BiDi pass, run bounds are computed directly,
+  and the CJK line scan walks code units. Output is identical.
+
+## 5.0.0
+
+- Box-filter downscaled 1-bit /ImageMask stencils instead of point sampling.
+  Each destination pixel's alpha is now the fraction of painting bits in its
+  cell, matching the gray-1 path and the general downsampler, so scanned
+  drawings (large CCITT image masks shown at a fraction of their native size)
+  keep their thin linework instead of rendering dashed. The byte-to-cell split
+  is planned once per image and popcounted per piece, so a dense 7360x5239
+  sheet scales in ~62 ms.
+- Keep the spaces a page actually drew when reflowing text for the reading
+  view. Text justified by per-gap TJ kerns (what LaTeX and InDesign emit)
+  arrives as one run per word with the space inside the run; `reflowPage`
+  trimmed that space and then found no geometric gap, so a justified page
+  read as one run-on word. A drawn space now settles it, and geometry is only
+  consulted when neither side drew one.
+- `PdfFieldContext` gains `values`, every selected option of a multi-select
+  list box (`value` stays the first selection), serialized in `toJson` and
+  listed in the document-context text.
+
+## 4.5.0
+
+- Give unembedded Times-Bold, Times-Italic and Times-BoldItalic their own AFM
+  advances instead of reusing Times-Roman's (`A` is 611 against the roman's
+  722), so their text measures and selects where it is drawn. Helvetica's
+  oblique advances are its upright ones and keep sharing a table.
+- Carry `descent` and `ascent` on `PdfExtractedRun`, giving lines that contain
+  CJK characters a full-em ascent instead of the fixed -0.25..0.75em band.
+  The worker codec and the disk text cache persist the new metrics (format
+  versions bumped, so older cached entries are re-extracted).
+
+## 4.4.0
+
+- Add `RecordedText`, a text-only snapshot a device can retain while it records
+  a page, so selection and search reuse that walk instead of interpreting the
+  content stream a second time. Extraction applies the existing separator, bidi
+  and geometry logic to the snapshot.
+- Stop stretching substituted glyphs across their character spacing, so a
+  fallback glyph keeps its own advance.
+
+## 4.3.0
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public
+  rendering or colour API changes since 4.1.0.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
+## 4.1.0
+
+- Allow retained renderers to request a larger overprint colourant grid when
+  retrying a scene that the default exact-GPU route conservatively rejected.
+- Replay spatially varying stroked overprint through exact clipped regions,
+  retain narrow-stroke and embedded-glyph colourant samples, and keep compound
+  sub-cell paths conservative.
+- Accelerate supported MRC JPEG 2000 image decoding on Apple platforms while
+  preserving the portable fallback.
+- Fix an inverted colorant-buffer clip range that could blank an otherwise
+  renderable page.
+- Align dependency constraints with the dart-pdf 4.1.0 package suite.
+
+## 4.0.0
+
+- **Breaking:** `PdfOverprintCompositor.image` now requires the image
+  transform, source dimensions, and a spatial resolver. Custom compositor
+  callers must pass those values so one image can be resolved against several
+  colourant backdrops.
+- Complete the Ghent PDF Output Suite V5 colour and transparency pass with
+  output-intent colour management, rendering intents, black-point
+  compensation, spatial image overprint, 16-bit image handling, and exact
+  isolated/knockout transparency-group composition.
+- Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
+  transparency-group device interfaces, plus intent-aware colour-space and ICC
+  conversion APIs.
+- Export an OpenType CFF face reader that retains Unicode cmap mappings and
+  selects collection entries, allowing native substitution adapters to obtain
+  exact glyph outlines and advances from CFF-flavoured system fonts.
+- Give synthesized FreeText and form-widget fallback text exact Base-14
+  character offsets, keeping Canvas placement, selection geometry, and
+  retained outline backends on the same per-character advances.
+- Export the TrueType outline reader and add indexed TrueType Collection
+  parsing so retained backends can derive exact glyph paths from a host's
+  registered TTF/TTC bytes.
+
+## 3.8.0
+
+- Cull retained CAD shapes outside the active raster strip before painting,
+  with `ShapeStripCache.viewportCulls` diagnostics for measuring the saved
+  work.
+- Reduce retained-scene and image-strip overhead while scrolling and deep
+  zooming image-heavy engineering drawings.
+
+## 3.7.0
+
+- Move the Adobe glyph-name tables to `pdf_document`, where the content editor
+  needs the same code -> glyph name -> Unicode chain. `src/fonts/encodings.dart`
+  is now a re-export, so the font engine's imports and the public API are
+  unchanged.
+
+## 3.6.0
+
+- Carry nonstroking and stroking alpha on `PdfTextRun` through interpretation,
+  translation, and render-command serialization so text annotation opacity is
+  preserved by every renderer.
+
+## 3.5.1
+
+- Decode JBIG2 and JPEG 2000 data through image mask and soft-mask paths so
+  scanned MRC pages retain their text, background, and transparency layers.
+
+## 3.5.0
+
+- Add compact path traversal and replay primitives used by retained and tiled
+  renderers, including exact clip-stack preservation and bounded region replay.
+- Add batched text-device delivery and richer render-command serialization so
+  worker and retained-scene renderers can reduce per-command overhead without
+  changing page geometry.
+- Improve display-resolution image decoding, downsampling, masks, and decoded
+  image reuse for large scan and CAD workloads.
+
+## 3.4.0
+
+- Add exact per-character pen offsets to `PdfTextRun` and
+  `PdfExtractedRun`. Selection, search highlights, and hit testing now follow
+  proportional glyph widths instead of interpolating evenly across a run
+  (#647, #648).
+- Carry those offsets through render-command and text-cache serialization so
+  worker rendering and cached extraction preserve identical text geometry.
+
+## 3.3.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.3.1. No
+  public `pdf_graphics` API changes since 3.3.0.
+
+## 3.3.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.3.0. No
+  public `pdf_graphics` API changes since 3.2.0.
+
+## 3.2.0
+
+- Render third-party FreeText annotations without appearance streams more
+  faithfully: callout text uses the inset text box, long lines wrap, quadding
+  is honored, and semantic fill, border, and leader-line styling is painted
+  from the annotation dictionary (#621).
+
+## 3.1.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.1.1. No
+  public `pdf_graphics` API changes since 3.1.0.
+
+## 3.1.0
+
+- Render overprint (`/OP`, `/op`, `/OPM`, §8.6.7) faithfully, as the
+  subtractive colorant operation it is. State parses into the graphics state
+  and is delivered via `PdfDevice.setOverprint`, and the interpreter composites
+  an overprinting draw in a real CMYK/spot **colorant buffer**
+  (`PdfOverprintCompositor`) before any device sees it, so a DeviceCMYK
+  backdrop and a spot backdrop of the same RGB colour — indistinguishable to
+  any RGB compositor — now overprint differently. New public
+  `PdfColorants`/`PdfInkColorants` and `PdfColorSpace.inkColorants`; new
+  `PdfInterpreter(resolveOverprint:)`. The buffer is built only for pages whose
+  ExtGStates declare overprint, and declines over content it cannot read
+  (images, shadings, transparency groups, translucent paint, ICC/RGB colour),
+  where `CanvasPdfDevice`'s `darken` stand-in still applies. Ghent GWG030 now
+  grades all twelve of its patches as passing, and the DeviceN overprint
+  patches GWG190/191/192 pass both vector cases (#502).
+- Images overprint correctly inside the colorant buffer too: sampled images
+  report their per-sample colorant readings instead of a flattened RGB, so an
+  image over a tinted backdrop knocks out and survives the same way vector
+  paint does (#604).
+- Re-synchronise the overprint state before every fill and stroke: it was
+  delivered only from `gs` and `Q`, so overprint switched on inside a form
+  XObject, a tiling-pattern cell or a soft-mask group leaked out and darkened
+  everything drawn afterwards (#502).
+- Fill four silently-missing fidelity gaps (#546): print-vs-screen annotation
+  visibility (`drawAnnotations` gains a `forPrint` flag; screen behaviour
+  unchanged), fallback appearance synthesis for annotations without an /AP
+  (Polygon/PolyLine, Link borders, FreeText via /DA, non-text button widgets),
+  the Type 3 `d1` colour lock (§9.6.5), and image /SMask /Matte un-preblend
+  (§11.6.5.3), which removes soft-mask edge fringing.
+- Restore the blend mode on form/appearance exits: a non-Normal blend set
+  inside a form XObject or annotation appearance no longer leaks into the
+  surrounding content (#462).
+- Stop word spacing ballooning substituted table digits (#567).
+- Recording/painting performance: a resumable page-content walk lets an
+  interrupted incremental record continue instead of restarting (#530);
+  tiling-pattern cells and Type 3 glyphs are recorded once and replayed per
+  occurrence (#524, #535); parsed colorspaces, shadings, and functions are
+  cached per document (#534); sRGB-equivalent ICC profiles bypass the colour
+  transform (#531); Coons/tensor mesh patches subdivide adaptively (#536);
+  colour conversion during record serialization is memoized and a page's
+  image decodes are reused across its records (#451).
+
+## 3.0.0
+
+Lockstep major release (a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0). `pdf_graphics`'s own public API is unchanged.
+
+- Parse overprint state (`/OP`, `/op`, `/OPM`) into the graphics state and
+  deliver it via `PdfDevice.setOverprint`; `CanvasPdfDevice` approximates
+  overprint with a `darken` (per-channel min) composite for the common
+  neutral-ink-over-colour case — a no-op over white, so pages that set the flags
+  defensively over the page background are unaffected (#502).
+- Composite a transparency-group form XObject drawn under a non-Normal blend
+  mode into its own layer so the group blends onto the backdrop as a single
+  object (§11.6.6); previously the outer blend mode leaked and an opaque group
+  could paint as a solid box over the page (#505).
+- Approximate the Multiply blend mode as alpha when printing so highlights are
+  not printed as opaque blocks (#461).
+- Cache parsed content operators for form XObjects, annotation appearances, and
+  soft masks instead of re-tokenising them on every paint (#471).
+
+## 2.1.0
+
+- Paint sub-pixel strokes as solid hairlines instead of fading them: a stroke
+  narrower than a device pixel now draws at full opacity at hairline width,
+  matching Acrobat and pdf.js, so CAD linework stays legible when zoomed out
+  (#426).
+- Honour the `/Indexed` palette when the base is a JPEG2000 image (#431), and
+  decode `/Indexed` images over a `/Separation` or `/DeviceN` base (#430).
+- Render non-nested radial shadings as a Gouraud cone mesh
+  (`PdfShading.toRadialConeMesh`). A radial whose circles are not nested (an
+  `r0=0` focal outside the `r1` circle) cannot be expressed as a Skia two-point
+  conical gradient - the far disk maps to the swapped side of the
+  parametrisation, so an `/Extend=false` end dropped the disk interior and left
+  only a crescent. `toGradient` now returns null for those and the interpreter
+  paints the mesh; nested and concentric radials still use the device gradient
+  (#387).
+- Render ZapfDingbats ornament glyphs (codes 0x80-0x8D) instead of tofu (#386),
+  and map Symbol's built-in encoding along with the Greek and math glyph names
+  (#390).
+- Evaluate every input of a type 0 (sampled) function; multi-input samples
+  previously read only the first (#409).
+- Cache parsed ICC profiles per document rather than re-parsing per image or
+  colour-space use (#399).
+- Lead the content-operator switch with the path group, the hottest operators
+  in a typical page (#401).
+- Keep incremental aggregates in the reflow line-banding loop instead of
+  recomputing them per candidate line (#407).
+
+## 2.0.0
+
+- Major version bump for the 2.0.0 package suite (breaking change in
+  `dart_pdf_editor`; the graphics API is source-compatible with 1.4.7).
+- Invert CMY when decoding YCCK/Adobe-inverted JPEGs so CMYK photos embedded
+  as DCTDecode render with correct colour, matching pdf.js (#370).
+- Support vector printing on Windows and Linux: the page is streamed to the OS
+  print system as vector content rather than a rasterised bitmap (#303).
+- Extract a shared `PdfColorSpace` module so colour-space resolution is unified
+  across the fill/stroke and image-decode paths (internal refactor, #310).
+
+## 1.4.7
+
+- Resolve the Separation/DeviceN tint transform once per distinct sample
+  tuple (memoised, cap-bounded) instead of once per pixel, and stop
+  decoding a non-JPEG image base twice under a DCTDecode /SMask —
+  cutting a 62-page print export's worst DeviceN image from 23.7 s to
+  98 ms with bit-identical output across the corpus (#282).
+
 ## 1.4.6
 
 - Keep Arabic tashkil and other zero-advance marks with their base glyph when

@@ -1,0 +1,9 @@
+Novedades de la 4.5.0
+
+- Consulta las novedades de cada versión en Ajustes > Acerca de.
+- Texto y trazos de PDF más nítidos en Linux.
+- Las páginas exportadas se abren en una pestaña nueva.
+- Cambia entre páginas, texto adaptado y cuadrícula de páginas desde un solo control.
+- Espaciado correcto de letras en texto con fuentes estándar no incrustadas.
+- Mejor selección de texto entre columnas y en chino, japonés y coreano.
+- El texto contorneado ahora se dibuja con claridad.

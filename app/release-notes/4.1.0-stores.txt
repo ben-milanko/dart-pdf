@@ -1,0 +1,7 @@
+New in 4.1.0
+
+- Save named handwritten signatures and reuse saved annotations across documents.
+- Place edits precisely with cursor guides, a visible grid, and optional snapping.
+- Move selected PDF content within a page or drag it to another page.
+- More reliable digital signatures and colour picking.
+- Faster, more accurate rendering for large drawings, complex blends, transparency, images, and remote PDFs.

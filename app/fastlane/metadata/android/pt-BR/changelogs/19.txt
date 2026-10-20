@@ -1,0 +1,7 @@
+Novidades na versão 2.1.0
+
+• Modo de leitura com refluxo: leia um documento como texto contínuo, com rolagem sob demanda, posição salva e visualizador de figuras.
+• Abertura e renderização mais rápidas, especialmente em arquivos grandes ou com muitas imagens, e menor uso de memória em desenhos muito largos.
+• Linhas finas mais nítidas, legíveis com o zoom reduzido.
+• Melhor cor em gradientes e imagens indexadas.
+• Caracteres Symbol e ZapfDingbats são renderizados em vez de caixas.

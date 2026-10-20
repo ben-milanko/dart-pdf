@@ -132,6 +132,57 @@ void main() {
       expect(batches, hasLength(1));
       expect(batches[0].single.kind, PdfAnnotationChangeKind.modified);
     });
+
+    test('a listener attaching mid-session sees only the edit, not the '
+        'pre-existing annotations', () async {
+      // The baseline is seeded from the clean document when the listener
+      // attaches (#416, replacing the per-commit re-open); editing one of
+      // several pre-existing annotations must diff as a lone modification,
+      // never re-announce the untouched ones as creations.
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.addRectangle(0, const PdfRect(100, 400, 200, 500));
+      editing.addFreeText(0, const PdfRect(100, 200, 280, 260), 'note');
+      editing.selectAnnotation(0, 0);
+      final edited = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing); // seeds the baseline with all three
+      expect(editing.setSelectedAuthor('Ben'), isTrue);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final change = batches[0].single;
+      expect(change.kind, PdfAnnotationChangeKind.modified);
+      expect(change.name, edited);
+    });
+
+    test('removing a page emits a removal, and re-pages the survivors',
+        () async {
+      // Structural edits carry a null annotationPages, so the baseline is
+      // rebuilt over the whole document (#416's pages == null branch). Dropping
+      // page 0 must diff its annotation as a removal; the page-1 annotation
+      // shifts down to page 0, so — as with the old re-open path — its changed
+      // pageIndex reads as a modification the peer needs to re-place it.
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(0, 0);
+      final onPage0 = editing.selectedAnnotation!.name;
+      editing.addRectangle(1, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(1, 0);
+      final onPage1 = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing);
+      editing.removePage(0);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final byName = {for (final c in batches[0]) c.name: c};
+      expect(byName[onPage0]!.kind, PdfAnnotationChangeKind.removed);
+      expect(byName[onPage1]!.kind, PdfAnnotationChangeKind.modified);
+      expect(byName[onPage1]!.pageIndex, 0); // shifted 1 -> 0
+    });
   });
 
   group('remote replay', () {

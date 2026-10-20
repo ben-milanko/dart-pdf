@@ -1,0 +1,314 @@
+// Exact placement of substituted glyphs (#649). Matching only a run's total
+// advance pins its two endpoints and lets everything between land wherever the
+// substitute's own advances put it - up to ~4.4pt of drift on a 12pt line, zero
+// at both ends and worst mid-run. Selection bands, search highlights, markup
+// placed over a selection and content-element hit boxes are all computed from
+// the PDF's advances, so they read as offset against the glyphs by that much.
+//
+// The device is handed those advances as PdfTextRun.charOffsets and must paint
+// each character at its own offset. These tests drive the ink directly: they
+// render a run whose PDF offsets deliberately disagree with the substitute's
+// natural distribution, and look at where the glyphs actually landed.
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
+
+const _width = 400;
+const _height = 120;
+
+/// Renders one run and returns the x of every column carrying ink.
+Future<List<int>> _inkColumns(PdfTextRun run) async {
+  CanvasPdfDevice.clearTextLayoutCache();
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder)
+    ..drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+  CanvasPdfDevice(canvas).drawText(run);
+  final image = await recorder.endRecording().toImage(_width, _height);
+  try {
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    final pixels = Uint8List.view(data!.buffer);
+    final columns = <int>[];
+    for (var x = 0; x < _width; x++) {
+      for (var y = 0; y < _height; y++) {
+        if (pixels[(y * _width + x) * 4] != 0xFF) {
+          columns.add(x);
+          break;
+        }
+      }
+    }
+    return columns;
+  } finally {
+    image.dispose();
+  }
+}
+
+/// A two-character run drawn at 20pt from the page origin-ish, with the PDF
+/// claiming [offsets] for its character boundaries.
+PdfTextRun _run(String text, List<double>? offsets, double width,
+        [double letterSpacing = 0]) =>
+    PdfTextRun(
+      text: text,
+      transform: const PdfMatrix(20, 0, 0, 20, 20, 60),
+      color: const PdfColor(0, 0, 0),
+      width: width,
+      charOffsets: offsets,
+      letterSpacing: letterSpacing,
+      fontName: 'Helvetica',
+      fontSize: 20,
+    );
+
+void main() {
+  tearDown(() {
+    CanvasPdfDevice.exactSubstitutedGlyphPlacement = true;
+    CanvasPdfDevice.clearTextLayoutCache();
+  });
+
+  testWidgets('each glyph lands on its own PDF advance, not a scaled share',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The test font is fixed-pitch, so "natural" placement puts the two
+      // characters flush against each other. The PDF says the second starts at
+      // 1.6 em - the kind of interior disagreement a real substitute produces
+      // as accumulated drift. Placement must follow the PDF, opening a gap;
+      // matching the 2.6 em total alone would keep them flush and only stretch
+      // both glyphs.
+      final columns = await _inkColumns(_run('AA', [0, 1.6, 2.6], 2.6));
+      expect(columns, isNotEmpty);
+
+      // 2.6 em of PDF advance across 2 em of natural glyph would be a 1.3x
+      // stretch, but shapes widen by at most 2% (Impeller's baseline snapping,
+      // see the next test), so each glyph draws 20 * 1.02 = 20.4pt wide. Each
+      // is then fitted to the slot the PDF gives it (pdfFitSubstitutedPiece):
+      // the first A, 20.4pt in a 32pt slot, is centred there - 25.8 to 46.2;
+      // the second, 20.4pt in a 20pt slot starting at 20 + 1.6 * 20 = 52, is
+      // squeezed to end at 72.
+      expect(columns.first, closeTo(26, 1.5));
+      expect(columns.last, closeTo(72, 2));
+      // The gap between them is real ink-free space, which the whole-run path
+      // cannot produce.
+      final gap = [
+        for (var x = columns.first; x <= columns.last; x++)
+          if (!columns.contains(x)) x,
+      ];
+      expect(gap, isNotEmpty, reason: 'the second glyph must start at 1.6 em');
+      expect(gap.first, closeTo(46, 2)); // 25.8 + 20.4
+      expect(gap.last, closeTo(52, 2));
+
+      // The whole-run path, for contrast: one solid block from 20 to the run's
+      // 2.6 em end at 72. Both endpoints are exact and every interior boundary
+      // is wrong - which is the defect. Placement makes the reverse trade: each
+      // character's origin is exact, and the last glyph's *shape* (drawn at the
+      // run's average squeeze, not its own) may overhang the run's end.
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final whole = await _inkColumns(_run('AA', [0, 1.6, 2.6], 2.6));
+      expect(whole.first, closeTo(20, 2));
+      expect(whole.last, closeTo(72, 2));
+      expect(whole.length, whole.last - whole.first + 1,
+          reason: 'whole-run shaping leaves no gap to find the drift by');
+    });
+  });
+
+  testWidgets('a narrower substitute is placed, not stretched to fit',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The PDF gives each A 1.3 em - an unembedded Arial-Black heading drawn
+      // in TeX Gyre Heros is that far apart. Widening the glyph shapes to match
+      // is what Impeller cannot draw: it rasterizes at the transform's larger
+      // axis scale and snaps each glyph's vertical extent on its own, so the
+      // baselines of neighbouring letters land a device pixel apart. The
+      // shapes keep (within 2%) their own width and each is centred in its
+      // 26pt slot instead: 22.8 to 43.2, then 48.8 to 69.2.
+      final columns = await _inkColumns(_run('AA', [0, 1.3, 2.6], 2.6));
+      final gap = [
+        for (var x = columns.first; x <= columns.last; x++)
+          if (!columns.contains(x)) x,
+      ];
+      expect(gap, isNotEmpty, reason: 'the shapes must not be stretched flush');
+      expect(columns.first, closeTo(23, 1.5));
+      // 22.8 to 43.2 touches columns 22 through 43: whether the 0.2px of
+      // coverage at each edge counts as ink is the rasterizer's call (Skia on
+      // Linux drops it, macOS keeps it), so allow both edge columns. A glyph
+      // stretched to its 26pt slot would still read 26 or more.
+      expect(gap.first - columns.first, lessThanOrEqualTo(22),
+          reason: 'a 20pt glyph may widen by 2% at most');
+      expect(columns.last - gap.last, lessThanOrEqualTo(22));
+      expect(columns.last, closeTo(69, 1.5));
+    });
+  });
+
+  testWidgets('a word whose interior already holds is shaped whole',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The test font is fixed-pitch, so offsets of exactly one em per
+      // character are what it would draw anyway. Nothing needs taking apart,
+      // and the result must be identical to whole-run shaping - the tolerance
+      // is what keeps ordinary text off the per-character path.
+      final held = await _inkColumns(_run('AA', [0, 1, 2], 2));
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final whole = await _inkColumns(_run('AA', [0, 1, 2], 2));
+      expect(held, whole);
+    });
+  });
+
+  testWidgets('word origins are exact even when the interiors hold',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Two one-em words with a space between them, and the PDF putting the
+      // second word a full em later than the substitute's own space would.
+      // Each word holds internally, so each is one shaped part - but the
+      // second still starts exactly where the PDF says, which is the drift
+      // that accumulates across a line of prose.
+      final columns = await _inkColumns(_run('A A', [0, 1, 3, 4], 4));
+      final gap = [
+        for (var x = columns.first; x <= columns.last; x++)
+          if (!columns.contains(x)) x,
+      ];
+      expect(gap, isNotEmpty);
+      // The shape scale comes from the ink alone - 2 em of glyph against 2 em
+      // of PDF advance, so 1x - and the space absorbs the rest: the first word
+      // spans 20-40 and the second starts at 20 + 3 * 20 = 80.
+      expect(columns.first, closeTo(20, 2));
+      expect(gap.first, closeTo(40, 3));
+      expect(gap.last, closeTo(79, 3));
+    });
+  });
+
+  testWidgets('character spacing opens a gap instead of stretching the glyph',
+      (tester) async {
+    await tester.runAsync(() async {
+      // `( 3)Tj` under a `15.137 Tc` at 9pt: how a bridging-details table
+      // reaches its column. The pen steps 2.24 em across the digit - 0.556 em
+      // of glyph plus 1.68 em of character spacing - and sizing the glyph by
+      // that step drew a digit four times too wide. The spacing is a gap to
+      // open, so the digit must come out exactly as wide as an unspaced one.
+      const tc = 15.137 / 9;
+      const space = 0.278 + tc;
+      const digit = 0.556 + tc;
+      final spaced = await _inkColumns(PdfTextRun(
+        text: ' 3',
+        transform: const PdfMatrix(20, 0, 0, 20, 20, 60),
+        color: const PdfColor(0, 0, 0),
+        width: space + digit,
+        visibleWidth: space + digit,
+        leadingSpace: space,
+        charOffsets: const [0, space, space + digit],
+        letterSpacing: tc,
+        fontName: 'Helvetica',
+        fontSize: 20,
+      ));
+      final plain = await _inkColumns(_run('3', [0, 0.556], 0.556));
+
+      expect(spaced, isNotEmpty);
+      expect(spaced.last - spaced.first, closeTo(plain.last - plain.first, 1),
+          reason: 'the spaced digit must keep its own shape');
+      // The gap is in front of it: the digit starts at the pen position the
+      // PDF gives it, 20 + 1.96 * 20.
+      expect(spaced.first, closeTo(20 + space * 20 + (plain.first - 20), 2));
+    });
+  });
+
+  testWidgets('a spaced word keeps its glyph shapes and its pen positions',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The test font is fixed-pitch and inks its full advance, so a 0.5 em Tc
+      // is a run whose pen steps 1.5 em across a 1 em glyph. Stretching the
+      // shapes to the step paints the word solid; the spacing is a gap, so the
+      // glyphs must stay 1 em wide with 0.5 em of paper between them - each
+      // still starting on the offset the PDF gives it.
+      final columns =
+          await _inkColumns(_run('AAAA', [0, 1.5, 3, 4.5, 6], 6, 0.5));
+      final blocks = <List<int>>[];
+      for (final x in columns) {
+        if (blocks.isEmpty || x > blocks.last.last + 1) {
+          blocks.add([x]);
+        } else {
+          blocks.last.add(x);
+        }
+      }
+
+      expect(blocks, hasLength(4), reason: 'one block of ink per glyph');
+      for (var i = 0; i < blocks.length; i++) {
+        expect(blocks[i].first, closeTo(20 + i * 30, 2),
+            reason: 'glyph $i starts on its own 1.5 em pen step');
+        expect(blocks[i].last - blocks[i].first, closeTo(20, 2),
+            reason: 'glyph $i keeps its own 1 em width');
+      }
+    });
+  });
+
+  testWidgets('the kill switch restores whole-run distribution',
+      (tester) async {
+    await tester.runAsync(() async {
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final off = await _inkColumns(_run('AA', [0, 1.6, 2.6], 2.6));
+      final none = await _inkColumns(_run('AA', null, 2.6));
+      expect(off, none,
+          reason: 'with placement off, an offset table changes nothing');
+    });
+  });
+
+  testWidgets('a run with no offset table keeps whole-run shaping',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Vertical writing mode and RTL runs get no table and must be untouched.
+      final placed = await _inkColumns(_run('AA', null, 2.6));
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final plain = await _inkColumns(_run('AA', null, 2.6));
+      expect(placed, plain);
+    });
+  });
+
+  testWidgets('a complex script keeps whole-run shaping', (tester) async {
+    await tester.runAsync(() async {
+      // Arabic needs joining and reorders; one glyph per character is not a
+      // valid rendering of it, so the offsets must be declined.
+      const arabic = 'مرحبا';
+      final offsets = [0.0, 0.9, 1.6, 2.4, 3.1, 3.8];
+      final placed = await _inkColumns(_run(arabic, offsets, 3.8));
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final plain = await _inkColumns(_run(arabic, offsets, 3.8));
+      expect(placed, plain);
+    });
+  });
+
+  testWidgets('a table of the wrong length is declined', (tester) async {
+    await tester.runAsync(() async {
+      // One entry per character plus the closing boundary, or nothing: a
+      // mismatched table would index off the end of the run.
+      final placed = await _inkColumns(_run('AA', [0, 1.6], 2.6));
+      CanvasPdfDevice.exactSubstitutedGlyphPlacement = false;
+      final plain = await _inkColumns(_run('AA', null, 2.6));
+      expect(placed, plain);
+    });
+  });
+
+  testWidgets('leading whitespace still opens its gap once', (tester) async {
+    await tester.runAsync(() async {
+      // A leading space carrying a large Tw is how tabular content reaches its
+      // column. The device translates by leadingSpace and paints the trimmed
+      // core, so the core's offsets must be rebased by exactly that much -
+      // double-counting it would push the glyphs a whole column right.
+      final spaced = PdfTextRun(
+        text: ' AA',
+        transform: const PdfMatrix(20, 0, 0, 20, 20, 60),
+        color: const PdfColor(0, 0, 0),
+        width: 4.6,
+        leadingSpace: 2.0,
+        visibleWidth: 4.6,
+        charOffsets: const [0, 2.0, 3.6, 4.6],
+        fontName: 'Helvetica',
+        fontSize: 20,
+      );
+      final columns = await _inkColumns(spaced);
+      expect(columns, isNotEmpty);
+      // First visible glyph's slot at 2.0 em: 20 + 2.0 * 20 = 60, and the
+      // glyph centred 3pt into it (see the first test) - not a whole column
+      // further right.
+      expect(columns.first, closeTo(63, 2));
+    });
+  });
+}

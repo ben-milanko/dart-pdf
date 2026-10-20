@@ -1,0 +1,4 @@
+Novità della 5.1.1
+
+- L'inchiostro scritto in rapida successione non scompare più dalla pagina.
+- Include tutti i miglioramenti della 5.1.0.

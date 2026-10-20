@@ -1,0 +1,6 @@
+Novidades da versão 6.0.0
+
+- Selecione texto com a ferramenta Selecionar; clique duas vezes em uma palavra no modo Mão.
+- Os controles de leitura compartilham um cabeçalho.
+- Páginas mais rápidas com menor uso de memória.
+- Corrigidos os detalhes ausentes após ampliar rapidamente.

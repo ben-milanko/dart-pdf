@@ -1,0 +1,5 @@
+Yang baru di 3.3.1
+
+• Memperbaiki anotasi ganda setelah perubahan properti.
+• Font tersemat tetap dipertahankan saat warna teks diubah; pratinjau awan dan poligon mempertahankan skala pola.
+• Pengurutan ulang beberapa halaman kini memberi umpan balik grup yang lebih jelas dan andal.

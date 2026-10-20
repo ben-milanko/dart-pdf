@@ -36,18 +36,21 @@ void main() {
         200, 200, 200, 200, //
         100, 100, 100, 100, //
       ]);
-      final out = downsamplePdfDecodedPixels(PdfDecodedPixels(rgba, 2, 2), 1, 1);
+      final out =
+          downsamplePdfDecodedPixels(PdfDecodedPixels(rgba, 2, 2), 1, 1);
       expect(out.width, 1);
       expect(out.height, 1);
       expect(out.rgba, equals(<int>[85, 95, 105, 115]));
     });
 
     test('halving a solid image preserves its colour and dimensions', () {
-      final out = downsamplePdfDecodedPixels(_solid(8, 6, 33, 66, 99, 200), 4, 3);
+      final out =
+          downsamplePdfDecodedPixels(_solid(8, 6, 33, 66, 99, 200), 4, 3);
       expect(out.width, 4);
       expect(out.height, 3);
       for (var i = 0; i < out.width * out.height; i++) {
-        expect(out.rgba.sublist(i * 4, i * 4 + 4), equals(<int>[33, 66, 99, 200]));
+        expect(
+            out.rgba.sublist(i * 4, i * 4 + 4), equals(<int>[33, 66, 99, 200]));
       }
     });
 
@@ -67,10 +70,24 @@ void main() {
 
   group('cappedImagePixelSize', () {
     // An image drawn at `pts` points wide/tall, displayed at `ratio` px/point,
-    // should cap to ~headroom×(pts·ratio) - here headroom defaults to 2.
-    test('caps to ~2x the on-screen footprint', () {
-      // 4000px native, drawn 100pt across, shown at 1px/pt → ~200px target.
+    // caps to ~headroom×(pts·ratio). Native rendering retains the historical
+    // 2× fidelity headroom; worker serialization opts into 1× explicitly.
+    test('defaults to two times the on-screen footprint', () {
       expect(cappedImagePixelSize(4000, 4000, 100, 100, 1.0), (200, 200));
+    });
+
+    test('can opt into the exact on-screen footprint', () {
+      expect(
+        cappedImagePixelSize(
+          4000,
+          4000,
+          100,
+          100,
+          1.0,
+          headroom: 1,
+        ),
+        (100, 100),
+      );
     });
 
     test('never upscales: a tiny native image is returned unchanged', () {
@@ -92,7 +109,7 @@ void main() {
     });
 
     test('clamps the long edge to maxDimension', () {
-      // Drawn enormous so the 2x footprint would exceed 8192 on the long edge;
+      // Drawn enormous so the footprint would exceed 8192 on the long edge;
       // the cap scales both axes down preserving aspect.
       final (w, h) = cappedImagePixelSize(40000, 20000, 9000, 4500, 1.0);
       expect(w, lessThanOrEqualTo(8192));
@@ -109,8 +126,8 @@ void main() {
     });
 
     test('skips a negligible (<10%) reduction', () {
-      // 2x footprint lands at ~96% of native - not worth resampling.
-      expect(cappedImagePixelSize(100, 100, 49, 49, 1.0), (100, 100));
+      // The footprint lands at ~96% of native - not worth resampling.
+      expect(cappedImagePixelSize(100, 100, 96, 96, 1.0), (100, 100));
     });
   });
 }

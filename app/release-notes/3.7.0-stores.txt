@@ -1,0 +1,6 @@
+New in 3.7.0
+
+- Pages now render as you scroll past them instead of arriving after you stop, and pages you have already read come back instantly.
+- Find and replace in the search panel: replace one match or every match in a single undo step.
+- Fixed scrambled characters in the content tool on documents with subsetted fonts, which also made it edit the wrong text.
+- Fixed a crash when opening or saving a file.

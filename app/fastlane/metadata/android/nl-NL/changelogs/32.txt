@@ -1,0 +1,6 @@
+Nieuw in 3.8.0
+
+- Blader door recente pdf's met doorzoekbare paginavoorbeelden.
+- Bewerk annotaties buiten de paginarand, pas gemengde selecties aan en kies kleur en dikte van handtekeningen.
+- Bekijk afdruktaken voordat je ze verstuurt.
+- Soepeler scrollen en zoomen in grote tekeningen, plus oplossingen voor de cursor, pop-ups en crashes.

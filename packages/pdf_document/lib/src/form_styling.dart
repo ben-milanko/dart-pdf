@@ -1,7 +1,7 @@
 part of 'editor.dart';
 
-/// AcroForm text-field appearance styling (§12.7.3.3): changing a text
-/// field's font, size, colour, alignment, auto-size, and multiline, then
+/// AcroForm variable-text appearance styling (§12.7.3.3): changing a text
+/// field's (or a choice field's, see [setChoiceFieldStyle]) font, size, colour, alignment, auto-size, and multiline, then
 /// regenerating its appearance so it looks identical here and in other
 /// viewers (no /NeedAppearances dependency).
 ///
@@ -20,7 +20,11 @@ extension PdfFormStyling on PdfEditor {
   /// the box (the §12.7.3.3 auto-size convention). [color] is `0xRRGGBB`.
   /// [align] writes /Q (left/centre/right). [multiline] toggles the /Ff
   /// multiline flag (bit 13). Throws when [field] isn't a text field or is
-  /// read-only.
+  /// read-only. [verticalAlignment] saves placement of the complete wrapped
+  /// block; null leaves the saved preference unchanged. See
+  /// [PdfFormField.textVerticalAlignment] for its private storage format and
+  /// interoperability limits. Pass [PdfFormTextVerticalAlignment.legacy] to
+  /// clear the preference together with other style changes in one edit.
   void setTextFieldStyle(
     PdfFormField field, {
     PdfTextFont? font,
@@ -29,6 +33,7 @@ extension PdfFormStyling on PdfEditor {
     int? color,
     PdfTextAlign? align,
     bool? multiline,
+    PdfFormTextVerticalAlignment? verticalAlignment,
   }) {
     _checkFillable(field, const {PdfFieldType.text});
 
@@ -38,19 +43,62 @@ extension PdfFormStyling on PdfEditor {
           : field.flags & ~PdfFormField.multilineFlag);
     }
     if (align != null) field.dict['Q'] = CosInteger(align.quadding);
+    _setTextVerticalAlignment(field, verticalAlignment);
 
-    if (font != null || fontSize != null || autoSize != null || color != null) {
-      final current = _parseDefaultAppearance(field.defaultAppearance);
-      final name =
-          font == null ? current.fontName : _ensureDrFont(field.form, font);
-      final size = autoSize == true ? 0.0 : (fontSize ?? current.fontSize);
-      final colorOps = color != null ? _daColorOps(color) : current.colorOps;
-      field.dict['DA'] =
-          CosString.fromText('/$name ${_formatDaNumber(size)} Tf $colorOps');
-    }
+    _setDefaultAppearance(field,
+        font: font, fontSize: fontSize, autoSize: autoSize, color: color);
 
     _regenerateVariableText(field, field.value ?? '');
     _finishFieldEdit(field);
+  }
+
+  /// Restyles choice [field] - a combo box (dropdown) or list box - the
+  /// counterpart of [setTextFieldStyle] for the /DA and /Q a choice field
+  /// shares with text fields: every non-null argument is applied, then the
+  /// appearance regenerates from the current selection.
+  ///
+  /// [font] is a base-14 [PdfStandardFont] or an embedded [PdfEmbeddedFont].
+  /// [fontSize] 0 or [autoSize] `true` writes the §12.7.3.3 auto size (a
+  /// combo box fits its text to the box; a list box draws its rows at the
+  /// conventional 12 pt). [color] is `0xRRGGBB`; [align] writes /Q. Throws
+  /// when [field] isn't a choice field or is read-only.
+  void setChoiceFieldStyle(
+    PdfFormField field, {
+    PdfTextFont? font,
+    double? fontSize,
+    bool? autoSize,
+    int? color,
+    PdfTextAlign? align,
+  }) {
+    _checkFillable(field, const {PdfFieldType.comboBox, PdfFieldType.listBox});
+
+    if (align != null) field.dict['Q'] = CosInteger(align.quadding);
+    _setDefaultAppearance(field,
+        font: font, fontSize: fontSize, autoSize: autoSize, color: color);
+
+    _regenerateChoice(field);
+    _finishFieldEdit(field);
+  }
+
+  /// Rewrites [field]'s /DA with whichever of [font], [fontSize]/[autoSize]
+  /// and [color] are given, keeping the current value of the rest.
+  void _setDefaultAppearance(
+    PdfFormField field, {
+    PdfTextFont? font,
+    double? fontSize,
+    bool? autoSize,
+    int? color,
+  }) {
+    if (font == null && fontSize == null && autoSize == null && color == null) {
+      return;
+    }
+    final current = _parseDefaultAppearance(field.defaultAppearance);
+    final name =
+        font == null ? current.fontName : _ensureDrFont(field.form, font);
+    final size = autoSize == true ? 0.0 : (fontSize ?? current.fontSize);
+    final colorOps = color != null ? _daColorOps(color) : current.colorOps;
+    field.dict['DA'] =
+        CosString.fromText('/$name ${_formatDaNumber(size)} Tf $colorOps');
   }
 
   /// Ensures [font] lives in the form /DR /Font and returns the resource

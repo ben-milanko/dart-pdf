@@ -1,9 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfDialogSubmit, showPdfDialog;
+
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'error_log.dart';
+import 'l10n/app_l10n.dart';
 
 /// The plain-language GitHub issue form for app feedback. The diagnostics
 /// report is prefilled into the form's `diagnostics` field.
@@ -36,8 +40,7 @@ Uri buildFeedbackUri(
   // Grow the attached report from the tail until the encoded URL would exceed
   // the budget, then keep the largest prefix that fits.
   String withReport(String value) => base
-      .replace(queryParameters: {...params, 'diagnostics': value})
-      .toString();
+      .replace(queryParameters: {...params, 'diagnostics': value}).toString();
 
   var attached = report;
   if (withReport(attached).length > maxUrlLength) {
@@ -73,7 +76,7 @@ Future<void> showFeedbackDialog(
   AppLog? log,
 }) {
   final appLog = log ?? AppLog.instance;
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
     builder: (context) => _FeedbackDialog(
       log: appLog,
@@ -135,7 +138,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Send feedback'),
+      title: Text(appL10n(context).feedbackTitle),
       content: SizedBox(
         width: 520,
         child: Column(
@@ -143,10 +146,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'The feedback form opens in your browser. The diagnostics below '
-              'are collected on this device only and are attached to help '
-              'reproduce the problem. Review them first - do not include '
-              'anything you would rather keep private.',
+              appL10n(context).feedbackDiagnosticsNotice,
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
@@ -183,7 +183,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               dense: true,
-              title: const Text('Attach these diagnostics to the report'),
+              title: Text(appL10n(context).feedbackAttachDiagnostics),
             ),
           ],
         ),
@@ -197,18 +197,20 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                   setState(() {});
                 },
           icon: const Icon(Icons.delete_outline),
-          label: const Text('Clear log'),
+          label: Text(appL10n(context).feedbackClearLog),
         ),
         TextButton.icon(
           onPressed: _copy,
           icon: const Icon(Icons.copy_outlined),
-          label: const Text('Copy diagnostics'),
+          label: Text(appL10n(context).feedbackCopyDiagnostics),
         ),
-        FilledButton.icon(
-          onPressed: _open,
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Open feedback form'),
-        ),
+        PdfDialogSubmit.action(
+            onSubmit: _open,
+            child: FilledButton.icon(
+              onPressed: _open,
+              icon: const Icon(Icons.open_in_new),
+              label: Text(appL10n(context).feedbackOpenForm),
+            )),
       ],
     );
   }

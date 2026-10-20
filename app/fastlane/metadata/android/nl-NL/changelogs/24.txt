@@ -1,0 +1,5 @@
+Nieuw in 3.3.0
+
+• Opnieuw bezochte pagina’s openen direct, met optionele voorbereiding op de achtergrond en een blijvende cache op volledige resolutie.
+• Scherpere diepe zoom in gescande en afbeeldingsgebaseerde pdf’s.
+• Beter pannen met aanraking, bediening voor afgeronde rechthoeken en soepelere navigatie na het invoegen van pagina’s.

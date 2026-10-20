@@ -1,0 +1,8 @@
+Nieuw in 9.0.0
+
+- Groepeer aantekeningen om ze samen te verplaatsen, schalen en draaien.
+- Gescande documenten krijgen automatisch OCR, zodat je ze kunt doorzoeken.
+- Sla de paginakleur optioneel op in pdf's.
+- Sneltoetsen voor tekstopmaak en aparte stijlen voor ballonpijlen.
+- Makkelijker polylijnen tekenen en pagina's herschikken.
+- Betere schreefletters, scherpere gedraaide afbeeldingen en soepeler scrollen.

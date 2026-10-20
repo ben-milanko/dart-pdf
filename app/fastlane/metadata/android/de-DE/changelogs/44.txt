@@ -1,0 +1,7 @@
+Neu in 8.0.0
+
+- PDFs kombinieren und Seiten abwechselnd einfügen.
+- Polygonale Ausschnitte erfassen und eingefügte Ausschnitte zuschneiden.
+- Mehrere Hinweis-Pfeile mit festen Zielen verwenden.
+- Stil und Größe mehrerer Formularfelder gemeinsam ändern.
+- Scans schneller öffnen und klarere Vorschauen sehen.

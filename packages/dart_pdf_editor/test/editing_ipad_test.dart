@@ -3,7 +3,7 @@
 // and the eraser tool.
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -270,7 +270,7 @@ void main() {
     testWidgets('a finger draws raw when finger drawing is on', (tester) async {
       final (editing, _) = await pumpViewer(tester);
       editing.tool = PdfEditTool.ink;
-      expect(editing.fingerDrawsInk, isTrue);
+      expect(editing.preferences.fingerDrawsInk, isTrue);
       await tester.pump();
 
       final g = await tester.startGesture(view(200, 500));
@@ -378,7 +378,7 @@ void main() {
       editing.tool = PdfEditTool.ink;
       // the state the first Apple Pencil touch leaves behind: pen draws,
       // fingers scroll
-      editing.fingerDrawsInk = false;
+      editing.preferences.fingerDrawsInk = false;
       await tester.pump();
 
       final (g, stamp) = await swipeUp(tester);
@@ -395,7 +395,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpViewer(tester, pages: 4);
       editing.tool = PdfEditTool.ink;
-      expect(editing.fingerDrawsInk, isTrue);
+      expect(editing.preferences.fingerDrawsInk, isTrue);
       await tester.pump();
 
       final (g, stamp) = await swipeUp(tester);
@@ -412,7 +412,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpViewer(tester, pages: 4);
       editing.tool = PdfEditTool.ink;
-      editing.fingerDrawsInk = false;
+      editing.preferences.fingerDrawsInk = false;
       await tester.pump();
 
       final pen = await tester.startGesture(view(200, 500),

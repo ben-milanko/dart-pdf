@@ -1,0 +1,9 @@
+5.1.0'daki yenilikler
+
+- İmzanızı parmağınızla izleme dörtgeninde çizin.
+- Açıklama listeleri her işareti sayfadaki görünümüyle gösterir.
+- Dokunmatik ekranlarda satır işlemleri artık ⋮ menüsünde.
+- Taşınan damgalar artık beyaz bir kutu bırakmıyor.
+- Bazı PDF'lerde sayfa düzenlemeleri artık sayfa kaybettirmiyor.
+- P-521 dijital imzaları artık doğrulanıyor.
+- Şifreli dosyalar, imza doğrulama, JPEG 2000 ve büyük çizimlerde daha hızlı.

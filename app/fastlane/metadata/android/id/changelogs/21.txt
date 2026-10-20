@@ -1,0 +1,7 @@
+Baru di 3.1.0
+
+• Pindai dokumen kertas langsung menjadi PDF, atau ambil foto dengan kamera.
+• Perubahan yang belum disimpan dicadangkan dan dipulihkan setelah mogok.
+• Alat baru: tautan, pemotongan gambar, penguncian anotasi, dan pintasan untuk setiap alat.
+• Render overprint yang akurat; tampilan halaman lebih cepat dan bertahap.
+• Kecilkan ukuran PDF tanpa kehilangan data saat menyimpan.

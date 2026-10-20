@@ -1,0 +1,8 @@
+Mới trong 4.4.0
+
+- In trực tiếp trên Windows và giữ lại cài đặt in giữa các lệnh in.
+- Thu phóng đến 10000%, kèm sẵn mức cho các khung nhìn gần nhất.
+- Mở và cuộn bản vẽ vector dày đặc nhanh hơn.
+- Chọn và tìm kiếm văn bản sớm hơn trên các trang nặng.
+- Đặt căn chỉnh dọc cho trường văn bản trong biểu mẫu.
+- Hiển thị tệp đã lưu trong File Explorer sau khi Lưu thành.

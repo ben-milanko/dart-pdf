@@ -1,0 +1,8 @@
+Nowości w wersji 4.4.0
+
+- Drukuj bezpośrednio w systemie Windows i zachowuj ustawienia druku między zadaniami.
+- Powiększaj do 10000% dzięki ustawieniom wstępnym dla najbliższych widoków.
+- Szybciej otwieraj i przewijaj gęste rysunki wektorowe.
+- Wcześniej zaznaczaj i przeszukuj tekst na obciążonych stronach.
+- Ustawiaj wyrównanie pionowe pól tekstowych formularzy.
+- Pokazuj zapisany plik w Eksploratorze plików po użyciu Zapisz jako.

@@ -1,0 +1,6 @@
+Baru di 3.7.0
+
+- Halaman dirender saat Anda menggulir, bukan setelah berhenti, dan halaman yang sudah dibaca kembali seketika.
+- Cari dan ganti di panel pencarian: ganti satu kecocokan atau semuanya dalam satu langkah.
+- Memperbaiki teks kacau dan suntingan keliru pada alat konten untuk dokumen dengan fon subset.
+- Memperbaiki kerusakan saat membuka atau menyimpan berkas.

@@ -1,0 +1,8 @@
+4.4.0 sürümündeki yenilikler
+
+- Windows'ta doğrudan yazdırın ve yazdırma ayarlarını işler arasında koruyun.
+- %10000'e kadar yakınlaştırın; en yakın görünümler için hazır ayarlar eklendi.
+- Yoğun vektör çizimlerini daha hızlı açın ve kaydırın.
+- Ağır sayfalarda metni daha erken seçin ve arayın.
+- Form metin alanları için dikey hizalamayı ayarlayın.
+- Farklı Kaydet sonrasında kaydedilen dosyayı Dosya Gezgini'nde gösterin.

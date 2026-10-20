@@ -41,7 +41,7 @@ Uint8List buildOcspRequest({
         ...derSequence([
           derSequence([
             derOid(OcspOid.nonce),
-            derOctetString(derOctetString(_bytesOf(nonce))),
+            derOctetString(ocspNonceValue(nonce)),
           ]),
         ]),
       ]),
@@ -62,6 +62,10 @@ Uint8List _certId(
     derInteger(cert.serial),
   ]);
 }
+
+/// The nonce extension's extnValue payload for [nonce]: an OCTET STRING of
+/// the nonce bytes (RFC 8954 §2.1), which a responder echoes verbatim.
+Uint8List ocspNonceValue(BigInt nonce) => derOctetString(_bytesOf(nonce));
 
 Uint8List _bytesOf(BigInt value) {
   final bytes = <int>[];
@@ -101,6 +105,10 @@ class OcspSingleResponse {
     required this.thisUpdate,
     this.nextUpdate,
     this.revocationTime,
+    this.revocationReason,
+    this.hashAlgorithmOid,
+    this.issuerNameHash,
+    this.issuerKeyHash,
   });
 
   final BigInt serialNumber;
@@ -108,6 +116,35 @@ class OcspSingleResponse {
   final DateTime thisUpdate;
   final DateTime? nextUpdate;
   final DateTime? revocationTime;
+
+  /// The CRLReason code of a revoked entry (RFC 5280 §5.3.1), when given.
+  final int? revocationReason;
+
+  /// The CertID digest algorithm OID and the issuer name/key hashes it
+  /// carries - the rest of the certificate identity besides the serial.
+  final String? hashAlgorithmOid;
+  final Uint8List? issuerNameHash;
+  final Uint8List? issuerKeyHash;
+
+  /// Whether this entry's CertID names [cert] as issued by [issuer]: the
+  /// serial, the hash of the issuer's Name, and the hash of the issuer's
+  /// public key must all match (RFC 6960 §4.1.1). A serial alone is not an
+  /// identity - two CAs can issue the same serial.
+  bool matches(X509Certificate cert, X509Certificate issuer) {
+    if (serialNumber != cert.serial) return false;
+    final oid = hashAlgorithmOid;
+    final nameHash = issuerNameHash;
+    final keyHash = issuerKeyHash;
+    if (oid == null || nameHash == null || keyHash == null) return false;
+    final hash = hashForDigestOid(oid);
+    if (hash == null) return false;
+    return _sameBytes(
+            Uint8List.fromList(hash.convert(cert.issuerDer).bytes), nameHash) &&
+        _sameBytes(
+            Uint8List.fromList(
+                hash.convert(issuer.subjectPublicKeyBytes).bytes),
+            keyHash);
+  }
 }
 
 /// A parsed OCSP response. [der] keeps the original bytes for embedding the
@@ -123,16 +160,17 @@ class OcspResponse {
     this._signatureAlgorithmOid,
     this._signature,
     this._responderByName,
-    this._responderKeyHash,
-  );
+    this._responderKeyHash, {
+    this.nonce,
+  });
 
   /// Parses an `OCSPResponse` (the top-level structure returned over HTTP).
   factory OcspResponse.parse(Uint8List der) {
     final top = DerObject.parse(der).children;
     final status = OcspResponseStatus.fromValue(top[0].asInteger.toInt());
     if (status != OcspResponseStatus.successful || top.length < 2) {
-      return OcspResponse._(der, status, null, const [], const [], null, null,
-          null, null, null);
+      return OcspResponse._(
+          der, status, null, const [], const [], null, null, null, null, null);
     }
     // responseBytes [0] EXPLICIT ResponseBytes ::= SEQUENCE { type, response }
     final responseBytes = top[1].children.first.children;
@@ -169,6 +207,16 @@ class OcspResponse {
     final singleResponses = <OcspSingleResponse>[
       for (final single in rd[i].children) _parseSingle(single),
     ];
+    i++;
+    // responseExtensions [1] EXPLICIT Extensions - the nonce echo lives here
+    Uint8List? nonce;
+    if (i < rd.length && rd[i].tag == DerTag.context(1)) {
+      for (final ext in rd[i].children.first.children) {
+        if (ext.children.first.asOid == OcspOid.nonce) {
+          nonce = ext.children.last.content;
+        }
+      }
+    }
 
     return OcspResponse._(
       der,
@@ -181,15 +229,18 @@ class OcspResponse {
       signature,
       responderByName,
       responderKeyHash,
+      nonce: nonce,
     );
   }
 
   static OcspSingleResponse _parseSingle(DerObject single) {
     final f = single.children;
-    final serial = f[0].children[3].asInteger;
+    final certId = f[0].children;
+    final serial = certId[3].asInteger;
     final certStatus = f[1];
     OcspCertStatus status;
     DateTime? revocationTime;
+    int? revocationReason;
     if (certStatus.tag == DerTag.contextPrimitive(0) ||
         certStatus.tag == DerTag.context(0)) {
       status = OcspCertStatus.good;
@@ -197,7 +248,13 @@ class OcspResponse {
         certStatus.tag == DerTag.contextPrimitive(1)) {
       status = OcspCertStatus.revoked;
       try {
-        revocationTime = certStatus.children.first.asTime;
+        final info = certStatus.children;
+        revocationTime = info.first.asTime;
+        // revocationReason [0] EXPLICIT CRLReason (ENUMERATED)
+        if (info.length > 1 && info[1].tag == DerTag.context(0)) {
+          final reason = info[1].children.first.content;
+          if (reason.isNotEmpty) revocationReason = reason.last;
+        }
       } on Object {
         // revocationTime is the first field; leave null if unreadable
       }
@@ -217,6 +274,10 @@ class OcspResponse {
       thisUpdate: thisUpdate,
       nextUpdate: nextUpdate,
       revocationTime: revocationTime,
+      revocationReason: revocationReason,
+      hashAlgorithmOid: certId[0].children.first.asOid,
+      issuerNameHash: certId[1].content,
+      issuerKeyHash: certId[2].content,
     );
   }
 
@@ -235,14 +296,50 @@ class OcspResponse {
   final Uint8List? _responderByName;
   final Uint8List? _responderKeyHash;
 
+  /// The extnValue payload of the response's nonce extension, when the
+  /// responder echoed one - compare with [echoesNonce].
+  final Uint8List? nonce;
+
+  /// Whether the response echoes [requestNonce] (the value passed to
+  /// [buildOcspRequest]). Accepts both the RFC 8954 encoding (an OCTET STRING
+  /// inside extnValue) and responders that put the raw bytes there.
+  bool echoesNonce(BigInt requestNonce) {
+    final echoed = nonce;
+    if (echoed == null) return false;
+    final wrapped = ocspNonceValue(requestNonce);
+    return _sameBytes(echoed, wrapped) ||
+        _sameBytes(echoed, DerObject.parse(wrapped).content);
+  }
+
   /// The status this response reports for [serial], or null when the
-  /// response does not cover that certificate.
+  /// response does not cover that certificate. Prefer [forCertificate],
+  /// which also checks the issuer hashes of the CertID.
   OcspSingleResponse? forSerial(BigInt serial) {
     for (final r in responses) {
       if (r.serialNumber == serial) return r;
     }
     return null;
   }
+
+  /// The entry whose CertID identifies [cert] issued by [issuer] (serial,
+  /// issuer name hash and issuer key hash), or null.
+  OcspSingleResponse? forCertificate(
+      X509Certificate cert, X509Certificate issuer) {
+    for (final r in responses) {
+      if (r.matches(cert, issuer)) return r;
+    }
+    return null;
+  }
+
+  /// The certificate that signed this response on behalf of [issuer]: the
+  /// issuing CA itself, or an authorized delegated responder - a certificate
+  /// carried in the response, named by the ResponderID, issued *and signed*
+  /// by [issuer], and carrying the id-kp-OCSPSigning extended key usage
+  /// (RFC 6960 §4.2.2.2). Null when no acceptable responder is found; a
+  /// certificate that merely matches the ResponderID but is not authorized
+  /// by [issuer] is refused.
+  X509Certificate? responderFor(X509Certificate issuer) =>
+      _findResponder(issuer);
 
   /// Verifies the responder's signature over the ResponseData. [issuer] is
   /// the certificate that issued the certificate being checked; the
@@ -289,7 +386,13 @@ class OcspResponse {
 
     if (matches(issuer)) return issuer;
     for (final c in certificates) {
-      if (matches(c)) return c;
+      if (!matches(c)) continue;
+      // A delegated responder must be authorized by the CA it answers for.
+      if (_sameBytes(c.issuerDer, issuer.subjectDer) &&
+          c.extendedKeyUsages.contains(OcspOid.ocspSigning) &&
+          c.isSignedBy(issuer)) {
+        return c;
+      }
     }
     // some responders omit a usable ResponderID match; fall back to the CA
     return _responderByName == null && _responderKeyHash == null

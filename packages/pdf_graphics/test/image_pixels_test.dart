@@ -1,10 +1,39 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
+
+/// An otherwise empty document whose catalog names a CMYK press profile as
+/// its PDF/X output intent, so DeviceGray/DeviceCMYK and ICC sources decode
+/// through it.
+CosDocument cmykOutputIntentDocument() {
+  final builder = CosDocumentBuilder();
+  final pages = builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray(),
+    'Count': const CosInteger(0),
+  }));
+  final profile = builder.add(
+      CosStream(CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()));
+  final catalog = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pages,
+    'OutputIntents': CosArray([
+      CosDictionary({
+        'Type': const CosName('OutputIntent'),
+        'S': const CosName('GTS_PDFX'),
+        'DestOutputProfile': profile,
+      }),
+    ]),
+  }));
+  return CosDocument.open(builder.build(root: catalog));
+}
 
 /// Direct coverage of the pure-Dart image decode that a render worker calls
 /// (no `dart:ui`). The `dart:ui` glue is exercised separately by
@@ -13,12 +42,96 @@ import 'package:test/test.dart';
 void main() {
   late CosDocument cos;
   setUp(() => cos = CosDocument.open(buildClassicPdf()));
+  tearDown(() {
+    pdfDctCmykDecoder = null;
+    pdfDctGrayDecoder = null;
+    pdfDctRgbaDecoder = null;
+    pdfDeviceCmykToRgba = null;
+    pdfComponentBoxDownsampler = null;
+  });
 
   CosStream image(Map<String, CosObject> dict, List<int> data) =>
       CosStream(CosDictionary(dict), Uint8List.fromList(data));
 
   CosStream flateImage(Map<String, CosObject> dict, List<int> data) => image(
       {...dict, 'Filter': const CosName('FlateDecode')}, zlib.encode(data));
+
+  group('platform JPX codec eligibility', () {
+    CosDictionary jpx(String colorSpace) => CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosName(colorSpace),
+        });
+
+    test('accepts simple device colour with an optional stream mask', () {
+      for (final colorSpace in const ['DeviceRGB', 'RGB', 'DeviceGray', 'G']) {
+        expect(
+          pdfCanUsePlatformJpxCodec(
+            cos,
+            jpx(colorSpace),
+            luminosityMask: false,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          CosDictionary({
+            ...jpx('DeviceGray').entries,
+            'Mask': CosStream(CosDictionary({}), Uint8List(0)),
+          }),
+          luminosityMask: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects semantics a display-RGB codec cannot preserve', () {
+      expect(
+        pdfCanUsePlatformJpxCodec(
+          cos,
+          jpx('DeviceRGB'),
+          luminosityMask: true,
+        ),
+        isFalse,
+      );
+
+      final rejected = <CosDictionary>[
+        CosDictionary({'ColorSpace': const CosName('DeviceRGB')}),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'ImageMask': const CosBoolean(true),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'SMask': CosStream(CosDictionary({}), Uint8List(0)),
+        }),
+        jpx('DeviceCMYK'),
+        CosDictionary({
+          'Filter': const CosName('JPXDecode'),
+          'ColorSpace': CosArray([const CosName('Indexed')]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceGray').entries,
+          'Mask': CosArray([const CosInteger(0), const CosInteger(1)]),
+        }),
+        CosDictionary({
+          ...jpx('DeviceRGB').entries,
+          'Mask': const CosName('unexpected'),
+        }),
+      ];
+      for (final dict in rejected) {
+        expect(
+          pdfCanUsePlatformJpxCodec(cos, dict, luminosityMask: false),
+          isFalse,
+        );
+      }
+    });
+  });
 
   test('DeviceRGB 8-bit decodes opaque, straight through', () {
     final stream = image({
@@ -56,6 +169,59 @@ void main() {
     expect(pixels.rgba, [100, 100, 100, 255, 200, 200, 200, 255]);
   });
 
+  test('a luminosity-mask image keeps native gray under an OutputIntent', () {
+    final file = File(
+        '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    final document = CosDocument.open(file.readAsBytesSync());
+    // Object 27 is the grayscale inner-shadow luminosity mask. Its zero
+    // samples must remain alpha 0. Treating DeviceGray as page colour would
+    // convert zero through the CMYK OutputIntent to its non-zero paper black,
+    // leaving the GWG shadow and bevel masks partially opaque everywhere.
+    final stream = document.getObject(27, 0) as CosStream;
+    final native =
+        decodePdfImagePixels(document, stream, luminosityMask: true)!;
+    final managed = decodePdfImagePixels(document, stream)!;
+
+    final nativeGray = <int>[
+      for (var i = 0; i < native.rgba.length; i += 4) native.rgba[i],
+    ];
+    final managedGray = <int>[
+      for (var i = 0; i < managed.rgba.length; i += 4) managed.rgba[i],
+    ];
+    expect(nativeGray.reduce((a, b) => a < b ? a : b), 0);
+    expect(nativeGray.reduce((a, b) => a > b ? a : b), 255);
+    expect(managedGray.reduce((a, b) => a < b ? a : b), greaterThan(0));
+    expect(native.rgba, isNot(equals(managed.rgba)));
+  });
+
+  test('ICCBased 8-bit RGB decodes through the embedded profile', () {
+    // The profile stream's /N picks the device family; the parsed AdobeRGB
+    // profile is applied per pixel (littleCMS reference in icc_test:
+    // AdobeRGB (128,64,200) -> sRGB (146,62,205)).
+    final profile =
+        CosStream(CosDictionary({'N': const CosInteger(3)}), adobeRgb1998Icc());
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([const CosName('ICCBased'), profile]),
+    }, [
+      128,
+      64,
+      200,
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba[0], closeTo(146, 3));
+    expect(pixels.rgba[1], closeTo(62, 3));
+    expect(pixels.rgba[2], closeTo(205, 3));
+    expect(pixels.rgba[3], 255);
+  });
+
   test('/ImageMask stencil decodes to 0/255 alpha', () {
     final stream = image({
       'ImageMask': const CosBoolean(true),
@@ -68,6 +234,99 @@ void main() {
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba[3], 255); // painted
     expect(pixels.rgba[7], 0); // skipped
+  });
+
+  test('a JBIG2 stencil /Mask decodes through the image codec', () {
+    // The MRC shape every scanner emits: a colour layer stencilled by a
+    // JBIG2-coded text mask. JBIG2 is an image codec, not a stream filter, so
+    // the mask cannot come back through the plain filter chain - and a mask
+    // that fails to decode leaves the colour layer fully opaque, which on a
+    // scanned page covers the whole sheet.
+    const size = 16;
+    final symbol = Jbig2Bitmap(4, 4)..fillRect(0, 0, 4, 4);
+    final globals = encodeJbig2Globals([symbol]);
+    final page = encodeJbig2TextPage(
+      width: size,
+      height: size,
+      symbols: [symbol],
+      placements: const [Jbig2Placement(0, 2, 2)],
+    );
+    Jbig2Decoder.debugResetGlobalsCache();
+
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(1),
+      'Filter': const CosName('JBIG2Decode'),
+      'DecodeParms': CosDictionary({
+        'JBIG2Globals': CosStream(CosDictionary({}), globals),
+      }),
+    }, page);
+    final stream = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Mask': mask,
+    }, List.filled(size * size * 3, 255));
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.width, size);
+    expect(pixels.height, size);
+    int alphaAt(int x, int y) => pixels.rgba[(y * size + x) * 4 + 3];
+    // The symbol's ink is black - a 0 sample, which /Mask paints - and the
+    // rest of the page is white, which it masks out.
+    expect(alphaAt(2, 2), 255);
+    expect(alphaAt(5, 5), 255);
+    expect(alphaAt(1, 2), 0);
+    expect(alphaAt(6, 5), 0);
+    expect(alphaAt(0, 0), 0);
+  });
+
+  test('a JPX /SMask decodes through the image codec', () {
+    const size = 16;
+    final smask = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('JPXDecode'),
+    }, grayJpxCodestream);
+    final stream = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, List.filled(size * size * 3, 255));
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(
+      [for (var i = 0; i < size * size; i++) pixels.rgba[i * 4 + 3]],
+      grayJpxExpectedSamples,
+    );
+    // White under that alpha premultiplies to the alpha value itself.
+    expect(
+      [for (var i = 0; i < size * size; i++) pixels.rgba[i * 4]],
+      grayJpxExpectedSamples,
+    );
+  });
+
+  test('a colour JPX /SMask carries no alpha plane to read', () {
+    // Three components are an image, not a mask: better to leave the base
+    // opaque than to invent an alpha channel out of one of them.
+    final smask = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(2),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Filter': const CosName('JPXDecode'),
+    }, const [
+      0,
+      0
+    ]); // not a codestream at all: the decoder bails
+    expect(pdfImageSoftMask(cos, CosDictionary({'SMask': smask})), isNull);
   });
 
   test('/SMask bakes into alpha and premultiplies', () {
@@ -100,6 +359,184 @@ void main() {
     expect(pixels.rgba.sublist(0, 4), [128, 128, 128, 128]);
     // second pixel: alpha 0 → fully transparent, channels premultiplied to 0.
     expect(pixels.rgba.sublist(4, 8), [0, 0, 0, 0]);
+  });
+
+  test('a DCT /SMask decodes and composites on the portable path', () {
+    const width = 16;
+    final gray = img.Image(width: width, height: 1);
+    for (final pixel in gray) {
+      final value = pixel.x < width ~/ 2 ? 255 : 0;
+      pixel
+        ..r = value
+        ..g = value
+        ..b = value;
+    }
+    final smask = image({
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('DCTDecode'),
+    }, img.encodeJpg(gray, quality: 100));
+    final stream = image({
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, [
+      for (var i = 0; i < width; i++) ...[255, 0, 0],
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba[1 * 4 + 3], greaterThan(240));
+    expect(pixels.rgba[14 * 4 + 3], lessThan(15));
+    expect(pixels.rgba.sublist(14 * 4, 14 * 4 + 3), [0, 0, 0],
+        reason: 'the transparent red base must be premultiplied');
+  });
+
+  test('a targeted DCT /SMask uses the grayscale accelerator', () {
+    var calls = 0;
+    pdfDctGrayDecoder = (
+      bytes, {
+      targetWidth,
+      targetHeight,
+    }) {
+      calls++;
+      expect(bytes, [1, 2, 3]);
+      expect((targetWidth, targetHeight), (1, 1));
+      return PdfDctGraySamples(Uint8List.fromList([255, 0]), 2, 1);
+    };
+    final smask = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('DCTDecode'),
+    }, [
+      1,
+      2,
+      3,
+    ]);
+    final stream = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceCMYK'),
+      'SMask': smask,
+    }, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+
+    final pixels = decodePdfImage(
+      cos,
+      stream,
+      targetWidth: 1,
+      targetHeight: 1,
+    )!;
+
+    expect(calls, 1);
+    expect((pixels.width, pixels.height), (1, 1));
+    expect(pixels.rgba, [127, 127, 127, 127]);
+  });
+
+  test('/SMask /Matte un-preblends the base against the matte colour', () {
+    // A white pixel preblended over a red matte at coverage 0.5 stores
+    // c' = m + a·(c − m) = (255, 128, 128). With /Matte [1 0 0] the decoder
+    // must recover the true white before premultiplying, so the result is a
+    // neutral grey (128,128,128,128) - not the reddish (128,64,64,128) a
+    // naïve decode would give.
+    final smask = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Matte': CosArray([
+        const CosInteger(1),
+        const CosInteger(0),
+        const CosInteger(0),
+      ]),
+    }, [
+      128
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, [
+      255,
+      128,
+      128
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba.sublist(0, 4), [128, 128, 128, 128]);
+  });
+
+  test('an interleaved platform mask consumes its channel without a copy', () {
+    final rgba = Uint8List.fromList([
+      255,
+      7,
+      8,
+      9,
+      64,
+      10,
+      11,
+      12,
+    ]);
+    final base = Uint8List.fromList([
+      200,
+      100,
+      50,
+      255,
+      200,
+      100,
+      50,
+      255,
+    ]);
+
+    final result = pdfApplyImageAlpha(
+      base,
+      2,
+      1,
+      PdfImageSoftMask(rgba, 2, 1, sampleStride: 4),
+    );
+
+    expect(result.$1, [200, 100, 50, 255, 200, 100, 50, 64]);
+    expect(identical(rgba, result.$1), isFalse,
+        reason: 'the base is mutated, while the mask remains only a view');
+  });
+
+  test('mask application can fuse codec premultiplication', () {
+    final base = Uint8List.fromList([
+      200,
+      100,
+      50,
+      255,
+      20,
+      40,
+      80,
+      255,
+    ]);
+
+    final result = pdfApplyImageAlpha(
+      base,
+      2,
+      1,
+      PdfImageSoftMask(Uint8List.fromList([128, 0]), 2, 1),
+      premultiply: true,
+    );
+
+    expect(result.$1, [100, 50, 25, 128, 0, 0, 0, 0]);
   });
 
   test('color-key /Mask turns matching samples transparent', () {
@@ -140,6 +577,544 @@ void main() {
     }, List.filled(16, 0));
     expect(decodePdfImagePixels(cos, stream), isNull);
     expect(decodePdfImageBase(cos, stream), isNull);
+  });
+
+  test('targeted MRC decode keeps detail from a higher-res stencil', () {
+    // Scanner MRC: the 1x1 colour plane is deliberately low resolution and
+    // the 4x1 stencil carries the sharp text edges. At a 2x1 display target,
+    // each adjacent paint/skip mask pair averages to half coverage. Passing
+    // the base's 1x1 size into the mask decoder would crush the result to a
+    // single pixel before the two halves meet.
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, [
+      0x50, // bits 0,1,0,1 -> paint,skip,paint,skip
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Mask': mask,
+    }, [
+      255,
+      0,
+      0,
+    ]);
+
+    final pixels = decodePdfImage(
+      cos,
+      stream,
+      targetWidth: 2,
+      targetHeight: 1,
+    )!;
+
+    expect((pixels.width, pixels.height), (2, 1));
+    expect(pixels.rgba, [127, 0, 0, 127, 127, 0, 0, 127]);
+  });
+
+  group('CMYK JPEG polarity (#370)', () {
+    // Two 16x8 baseline JPEGs, hand-built with constant 8x8 blocks and custom
+    // Huffman tables so the stored samples are exact by construction. The
+    // YCCK file carries an Adobe APP14 marker with transform=2 and stores
+    // Y'CbCr of the inverted CMY (K stored as ink); the CMYK file carries
+    // transform=0 and stores plain ink values. Both paint the same content:
+    // left half cyan ink (255,0,0,0), right half magenta + half K
+    // (0,255,0,128) in PDF ink polarity.
+    //
+    // Ground truth: pdf.js renders of each file embedded as a DeviceCMYK
+    // image XObject (its _convertYcckToCmyk inverts the converted CMY and
+    // leaves K unchanged; the plain CMYK path is untouched).
+    const ycckJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABYAAQEBAAAAAAAAAAAAAAAAAAUGB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAgADAAQAAD8AaKINoCLS7eGfv//Z';
+    const cmykJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABcAAQEBAQAAAAAAAAAAAAAAAAAGBwj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADgQBAAIAAwAEAAA/ANAQaDZ+5/bwNAf/2Q==';
+
+    CosStream cmykDct(String b64) => image({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(8),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+          'Filter': const CosName('DCTDecode'),
+        }, base64Decode(b64));
+
+    void expectPixel(Uint8List rgba, int x, List<int> expected) {
+      final i = (4 * 16 + x) * 4; // middle row
+      for (var ch = 0; ch < 3; ch++) {
+        expect((rgba[i + ch] - expected[ch]).abs(), lessThanOrEqualTo(3),
+            reason: 'x=$x channel=$ch');
+      }
+      expect(rgba[i + 3], 255);
+    }
+
+    test('YCCK (Adobe transform=2) inverts CMY and keeps K', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(ycckJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 7, 39]); // cyan + full K
+      expectPixel(pixels.rgba, 12, [140, 17, 11]); // M+Y + half K
+    });
+
+    test('plain CMYK (Adobe transform=0) passes samples through', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(cmykJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 184, 241]); // pure cyan
+      expectPixel(pixels.rgba, 12, [142, 15, 82]); // magenta + half K
+    });
+
+    test('target decode fuses component reduction without changing color', () {
+      final pixels = decodePdfImageBase(
+        cos,
+        cmykDct(cmykJpeg),
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+      final expected = PdfColor.cmyk(127 / 255, 127 / 255, 0, 64 / 255);
+
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[0], closeTo((expected.red * 255).round(), 3));
+      expect(pixels.rgba[1], closeTo((expected.green * 255).round(), 3));
+      expect(pixels.rgba[2], closeTo((expected.blue * 255).round(), 3));
+      expect(pixels.rgba[3], 255);
+    });
+
+    test('accelerated CMYK samples retain the common PDF colour pipeline', () {
+      var calls = 0;
+      pdfDctCmykDecoder = (
+        bytes, {
+        targetWidth,
+        targetHeight,
+      }) {
+        calls++;
+        expect(bytes, base64Decode(cmykJpeg));
+        expect((targetWidth, targetHeight), (1, 1));
+        final samples = Uint8List(16 * 8 * 4);
+        for (var y = 0; y < 8; y++) {
+          for (var x = 0; x < 16; x++) {
+            final i = (y * 16 + x) * 4;
+            if (x < 8) {
+              samples[i] = 255;
+            } else {
+              samples[i + 1] = 255;
+              samples[i + 3] = 128;
+            }
+          }
+        }
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+
+      final pixels = decodePdfImageBase(
+        cos,
+        cmykDct(cmykJpeg),
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+      final expected = PdfColor.cmyk(127 / 255, 127 / 255, 0, 64 / 255);
+
+      expect(calls, 1);
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[0], closeTo((expected.red * 255).round(), 3));
+      expect(pixels.rgba[1], closeTo((expected.green * 255).round(), 3));
+      expect(pixels.rgba[2], closeTo((expected.blue * 255).round(), 3));
+      expect(pixels.rgba[3], 255);
+    });
+
+    test('accelerator failures fall back to the portable decoder', () {
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) =>
+          throw StateError('codec unavailable');
+
+      final pixels = decodePdfImagePixels(cos, cmykDct(ycckJpeg))!;
+      expectPixel(pixels.rgba, 2, [0, 7, 39]);
+      expectPixel(pixels.rgba, 12, [140, 17, 11]);
+    });
+
+    test('bulk DeviceCMYK conversion accepts only the image sample span', () {
+      final expected = Uint8List.fromList([
+        1,
+        2,
+        3,
+        255,
+        4,
+        5,
+        6,
+        255,
+      ]);
+      var calls = 0;
+      pdfDeviceCmykToRgba = (samples) {
+        calls++;
+        expect(samples, [0, 0, 0, 0, 255, 0, 0, 0]);
+        return expected;
+      };
+      final stream = image({
+        'Width': const CosInteger(2),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+      }, [
+        0,
+        0,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0,
+        99, // tolerated trailing stream data must not reach the accelerator
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      expect(calls, 1);
+      expect(pixels.rgba, expected);
+    });
+
+    test('bulk DeviceCMYK conversion receives samples after /Decode', () {
+      var calls = 0;
+      pdfDeviceCmykToRgba = (samples) {
+        calls++;
+        expect(samples, [254, 253, 252, 251]);
+        return Uint8List.fromList([7, 8, 9, 255]);
+      };
+      final stream = image({
+        'Width': const CosInteger(1),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Decode': CosArray([
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+        ]),
+      }, [
+        1,
+        2,
+        3,
+        4
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      expect(calls, 1);
+      expect(pixels.rgba, [7, 8, 9, 255]);
+    });
+
+    test('targeted masked CMYK decode keeps the target through both halves',
+        () {
+      var calls = 0;
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) {
+        calls++;
+        expect((targetWidth, targetHeight), (1, 1));
+        final samples = Uint8List(16 * 8 * 4);
+        for (var i = 0; i < 16 * 8; i++) {
+          samples[i * 4] = i < 64 ? 255 : 0;
+        }
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+      final mask = flateImage({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, [
+        ...List.filled(64, 255),
+        ...List.filled(64, 0),
+      ]);
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Filter': const CosName('DCTDecode'),
+        'SMask': mask,
+      }, base64Decode(cmykJpeg));
+
+      final pixels = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(calls, 1);
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[3], 127);
+    });
+
+    test('component box accelerator handles the base and Flate soft mask', () {
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) {
+        final samples = Uint8List(16 * 8 * 4);
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+      final calls = <int>[];
+      pdfComponentBoxDownsampler = (
+        samples,
+        width,
+        height,
+        components,
+        targetWidth,
+        targetHeight,
+      ) {
+        calls.add(components);
+        expect((width, height), (16, 8));
+        expect((targetWidth, targetHeight), (1, 1));
+        return components == 4
+            ? Uint8List.fromList([0, 0, 0, 0])
+            : Uint8List.fromList([128]);
+      };
+      final mask = flateImage({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, List.filled(16 * 8, 128));
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Filter': const CosName('DCTDecode'),
+        'SMask': mask,
+      }, base64Decode(cmykJpeg));
+
+      final pixels = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(calls, [4, 1]);
+      expect(pixels.rgba, [128, 128, 128, 128]);
+    });
+  });
+
+  test('the CMYK colour memo survives eviction and collision', () {
+    // The decode path memoizes sample-tuple → sRGB (issue #451), which is only
+    // sound if a hit is always the colour that tuple really converts to. The
+    // danger is the two ways a fixed-size direct-mapped table can lie: an
+    // eviction that leaves a stale colour behind, and two different tuples
+    // hashing to one slot.
+    //
+    // So make the table thrash on purpose. 256x256 = 65536 pixels, every one a
+    // distinct CMYK tuple, against a table an order of magnitude smaller: the
+    // slot for any given tuple is overwritten many times over. Then check every
+    // pixel against the conversion computed independently. A table that ever
+    // returned a neighbour's colour cannot pass this.
+    const size = 256;
+    final samples = Uint8List(size * size * 4);
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        final i = (y * size + x) * 4;
+        samples[i] = x;
+        samples[i + 1] = y;
+        samples[i + 2] = (x * 7 + y * 13) & 0xff;
+        samples[i + 3] = (x ^ y) & 0xff;
+      }
+    }
+
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceCMYK'),
+    }, samples);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.width, size);
+    expect(pixels.height, size);
+
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      final expected = PdfColor.cmyk(samples[s] / 255, samples[s + 1] / 255,
+          samples[s + 2] / 255, samples[s + 3] / 255);
+      if (pixels.rgba[s] != (expected.red * 255).round() ||
+          pixels.rgba[s + 1] != (expected.green * 255).round() ||
+          pixels.rgba[s + 2] != (expected.blue * 255).round()) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0,
+        reason: 'the memo handed back a colour belonging to another tuple');
+  });
+
+  test('the ICC RGB memo under an OutputIntent survives eviction', () {
+    // Under a CMYK OutputIntent every ICC RGB tuple runs the full source ->
+    // output -> sRGB chain, so the decode memoizes tuple -> colour. Make the
+    // direct-mapped table thrash - 65536 distinct tuples against 16384 slots -
+    // and hold every pixel, colour-keyed ones included, to the chain itself.
+    final doc = cmykOutputIntentDocument();
+    final context = PdfColorContext.forDocument(doc);
+    final profile = IccProfile.parse(adobeRgb1998Icc())!;
+    const size = 256;
+    final samples = Uint8List(size * size * 3);
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        final i = (y * size + x) * 3;
+        samples[i] = x;
+        samples[i + 1] = y;
+        samples[i + 2] = (x * 7 + y * 13) & 0xff;
+      }
+    }
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([
+        const CosName('ICCBased'),
+        CosStream(CosDictionary({'N': const CosInteger(3)}), adobeRgb1998Icc()),
+      ]),
+      'Mask': CosArray([
+        for (var c = 0; c < 3; c++) ...[
+          const CosInteger(0),
+          const CosInteger(40),
+        ],
+      ]),
+    }, samples);
+
+    final base = decodePdfImageBase(doc, stream)!;
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 3, o = p * 4;
+      final r = samples[s], g = samples[s + 1], b = samples[s + 2];
+      final want = context.iccToSrgb(profile, [r / 255, g / 255, b / 255],
+          intent: PdfRenderingIntent.relativeColorimetric);
+      final keyed = r <= 40 && g <= 40 && b <= 40;
+      if (base.rgba[o] != (want.red * 255).round() ||
+          base.rgba[o + 1] != (want.green * 255).round() ||
+          base.rgba[o + 2] != (want.blue * 255).round() ||
+          base.rgba[o + 3] != (keyed ? 0 : 255)) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0);
+  });
+
+  group('16-bit gray', () {
+    // An odd size, samples spanning the whole 16-bit range with repeats, a
+    // /Decode that is not the identity and a colour key in raw sample space.
+    const width = 97, height = 61;
+    final raw = [
+      for (var i = 0; i < width * height; i++) (i * 40503) % 65536,
+    ];
+    CosStream gray16(CosObject colorSpace) => image({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(16),
+          'ColorSpace': colorSpace,
+          'Decode': CosArray([const CosReal(0.1), const CosReal(0.9)]),
+          'Mask': CosArray([const CosInteger(1000), const CosInteger(9000)]),
+        }, [
+          for (final v in raw) ...[v >> 8, v & 0xff],
+        ]);
+
+    List<int> perPixel(PdfColor Function(double) convert) => [
+          for (final v in raw)
+            ...() {
+              final color = convert(
+                  (0.1 + v / 65535 * (0.9 - 0.1)).clamp(0.0, 1.0).toDouble());
+              return [
+                (color.red * 255).round().clamp(0, 255),
+                (color.green * 255).round().clamp(0, 255),
+                (color.blue * 255).round().clamp(0, 255),
+                v >= 1000 && v <= 9000 ? 0 : 255,
+              ];
+            }(),
+        ];
+
+    test('matches a per-pixel conversion', () {
+      final base = decodePdfImageBase(cos, gray16(const CosName('DeviceGray')));
+      expect(base!.rgba, perPixel(PdfColor.gray));
+    });
+
+    test('matches a per-pixel conversion under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      final context = PdfColorContext.forDocument(doc);
+      final base = decodePdfImageBase(doc, gray16(const CosName('DeviceGray')));
+      expect(base!.rgba, perPixel(context.deviceGray));
+    });
+
+    test('from an ICC source matches under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      final context = PdfColorContext.forDocument(doc);
+      final profile = IccProfile.parse(genericGrayIcc())!;
+      final base = decodePdfImageBase(
+          doc,
+          gray16(CosArray([
+            const CosName('ICCBased'),
+            CosStream(
+                CosDictionary({'N': const CosInteger(1)}), genericGrayIcc()),
+          ])));
+      expect(
+          base!.rgba,
+          perPixel((v) => context.iccToSrgb(profile, [v],
+              intent: PdfRenderingIntent.relativeColorimetric)));
+    });
+  });
+
+  test('an ICC-managed CMYK image converts through the memo unchanged', () {
+    // The ICCBased CMYK branch is the one #451 measured at 0.85 us/px, and the
+    // one this change touches most: it now feeds a reused Float64List to the
+    // profile and reads its colours back through the memo. Both are chances to
+    // leak state between pixels, so decode an image whose every pixel has an
+    // independently known answer.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    const size = 64; // 4096 px: enough to exercise a real table
+    final samples = Uint8List(size * size * 4);
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      samples[s] = (p * 37) & 0xff;
+      samples[s + 1] = (p * 11) & 0xff;
+      samples[s + 2] = (p * 5) & 0xff;
+      samples[s + 3] = (p ~/ size) & 0xff;
+    }
+
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([
+        const CosName('ICCBased'),
+        CosStream(CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()),
+      ]),
+    }, samples);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      final expected = profile.toSrgb([
+        samples[s] / 255,
+        samples[s + 1] / 255,
+        samples[s + 2] / 255,
+        samples[s + 3] / 255,
+      ]);
+      if (pixels.rgba[s] != (expected.red * 255).round() ||
+          pixels.rgba[s + 1] != (expected.green * 255).round() ||
+          pixels.rgba[s + 2] != (expected.blue * 255).round()) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0,
+        reason: 'the ICC CMYK path disagreed with the profile itself');
   });
 
   test('scaled DeviceRGB Flate decodes directly to target size', () {
@@ -190,6 +1165,60 @@ void main() {
       0,
       0,
       255,
+      255,
+      255,
+      255,
+      255,
+      255,
+    ]);
+  });
+
+  test('scaled unfiltered DeviceGray samples use the direct target path', () {
+    final stream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+    }, [
+      0,
+      0,
+      64,
+      64,
+      0,
+      0,
+      64,
+      64,
+      128,
+      128,
+      255,
+      255,
+      128,
+      128,
+      255,
+      255,
+    ]);
+
+    final pixels = decodePdfImagePixelsScaled(
+      cos,
+      stream,
+      2,
+      2,
+      samplesAreDecoded: true,
+    )!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 2);
+    expect(pixels.rgba, [
+      0,
+      0,
+      0,
+      255,
+      64,
+      64,
+      64,
+      255,
+      128,
+      128,
+      128,
       255,
       255,
       255,
@@ -333,16 +1362,203 @@ void main() {
     final pixels = decodePdfImagePixelsScaled(cos, stream, 2, 1)!;
     expect(pixels.width, 2);
     expect(pixels.height, 1);
-    expect(pixels.rgba, [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-    ]);
+    // Each 2px cell holds one painting (0) and one clear (1) bit: half cover,
+    // premultiplied white.
+    expect(pixels.rgba, [127, 127, 127, 127, 127, 127, 127, 127]);
+  });
+
+  test('scaled ImageMask keeps 1px linework as coverage', () {
+    // A 16x16 stencil (paint = 0) with a 1px vertical line at x=5 and a 1px
+    // horizontal line at y=10 - scanned-drawing linework shown at 1/4 size.
+    // Point sampling picks one bit per 4x4 cell and loses both lines; area
+    // coverage keeps each as a continuous quarter-alpha stroke.
+    final bits = Uint8List(16 * 2)..fillRange(0, 32, 0xff);
+    for (var y = 0; y < 16; y++) {
+      bits[y * 2] &= ~(1 << (7 - 5)); // x = 5
+    }
+    bits[10 * 2] = bits[10 * 2 + 1] = 0; // y = 10
+    final stream = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(16),
+      'BitsPerComponent': const CosInteger(1),
+    }, bits);
+
+    final pixels = decodePdfImagePixelsRegionScaled(
+        cos, stream, 0, 0, 16, 16, 4, 4,
+        samplesAreDecoded: true)!;
+    int alpha(int x, int y) => pixels.rgba[(y * 4 + x) * 4 + 3];
+    // Column 1 (x 4..7) carries the vertical line in every row.
+    for (var y = 0; y < 4; y++) {
+      expect(alpha(1, y), y == 2 ? 7 * 255 ~/ 16 : 4 * 255 ~/ 16);
+    }
+    // Row 2 (y 8..11) carries the horizontal line across every column.
+    for (final x in [0, 2, 3]) {
+      expect(alpha(x, 2), 4 * 255 ~/ 16);
+    }
+    expect(alpha(0, 0), 0);
+    expect(alpha(3, 3), 0);
+    // Coverage is premultiplied white for the device's srcIn tint.
+    expect(pixels.rgba[(0 * 4 + 1) * 4], alpha(1, 0));
+
+    // /Decode [1 0] flips which bit paints: coverage is the complement.
+    final inverted = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(16),
+      'BitsPerComponent': const CosInteger(1),
+      'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+    }, bits);
+    final flipped = decodePdfImagePixelsRegionScaled(
+        cos, inverted, 0, 0, 16, 16, 4, 4,
+        samplesAreDecoded: true)!;
+    expect(flipped.rgba[3], 255);
+    expect(flipped.rgba[(2 * 4 + 1) * 4 + 3], 255 - 7 * 255 ~/ 16 - 1);
+  });
+
+  test('scaled ImageMask coverage matches a brute-force box filter', () {
+    // Random stencils, odd widths, mid-byte regions and both /Decode
+    // polarities against a per-bit reference of the same cell partition.
+    final random = Random(949);
+    for (var trial = 0; trial < 200; trial++) {
+      final width = 1 + random.nextInt(40);
+      final height = 1 + random.nextInt(12);
+      final rowBytes = (width + 7) >> 3;
+      final bits = Uint8List(rowBytes * height);
+      final density = random.nextInt(4);
+      for (var i = 0; i < bits.length; i++) {
+        bits[i] = switch (density) {
+          0 => 0xff,
+          1 => 0x00,
+          _ => random.nextInt(256),
+        };
+      }
+      final inverted = random.nextBool();
+      final sx = random.nextInt(width);
+      final sy = random.nextInt(height);
+      final sw = 1 + random.nextInt(width - sx);
+      final sh = 1 + random.nextInt(height - sy);
+      final tw = 1 + random.nextInt(sw);
+      final th = 1 + random.nextInt(sh);
+      final stream = image({
+        'ImageMask': const CosBoolean(true),
+        'Width': CosInteger(width),
+        'Height': CosInteger(height),
+        'BitsPerComponent': const CosInteger(1),
+        if (inverted)
+          'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+      }, bits);
+      final pixels = decodePdfImagePixelsRegionScaled(
+          cos, stream, sx, sy, sw, sh, tw, th,
+          samplesAreDecoded: true)!;
+      for (var ty = 0; ty < th; ty++) {
+        final y0 = sy + ty * sh ~/ th, y1 = sy + (ty + 1) * sh ~/ th;
+        for (var tx = 0; tx < tw; tx++) {
+          final x0 = sx + tx * sw ~/ tw, x1 = sx + (tx + 1) * sw ~/ tw;
+          var paint = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              if (bit == (inverted ? 1 : 0)) paint++;
+            }
+          }
+          final expected = paint * 255 ~/ ((x1 - x0) * (y1 - y0));
+          expect(pixels.rgba[(ty * tw + tx) * 4 + 3], expected,
+              reason: 'trial $trial ${width}x$height '
+                  'region ($sx,$sy ${sw}x$sh) -> ${tw}x$th at ($tx,$ty)');
+        }
+      }
+    }
+  });
+
+  test('scaled ImageMask coverage on wide, sparse, unaligned stencils', () {
+    // The blank-word skip: rows wide enough to hold many 32-bit words, ink
+    // mostly absent (so whole words are skipped) or scattered, samples at
+    // every offset mod 4 in their buffer (a word view needs 4-aligned data;
+    // a platform decompressor's samples can start anywhere), and a share of
+    // byte-aligned whole-byte cells (one piece per byte). Same per-bit
+    // reference as above.
+    final random = Random(9491);
+    for (var trial = 0; trial < 300; trial++) {
+      int width, sx, sw, tw;
+      if (trial % 4 == 0) {
+        tw = 1 + random.nextInt(8);
+        final cell = 8 * (1 + random.nextInt(4));
+        sw = tw * cell;
+        sx = 8 * random.nextInt(6);
+        width = sx + sw + 8 * random.nextInt(3) + random.nextInt(8);
+      } else {
+        width = 1 + random.nextInt(400);
+        sx = random.nextInt(width);
+        sw = 1 + random.nextInt(width - sx);
+        tw = 1 + random.nextInt(sw);
+      }
+      final height = 1 + random.nextInt(20);
+      final rowBytes = (width + 7) >> 3;
+      final inverted = random.nextBool();
+      final blank = inverted ? 0x00 : 0xff;
+      final bits = Uint8List(rowBytes * height)
+        ..fillRange(0, rowBytes * height, blank);
+      final ink = random.nextInt(4);
+      for (var i = 0; i < bits.length; i++) {
+        if (random.nextInt(40) < ink * 3) bits[i] = random.nextInt(256);
+      }
+      final offset = random.nextInt(4);
+      final backing = Uint8List(bits.length + offset)
+        ..setRange(offset, offset + bits.length, bits);
+      final sy = random.nextInt(height);
+      final sh = 1 + random.nextInt(height - sy);
+      final th = 1 + random.nextInt(sh);
+      final stream = CosStream(
+          CosDictionary({
+            'ImageMask': const CosBoolean(true),
+            'Width': CosInteger(width),
+            'Height': CosInteger(height),
+            'BitsPerComponent': const CosInteger(1),
+            if (inverted)
+              'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+          }),
+          Uint8List.sublistView(backing, offset));
+      final pixels = decodePdfImagePixelsRegionScaled(
+          cos, stream, sx, sy, sw, sh, tw, th,
+          samplesAreDecoded: true)!;
+      for (var ty = 0; ty < th; ty++) {
+        final y0 = sy + ty * sh ~/ th, y1 = sy + (ty + 1) * sh ~/ th;
+        for (var tx = 0; tx < tw; tx++) {
+          final x0 = sx + tx * sw ~/ tw, x1 = sx + (tx + 1) * sw ~/ tw;
+          var paint = 0;
+          for (var y = y0; y < y1; y++) {
+            for (var x = x0; x < x1; x++) {
+              final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              if (bit == (inverted ? 1 : 0)) paint++;
+            }
+          }
+          final expected = paint * 255 ~/ ((x1 - x0) * (y1 - y0));
+          expect(pixels.rgba[(ty * tw + tx) * 4 + 3], expected,
+              reason: 'trial $trial ${width}x$height offset $offset '
+                  'region ($sx,$sy ${sw}x$sh) -> ${tw}x$th at ($tx,$ty)');
+        }
+      }
+    }
+  });
+
+  test('scaled ImageMask region counts only bits inside the region', () {
+    // Paint only at x=0, x=8 and x=9. The region x 1..8 starts mid-byte, so
+    // it must not count x=0 or x=9; x=8 lands in the second of two 4px cells.
+    final bits = Uint8List(2)
+      ..[0] = 0x7f
+      ..[1] = 0x3f;
+    final stream = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(16),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, bits);
+    final pixels = decodePdfImagePixelsRegionScaled(
+        cos, stream, 1, 0, 8, 1, 2, 1,
+        samplesAreDecoded: true)!;
+    expect(pixels.rgba[3], 0);
+    expect(pixels.rgba[7], 255 ~/ 4);
   });
 
   test('scaled Indexed Flate with stencil mask avoids full RGBA expansion', () {
@@ -400,6 +1616,37 @@ void main() {
       0,
       0,
     ]);
+
+    final decodedMask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, [
+      0xb0
+    ]);
+    final decodedStream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+      'ColorSpace': CosArray([
+        const CosName('Indexed'),
+        const CosName('DeviceRGB'),
+        const CosInteger(1),
+        CosString(Uint8List.fromList([0, 0, 0, 255, 0, 0])),
+      ]),
+      'Mask': decodedMask,
+    }, [
+      0x50
+    ]);
+    final predecoded = decodePdfImagePixelsScaled(
+      cos,
+      decodedStream,
+      2,
+      1,
+      samplesAreDecoded: true,
+    )!;
+    expect(predecoded.rgba, pixels.rgba);
   });
 
   test('scaled CCITT gray avoids native RGBA expansion', () {
@@ -515,7 +1762,8 @@ void main() {
   group('tint transform', () {
     /// `{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }`: one ink in, CMYK out, with
     /// different factors per output so a mixed-up tuple cannot pass by luck.
-    CosStream separation(List<int> samples, {Map<String, CosObject> extra = const {}}) =>
+    CosStream separation(List<int> samples,
+            {Map<String, CosObject> extra = const {}}) =>
         image({
           'Width': CosInteger(samples.length),
           'Height': const CosInteger(1),
@@ -560,24 +1808,87 @@ void main() {
       expect(pixelAt(1), isNot(pixelAt(2)));
     });
 
+    test('target-sized Separation base converts only reduced samples', () {
+      final full = separation([0, 0, 255, 255]);
+      final target = decodePdfImageBase(
+        cos,
+        full,
+        targetWidth: 2,
+        targetHeight: 1,
+      )!;
+      final expected = decodePdfImageBase(cos, separation([0, 255]))!;
+
+      expect((target.width, target.height), (2, 1));
+      expect(target.rgba, expected.rgba,
+          reason: 'uniform source cells must retain their tint colours');
+    });
+
+    test('targeted nonlinear ink decode matches full RGBA box filtering', () {
+      final stream = separation([0, 255]);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 1, 1);
+      final targeted = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(targeted.rgba, expected.rgba,
+          reason: 'a tint transform is nonlinear, so component samples must '
+              'be converted before they are averaged');
+    });
+
+    test('targeted DeviceCMYK decode matches full RGBA box filtering', () {
+      final stream = flateImage({
+        'Width': const CosInteger(2),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+      }, [
+        0,
+        0,
+        0,
+        0,
+        255,
+        255,
+        255,
+        255,
+      ]);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 1, 1);
+      final targeted = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(targeted.rgba, expected.rgba,
+          reason: 'the DeviceCMYK polynomial must run before box filtering');
+    });
+
     test('every distinct sample maps through the tint transform', () {
       // All 256 inputs, each appearing twice: the answers must match the
       // transform evaluated directly, so sharing cannot drift from the maths.
-      final samples = [for (var i = 0; i < 256; i++) i, for (var i = 0; i < 256; i++) i];
+      final samples = [
+        for (var i = 0; i < 256; i++) i,
+        for (var i = 0; i < 256; i++) i
+      ];
       final pixels = decodePdfImagePixels(cos, separation(samples))!;
 
       for (var i = 0; i < samples.length; i++) {
         final tint = samples[i] / 255;
         // The tint transform's CMYK, converted the way the decoder does.
-        final expected = colorFromComponents(
-            [tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        final expected =
+            colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
         expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
             reason: 'red for sample ${samples[i]}');
         expect(pixels.rgba[i * 4 + 1],
             (expected.green * 255).round().clamp(0, 255),
             reason: 'green for sample ${samples[i]}');
-        expect(pixels.rgba[i * 4 + 2],
-            (expected.blue * 255).round().clamp(0, 255),
+        expect(
+            pixels.rgba[i * 4 + 2], (expected.blue * 255).round().clamp(0, 255),
             reason: 'blue for sample ${samples[i]}');
         expect(pixels.rgba[i * 4 + 3], 255);
       }
@@ -588,7 +1899,12 @@ void main() {
       // must both key out while their neighbours stay opaque.
       final pixels = decodePdfImagePixels(
           cos,
-          separation([0, 128, 255, 128], extra: {
+          separation([
+            0,
+            128,
+            255,
+            128
+          ], extra: {
             'Mask': CosArray([const CosInteger(128), const CosInteger(128)]),
           }))!;
       expect([for (var i = 0; i < 4; i++) pixels.rgba[i * 4 + 3]],
@@ -601,7 +1917,10 @@ void main() {
       final plain = decodePdfImagePixels(cos, separation([0, 255]))!;
       final inverted = decodePdfImagePixels(
           cos,
-          separation([0, 255], extra: {
+          separation([
+            0,
+            255
+          ], extra: {
             'Decode': CosArray([const CosReal(1), const CosReal(0)]),
           }))!;
       expect(inverted.rgba.sublist(0, 4), plain.rgba.sublist(4, 8));
@@ -650,4 +1969,845 @@ void main() {
       expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
     });
   });
+
+  // An /Indexed palette over a Separation/DeviceN base once returned null and
+  // dropped the whole image (issue #430 - both images on the Ghent DeviceN
+  // page are this shape). Each palette entry runs through the base's tint
+  // transform, exactly as the non-indexed Separation/DeviceN path does.
+  group('Indexed palette expansion', () {
+    // Palettes deliberately shorter than 2^bits so some samples are out of
+    // range (they clamp to entry 0).
+    CosArray indexed(CosName base, List<int> lookup, int components) =>
+        CosArray([
+          const CosName('Indexed'),
+          base,
+          CosInteger(lookup.length ~/ components - 1),
+          CosString(Uint8List.fromList(lookup)),
+        ]);
+    final rgbPalette = [0, 0, 0, 255, 0, 0, 0, 200, 10, 30, 60, 250, 9, 9, 9];
+
+    /// Packs [samples] (one row of [width] at a time) at [bits] per sample.
+    List<int> pack(List<int> samples, int width, int bits) {
+      final rowBytes = (width * bits + 7) ~/ 8;
+      final rows = samples.length ~/ width;
+      final out = Uint8List(rowBytes * rows);
+      for (var y = 0; y < rows; y++) {
+        for (var x = 0; x < width; x++) {
+          final bit = x * bits;
+          out[y * rowBytes + (bit >> 3)] |=
+              samples[y * width + x] << (8 - bits - (bit & 7));
+        }
+      }
+      return out;
+    }
+
+    for (final bits in [1, 2, 4, 8]) {
+      test('$bits-bit samples map through the palette per pixel', () {
+        const width = 7, height = 3; // odd width: rows end mid-byte
+        final random = Random(bits);
+        final samples = [
+          for (var i = 0; i < width * height; i++) random.nextInt(1 << bits)
+        ];
+        final stream = flateImage({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': CosInteger(bits),
+          'ColorSpace': indexed(const CosName('DeviceRGB'), rgbPalette, 3),
+          'Mask': CosArray([const CosInteger(1), const CosInteger(1)]),
+        }, pack(samples, width, bits));
+        final pixels = decodePdfImagePixels(cos, stream)!;
+        final count = rgbPalette.length ~/ 3;
+        for (var i = 0; i < samples.length; i++) {
+          final raw = samples[i];
+          final index = raw >= count ? 0 : raw;
+          // color keys compare the raw sample; keyed pixels premultiply to 0
+          final keyed = raw == 1;
+          expect(
+              pixels.rgba.sublist(i * 4, i * 4 + 4),
+              [
+                keyed ? 0 : rgbPalette[index * 3],
+                keyed ? 0 : rgbPalette[index * 3 + 1],
+                keyed ? 0 : rgbPalette[index * 3 + 2],
+                keyed ? 0 : 255,
+              ],
+              reason: 'pixel $i (sample $raw)');
+        }
+      });
+    }
+
+    // (1-bit samples take decodePdfImagePixelsScaled's point-sampled route.)
+    for (final bits in [2, 4, 8]) {
+      for (final base in ['DeviceRGB', 'DeviceCMYK']) {
+        test('$bits-bit $base scaled decode is the full decode box-filtered',
+            () {
+          const width = 37, height = 23;
+          final random = Random(bits * 7 + base.length);
+          final samples = [
+            for (var i = 0; i < width * height; i++) random.nextInt(1 << bits)
+          ];
+          final cmyk = base == 'DeviceCMYK';
+          final stream = flateImage({
+            'Width': const CosInteger(width),
+            'Height': const CosInteger(height),
+            'BitsPerComponent': CosInteger(bits),
+            'ColorSpace': cmyk
+                ? indexed(const CosName('DeviceCMYK'),
+                    [0, 0, 0, 0, 255, 0, 0, 0, 10, 200, 30, 5], 4)
+                : indexed(const CosName('DeviceRGB'), rgbPalette, 3),
+          }, pack(samples, width, bits));
+          final full = decodePdfImagePixels(cos, stream)!;
+          for (final (tw, th) in [
+            (5, 4),
+            (36, 22),
+            (1, 1),
+            (40, 7),
+            (37, 23)
+          ]) {
+            final scaled =
+                decodePdfImage(cos, stream, targetWidth: tw, targetHeight: th)!;
+            final expected = downsamplePdfDecodedPixels(full, tw, th);
+            expect((
+              scaled.width,
+              scaled.height
+            ), (
+              expected.width,
+              expected.height
+            ), reason: 'target ${tw}x$th');
+            expect(scaled.rgba, expected.rgba, reason: 'target ${tw}x$th');
+          }
+        });
+      }
+    }
+  });
+
+  group('indexed over a tint base', () {
+    /// `[/Indexed [/Separation Spot DeviceCMYK { dup 0.5 mul exch 0.25 mul 0 0 }]
+    /// hival lookup]`: one ink per palette entry into DeviceCMYK.
+    CosStream indexedSeparation(List<int> lookup, List<int> indices) => image({
+          'Width': CosInteger(indices.length),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('Indexed'),
+            CosArray([
+              const CosName('Separation'),
+              const CosName('Spot'),
+              const CosName('DeviceCMYK'),
+              CosStream(
+                  CosDictionary({
+                    'FunctionType': const CosInteger(4),
+                    'Domain': CosArray([const CosReal(0), const CosReal(1)]),
+                    'Range': CosArray([
+                      for (var i = 0; i < 4; i++) ...[
+                        const CosReal(0),
+                        const CosReal(1)
+                      ]
+                    ]),
+                  }),
+                  Uint8List.fromList(
+                      '{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }'.codeUnits)),
+            ]),
+            CosInteger(lookup.length - 1),
+            CosString(Uint8List.fromList(lookup)),
+          ]),
+        }, indices);
+
+    test('decodes instead of dropping the image', () {
+      // The regression: this whole image used to decode to null.
+      final pixels =
+          decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]));
+      expect(pixels, isNotNull);
+      expect(pixels!.width, 2);
+      expect(pixels.height, 1);
+    });
+
+    test('each palette entry maps through the tint transform', () {
+      // Two colorant tints (0 and 1) selected by index; the decoded colour must
+      // match the transform's CMYK converted the way the decoder does.
+      final pixels =
+          decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]))!;
+      for (final (i, tint) in [(0, 0.0), (1, 1.0)]) {
+        final expected =
+            colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
+            reason: 'red for tint $tint');
+        expect(pixels.rgba[i * 4 + 1],
+            (expected.green * 255).round().clamp(0, 255),
+            reason: 'green for tint $tint');
+        expect(
+            pixels.rgba[i * 4 + 2], (expected.blue * 255).round().clamp(0, 255),
+            reason: 'blue for tint $tint');
+        expect(pixels.rgba[i * 4 + 3], 255);
+      }
+    });
+
+    test('DeviceN base sizes each palette entry by its colorant count', () {
+      // `{ pop dup 0.0 0.0 }` paints with InkA and drops InkB, so a two-colorant
+      // palette entry [InkA, InkB] must consume two lookup bytes: entries
+      // [200, 0] and [200, 255] share InkA and must decode identically, while
+      // [0, 0] must differ. A base mis-sized to one byte would misalign the
+      // whole table.
+      final stream = image({
+        'Width': const CosInteger(3),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': CosArray([
+          const CosName('Indexed'),
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('InkA'), const CosName('InkB')]),
+            const CosName('DeviceCMYK'),
+            CosStream(
+                CosDictionary({
+                  'FunctionType': const CosInteger(4),
+                  'Domain': CosArray([
+                    const CosReal(0),
+                    const CosReal(1),
+                    const CosReal(0),
+                    const CosReal(1)
+                  ]),
+                  'Range': CosArray([
+                    for (var i = 0; i < 4; i++) ...[
+                      const CosReal(0),
+                      const CosReal(1)
+                    ]
+                  ]),
+                }),
+                Uint8List.fromList('{ pop dup 0.0 0.0 }'.codeUnits)),
+          ]),
+          const CosInteger(2),
+          CosString(Uint8List.fromList([200, 0, 200, 255, 0, 0])),
+        ]),
+      }, [
+        0, 1, 2, //
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
+      expect(pixelAt(0), pixelAt(1)); // same InkA, InkB ignored
+      expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
+  });
+
+  group('1-bit DeviceGray', () {
+    // An odd width, so every row ends mid-byte.
+    const width = 13, height = 5;
+    const rowBytes = (width + 7) ~/ 8;
+    final data = [
+      for (var i = 0; i < rowBytes * height; i++) (i * 73 + 29) & 0xff,
+    ];
+
+    CosStream oneBit({List<double>? decode, (int, int)? key}) => image({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(1),
+          'ColorSpace': const CosName('DeviceGray'),
+          if (decode != null)
+            'Decode': CosArray([for (final d in decode) CosReal(d)]),
+          if (key != null)
+            'Mask': CosArray([CosInteger(key.$1), CosInteger(key.$2)]),
+        }, data);
+
+    // The historical per-pixel conversion, pixel by pixel.
+    List<int> perPixel(CosDocument doc,
+        {List<double>? decode, (int, int)? key, bool luminosity = false}) {
+      final context = PdfColorContext.forDocument(doc);
+      final values = [
+        ((decode?[0] ?? 0.0) * 255).round().clamp(0, 255),
+        ((decode?[1] ?? 1.0) * 255).round().clamp(0, 255),
+      ];
+      return [
+        for (var y = 0; y < height; y++)
+          for (var x = 0; x < width; x++)
+            ...() {
+              final on = (data[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+              final color = luminosity
+                  ? PdfColor.gray(values[on] / 255)
+                  : context.deviceGray(values[on] / 255);
+              return [
+                (color.red * 255).round().clamp(0, 255),
+                (color.green * 255).round().clamp(0, 255),
+                (color.blue * 255).round().clamp(0, 255),
+                key != null && on >= key.$1 && on <= key.$2 ? 0 : 255,
+              ];
+            }(),
+      ];
+    }
+
+    void expectTableMatchesPerPixel(CosDocument doc) {
+      for (final decode in [
+        null,
+        const [1.0, 0.0],
+        const [0.2, 0.7]
+      ]) {
+        for (final key in [null, (0, 0), (1, 1)]) {
+          for (final luminosity in [false, true]) {
+            final base = decodePdfImageBase(
+                doc, oneBit(decode: decode, key: key),
+                luminosityMask: luminosity)!;
+            expect(base.rgba,
+                perPixel(doc, decode: decode, key: key, luminosity: luminosity),
+                reason: 'decode $decode key $key luminosity $luminosity');
+          }
+        }
+      }
+    }
+
+    test('the two-value table matches a per-pixel conversion', () {
+      expectTableMatchesPerPixel(cos);
+    });
+
+    test('the two-value table matches under a CMYK OutputIntent', () {
+      final doc = cmykOutputIntentDocument();
+      expect(PdfColorContext.forDocument(doc).outputProfile?.channels, 4);
+      expectTableMatchesPerPixel(doc);
+    });
+
+    test('the two-value table matches under GWG173\'s OutputIntent', () {
+      final file = File(
+          '../../test_corpora/ghent/1-CMYK/GWG173_JBIG2_compression_X4.pdf');
+      if (!file.existsSync()) {
+        markTestSkipped('test_corpora/ghent not found');
+        return;
+      }
+      expectTableMatchesPerPixel(CosDocument.open(file.readAsBytesSync()));
+    });
+  });
+
+  group('decodePdfImage façade', () {
+    // A 4x1 Flate DeviceRGB image the region/scaled fast paths support.
+    CosStream rgbStrip() => flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }, [
+          10, 11, 12, //
+          20, 21, 22, //
+          30, 31, 32, //
+          40, 41, 42,
+        ]);
+
+    test(
+        'no region or target decodes at native size, like decodePdfImagePixels',
+        () {
+      final stream = rgbStrip();
+      final facade = decodePdfImage(cos, stream)!;
+      final direct = decodePdfImagePixels(cos, stream)!;
+      expect(facade.width, direct.width);
+      expect(facade.height, direct.height);
+      expect(facade.rgba, direct.rgba);
+    });
+
+    test('a region crops to the requested slice', () {
+      final stream = rgbStrip();
+      final slice = decodePdfImage(cos, stream,
+          region: const PdfImageRegion(1, 0, 2, 1))!;
+      expect(slice.width, 2);
+      expect(slice.height, 1);
+      // premultiplied but fully opaque, so RGB is unchanged: pixels 1 and 2.
+      expect(slice.rgba, [20, 21, 22, 255, 30, 31, 32, 255]);
+    });
+
+    test(
+        'the fast region path and the full-decode fallback agree pixel-exactly',
+        () {
+      // The façade must return identical pixels whether the region fast path
+      // handled the stream or it fell back to a full decode + crop. Adding a
+      // Flate /SMask makes the region fast path bail (it only does
+      // single-filter, mask-free streams) while the full decoder still copes -
+      // so this compares the two façade paths for the same slice.
+      const region = PdfImageRegion(1, 0, 2, 1);
+      final plain = rgbStrip(); // fast region path
+      final masked = flateImage({
+        'Width': const CosInteger(4),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'SMask': flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+        }, [
+          255,
+          255,
+          255,
+          255
+        ]), // fully opaque mask: pixels are unchanged
+      }, [
+        10, 11, 12, //
+        20, 21, 22, //
+        30, 31, 32, //
+        40, 41, 42,
+      ]);
+      final fast = decodePdfImage(cos, plain, region: region)!;
+      final fallback = decodePdfImage(cos, masked, region: region)!;
+      expect(fallback.width, fast.width);
+      expect(fallback.height, fast.height);
+      expect(fallback.rgba, fast.rgba);
+    });
+
+    test('a smaller target downsamples to that size', () {
+      final stream = rgbStrip();
+      final scaled =
+          decodePdfImage(cos, stream, targetWidth: 2, targetHeight: 1)!;
+      expect(scaled.width, 2);
+      expect(scaled.height, 1);
+    });
+  });
+
+  group('cropDownsamplePdfDecodedPixels', () {
+    test('crops an in-bounds rectangle', () {
+      final full = PdfDecodedPixels(
+        Uint8List.fromList([
+          1, 1, 1, 255, 2, 2, 2, 255, //
+          3, 3, 3, 255, 4, 4, 4, 255,
+        ]),
+        2,
+        2,
+      );
+      final crop = cropDownsamplePdfDecodedPixels(full, 1, 0, 1, 2, 1, 2)!;
+      expect(crop.width, 1);
+      expect(crop.height, 2);
+      expect(crop.rgba, [2, 2, 2, 255, 4, 4, 4, 255]);
+    });
+
+    test('returns null when the rectangle falls outside the image', () {
+      final full = PdfDecodedPixels(Uint8List(16), 2, 2);
+      expect(cropDownsamplePdfDecodedPixels(full, 1, 1, 2, 2, 2, 2), isNull);
+    });
+  });
+
+  group('a stencil /Mask requested at target size', () {
+    // 37x23 with ragged rows: partial trailing bytes and cells that straddle
+    // byte boundaries, plus whole blank and whole solid bytes.
+    const width = 37, height = 23, rowBytes = 5;
+    final bits = Uint8List(rowBytes * height);
+    for (var y = 0; y < height; y++) {
+      for (var b = 0; b < rowBytes; b++) {
+        bits[y * rowBytes + b] = switch ((y + b) % 4) {
+          0 => 0x00,
+          1 => 0xff,
+          _ => (y * 37 + b * 101) & 0xff,
+        };
+      }
+    }
+
+    CosDictionary parent(bool inverted) => CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'Mask': image({
+            'Width': const CosInteger(width),
+            'Height': const CosInteger(height),
+            'ImageMask': const CosBoolean(true),
+            'BitsPerComponent': const CosInteger(1),
+            if (inverted)
+              'Decode': CosArray([const CosInteger(1), const CosInteger(0)]),
+          }, bits),
+        });
+
+    for (final inverted in [false, true]) {
+      test('matches the box-filtered native mask (inverted: $inverted)', () {
+        final native = pdfImageStencilMask(cos, parent(inverted))!;
+        expect((native.width, native.height), (width, height));
+        for (var y = 0; y < height; y++) {
+          for (var x = 0; x < width; x++) {
+            final bit = (bits[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+            expect(native.alpha[y * width + x],
+                bit == (inverted ? 1 : 0) ? 255 : 0);
+          }
+        }
+        const tw = 9, th = 5;
+        final scaled = pdfImageStencilMask(cos, parent(inverted),
+            targetWidth: tw, targetHeight: th)!;
+        expect((scaled.width, scaled.height), (tw, th));
+        for (var ty = 0; ty < th; ty++) {
+          for (var tx = 0; tx < tw; tx++) {
+            var sum = 0, count = 0;
+            for (var y = ty * height ~/ th; y < (ty + 1) * height ~/ th; y++) {
+              for (var x = tx * width ~/ tw; x < (tx + 1) * width ~/ tw; x++) {
+                sum += native.alpha[y * width + x];
+                count++;
+              }
+            }
+            expect(scaled.alpha[ty * tw + tx], sum ~/ count,
+                reason: 'cell ($tx, $ty)');
+          }
+        }
+      });
+    }
+  });
+
+  group('a small-displayed JPX takes the resolution-reduced decode', () {
+    CosStream jpxImage(int tw, int th) => image({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(16),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('JPXDecode'),
+        }, _rgbJ2kFixture);
+
+    test('reduced-path output matches the full-decode downsample', () {
+      // The reduced JPX decode (finest wavelet levels skipped) is not byte-
+      // identical to decoding all 16x16 and box-averaging, but on this linear
+      // ramp the two agree closely. The point is that the scaled façade routed
+      // through the reduced path and produced the right pixels at target size.
+      final stream = jpxImage(4, 4);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 4, 4);
+      final scaled = decodePdfImagePixelsScaled(cos, stream, 4, 4)!;
+
+      expect(scaled.width, 4);
+      expect(scaled.height, 4);
+      var maxDiff = 0;
+      for (var i = 0; i < expected.rgba.length; i++) {
+        maxDiff = maxDiff > (scaled.rgba[i] - expected.rgba[i]).abs()
+            ? maxDiff
+            : (scaled.rgba[i] - expected.rgba[i]).abs();
+      }
+      expect(maxDiff, lessThanOrEqualTo(24));
+    });
+
+    test('a target no smaller than native is left to the full path', () {
+      // ratio < 2 → no reduce; the scaled façade declines and the caller
+      // full-decodes. (16x16 asked for 16x16.)
+      expect(decodePdfImagePixelsScaled(cos, jpxImage(16, 16), 16, 16), isNull);
+    });
+
+    test('an odd-width image shown at exactly half size is reduced', () {
+      // ceil(15 / 2) = 8: the reduced level still covers an 8-wide target, but
+      // 15 / 8 is under 2, which the old ratio test read as "not worth it" and
+      // full-decoded. (/Width 15 over the 16-wide codestream stands in for an
+      // odd-width scan; only the dictionary feeds the reduce choice.)
+      final stream = image({
+        'Width': const CosInteger(15),
+        'Height': const CosInteger(15),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'Filter': const CosName('JPXDecode'),
+      }, _rgbJ2kFixture);
+      final scaled = decodePdfImagePixelsScaled(cos, stream, 8, 8);
+      expect(scaled, isNotNull);
+      expect(scaled!.width, 8);
+      expect(scaled.height, 8);
+    });
+
+    test('a masked JPX base requested at target size is reduced', () {
+      // MRC scans put each page's colour layer under a stencil, so the masked
+      // path's base decode must skip resolution levels too, not decode at
+      // native size and shrink afterwards.
+      final mask = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(16),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, List.filled(256, 255));
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(16),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'Filter': const CosName('JPXDecode'),
+        'SMask': mask,
+      }, _rgbJ2kFixture);
+      final base =
+          decodePdfImageBase(cos, stream, targetWidth: 4, targetHeight: 4)!;
+      expect((base.width, base.height), (4, 4));
+      expect((decodePdfImageBase(cos, stream)!.width), 16); // no target: native
+
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 4, 4);
+      final targeted =
+          decodePdfImage(cos, stream, targetWidth: 4, targetHeight: 4)!;
+      expect((targeted.width, targeted.height), (4, 4));
+      for (var i = 0; i < expected.rgba.length; i++) {
+        expect(
+            (targeted.rgba[i] - expected.rgba[i]).abs(), lessThanOrEqualTo(24));
+      }
+    });
+  });
 }
+
+/// The 16x16 lossless RGB (RCT + 5/3) JPEG 2000 codestream from pdf_cos's
+/// jpx_test - a linear ramp (R=16x, G=16y, B=8x). Duplicated here (the two
+/// test suites are independent) to exercise the JPX branch of the scaled decode
+/// façade end to end.
+const _rgbJ2kFixture = [
+  255,
+  79,
+  255,
+  81,
+  0,
+  47,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  3,
+  7,
+  1,
+  1,
+  7,
+  1,
+  1,
+  7,
+  1,
+  1,
+  255,
+  82,
+  0,
+  12,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  4,
+  4,
+  0,
+  1,
+  255,
+  92,
+  0,
+  10,
+  64,
+  64,
+  72,
+  72,
+  80,
+  72,
+  72,
+  80,
+  255,
+  100,
+  0,
+  37,
+  0,
+  1,
+  67,
+  114,
+  101,
+  97,
+  116,
+  101,
+  100,
+  32,
+  98,
+  121,
+  32,
+  79,
+  112,
+  101,
+  110,
+  74,
+  80,
+  69,
+  71,
+  32,
+  118,
+  101,
+  114,
+  115,
+  105,
+  111,
+  110,
+  32,
+  50,
+  46,
+  53,
+  46,
+  52,
+  255,
+  144,
+  0,
+  10,
+  0,
+  0,
+  0,
+  0,
+  0,
+  158,
+  0,
+  1,
+  255,
+  147,
+  223,
+  128,
+  128,
+  18,
+  15,
+  51,
+  220,
+  41,
+  248,
+  240,
+  83,
+  215,
+  233,
+  92,
+  255,
+  7,
+  107,
+  224,
+  63,
+  207,
+  180,
+  52,
+  6,
+  65,
+  148,
+  140,
+  180,
+  7,
+  54,
+  238,
+  103,
+  24,
+  210,
+  232,
+  251,
+  223,
+  128,
+  112,
+  6,
+  65,
+  148,
+  140,
+  180,
+  7,
+  54,
+  238,
+  103,
+  24,
+  211,
+  235,
+  51,
+  111,
+  192,
+  249,
+  2,
+  65,
+  243,
+  131,
+  0,
+  34,
+  24,
+  119,
+  191,
+  3,
+  127,
+  191,
+  193,
+  243,
+  133,
+  131,
+  231,
+  8,
+  34,
+  26,
+  8,
+  93,
+  127,
+  0,
+  207,
+  213,
+  81,
+  195,
+  234,
+  5,
+  135,
+  212,
+  10,
+  34,
+  26,
+  8,
+  93,
+  127,
+  0,
+  207,
+  213,
+  82,
+  63,
+  192,
+  124,
+  34,
+  64,
+  249,
+  3,
+  0,
+  54,
+  161,
+  132,
+  63,
+  61,
+  166,
+  52,
+  47,
+  249,
+  83,
+  192,
+  249,
+  2,
+  64,
+  249,
+  2,
+  0,
+  54,
+  161,
+  153,
+  207,
+  62,
+  98,
+  162,
+  175,
+  193,
+  243,
+  132,
+  131,
+  231,
+  10,
+  54,
+  161,
+  153,
+  207,
+  62,
+  98,
+  162,
+  176,
+  63,
+  255,
+  217,
+];

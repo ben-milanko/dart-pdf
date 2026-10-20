@@ -1,0 +1,21 @@
+DartPDF, tamamen cihazınızda çalışan bir PDF düzenleyicidir.
+
+Herhangi bir PDF'yi açarak işaretleyin, formları doldurun, imzalayın, içeriği karartın, sayfaları yeniden düzenleyin ya da sayfadaki metni ve görselleri düzenleyin. Değişiklikler orijinal dosyaya geri kaydedilir.
+
+Hiçbir şey yüklenmez. Hesap, senkronizasyon ve reklam yok.
+
+Özellikler:
+
+• Vurgulama, altını çizme, üstünü çizme ve serbest el kalem
+• Şekiller, oklar, metin kutuları, notlar ve damgalar
+• Mevcut metni düzenleyin ve görsel ekleyin
+• Kapatılan metin ve görselleri yalnızca görünümden değil dosyadan da kaldıran karartma
+• Form alanlarını doldurun (metin, onay kutuları, radyo düğmeleri, açılır kutular) veya kendinizinkini ekleyin
+• Her yere yerleştirilebilen çizilmiş imzalar, ayrıca sertifika destekli PAdES dijital imzalar
+• Metnin seçilip aranabilmesi için taranmış PDF'lerde OCR
+• Sayfaları yeniden sıralayın, silin ve yeni bir dosyaya aktarın
+• Tam metin arama, metin seçimi ve bağlantılar
+• İki sürümü yan yana karşılaştırın
+• Parola korumalı dosyaları açın
+
+iPhone, iPad ve Mac'te çalışır. PDF'leri Dosyalar uygulamasından, paylaşım sayfalarından veya sürükle bırak ile açar. Açık ve koyu temalar.

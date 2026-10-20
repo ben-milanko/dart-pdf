@@ -1,0 +1,9 @@
+4.5.0'daki yenilikler
+
+- Her sürümdeki yenilikleri Ayarlar > Hakkında bölümünde görün.
+- Linux'ta daha net PDF metni ve çizgileri.
+- Dışa aktarılan sayfalar yeni bir sekmede açılır.
+- Sayfalar, yeniden akıtılmış metin ve sayfa ızgarası arasında tek bir denetimle geçiş yapın.
+- Gömülü olmayan standart yazı tiplerindeki metin için doğru harf aralığı.
+- Sütunlar arasında ve Çince, Japonca ile Korecede daha iyi metin seçimi.
+- Dış hatlı metin artık net çiziliyor.

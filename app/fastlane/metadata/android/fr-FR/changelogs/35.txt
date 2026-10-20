@@ -1,0 +1,7 @@
+Nouveautés de la version 4.2.0
+
+- Les pages proches restent nettes lors d'un défilement lent, grâce à la capacité graphique disponible.
+- Placez les annotations avec précision grâce aux nouveaux repères d'alignement et règles de page.
+- Zoomez autour du pointeur avec Ctrl ou Cmd et la molette.
+- Correction de l'édition d'annotations sur les pages pivotées et de la sélection des surlignages multilignes.
+- Faites glisser la vue entre les lignes de texte au lieu de démarrer une sélection.

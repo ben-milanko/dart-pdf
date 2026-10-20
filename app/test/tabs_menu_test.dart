@@ -1,6 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -8,7 +8,9 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
+import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -24,6 +26,16 @@ void main() {
 
   Future<void> setMobileSize(WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  // A realistic desktop width: with Chrome-style tab sizing a handful of tabs
+  // cap at their max width and leave slack for the trailing controls, rather
+  // than filling the whole 800px default test surface.
+  void setDesktopSize(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -57,9 +69,13 @@ void main() {
   // The tab title within the strip (scoped to the tab-strip ReorderableListView
   // so it never matches the AppBar's active-document title nor the thumbnail
   // sidebar's own reorderable list in the body).
+  Finder middleText(String name) => find.byWidgetPredicate(
+        (widget) => widget is MiddleEllipsisText && widget.data == name,
+      );
+
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: middleText(name),
       );
 
   // Right-clicks the tab labelled [name] to open its context menu.
@@ -82,6 +98,33 @@ void main() {
     await openTab(tester, 'gamma.pdf');
   }
 
+  // Opens the desktop tabs preview grid (grid_view button in the tab strip).
+  Future<void> openTabsGrid(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.pumpAndSettle();
+  }
+
+  // The grid tile whose title is [name] (scoped to the preview grid).
+  Finder gridTile(String name) => find.ancestor(
+        of: find.descendant(
+          of: find.byKey(const ValueKey('desktop-tabs-grid')),
+          matching: middleText(name),
+        ),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      );
+
+  // Right-clicks the grid tile labelled [name] to open its context menu.
+  Future<void> rightClickGridTile(WidgetTester tester, String name) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(gridTile(name)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('incoming file shows an opening indicator', (tester) async {
     await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
     await tester.pump();
@@ -97,11 +140,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.text('Opening slow.pdf…'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('^Opening document')), findsOneWidget);
+    expect(find.text('Opening slow…'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Opening slow…'), findsNothing);
     expect(tabTitle('slow.pdf'), findsOneWidget);
   });
 
@@ -124,8 +167,22 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('mobile-app-save')), findsOneWidget);
-    expect(find.byKey(const ValueKey('pdf-shell-save')), findsNothing);
+    // one header: the editor's own save/share button rides in the app bar
+    // (no app-side copy of it), live without edits
+    final save = find.byKey(const ValueKey('pdf-shell-save'));
+    expect(save, findsOneWidget);
+    final appBar = find.byKey(const ValueKey('editor-app-bar'));
+    expect(appBar, findsOneWidget);
+    expect(find.descendant(of: appBar, matching: save), findsOneWidget);
+    expect(
+      find.descendant(of: save, matching: find.text('Share')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: save, matching: find.byIcon(Icons.share_outlined)),
+      findsOneWidget,
+    );
+    expect(tester.getSemantics(save), isSemantics(isEnabled: true));
 
     await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
     await tester.pumpAndSettle();
@@ -136,22 +193,62 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('mobile-tabs-grid')),
-        matching: find.text('alpha.pdf'),
+        matching: middleText('alpha.pdf'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('mobile-tabs-grid')),
-        matching: find.text('beta.pdf'),
+        matching: middleText('beta.pdf'),
       ),
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('mobile-tabs-open')), findsOneWidget);
   });
 
+  testWidgets('wide mobile save affordance is labelled Share', (tester) async {
+    setDesktopSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+
+    final save = find.byKey(const ValueKey('pdf-shell-save'));
+    expect(save, findsOneWidget);
+    expect(
+      find.descendant(of: save, matching: find.text('Share')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: save, matching: find.byIcon(Icons.share_outlined)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'narrow desktop keeps the Save affordance',
+    (tester) async {
+      await setMobileSize(tester);
+      await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      await tester.pump();
+      await openTab(tester, 'alpha.pdf');
+
+      final save = find.byKey(const ValueKey('pdf-shell-save'));
+      expect(
+        find.descendant(of: save, matching: find.text('Save')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: save, matching: find.byIcon(Icons.save_alt)),
+        findsOneWidget,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
   testWidgets('desktop tab strip opens the preview grid in a dialog',
       (tester) async {
+    setDesktopSize(tester);
     await openTabs(tester);
 
     final button = find.byKey(const ValueKey('desktop-tabs-button'));
@@ -191,12 +288,16 @@ void main() {
     expect(find.byKey(const ValueKey('desktop-tabs-open')), findsOneWidget);
 
     await tester.tap(
-      find.descendant(of: grid, matching: find.text('alpha.pdf')),
+      find.descendant(of: grid, matching: middleText('alpha.pdf')),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
-    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
   });
 
@@ -222,7 +323,7 @@ void main() {
     final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
     Finder previewFor(String title) {
       final tile = find.ancestor(
-        of: find.descendant(of: grid, matching: find.text(title)),
+        of: find.descendant(of: grid, matching: middleText(title)),
         matching: find.byKey(const ValueKey('mobile-tab-tile')),
       );
       return find.descendant(
@@ -235,6 +336,139 @@ void main() {
         closeTo(612 / 792, 0.001));
     expect(tester.getSize(previewFor('landscape.pdf')).aspectRatio,
         closeTo(792 / 612, 0.001));
+  });
+
+  testWidgets('tab grid resumes thumbnail rendering after a fast fling',
+      (tester) async {
+    await setMobileSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    // More than two viewportfuls ensures the last tab's preview is first
+    // constructed while the grid is moving, rather than before the fling.
+    for (var i = 0; i < 20; i++) {
+      await openTab(tester, 'tab-$i.pdf');
+    }
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    final grid = find.byKey(const ValueKey('mobile-tabs-grid'));
+    final scrollable = find
+        .descendant(
+          of: grid,
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    Finder tile(String title) => find.ancestor(
+          of: find.descendant(of: grid, matching: middleText(title)),
+          matching: find.byKey(const ValueKey('mobile-tab-tile')),
+        );
+    expect(tester.widget<GridView>(grid).scrollCacheExtent, isNotNull);
+    // The grid opens on the active (last-opened) tab, so the first tab is the
+    // one still to be built.
+    expect(tile('tab-0.pdf'), findsNothing);
+
+    // Keep plenty of content above the fling so it retains a high ballistic
+    // velocity while fresh rows are being constructed.
+    await tester.fling(grid, const Offset(0, 300), 5000);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(0);
+    await tester.pumpAndSettle();
+
+    final firstTile = tile('tab-0.pdf');
+    expect(firstTile, findsOneWidget);
+    expect(
+      find.descendant(
+        of: firstTile,
+        matching: find.byKey(const ValueKey('mobile-tab-preview-image')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('tab grid opens scrolled to the active tab', (tester) async {
+    await setMobileSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    for (var i = 0; i < 20; i++) {
+      await openTab(tester, 'tab-$i.pdf');
+    }
+
+    Finder tile(String title) => find.ancestor(
+          of: find.descendant(
+            of: find.byKey(const ValueKey('mobile-tabs-grid')),
+            matching: middleText(title),
+          ),
+          matching: find.byKey(const ValueKey('mobile-tab-tile')),
+        );
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    // The last-opened tab is active: the grid lands on it, not the first row.
+    expect(tile('tab-19.pdf'), findsOneWidget);
+    expect(tile('tab-0.pdf'), findsNothing);
+
+    // Activate a tab in the middle, then reopen: the grid follows it.
+    final scrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('mobile-tabs-grid')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(tile('tab-9.pdf'), -200,
+        scrollable: scrollable);
+    await tester.tap(tile('tab-9.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tabs-grid')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    final viewport = tester.getRect(scrollable);
+    final active = tester.getRect(tile('tab-9.pdf'));
+    expect(viewport.contains(active.topLeft), isTrue);
+    expect(viewport.contains(active.bottomRight), isTrue);
+    expect(tile('tab-0.pdf'), findsNothing);
+  });
+
+  testWidgets('tab grid search filters tabs by title', (tester) async {
+    setDesktopSize(tester);
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    final search = find.byKey(const ValueKey('desktop-tabs-search'));
+    expect(search, findsOneWidget);
+    // The desktop dialog takes typing straight away.
+    expect(tester.testTextInput.hasAnyClients, isTrue);
+
+    await tester.enterText(search, 'BET');
+    await tester.pumpAndSettle();
+    expect(gridTile('beta.pdf'), findsOneWidget);
+    expect(gridTile('alpha.pdf'), findsNothing);
+    expect(gridTile('gamma.pdf'), findsNothing);
+
+    await tester.enterText(search, 'zzz');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tab-tile')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('desktop-tabs-no-matches')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-search-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tab-tile')), findsNWidgets(3));
+
+    // Enter switches to the first match and dismisses the grid.
+    await tester.enterText(search, 'alp');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
+        FontWeight.w600);
   });
 
   testWidgets('hovering an inactive desktop tab shows its page preview',
@@ -265,16 +499,21 @@ void main() {
       find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
     );
     expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
-    expect(
-      tester.widget<Text>(
-        find.byKey(const ValueKey('tab-hover-preview-title')),
-      ).data,
-      'alpha.pdf',
+    final previewTitle = find.byKey(
+      const ValueKey('tab-hover-preview-title'),
     );
+    final previewTitleWidget = tester.widget<MiddleEllipsisText>(previewTitle);
+    expect(previewTitleWidget.data, 'alpha.pdf');
+    expect(previewTitleWidget.hidePdfExtension, isTrue);
+    // ignore: avoid_dynamic_calls
+    expect((tester.renderObject(previewTitle) as dynamic).debugDisplayedText,
+        'alpha');
     expect(
-      tester.widget<Text>(
-        find.byKey(const ValueKey('tab-hover-preview-page')),
-      ).data,
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('tab-hover-preview-page')),
+          )
+          .data,
       'Page 1',
     );
     await tester.pump();
@@ -302,6 +541,53 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
   });
 
+  testWidgets('right-click on a grid tile opens the tab context menu',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets('grid tile Close others leaves only the clicked tab, grid open',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-others')));
+    await tester.pumpAndSettle();
+
+    // The grid stays open and refreshes to the single surviving tab.
+    expect(find.byKey(const ValueKey('desktop-tabs-grid')), findsOneWidget);
+    expect(gridTile('beta.pdf'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('desktop-tabs-grid')),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('grid tile Close all empties the grid and dismisses the dialog',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'alpha.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-all')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-strip')), findsNothing);
+  });
+
   testWidgets(
       'right-click offers opening the source folder for file-backed tabs',
       (tester) async {
@@ -314,6 +600,50 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-open-folder')), findsOneWidget);
     expect(find.text('Open in Finder'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('reveal follows a Save As to a new folder', (tester) async {
+    // The reveal has to name where the document lives *now*: after a Save As
+    // the tab's origin moves with it, and the menu must not point back at the
+    // file it was opened from.
+    const fileAccess = MethodChannel('dev.milanko.dartpdf/file_access');
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(fileAccess,
+        (call) async {
+      calls.add(call);
+      // A bookmark for the new path on macOS; unused (and unasked) elsewhere.
+      return call.method == 'bookmarkForPath'
+          ? Uint8List.fromList([1, 2, 3])
+          : true;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(fileAccess, null));
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        saveDocumentAs: (context, bytes, name) async =>
+            SaveResult.saved('/Users/ben/Desktop/copy.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf', path: '/Users/ben/Documents/alpha.pdf');
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-save-as')));
+    await tester.pumpAndSettle();
+    expect(tabTitle('copy.pdf'), findsOneWidget);
+
+    calls.clear();
+    await rightClickTab(tester, 'copy.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-open-folder')));
+    await tester.pumpAndSettle();
+
+    final reveal = calls.singleWhere((call) => call.method == 'revealFile');
+    expect((reveal.arguments as Map)['path'], '/Users/ben/Desktop/copy.pdf');
+  },
+      variant: const TargetPlatformVariant(
+          <TargetPlatform>{TargetPlatform.macOS, TargetPlatform.windows}));
 
   testWidgets('right-click hides folder action for memory-only tabs',
       (tester) async {
@@ -358,10 +688,9 @@ void main() {
 
     await rightClickTab(tester, 'gamma.pdf');
 
-    final item = tester.widget<PopupMenuItem<dynamic>>(
-      find.byKey(const ValueKey('tab-menu-close-right')),
-    );
-    expect(item.enabled, isFalse);
+    expect(
+        tester.getSemantics(find.byKey(const ValueKey('tab-menu-close-right'))),
+        isSemantics(isEnabled: false));
   });
 
   testWidgets('Close all removes every tab', (tester) async {
@@ -372,7 +701,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('tab-strip')), findsNothing);
-    expect(find.byTooltip('Close tab'), findsNothing);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('tab-close-')),
+        findsNothing);
   });
 
   testWidgets('Close on the active tab activates a surviving neighbour',
@@ -386,7 +719,11 @@ void main() {
 
     expect(tabTitle('gamma.pdf'), findsNothing);
     // beta is now the rightmost survivor and becomes active.
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
   });
 
@@ -398,7 +735,11 @@ void main() {
     await openTab(tester, 'alpha.pdf', path: '/docs/alpha.pdf');
     await openTab(tester, 'beta.pdf', path: '/docs/beta.pdf');
     // beta was opened last, so it is the active tab.
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
 
     // The OS hands us alpha a second time (another "open with" of the same
@@ -409,9 +750,17 @@ void main() {
     // No duplicate tab, and alpha is now focused rather than re-loaded.
     expect(tabTitle('alpha.pdf'), findsOneWidget);
     expect(find.byTooltip('Close tab'), findsNWidgets(2));
-    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.normal);
   });
 }

@@ -26,9 +26,8 @@ void main() {
     expect(content, contains('/FlatAnnot0 Do'));
     expect(content, contains('/FlatAnnot1 Do'));
 
-    final xobjects = doc.cos.resolve(
-            (doc.cos.resolve(page.dict['Resources']) as CosDictionary)['XObject'])
-        as CosDictionary;
+    final xobjects = doc.cos.resolve((doc.cos.resolve(page.dict['Resources'])
+        as CosDictionary)['XObject']) as CosDictionary;
     expect(xobjects.containsKey('FlatAnnot0'), isTrue);
     final form = doc.cos.resolve(xobjects['FlatAnnot0']);
     expect(form, isA<CosStream>());
@@ -54,6 +53,23 @@ void main() {
     final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
       ..flattenAnnotations(0);
     expect(editor.hasChanges, isFalse);
+  });
+
+  test('flattening a selected annotation leaves its siblings interactive', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+      ..addHighlight(0, const [PdfRect(72, 700, 200, 712)])
+      ..addStamp(0, const PdfRect(100, 500, 260, 540), 'DRAFT');
+    final withAnnots = PdfDocument.open(editor.save());
+    final selected = withAnnots.page(0).annotations.first;
+
+    final flattener = PdfEditor(withAnnots)
+      ..flattenAnnotations(0, annotations: [selected]);
+    final doc = PdfDocument.open(flattener.save());
+
+    expect(doc.page(0).annotations, hasLength(1));
+    expect(doc.page(0).annotations.single.subtype, 'Stamp');
+    expect(
+        latin1.decode(doc.page(0).contentBytes()), contains('/FlatAnnot0 Do'));
   });
 
   test('flattened widget states follow /AS', () {

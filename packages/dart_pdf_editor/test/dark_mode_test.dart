@@ -1,6 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,16 +77,26 @@ void main() {
     expect(borders, isNot(contains(Colors.black26)));
   });
 
-  test('the theme mode persists as a preference', () async {
+  test('the theme preference persists as a preference', () async {
     SharedPreferences.setMockInitialValues({});
     final a = PdfEditingPreferences();
     await a.ready;
-    expect(a.themeMode, ThemeMode.system);
-    a.themeMode = ThemeMode.dark;
+    expect(a.themePreference, PdfThemePreference.system);
+    a.themePreference = PdfThemePreference.dark;
     await pumpEventQueue();
 
     final b = PdfEditingPreferences();
     await b.ready;
-    expect(b.themeMode, ThemeMode.dark);
+    expect(b.themePreference, PdfThemePreference.dark);
+  });
+
+  test('a theme saved by the ThemeMode-typed member reads back', () async {
+    // Older builds wrote ThemeMode.name under this key; the new enum
+    // shares the key and the value names.
+    SharedPreferences.setMockInitialValues(
+        {'dart_pdf_editor.editing.themeMode': 'light'});
+    final prefs = PdfEditingPreferences();
+    await prefs.ready;
+    expect(prefs.themePreference, PdfThemePreference.light);
   });
 }

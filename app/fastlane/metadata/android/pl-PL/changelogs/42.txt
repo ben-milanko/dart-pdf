@@ -1,0 +1,6 @@
+Nowości w 6.0.0
+
+- Zaznaczaj tekst narzędziem Zaznaczanie; w trybie Ręka kliknij słowo dwukrotnie.
+- Sterowanie czytaniem w jednym nagłówku.
+- Szybsze wyświetlanie stron przy mniejszym zużyciu pamięci.
+- Naprawiono brak szczegółów po szybkim powiększeniu.

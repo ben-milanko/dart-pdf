@@ -3,25 +3,108 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  private let fileAccess = FileAccessExecutor()
+  private var windowingEngine: FlutterEngine?
+  private var windowingServicesWindow: MainFlutterWindow?
+  private var windowActivationObserver: NSObjectProtocol?
+  private let repairedWindowActivations = NSHashTable<NSWindow>.weakObjects()
+
   /// Channel to the Dart `IncomingFileService`; set by MainFlutterWindow once
   /// the engine exists.
   var incomingChannel: FlutterMethodChannel?
 
   /// Files opened before the engine was ready (cold start). Drained by the
-  /// Dart side's `getInitialFile` call.
+  /// Dart side's `getInitialFiles` call.
   var pendingFiles: [[String: Any]] = []
 
-  /// True once Dart has installed its `openFile` handler and called
-  /// `getInitialFile`. A FlutterMethodChannel can exist before that point
+  /// True once Dart has installed its `openFiles` handler and called
+  /// `getInitialFiles`. A FlutterMethodChannel can exist before that point
   /// during cold start; sending then drops the file on the floor.
   var dartIncomingReady = false
 
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    // Finder's "Combine with DartPDF" service (NSServices in Info.plist) calls
+    // combinePDFs(_:userData:error:) on this object.
+    NSApp.servicesProvider = self
+    guard DartPdfWindowingBootstrap.isEnabled else {
+      super.applicationDidFinishLaunching(notification)
+      return
+    }
+
+    // Keep the NIB-created object only as the owner of DartPDF's native
+    // services. It deliberately has no FlutterViewController in this mode;
+    // Dart's RegularWindowController creates the visible primary window.
+    guard let servicesWindow = mainFlutterWindow as? MainFlutterWindow else {
+      assertionFailure("DartPDF multi-window bootstrap has no services window")
+      return
+    }
+    servicesWindow.orderOut(nil)
+    windowingServicesWindow = servicesWindow
+    installWindowActivationRepair()
+
+    let engine = FlutterEngine(name: "dartpdf-windowing", project: nil)
+    windowingEngine = engine
+    _ = engine.run(withEntrypoint: nil)
+    servicesWindow.configureWindowingEngine(engine)
+  }
+
+  override func applicationWillTerminate(_ notification: Notification) {
+    if let observer = windowActivationObserver {
+      NotificationCenter.default.removeObserver(observer)
+      windowActivationObserver = nil
+    }
+    windowingEngine?.shutDownEngine()
+    windowingEngine = nil
+    super.applicationWillTerminate(notification)
+  }
+
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return true
+    // Hiding the NIB-created services window briefly leaves AppKit with no
+    // visible window while Dart constructs its primary RegularWindow. Letting
+    // AppKit terminate at that point races the experimental bootstrap and can
+    // tear down every Dart-owned view just after launch. The Dart window
+    // lifetime coordinator calls SystemNavigator.pop after its final window;
+    // the normal single-window runner keeps the historical AppKit behavior.
+    return !DartPdfWindowingBootstrap.isEnabled
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
+  }
+
+  /// Repairs Flutter 3.47's initial key-window notification ordering.
+  ///
+  /// The experimental embedder makes a new regular/dialog window key before
+  /// assigning its FlutterWindowOwner delegate. That loses the first
+  /// `windowDidBecomeKey`, so the engine does not select the new view for
+  /// keyboard and pointer routing. Replaying that delegate notification once
+  /// on the next main-loop turn occurs after the delegate is installed and
+  /// selects the correct engine view without visibly cycling the window.
+  private func installWindowActivationRepair() {
+    windowActivationObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.didBecomeKeyNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let self,
+            let window = notification.object as? NSWindow,
+            window !== self.windowingServicesWindow,
+            let controller = window.contentViewController as? FlutterViewController
+      else { return }
+
+      guard !self.repairedWindowActivations.contains(window) else { return }
+      self.repairedWindowActivations.add(window)
+
+      DispatchQueue.main.async { [weak window, weak controller] in
+        guard let window, let controller, window.isVisible else { return }
+        // FlutterViewController.view is a wrapper; its first child is the
+        // FlutterView that accepts first-responder/key events.
+        let flutterView = controller.view.subviews.first ?? controller.view
+        window.makeFirstResponder(flutterView)
+        window.delegate?.windowDidBecomeKey?(
+          Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+      }
+    }
   }
 
   /// "Open With" / double-click / drag-onto-icon, delivered as URLs. This is
@@ -31,14 +114,17 @@ class AppDelegate: FlutterAppDelegate {
   /// `openFile:`/`openFiles:` below. File URLs are ours; anything else (custom
   /// URL schemes, universal links) belongs to Flutter's deep-link handling.
   override func application(_ application: NSApplication, open urls: [URL]) {
+    var paths: [String] = []
     var forwarded: [URL] = []
     for url in urls {
       if url.isFileURL {
-        deliver(path: url.path)
+        paths.append(url.path)
       } else {
         forwarded.append(url)
       }
     }
+    // One request, one batch: Dart offers to combine several files.
+    if !paths.isEmpty { deliver(paths: paths) }
     if !forwarded.isEmpty {
       super.application(application, open: forwarded)
     }
@@ -47,43 +133,105 @@ class AppDelegate: FlutterAppDelegate {
   /// Fallback for macOS < 10.13, which predates `application(_:open:)`.
   /// "Open With" / double-click / drag-onto-icon for a single file.
   override func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-    deliver(path: filename)
+    deliver(paths: [filename])
     return true
   }
 
   /// Fallback for macOS < 10.13. Multiple files at once.
   override func application(_ sender: NSApplication, openFiles filenames: [String]) {
-    for filename in filenames { deliver(path: filename) }
+    deliver(paths: filenames)
     sender.reply(toOpenOrPrint: .success)
   }
 
-  /// Sends a freshly opened file to Dart, or buffers it until the engine is up.
-  private func deliver(path: String) {
-    let payload = payload(for: path)
-    guard dartIncomingReady, let channel = incomingChannel else {
-      pendingFiles.append(payload)
+  /// Finder's "Combine with DartPDF" service (right-click > Quick Actions /
+  /// Services, declared under NSServices in Info.plist): the selected PDFs
+  /// arrive on the pasteboard and go to Dart as one batch marked to combine.
+  @objc(combinePDFs:userData:error:)
+  func combinePDFs(
+    _ pboard: NSPasteboard, userData: String?,
+    error: AutoreleasingUnsafeMutablePointer<NSString?>
+  ) {
+    let urls = pboard.readObjects(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    let paths = urls.map { $0.path }
+    guard !paths.isEmpty else {
+      error.pointee = "No PDF files were selected." as NSString
       return
     }
-    channel.invokeMethod("openFile", arguments: payload)
+    deliver(paths: paths, combine: true)
   }
 
-  /// Marks Dart ready for warm file-open pushes and returns the first queued
-  /// cold-start file for the `getInitialFile` response, if any.
-  func takeInitialFile() -> [String: Any]? {
+  /// Brings DartPDF forward for a file the OS just handed us. LaunchServices
+  /// usually activates the app for a Finder open, but not for every sender,
+  /// and activation alone never unhides the app (Cmd-H) or restores a window
+  /// minimized to the Dock - the document would open in a tab nobody can see.
+  /// On a cold start there is no window yet and this only activates.
+  private func surfaceForIncomingFile() {
+    let app = NSApplication.shared
+    if app.isHidden { app.unhide(nil) }
+    if #available(macOS 14.0, *) {
+      app.activate()
+    } else {
+      app.activate(ignoringOtherApps: true)
+    }
+    guard let window = documentWindow() else { return }
+    if window.isMiniaturized { window.deminiaturize(nil) }
+    window.makeKeyAndOrderFront(nil)
+  }
+
+  /// The window the incoming file lands in: the single-window runner's main
+  /// window, or in multi-window mode the frontmost Dart-owned window (never
+  /// the hidden services window), falling back to a minimized one.
+  private func documentWindow() -> NSWindow? {
+    guard DartPdfWindowingBootstrap.isEnabled else { return mainFlutterWindow }
+    let candidates = NSApplication.shared.orderedWindows.filter {
+      $0 !== windowingServicesWindow && $0.contentViewController is FlutterViewController
+    }
+    return candidates.first(where: { $0.isVisible })
+      ?? NSApplication.shared.windows.first(where: {
+        $0 !== windowingServicesWindow && $0.isMiniaturized
+          && $0.contentViewController is FlutterViewController
+      })
+  }
+
+  /// Sends freshly opened files to Dart as one batch, or buffers them until
+  /// the engine is up. [combine] marks files from the "Combine with DartPDF"
+  /// service.
+  private func deliver(paths: [String], combine: Bool = false) {
+    surfaceForIncomingFile()
+    // Finder can deliver an iCloud/OneDrive placeholder during cold launch.
+    // Reading it or resolving its security scope here blocks AppKit's main
+    // thread and produces a beachball before Flutter can paint. Build the
+    // payloads on the same background executor used by the file-access
+    // channel, then return to the main thread to touch the channel/queue state.
+    fileAccess.perform {
+      let payloads = paths.map { path -> [String: Any] in
+        var payload = self.payload(for: path)
+        if combine { payload["combine"] = true }
+        return payload
+      }
+      DispatchQueue.main.async {
+        self.deliver(payloads: payloads)
+      }
+    }
+  }
+
+  private func deliver(payloads: [[String: Any]]) {
+    guard dartIncomingReady, let channel = incomingChannel else {
+      pendingFiles.append(contentsOf: payloads)
+      return
+    }
+    channel.invokeMethod("openFiles", arguments: payloads)
+  }
+
+  /// Marks Dart ready for warm file-open pushes and returns every file queued
+  /// before then - the cold-start batch - for the `getInitialFiles` response.
+  func takeInitialFiles() -> [[String: Any]] {
     dartIncomingReady = true
-    guard !pendingFiles.isEmpty else { return nil }
-    return pendingFiles.removeFirst()
-  }
-
-  /// Sends any extra files queued before Dart was ready. The first queued file
-  /// travels as the `getInitialFile` response; the rest use the warm stream.
-  func flushPendingFiles() {
-    guard dartIncomingReady, let channel = incomingChannel else { return }
     let files = pendingFiles
     pendingFiles.removeAll()
-    for payload in files {
-      channel.invokeMethod("openFile", arguments: payload)
-    }
+    return files
   }
 
   func payload(for path: String) -> [String: Any] {
@@ -94,11 +242,12 @@ class AppDelegate: FlutterAppDelegate {
     ]
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    if let data = try? Data(contentsOf: url) {
-      payload["bytes"] = FlutterStandardTypedData(bytes: data)
-    }
     if let bookmark = securityBookmark(for: url) {
       payload["bookmark"] = bookmark.base64EncodedString()
+    } else if let data = try? Data(contentsOf: url) {
+      // A bookmark should normally succeed. Preserve the old whole-byte
+      // fallback for unusual providers, but it now runs off the AppKit thread.
+      payload["bytes"] = FlutterStandardTypedData(bytes: data)
     }
     return payload
   }

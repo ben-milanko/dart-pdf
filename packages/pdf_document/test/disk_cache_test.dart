@@ -108,6 +108,45 @@ void main() {
       expect(await cache.debugLength, 0);
     });
 
+    test('counters report hits, misses, evictions, and oversize rejections',
+        () async {
+      // Diagnostics for the caches layered on top (the persistent full-raster
+      // tier reads these to tell "the budget is too small for this document"
+      // from "one page will never fit").
+      final cache = PdfDiskCache(PdfMemoryCacheStore(), maxBytes: 30);
+      await cache.write('a', Uint8List(12));
+      await cache.write('b', Uint8List(12));
+      expect(cache.writes, 2);
+      expect(cache.bytesWritten, 24);
+      expect(cache.evictions, 0);
+
+      expect(await cache.read('a'), isNotNull);
+      expect(await cache.read('missing'), isNull);
+      expect(cache.hits, 1);
+      expect(cache.misses, 1);
+      expect(cache.bytesRead, 12);
+
+      // 'b' is now least-recently-used, so a third entry evicts it.
+      await cache.write('c', Uint8List(12));
+      expect(cache.evictions, 1);
+      expect(cache.bytesEvicted, 12);
+      expect(await cache.read('b'), isNull);
+
+      // An entry over the whole budget is skipped, not thrashed through.
+      await cache.write('huge', Uint8List(100));
+      expect(cache.oversizeRejections, 1);
+      expect(cache.evictions, 1, reason: 'no eviction for a rejected write');
+      expect(await cache.read('a'), isNotNull);
+
+      expect(cache.debugStats, contains('rejected=1'));
+      cache.resetStats();
+      expect(cache.hits, 0);
+      expect(cache.misses, 0);
+      expect(cache.writes, 0);
+      expect(cache.evictions, 0);
+      expect(cache.oversizeRejections, 0);
+    });
+
     test('manifest (and entries) survive a new cache over the same store',
         () async {
       final store = PdfMemoryCacheStore();

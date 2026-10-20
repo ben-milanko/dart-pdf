@@ -1,0 +1,4 @@
+Nouveautés de la 5.1.1
+
+- L'encre tracée rapidement à la suite ne disparaît plus de la page.
+- Inclut toutes les améliorations de la 5.1.0.

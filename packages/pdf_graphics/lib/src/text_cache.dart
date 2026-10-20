@@ -10,7 +10,7 @@ import 'text_extraction.dart';
 /// Magic + version word at the head of an encoded [PdfPageText] blob.
 /// Bump the low byte when the layout below changes; mismatched blobs
 /// decode to null (a miss) rather than mis-parsing.
-const int _textBlobMagic = 0x50545832; // 'PTX2'
+const int _textBlobMagic = 0x50545834; // 'PTX4'
 
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
@@ -35,12 +35,33 @@ Uint8List pdfEncodePageText(PdfPageText page) {
       ..f64(t.e)
       ..f64(t.f);
     out.f64(run.width);
+    out
+      ..f64(run.descent)
+      ..f64(run.ascent);
     final b = run.bounds;
     out
       ..f64(b.left)
       ..f64(b.bottom)
       ..f64(b.right)
       ..f64(b.top);
+    // Per-character advances (issue #647). Length-prefixed, 0 meaning absent -
+    // a present table is always run.text.length + 1 entries.
+    final offsets = run.charOffsets;
+    if (offsets == null) {
+      out.u32(0);
+    } else {
+      out.u32(offsets.length);
+      if (offsets is Float64List) {
+        // Indexed: a for-in over a typed list boxes each element on the VM.
+        for (var i = 0; i < offsets.length; i++) {
+          out.f64(offsets[i]);
+        }
+      } else {
+        for (final offset in offsets) {
+          out.f64(offset);
+        }
+      }
+    }
   }
   return out.takeBytes();
 }
@@ -63,13 +84,28 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
       final transform =
           PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
       final width = r.f64();
+      final descent = r.f64();
+      final ascent = r.f64();
       final bounds = PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+      final offsetCount = r.u32();
+      Float64List? offsets;
+      if (offsetCount != 0) {
+        offsets = Float64List(offsetCount);
+        for (var j = 0; j < offsetCount; j++) {
+          offsets[j] = r.f64();
+        }
+      }
       runs.add(PdfExtractedRun(
         text: runText,
         startIndex: startIndex,
         transform: transform,
         width: width,
+        descent: descent,
+        ascent: ascent,
         bounds: bounds,
+        charOffsets: offsets != null && offsets.length == runText.length + 1
+            ? offsets
+            : null,
         isRightToLeft: isRightToLeft,
       ));
     }

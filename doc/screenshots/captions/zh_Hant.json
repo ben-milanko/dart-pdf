@@ -1,0 +1,38 @@
+{
+  "locale": "zh_Hant",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "私密的 PDF 編輯",
+      "subtitle": "沒有帳戶。不上傳。檔案留在您的裝置上。"
+    },
+    "app/02-editor": {
+      "headline": "標註、簽署、塗黑",
+      "subtitle": "填寫表單、加入便箋，並移動頁面。"
+    },
+    "app/03-dark": {
+      "headline": "為真實文件而打造",
+      "subtitle": "搜尋文字、執行 OCR、比較版本，\n並開啟受保護的檔案。"
+    },
+    "example/01-document": {
+      "headline": "開啟任何 PDF",
+      "subtitle": "以純 Dart 算繪，適用於每個平台"
+    },
+    "example/02-graphics": {
+      "headline": "圖形",
+      "subtitle": "漸層、漸變填色與透明度"
+    },
+    "example/03-annotations": {
+      "headline": "註解",
+      "subtitle": "醒目提示、手繪、便箋、戳記與表單"
+    },
+    "example/04-markup": {
+      "headline": "標記工具",
+      "subtitle": "在頁面上繪圖、加入形狀並簽名"
+    },
+    "example/05-reader": {
+      "headline": "閱讀檢視",
+      "subtitle": "重排文字以符合螢幕"
+    }
+  }
+}

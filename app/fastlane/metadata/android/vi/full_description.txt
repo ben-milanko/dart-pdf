@@ -1,0 +1,21 @@
+DartPDF là trình chỉnh sửa PDF chạy hoàn toàn trên thiết bị của bạn.
+
+Mở bất kỳ tệp PDF nào để đánh dấu, điền biểu mẫu, ký, che thông tin, sắp xếp lại trang, hoặc chỉnh sửa văn bản và hình ảnh trên trang. Các thay đổi được lưu lại vào tệp gốc.
+
+Không có gì được tải lên. Không tài khoản, không đồng bộ và không quảng cáo.
+
+Tính năng:
+
+• Tô sáng, gạch chân, gạch ngang và nét mực vẽ tay
+• Hình khối, mũi tên, hộp văn bản, ghi chú và con dấu
+• Chỉnh sửa văn bản có sẵn và thêm hình ảnh
+• Che thông tin để xóa hẳn văn bản và hình ảnh bị che khỏi tệp, không chỉ khỏi màn hình
+• Điền các trường biểu mẫu (văn bản, hộp kiểm, nút chọn, danh sách thả xuống), hoặc tự thêm trường của bạn
+• Chữ ký vẽ tay đặt ở bất kỳ đâu, cùng chữ ký số PAdES có chứng thư số
+• OCR các tệp PDF đã quét để có thể chọn và tìm kiếm văn bản
+• Sắp xếp lại, xóa và xuất trang ra tệp mới
+• Tìm kiếm toàn văn, chọn văn bản và liên kết
+• So sánh hai phiên bản cạnh nhau
+• Mở tệp được bảo vệ bằng mật khẩu
+
+Chạy trên Android, iPhone, iPad và Mac, cùng với Windows, Linux và trên web. Mở tệp PDF từ trình quản lý tệp, bảng chia sẻ hoặc kéo-thả. Giao diện sáng và tối.

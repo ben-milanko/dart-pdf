@@ -51,6 +51,9 @@ class _MaskDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) {}
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
   void save() {}
   @override
   void restore() {}

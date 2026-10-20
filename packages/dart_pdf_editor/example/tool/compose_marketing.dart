@@ -23,8 +23,11 @@ import 'dart:io';
 import 'dart:math';
 
 /// Headline + subtitle per screenshot, keyed `<target>/<basename>` (the raw
-/// PNG name without its extension). Edit these freely - they're the only
-/// marketing copy in the pipeline.
+/// PNG name without its extension). These are the **English** defaults and the
+/// source of truth for the marketing copy. Localized caption sets live in
+/// `doc/screenshots/captions/<locale>.json` and are overlaid on top of these
+/// when `--locale` is passed (see [_loadCaptions]); any key a translation omits
+/// falls back to the English string here.
 const _captions = <String, (String, String)>{
   // The standalone DartPDF app.
   'app/01-welcome': (
@@ -201,6 +204,12 @@ void main(List<String> argv) async {
   final inDir = Directory(args['in']!);
   final outDir = Directory(args['out']!)..createSync(recursive: true);
   final orientation = args['orientation'] ?? 'landscape';
+  final locale = args['locale'] ?? 'en';
+  // Localized caption sets sit in doc/screenshots/captions/<locale>.json, a
+  // sibling of the raw-capture tree (doc/screenshots/<target>/<platform>).
+  final captionsDir = args['captions-dir'] ??
+      '${inDir.parent.parent.path}/captions';
+  final captions = _loadCaptions(locale, captionsDir);
   final width =
       int.parse(args['width'] ?? (orientation == 'portrait' ? '1320' : '1440'));
   final height =
@@ -233,7 +242,7 @@ void main(List<String> argv) async {
   var made = 0;
   for (final shot in shots) {
     final base = shot.uri.pathSegments.last.replaceAll('.png', '');
-    final caption = _captions['$target/$base'] ?? (_titleCase(base), '');
+    final caption = captions['$target/$base'] ?? (_titleCase(base), '');
     final svg = _composeSvg(
       shotBytes: shot.readAsBytesSync(),
       width: width,
@@ -362,6 +371,37 @@ String _composeSvg({
         fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
   $marks
 </svg>''';
+}
+
+/// The caption map for [locale]: the English [_captions] defaults with the
+/// locale's `<captionsDir>/<locale>.json` overlaid on top (each entry is a
+/// `{"headline": ..., "subtitle": ...}` object keyed `<target>/<basename>`).
+/// Missing or malformed files fall back to English so a compose run never
+/// breaks on a partial translation; an untranslated key keeps its English text.
+Map<String, (String, String)> _loadCaptions(String locale, String captionsDir) {
+  final captions = Map<String, (String, String)>.from(_captions);
+  if (locale == 'en') return captions;
+  final file = File('$captionsDir/$locale.json');
+  if (!file.existsSync()) {
+    stderr.writeln('[compose] no caption file for "$locale" '
+        '(${file.path}); using English captions.');
+    return captions;
+  }
+  try {
+    final data = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    final entries = (data['captions'] as Map<String, dynamic>?) ?? const {};
+    entries.forEach((key, value) {
+      final m = value as Map<String, dynamic>;
+      final headline = (m['headline'] as String?) ?? _captions[key]?.$1 ?? '';
+      final subtitle = (m['subtitle'] as String?) ?? _captions[key]?.$2 ?? '';
+      captions[key] = (headline, subtitle);
+    });
+  } catch (e) {
+    stderr.writeln('[compose] bad caption file ${file.path}: $e; '
+        'using English captions.');
+    return Map<String, (String, String)>.from(_captions);
+  }
+  return captions;
 }
 
 /// Reads width/height from a PNG's IHDR (bytes 16–23, big-endian).

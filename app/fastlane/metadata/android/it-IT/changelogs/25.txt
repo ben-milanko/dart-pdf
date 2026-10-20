@@ -1,0 +1,5 @@
+Novità nella versione 3.3.1
+
+• Risolto il problema delle annotazioni duplicate dopo la modifica delle proprietà.
+• I caratteri incorporati vengono mantenuti quando si cambia il colore del testo; le anteprime di nuvole e poligoni conservano la scala del motivo.
+• Il riordino di più pagine offre indicazioni di gruppo più chiare e affidabili.

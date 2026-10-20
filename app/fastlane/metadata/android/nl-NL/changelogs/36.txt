@@ -1,0 +1,8 @@
+Nieuw in 4.3.0
+
+- Verklein PDF-bestanden met nieuwe voorinstellingen.
+- Voeg documenten samen, splits ze en wis geselecteerde pagina-inhoud.
+- Vind gereedschappen snel via het opdrachtenpalet.
+- Kies meer afdrukindelingen en paginaopties.
+- Kopieer en plak vectoruitsneden tussen documenten.
+- Scannen hersteld en mobiele documentbediening verbeterd.

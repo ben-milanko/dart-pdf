@@ -1,0 +1,8 @@
+Baru di 4.3.0
+
+- Perkecil ukuran PDF dengan preset baru.
+- Gabungkan dan pisahkan dokumen, serta hapus konten halaman yang dipilih.
+- Temukan alat dengan cepat lewat palet perintah.
+- Pilih lebih banyak tata letak dan opsi cetak.
+- Salin dan tempel cuplikan vektor antardokumen.
+- Perbaikan pemindaian dan kontrol dokumen di perangkat seluler.

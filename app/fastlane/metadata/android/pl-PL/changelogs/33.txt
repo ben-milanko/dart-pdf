@@ -1,0 +1,6 @@
+Nowości w wersji 4.0.0
+
+- Smuklejsze, dokowane narzędzia edycji oraz lepsza nawigacja po stronach i ostatnich plikach.
+- Automatycznie dopasuj tekst i spłaszcz wybrane adnotacje; puste pola są teraz spłaszczane poprawnie.
+- Dokładniejsze kolory, nadruk, przezroczystość, maski i czcionki w złożonych PDF-ach.
+- Szybsze GPU i głęboki zoom oraz lepsze przeciąganie, skanowanie i otwieranie plików.

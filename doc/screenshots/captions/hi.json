@@ -1,0 +1,38 @@
+{
+  "locale": "hi",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "निजी PDF संपादन",
+      "subtitle": "कोई खाता नहीं। कोई अपलोड नहीं। फ़ाइलें आपके डिवाइस पर रहती हैं।"
+    },
+    "app/02-editor": {
+      "headline": "मार्कअप, हस्ताक्षर, रिडैक्ट",
+      "subtitle": "फ़ॉर्म भरें, नोट जोड़ें और पृष्ठ ले जाएँ।"
+    },
+    "app/03-dark": {
+      "headline": "असली दस्तावेज़ों के लिए बना",
+      "subtitle": "टेक्स्ट खोजें, OCR चलाएँ, संस्करणों की तुलना करें,\nऔर सुरक्षित फ़ाइलें खोलें।"
+    },
+    "example/01-document": {
+      "headline": "कोई भी PDF खोलें",
+      "subtitle": "शुद्ध Dart में, हर प्लेटफ़ॉर्म पर रेंडर किया गया"
+    },
+    "example/02-graphics": {
+      "headline": "ग्राफ़िक्स",
+      "subtitle": "ग्रेडिएंट, शेडिंग और पारदर्शिता"
+    },
+    "example/03-annotations": {
+      "headline": "एनोटेशन",
+      "subtitle": "हाइलाइट, इंक, नोट, स्टैम्प और फ़ॉर्म"
+    },
+    "example/04-markup": {
+      "headline": "मार्कअप टूल",
+      "subtitle": "पृष्ठ पर बनाएँ, आकृतियाँ जोड़ें और हस्ताक्षर करें"
+    },
+    "example/05-reader": {
+      "headline": "पठन दृश्य",
+      "subtitle": "स्क्रीन में फ़िट करने के लिए टेक्स्ट रीफ़्लो करता है"
+    }
+  }
+}

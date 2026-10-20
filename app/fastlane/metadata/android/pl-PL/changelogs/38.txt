@@ -1,0 +1,9 @@
+Nowości w 4.5.0
+
+- Nowości w każdej wersji w Ustawienia > Informacje.
+- Ostrzejszy tekst i linie w plikach PDF w systemie Linux.
+- Wyeksportowane strony otwierają się w nowej karcie.
+- Przełączaj między stronami, tekstem dopasowanym i siatką stron jednym przełącznikiem.
+- Prawidłowe odstępy między literami w tekście z nieosadzonymi czcionkami standardowymi.
+- Lepsze zaznaczanie tekstu w wielu kolumnach oraz po chińsku, japońsku i koreańsku.
+- Tekst konturowy jest teraz wyraźnie widoczny.

@@ -1,0 +1,5 @@
+Nieuw in 3.2.0
+
+• Snellere, stabielere weergave met paginacaching die rekening houdt met het geheugen en minder dubbel renderwerk.
+• Betere compatibiliteit met FreeText en callouts, plus preciezere selectie van markeringen over meerdere regels.
+• Verhelpt laadpauzes, trage sessieherstel en Ctrl/Cmd-wielzoom na beperkt tekenen.

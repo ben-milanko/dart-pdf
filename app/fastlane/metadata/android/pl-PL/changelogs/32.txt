@@ -1,0 +1,6 @@
+Nowości w wersji 3.8.0
+
+- Przeglądaj ostatnie pliki PDF z przeszukiwalnymi podglądami stron.
+- Edytuj adnotacje poza krawędzią, stylizuj mieszane zaznaczenia oraz wybieraj kolor i grubość podpisu.
+- Wyświetl podgląd zadania przed drukowaniem.
+- Płynniejsze przewijanie i zoom dużych rysunków oraz poprawki kursora, wyskakujących okien i awarii.

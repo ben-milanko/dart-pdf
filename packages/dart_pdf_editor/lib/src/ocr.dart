@@ -169,6 +169,12 @@ extension PdfOcrApply on PdfEditor {
   /// small type). [minConfidence] drops low-confidence spans; [visible]
   /// burns the text in instead of hiding it; [font] picks the layer font.
   /// See [PdfOcrEditing.injectTextLayer] for how spans are placed.
+  ///
+  /// The engine reads the raster, so it also recognizes text the page
+  /// already carries (born-digital text, or an earlier OCR layer). With
+  /// [skipExistingText] (the default), spans lying over existing extractable
+  /// text are dropped ([ocrSpansNotIn]) so that text is never duplicated;
+  /// only the words the page could not yet select or search are written.
   Future<int> applyOcr(
     int pageIndex,
     PdfOcrEngine engine, {
@@ -177,6 +183,38 @@ extension PdfOcrApply on PdfEditor {
     double minConfidence = 0,
     bool visible = false,
     PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
+    bool skipExistingText = true,
+  }) async {
+    final spans = await recognizeOcr(
+      pageIndex,
+      engine,
+      pixelRatio: pixelRatio,
+      rasterizer: rasterizer,
+      skipExistingText: skipExistingText,
+    );
+    return injectTextLayer(
+      pageIndex,
+      spans,
+      font: font,
+      minConfidence: minConfidence,
+      visible: visible,
+    );
+  }
+
+  /// The recognition half of [applyOcr]: rasterizes page [pageIndex], runs
+  /// [engine] over it, and returns the spans [applyOcr] would write - with
+  /// [skipExistingText], only those not already covered by the page's text -
+  /// without touching the document.
+  ///
+  /// Use it to recognize from a snapshot and write the layer somewhere else
+  /// later (`injectTextLayer` on a newer revision of the same pages), so a
+  /// long background job never holds the live editing session.
+  Future<List<PdfOcrSpan>> recognizeOcr(
+    int pageIndex,
+    PdfOcrEngine engine, {
+    double pixelRatio = 2,
+    PdfOcrRasterizer rasterizer = const PdfRendererOcrRasterizer(),
+    bool skipExistingText = true,
   }) async {
     final page = document.page(pageIndex);
     final pageImage = await rasterizer.rasterize(
@@ -186,12 +224,10 @@ extension PdfOcrApply on PdfEditor {
     );
     try {
       final spans = await engine.recognize(pageImage);
-      return injectTextLayer(
-        pageIndex,
+      if (!skipExistingText || spans.isEmpty) return spans;
+      return ocrSpansNotIn(
+        PdfTextExtractor.extract(document, pageIndex),
         spans,
-        font: font,
-        minConfidence: minConfidence,
-        visible: visible,
       );
     } finally {
       pageImage.dispose();

@@ -1,0 +1,9 @@
+5.0.0'daki yenilikler
+
+- Formlar toplamları hesaplar, değerleri biçimlendirir ve girişleri denetler.
+- Form alanları arasında Tab ile geçin; liste kutularında çoklu seçim yapın.
+- Form parolaları PDF'de değil, cihazın güvenli deposunda kalır.
+- Radyo düğmeleri, açılır listeler, liste kutuları ve imza alanları oluşturun.
+- Parolayla korunan PDF'leri imzalayın.
+- İmzalar için iptal denetimi; AB ve isteğe bağlı Adobe güven listeleri.
+- Office belgelerindeki Calibri metni artık doğru görünüyor.

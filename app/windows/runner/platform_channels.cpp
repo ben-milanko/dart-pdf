@@ -1,0 +1,541 @@
+#include "platform_channels.h"
+
+#include <flutter/event_stream_handler_functions.h>
+#include <flutter/standard_method_codec.h>
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "file_dialogs.h"
+#include "image_clipboard.h"
+#include "utils.h"
+#include "windows_drop.h"
+
+namespace {
+
+constexpr char kIncomingChannelName[] = "dev.milanko.dartpdf/incoming";
+constexpr char kImageClipboardChannelName[] =
+    "dev.milanko.dartpdf/image_clipboard";
+constexpr char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
+// Below this much available RAM (or 5% of it, whichever is larger) the memory
+// snapshot reports lowMemory.
+constexpr uint64_t kLowMemoryFloorBytes = 256ull * 1024 * 1024;
+constexpr char kWindowGeometryChannelName[] =
+    "dev.milanko.dartpdf/window_geometry";
+constexpr char kFileDialogChannelName[] =
+    "dev.milanko.dartpdf/file_dialogs";
+constexpr char kFileAccessChannelName[] =
+    "dev.milanko.dartpdf/file_access";
+constexpr char kTrackpadSignatureChannelName[] =
+    "dev.milanko.dartpdf/trackpad_signature";
+constexpr char kTrackpadSignatureSupportChannelName[] =
+    "dev.milanko.dartpdf/trackpad_signature_support";
+
+const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
+                                      const char* key) {
+  auto it = map.find(flutter::EncodableValue(key));
+  return it == map.end() ? nullptr : &it->second;
+}
+
+std::wstring Utf16FromUtf8(const std::string& utf8) {
+  if (utf8.empty()) return std::wstring();
+  int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
+                                  static_cast<int>(utf8.size()), nullptr, 0);
+  if (len <= 0) return std::wstring();
+  std::wstring utf16(static_cast<size_t>(len), L'\0');
+  ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                        utf16.data(), len);
+  return utf16;
+}
+
+std::optional<int64_t> Integer(const flutter::EncodableValue& value) {
+  if (const auto* number = std::get_if<int64_t>(&value)) return *number;
+  if (const auto* number = std::get_if<int32_t>(&value)) return *number;
+  return std::nullopt;
+}
+
+std::wstring OptionalString(const flutter::EncodableMap* args, const char* key) {
+  if (args == nullptr) return std::wstring();
+  const auto* value = Lookup(*args, key);
+  if (value == nullptr) return std::wstring();
+  const auto* text = std::get_if<std::string>(value);
+  return text == nullptr ? std::wstring() : Utf16FromUtf8(*text);
+}
+
+// Decodes the `acceptedTypeGroups` argument: a list of
+// `{label: String, extensions: [String]}` maps. Unusable entries are skipped
+// rather than failing the call - a dialog with one filter missing is far
+// better than no dialog.
+std::vector<dart_pdf::FileTypeFilter> DecodeFilters(
+    const flutter::EncodableMap* args) {
+  std::vector<dart_pdf::FileTypeFilter> filters;
+  if (args == nullptr) return filters;
+  const auto* groups_value = Lookup(*args, "acceptedTypeGroups");
+  const auto* groups =
+      groups_value == nullptr
+          ? nullptr
+          : std::get_if<flutter::EncodableList>(groups_value);
+  if (groups == nullptr) return filters;
+  for (const auto& group_value : *groups) {
+    const auto* group = std::get_if<flutter::EncodableMap>(&group_value);
+    if (group == nullptr) continue;
+    dart_pdf::FileTypeFilter filter;
+    if (const auto* label = Lookup(*group, "label")) {
+      if (const auto* text = std::get_if<std::string>(label)) {
+        filter.label = Utf16FromUtf8(*text);
+      }
+    }
+    if (const auto* extensions = Lookup(*group, "extensions")) {
+      if (const auto* list = std::get_if<flutter::EncodableList>(extensions)) {
+        for (const auto& extension : *list) {
+          const auto* text = std::get_if<std::string>(&extension);
+          if (text != nullptr && !text->empty()) {
+            filter.extensions.push_back(Utf16FromUtf8(*text));
+          }
+        }
+      }
+    }
+    if (filter.label.empty()) continue;
+    filters.push_back(std::move(filter));
+  }
+  return filters;
+}
+
+dart_pdf::FileDialogRequest DecodeDialogRequest(
+    const flutter::EncodableMap* args) {
+  dart_pdf::FileDialogRequest request;
+  request.filters = DecodeFilters(args);
+  request.initial_directory = OptionalString(args, "initialDirectory");
+  request.suggested_name = OptionalString(args, "suggestedName");
+  request.confirm_button_text = OptionalString(args, "confirmButtonText");
+  return request;
+}
+
+// The reply shape shared by all three dialog methods: the chosen paths (empty
+// when the user cancelled) plus the one-based index of the active type filter.
+flutter::EncodableValue DialogPayload(const dart_pdf::FileDialogResult& result) {
+  flutter::EncodableList paths;
+  paths.reserve(result.paths.size());
+  for (const std::wstring& path : result.paths) {
+    paths.push_back(flutter::EncodableValue(Utf8FromUtf16(path.c_str())));
+  }
+  return flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue("paths"), flutter::EncodableValue(paths)},
+      {flutter::EncodableValue("filterIndex"),
+       flutter::EncodableValue(static_cast<int64_t>(result.filter_index))},
+  });
+}
+
+flutter::EncodableValue FilePayload(const std::wstring& path,
+                                    bool combine = false) {
+  std::wstring name = path;
+  size_t slash = path.find_last_of(L"/\\");
+  if (slash != std::wstring::npos) name = path.substr(slash + 1);
+  flutter::EncodableMap payload{
+      {flutter::EncodableValue("name"),
+       flutter::EncodableValue(Utf8FromUtf16(name.c_str()))},
+      {flutter::EncodableValue("path"),
+       flutter::EncodableValue(Utf8FromUtf16(path.c_str()))},
+  };
+  if (combine) {
+    payload[flutter::EncodableValue("combine")] = flutter::EncodableValue(true);
+  }
+  return flutter::EncodableValue(std::move(payload));
+}
+
+}  // namespace
+
+DartPdfPlatformChannels* DartPdfPlatformChannels::incoming_owner_ = nullptr;
+
+DartPdfPlatformChannels::DartPdfPlatformChannels(
+    std::vector<DartPdfIncomingFile> initial_files, OwnerWindow owner_window)
+    : owner_window_(std::move(owner_window)),
+      pending_files_(std::move(initial_files)) {}
+
+DartPdfPlatformChannels::~DartPdfPlatformChannels() {
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+  }
+  if (incoming_owner_ == this) incoming_owner_ = nullptr;
+}
+
+void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
+  windows_drop_service_ =
+      std::make_unique<DartPdfWindowsDropService>(messenger);
+  incoming_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kIncomingChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  incoming_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() != "getInitialFiles") {
+          result->NotImplemented();
+          return;
+        }
+        // Held until the batch settles: the other processes of a multi-file
+        // launch may still be forwarding their files.
+        initial_files_result_ = std::move(result);
+        ArmIncomingFlush();
+      });
+
+  memory_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kMemoryChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  memory_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "snapshot") {
+          result->NotImplemented();
+          return;
+        }
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!::GlobalMemoryStatusEx(&status)) {
+          result->Error("memory_snapshot_failed",
+                        "GlobalMemoryStatusEx failed");
+          return;
+        }
+        // Low memory means the machine is genuinely short, not merely busy.
+        // This used to be dwMemoryLoad >= 90, but a desktop with a browser
+        // open sits near 90% load for hours (the standby file cache counts as
+        // used), so the flag flickered on and off and every flip halved the
+        // caches - the app starved itself while in the background. Instead:
+        // the kernel's own low-memory notification, or less than
+        // max(256 MB, 5%) of RAM available - the same threshold as Linux.
+        static const HANDLE low_memory_notification =
+            ::CreateMemoryResourceNotification(LowMemoryResourceNotification);
+        BOOL kernel_low = FALSE;
+        if (low_memory_notification != nullptr &&
+            !::QueryMemoryResourceNotification(low_memory_notification,
+                                               &kernel_low)) {
+          kernel_low = FALSE;
+        }
+        const uint64_t five_percent = status.ullTotalPhys / 20;
+        const uint64_t low_threshold =
+            five_percent > kLowMemoryFloorBytes ? five_percent
+                                                : kLowMemoryFloorBytes;
+        const bool low_memory =
+            kernel_low == TRUE || status.ullAvailPhys < low_threshold;
+        result->Success(flutter::EncodableValue(flutter::EncodableMap{
+            {flutter::EncodableValue("physicalBytes"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(status.ullTotalPhys))},
+            {flutter::EncodableValue("availableBytes"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(status.ullAvailPhys))},
+            {flutter::EncodableValue("lowMemory"),
+             flutter::EncodableValue(low_memory)},
+        }));
+      });
+
+  window_geometry_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kWindowGeometryChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  window_geometry_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "locateDrop") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args =
+            std::get_if<flutter::EncodableMap>(call.arguments());
+        const auto* handles_value =
+            args == nullptr ? nullptr : Lookup(*args, "handles");
+        const auto* handles = handles_value == nullptr
+                                  ? nullptr
+                                  : std::get_if<flutter::EncodableList>(
+                                        handles_value);
+        if (handles == nullptr) {
+          result->Error("bad_args", "locateDrop expects a handles list");
+          return;
+        }
+
+        POINT point{};
+        if (!::GetCursorPos(&point)) {
+          result->Success();
+          return;
+        }
+        HWND hit = ::WindowFromPoint(point);
+        if (hit != nullptr) hit = ::GetAncestor(hit, GA_ROOT);
+        bool registered = false;
+        for (const auto& value : *handles) {
+          const auto address = Integer(value);
+          if (address.has_value() &&
+              reinterpret_cast<HWND>(static_cast<intptr_t>(*address)) == hit) {
+            registered = true;
+            break;
+          }
+        }
+        if (!registered || hit == nullptr || !::ScreenToClient(hit, &point)) {
+          result->Success();
+          return;
+        }
+
+        const UINT dpi = ::GetDpiForWindow(hit);
+        const double scale = dpi == 0 ? 1.0 : static_cast<double>(dpi) / 96.0;
+        result->Success(flutter::EncodableValue(flutter::EncodableMap{
+            {flutter::EncodableValue("handle"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(reinterpret_cast<intptr_t>(hit)))},
+            {flutter::EncodableValue("x"),
+             flutter::EncodableValue(point.x / scale)},
+            {flutter::EncodableValue("y"),
+             flutter::EncodableValue(point.y / scale)},
+        }));
+      });
+
+  image_clipboard_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kImageClipboardChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  image_clipboard_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const HWND owner = owner_window_ ? owner_window_() : nullptr;
+        if (call.method_name() == "copyPng") {
+          const auto* bytes =
+              std::get_if<std::vector<uint8_t>>(call.arguments());
+          if (bytes == nullptr) {
+            result->Error("bad_args", "copyPng expects PNG bytes");
+            return;
+          }
+          result->Success(flutter::EncodableValue(
+              CopyPngToClipboard(owner, *bytes)));
+        } else if (call.method_name() == "markLocalCopy") {
+          MarkLocalClipboardCopy();
+          result->Success();
+        } else if (call.method_name() == "copySnapshot") {
+          const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+          const auto* pdf_value = args ? Lookup(*args, "pdf") : nullptr;
+          const auto* png_value = args ? Lookup(*args, "png") : nullptr;
+          const auto* pdf = pdf_value ? std::get_if<std::vector<uint8_t>>(pdf_value) : nullptr;
+          const auto* png = png_value ? std::get_if<std::vector<uint8_t>>(png_value) : nullptr;
+          if (pdf == nullptr || png == nullptr) {
+            result->Error("bad_args", "copySnapshot expects PDF and PNG bytes");
+            return;
+          }
+          result->Success(flutter::EncodableValue(
+              CopySnapshotToClipboard(owner, *pdf, *png)));
+        } else if (call.method_name() == "readPdf") {
+          auto pdf = ReadExternalPdfFromClipboard(owner);
+          if (pdf.has_value()) {
+            result->Success(flutter::EncodableValue(flutter::EncodableMap{
+                {flutter::EncodableValue("pdf"), flutter::EncodableValue(std::move(pdf->bytes))},
+                {flutter::EncodableValue("changeToken"), flutter::EncodableValue(static_cast<int64_t>(pdf->sequence))},
+            }));
+          } else {
+            result->Success();
+          }
+        } else if (call.method_name() == "readImage") {
+          bool external_only = false;
+          if (const auto* args =
+                  std::get_if<flutter::EncodableMap>(call.arguments())) {
+            const auto value = args->find(flutter::EncodableValue("externalOnly"));
+            if (value != args->end()) {
+              if (const auto* flag = std::get_if<bool>(&value->second)) {
+                external_only = *flag;
+              }
+            }
+          }
+          std::optional<std::vector<uint8_t>> png =
+              ReadImageFromClipboard(owner, external_only);
+          if (png.has_value()) {
+            result->Success(flutter::EncodableValue(std::move(*png)));
+          } else {
+            result->Success();
+          }
+        } else {
+          result->NotImplemented();
+        }
+      });
+
+  // Native common-item dialogs. `file_selector_windows` derives the dialog
+  // owner from the registrar's implicit FlutterView, which the engine-owned
+  // multi-window bootstrap deliberately does not create - the plugin then
+  // dereferences a null view and takes the process down the first time the
+  // user opens or saves a file. The runner already knows the active window,
+  // so DartPDF drives the dialogs itself (see lib/windows_file_dialogs.dart).
+  file_dialog_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kFileDialogChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  file_dialog_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const std::string& method = call.method_name();
+        const bool save = method == "getSaveLocation";
+        const bool folders = method == "getDirectoryPath" ||
+                             method == "getDirectoryPaths";
+        const bool multiple =
+            method == "openFiles" || method == "getDirectoryPaths";
+        if (!save && !folders && method != "openFile" &&
+            method != "openFiles") {
+          result->NotImplemented();
+          return;
+        }
+
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        dart_pdf::FileDialogRequest request = DecodeDialogRequest(args);
+        request.allow_multiple = multiple;
+        request.select_folders = folders;
+
+        const HWND owner = owner_window_ ? owner_window_() : nullptr;
+        const dart_pdf::FileDialogResult dialog =
+            save ? dart_pdf::ShowSaveFileDialog(owner, request)
+                 : dart_pdf::ShowOpenFileDialog(owner, request);
+        if (!dialog.shown) {
+          result->Error(
+              "file_dialog_failed", "Could not show the file dialog",
+              flutter::EncodableValue(std::in_place_type<int32_t>,
+                                      static_cast<int32_t>(dialog.error)));
+          return;
+        }
+        result->Success(DialogPayload(dialog));
+      });
+
+  // Revealing a saved document in File Explorer. url_launcher can only ask the
+  // shell to "open" the containing folder, which Explorer is free to serve
+  // from a window it already has - so a document saved to a new folder could
+  // surface the one the user was looking at before. Naming the item leaves
+  // nothing to guess, and selects the file the way Finder does on macOS (the
+  // Dart side shares that channel's `revealFile`; see lib/file_io.dart).
+  file_access_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kFileAccessChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  file_access_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "revealFile") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        const std::wstring path = OptionalString(args, "path");
+        if (path.empty()) {
+          result->Error("bad_args", "revealFile expects a path");
+          return;
+        }
+        result->Success(
+            flutter::EncodableValue(dart_pdf::RevealFileInExplorer(path)));
+      });
+
+  // Preview-style trackpad signatures: Precision Touchpad contacts streamed
+  // while the signature pad listens (see trackpad_signature.h).
+  trackpad_support_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kTrackpadSignatureSupportChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  trackpad_support_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "isAvailable") {
+          result->NotImplemented();
+          return;
+        }
+        result->Success(flutter::EncodableValue(
+            dart_pdf::TrackpadSignatureCapture::IsAvailable()));
+      });
+  trackpad_channel_ =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+          messenger, kTrackpadSignatureChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  trackpad_channel_->SetStreamHandler(
+      std::make_unique<
+          flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
+          [this](const flutter::EncodableValue* arguments,
+                 std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&
+                     events)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            trackpad_sink_ = std::move(events);
+            const bool started = trackpad_capture_.Start(
+                [this](const char* phase, double x, double y) {
+                  if (!trackpad_sink_) return;
+                  trackpad_sink_->Success(
+                      flutter::EncodableValue(flutter::EncodableMap{
+                          {flutter::EncodableValue(std::string("phase")),
+                           flutter::EncodableValue(std::string(phase))},
+                          {flutter::EncodableValue(std::string("x")),
+                           flutter::EncodableValue(x)},
+                          {flutter::EncodableValue(std::string("y")),
+                           flutter::EncodableValue(y)},
+                      }));
+                });
+            if (!started) {
+              // Nothing to capture from: end the stream so the pad leaves
+              // trackpad mode straight away.
+              auto sink = std::move(trackpad_sink_);
+              sink->EndOfStream();
+            }
+            return nullptr;
+          },
+          [this](const flutter::EncodableValue* arguments)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            trackpad_capture_.Stop();
+            trackpad_sink_.reset();
+            return nullptr;
+          }));
+}
+
+void DartPdfPlatformChannels::DeliverFileToFlutter(const std::wstring& path,
+                                                   bool combine) {
+  if (path.empty()) return;
+  pending_files_.push_back({path, combine});
+  // Before Dart asks for its initial files the queue just waits for that call.
+  if (dart_incoming_ready_ || initial_files_result_) ArmIncomingFlush();
+}
+
+void DartPdfPlatformChannels::ArmIncomingFlush() {
+  incoming_owner_ = this;
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+  }
+  incoming_flush_timer_ =
+      ::SetTimer(nullptr, 0, kIncomingSettleMs, &OnIncomingFlushTimer);
+  // No timer (out of resources): don't strand the files.
+  if (incoming_flush_timer_ == 0) FlushIncomingFiles();
+}
+
+void CALLBACK DartPdfPlatformChannels::OnIncomingFlushTimer(HWND, UINT,
+                                                            UINT_PTR, DWORD) {
+  if (incoming_owner_ != nullptr) incoming_owner_->FlushIncomingFiles();
+}
+
+void DartPdfPlatformChannels::FlushIncomingFiles() {
+  if (incoming_flush_timer_ != 0) {
+    ::KillTimer(nullptr, incoming_flush_timer_);
+    incoming_flush_timer_ = 0;
+  }
+  flutter::EncodableList batch;
+  for (const auto& file : pending_files_) {
+    batch.push_back(FilePayload(file.path, file.combine));
+  }
+  pending_files_.clear();
+  if (initial_files_result_) {
+    initial_files_result_->Success(flutter::EncodableValue(std::move(batch)));
+    initial_files_result_.reset();
+    dart_incoming_ready_ = true;
+    return;
+  }
+  if (batch.empty() || !incoming_channel_ || !dart_incoming_ready_) return;
+  incoming_channel_->InvokeMethod(
+      "openFiles",
+      std::make_unique<flutter::EncodableValue>(std::move(batch)));
+}

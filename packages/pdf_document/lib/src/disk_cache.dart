@@ -104,6 +104,62 @@ class PdfDiskCache {
   int _writesSinceFlush = 0;
   static const int _flushBatchMax = 64;
 
+  // Diagnostics. Plain counters (no allocation, no clock) so they can stay on
+  // unconditionally; hosts read them to tell a cache that is paying for itself
+  // from one that only spends I/O. See [debugStats].
+  int _hits = 0;
+  int _misses = 0;
+  int _writes = 0;
+  int _oversizeRejections = 0;
+  int _evictions = 0;
+  int _bytesRead = 0;
+  int _bytesWritten = 0;
+  int _bytesEvicted = 0;
+
+  /// Reads that found their entry.
+  int get hits => _hits;
+
+  /// Reads that missed (absent, or present in the manifest but gone from the
+  /// store - a partial write or an external purge).
+  int get misses => _misses;
+
+  /// Entries actually stored.
+  int get writes => _writes;
+
+  /// Writes skipped because one entry exceeded the whole [maxBytes] budget -
+  /// admitting it would force-evict everything and still not fit.
+  int get oversizeRejections => _oversizeRejections;
+
+  /// Entries dropped by the byte-budget LRU.
+  int get evictions => _evictions;
+
+  /// Bytes handed back by successful reads.
+  int get bytesRead => _bytesRead;
+
+  /// Bytes handed to the store by successful writes.
+  int get bytesWritten => _bytesWritten;
+
+  /// Bytes reclaimed by [evictions].
+  int get bytesEvicted => _bytesEvicted;
+
+  /// Resets every counter (a benchmark starting a fresh measurement window).
+  void resetStats() {
+    _hits = 0;
+    _misses = 0;
+    _writes = 0;
+    _oversizeRejections = 0;
+    _evictions = 0;
+    _bytesRead = 0;
+    _bytesWritten = 0;
+    _bytesEvicted = 0;
+  }
+
+  /// One-line counter dump for logs and benchmark output.
+  String get debugStats => 'disk-cache $namespace hits=$_hits misses=$_misses '
+      'writes=$_writes rejected=$_oversizeRejections evictions=$_evictions '
+      'bytesRead=$_bytesRead bytesWritten=$_bytesWritten '
+      'bytesEvicted=$_bytesEvicted';
+
   // The version is NOT part of the key (it lives in the manifest), so a
   // version bump can physically reclaim the old bytes instead of orphaning
   // them under a stale prefix.
@@ -118,17 +174,23 @@ class PdfDiskCache {
   /// The cached bytes for [key], or null on a miss. Counts as a use,
   /// moving [key] to the most-recently-used end.
   Future<Uint8List?> read(String key) => _run(() async {
-        if (!_sizes.containsKey(key)) return null;
+        if (!_sizes.containsKey(key)) {
+          _misses++;
+          return null;
+        }
         final bytes = await _safeRead(_dataKey(key));
         if (bytes == null) {
           // The manifest and the store disagree (a partial write, an
           // external purge); forget the entry so we don't keep missing.
           _forget(key);
+          _misses++;
           return null;
         }
         // touch: re-insert at the back
         final size = _sizes.remove(key)!;
         _sizes[key] = size;
+        _hits++;
+        _bytesRead += bytes.length;
         return bytes;
       });
 
@@ -146,8 +208,13 @@ class PdfDiskCache {
       try {
         // An entry larger than the whole budget would force-evict
         // everything and still not fit - skip it rather than thrash.
-        if (bytes.length > maxBytes) return;
+        if (bytes.length > maxBytes) {
+          _oversizeRejections++;
+          return;
+        }
         await _safeWrite(_dataKey(key), bytes);
+        _writes++;
+        _bytesWritten += bytes.length;
         final previous = _sizes.remove(key);
         if (previous != null) _totalBytes -= previous;
         _sizes[key] = bytes.length;
@@ -276,6 +343,8 @@ class PdfDiskCache {
       }
       if (victim == null) break;
       await _safeDelete(_dataKey(victim));
+      _evictions++;
+      _bytesEvicted += _sizes[victim] ?? 0;
       _forget(victim);
       _manifestDirty = true;
     }

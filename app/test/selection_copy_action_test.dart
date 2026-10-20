@@ -1,6 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +29,12 @@ void main() {
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
+
+    // A document opens in Select mode, where a mouse drag grabs page
+    // content. Leave it the way the toolbar does before dragging out a
+    // text selection.
+    tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!.tool = null;
+    await tester.pump();
 
     final pageFinder = find.byType(PdfPageView).first;
     final pageTopLeft = tester.getTopLeft(pageFinder);
@@ -62,13 +68,13 @@ void main() {
         (tester) async {
       await selectPageText(tester);
 
-      expect(find.byTooltip('Copy selected text (⌘C)'), findsNothing);
+      expect(find.byKey(const ValueKey('selection-copy-action')), findsNothing);
     }, variant: TargetPlatformVariant.only(platform));
   }
 
   testWidgets('mobile header retains selection copy', (tester) async {
     await selectPageText(tester);
 
-    expect(find.byTooltip('Copy selected text (⌘C)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-copy-action')), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }

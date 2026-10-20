@@ -1,0 +1,6 @@
+Neu in 4.0.0
+
+- Schlankere, andockbare Bearbeitung und bessere Navigation durch Seiten und letzte Dateien.
+- Textfelder automatisch einpassen und ausgewählte Anmerkungen reduzieren; leere Formularfelder werden korrekt reduziert.
+- Präzisere Farben, Überdrucken, Transparenz, Masken und Schriften in anspruchsvollen PDFs.
+- Schnellere GPU-Darstellung, flüssiger Tiefenzoom und bessere Abläufe für Ziehen, Scannen und Öffnen.

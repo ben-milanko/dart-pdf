@@ -1,0 +1,5 @@
+Novidades da versão 3.5.1
+
+- Páginas MRC e JBIG2 digitalizadas agora preservam as camadas de texto, fundo e máscara.
+- Imagens com máscara de transparência não aparecem mais como blocos pretos no Impeller nem no renderizador GPU opcional.
+- A digitalização de documentos no Android lê os resultados do provedor de conteúdo do sistema de forma confiável e mostra erros úteis.

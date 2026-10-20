@@ -7,7 +7,35 @@ The standalone app ships from the `app/` workspace package. Versioning,
 artifact builds, and packaging are automated; **code signing and store upload
 are manual** because they need credentials only the maintainer holds.
 
-## Version
+## Preserve the live store listing
+
+The production `storeflight.yaml` uses schema 2 and
+`release_listing_policy: preserve` for Apple and Google Play. Update Storeflight
+before releasing; an older executable must reject this schema rather than
+silently publish repository listing copy.
+
+A normal binary release updates "What's New" but does not synchronize names,
+subtitles, descriptions, keywords, promotional copy, screenshots or previews
+from the repository. Apple promotional text is version-specific, so Storeflight
+copies the latest live version's text separately for iOS and Mac when preparing
+a new version, then reads it back before submitting. Retries preserve the target
+draft's existing edits; if they conflict with the current live listing, submission
+stops for deliberate reconciliation instead of overwriting either. Missing or
+unverifiable live metadata stops submission;
+there is no fallback to generic repository text.
+
+The Apple `protect_product_page_tests` guard stops an iOS submission before any
+store write when an unfinished native product-page test exists. It does not stop
+tests, remove review items, or automatically restart them. Coordinate an urgent
+release explicitly if the test must be interrupted. Release changes can still
+affect measurement even when listing content is unchanged.
+
+Keep version changes and release notes separate from intentional listing
+updates. Use `storeflight metadata` only for a reviewed, deliberate metadata
+change; check active tests first. For the first store release without a live
+listing, use an explicitly reviewed `release_listing_policy: sync` bootstrap.
+
+## Version source
 
 `app/pubspec.yaml` `version:` is the single source of truth (`X.Y.Z+build`).
 CI passes `--build-name`/`--build-number` derived from the tag and run number,
@@ -15,29 +43,101 @@ so platform build files don't hardcode versions.
 
 ## Cutting a release
 
-1. Bump `version:` in `app/pubspec.yaml`.
+1. Bump `version:` in `app/pubspec.yaml`. Add the matching release to
+   `linux/dev.milanko.dartpdf.metainfo.xml`, run
+   `packaging/flatpak/sync-desktop-assets.sh`, and update `releaseNotes` in
+   `packaging/msstore/listing/en-US.json`.
 2. Tag and push: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
 3. `.github/workflows/release-app.yml` builds every platform and attaches the
-   artifacts to a **draft** GitHub Release. Review, then publish.
+   artifacts to a **draft** GitHub Release. Review, then publish - the in-app
+   update checker cannot see a draft. Publishing also triggers
+   `.github/workflows/publish-flatpak.yml` and
+   `.github/workflows/publish-snap.yml`, which package and smoke-test the
+   Linux tarball, then update the official Flatpak repository and Snap Store.
+4. Write the store "What's New" text into
+   [`release-notes/`](release-notes/) (`<version>-stores.txt` for Play,
+   `<version>-appstore.txt` for both App Store platforms). See that
+   directory's README for the length caps and the Guideline 2.3.10 rule.
 
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
+## Nightly desktop builds
+
+`.github/workflows/nightly-desktop.yml` checks `main` each night and starts the
+Windows and macOS runners only when the commit differs from the last
+successfully published nightly. It updates the rolling `app-nightly`
+prerelease with an unsigned per-user NSIS installer, a portable ZIP, an
+ad-hoc-signed universal macOS DMG (`dartpdf-nightly-macos.dmg`, with the same
+universal CLI/MCP sidecar and launch smoke test as the release build),
+checksums, and the commits since the previous build. Both platforms must build
+before the release moves, so every asset on it comes from one commit; a failure
+on either is retried the next night.
+
+Windows and macOS users opt in under **Settings → Updates → Nightly updates**.
+The choice persists, participates in the normal startup update check/banner,
+and uses the same download-and-installer hand-off as final GitHub releases (the
+`.exe` runs, the `.dmg` mounts). CI stamps the source SHA into nightly and final
+desktop binaries so an installed nightly is not offered again; dismissing one
+nightly suppresses only that source commit, not the next rolling build. The
+nightly DMG is not notarized, so the first launch of each new copy needs
+right-click → **Open** (or removing the quarantine attribute).
+
+> **The CI artifacts are not store-uploadable.** The Android bundle is
+> debug-signed and the iOS build is unsigned; store builds are made locally
+> (`flutter build appbundle --release`, `flutter build ipa`, and an
+> `xcodebuild archive` + `-exportArchive` for macOS) and staged into
+> `app/build/releases/<version>/`.
+>
+> Keep the hosted Android compatibility patch in `release-app.yml` until the
+> affected plugins migrate to Flutter's current Android toolchain. Local
+> release builds use the app's configured compile SDK and should be verified
+> before each Play upload.
+
+For Android, also build the release APK and run the scanner packaging check
+from the repository root before uploading a bundle:
+
+```sh
+cd app
+fvm flutter build apk --release
+cd ..
+python3 tool/check_android_scanner.py app/build/app/outputs/flutter-apk/app-release.apk
+```
+
+This checks ML Kit's manifest-registered constructors in the minified DEX.
+Debug builds and Flutter tests cannot detect release shrinking breaking scanner
+initialization. CI runs the same check before uploading Android artifacts.
+
 ## In-app update checker
 
 The app checks these Releases for a newer build (`app/lib/update.dart`,
-surfaced in Settings → Updates and a startup banner). It is a *checker*, not a
-silent updater: it points the user at the matching artifact for their platform
-(or the release page), since the desktop bundles are unsigned and the store
-builds update through their own channels. For it to work the published Release
-must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
-release tags in this repo, are ignored) and keep the artifact file names CI
-produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
+surfaced in Settings → Updates and a startup banner). On **desktop** the
+check is followed by a user-initiated *in-place update*
+(`app/lib/update_installer.dart`): "Update now" downloads the matching
+artifact in-app (with a progress dialog and a byte-size integrity check
+against the release metadata) and then applies it. A **Linux AppImage** is a
+single executable, so the new image is written next to the running one and
+atomically renamed over it before the app relaunches. On **macOS and
+Windows** — where swapping a running, unsigned bundle is fragile — the
+artifact is downloaded and handed to the OS installer (the `.dmg` mounts, the
+`.exe` runs). Anywhere without an in-app apply path (a Linux tarball install,
+mobile, a release page with no matching artifact) falls back to the old
+browser download. The apply and hand-off are still user-confirmed, not a
+silent background swap. Stable app Releases must keep the
+**`app-v<version>` tag** and the artifact file names CI produces
+(`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
 `dartpdf-windows-installer.exe` / `dartpdf-windows-x64.zip`,
 `dartpdf-linux-x86_64.AppImage` /
-`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Publish the draft Release so
-the GitHub `/releases` API exposes it (drafts aren't visible unauthenticated).
-The web build is always served fresh, so it skips the check.
+`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Other tags, such as this
+repo's pub-package releases, are ignored. The one exception is the exact
+rolling tag `app-nightly`, recognized on Windows and macOS only after the user
+enables nightly updates; it must provide the source markers and the
+`dartpdf-nightly-windows-installer.exe`/ZIP and `dartpdf-nightly-macos.dmg`
+assets documented above. Publish
+stable draft Releases so the GitHub `/releases` API exposes them (drafts
+aren't visible unauthenticated). Flatpak and Snap installations skip the
+GitHub checker and update through their package repositories. The web build is
+always served fresh, so it skips the check.
 
 ## What CI produces
 
@@ -45,10 +145,37 @@ The web build is always served fresh, so it skips the check.
 |---|---|---|
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
 | iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
-| macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
-| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert / MSIX |
-| Linux | `…-linux-x64.tar.gz` | n/a |
+| macOS | `…-macos.dmg` | Ad-hoc signed with `Runner/AdHoc.entitlements`; needs Developer ID signing + notarization for public distribution |
+| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert for non-Store distribution |
+| Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
+| Linux | `…-linux-x64.tar.gz`, `…-linux-x86_64.AppImage` | Flatpak repository is GPG-signed; raw artifacts are unsigned |
 | Web | `…-web.zip` | n/a |
+
+### Desktop CLI / MCP sidecar
+
+Every macOS, Windows, and Linux native build compiles the VM-only
+`packages/dart_pdf_cli/bin/dartpdf.dart` entrypoint into a self-contained target
+executable. It uses the same architecture as the Flutter runner; a universal
+macOS release compiles its arm64 and x64 slices on native GitHub runners and
+merges them with `lipo` before codesigning. (A local macOS build contains the
+host-native sidecar.) Mac App Store archives omit the optional sidecar because
+the standalone Dart runtime imports a private dyld unwind SPI that App Store
+validation rejects; the GUI and non-Store macOS distributions are unaffected.
+The native project files otherwise place it in:
+
+- macOS: `DartPDF.app/Contents/MacOS/dartpdf-cli` (the suffix avoids a
+  case-insensitive collision with the `DartPDF` GUI executable; it is signed as
+  nested code before the outer app bundle);
+- Windows: `dartpdf.exe` beside `dart_pdf_editor_app.exe`;
+- Linux: `dartpdf-cli` beside `dart_pdf_editor_app` (`dartpdf` remains the
+  established GUI launcher in Linux packages).
+
+Because the release packagers archive those native bundles, the sidecar also
+travels in the DMG, Windows installer/portable/MSIX outputs, Linux tarball, and
+AppImage. Linux store packages expose it as `/app/bin/dartpdf-cli` for Flatpak
+and `dartpdf.cli` for Snap; the AUR package installs `/usr/bin/dartpdf-cli`.
+The macOS and Windows installers deliberately do not alter `PATH`. See the CLI
+package README for MCP registration commands.
 
 ## The credential boundary
 
@@ -123,14 +250,54 @@ membership needed). What that means concretely:
 - CI produces an unsigned per-user NSIS installer. It installs under
   `%LOCALAPPDATA%\Programs\DartPDF`, creates Start Menu shortcuts, registers
   uninstall metadata, and adds DartPDF to the PDF "Open with" list.
-- For public distribution, sign the NSIS installer with an Authenticode
-  code-signing certificate, or package as MSIX (add the `msix` dev-dependency +
-  `msix_config`, which also declares the `.pdf` file association) and sign with
-  your cert.
+- For distribution **outside** the Store, sign that installer with an
+  Authenticode code-signing certificate.
+- **Microsoft Store** shipping is automated and entirely CLI-driven:
+  `.github/workflows/release-windows-store.yml` builds the Store MSIX
+  (`dart run msix:create --store`, configured by `msix_config` in
+  `app/pubspec.yaml` — which also declares the `.pdf` file association) and
+  uploads it with the Microsoft Store Developer CLI. Store submissions are
+  **unsigned**; Microsoft re-signs them, so no Authenticode cert is needed for
+  this channel. An `app-v*` tag uploads a **draft** submission; committing to
+  certification is an explicit manual workflow run.
+
+  The one-time account setup is *not* scriptable — the app must be created and
+  its name reserved in Partner Center by hand, an Azure AD app has to be
+  associated with the account, and the first submission's listing/age-rating
+  must be completed in the UI (the same boundary as Play and the App Store
+  above). Registration itself is free as of 2026. Configuration is four
+  repository **variables** (the public MSIX identity values + Store ID) and four
+  **secrets** (the Azure AD credentials); until they are set the workflow
+  **skips** rather than fails.
+  See [`packaging/msstore/README.md`](packaging/msstore/README.md).
 
 ### Linux
-- The tarball runs as-is. For distribution, wrap as AppImage / Flatpak / Snap /
-  `.deb`; the desktop file should declare `MimeType=application/pdf;`.
+- The preferred distribution is the official GPG-signed Flatpak remote at
+  <https://dartpdf-flatpak.web.app>. Users install it with
+  `flatpak install --from https://dartpdf-flatpak.web.app/dartpdf.flatpakref`.
+- `.github/workflows/publish-flatpak.yml` runs when an `app-v*` release is
+  published. It digest-verifies the Linux tarball, builds and signs the app
+  commit and repository summary, installs and smoke-tests the signed package,
+  then deploys the dedicated `dartpdf-flatpak` Firebase Hosting site.
+- Snap Store is the secondary package-managed channel. Install it with
+  `sudo snap install dartpdf`; its public listing is
+  <https://snapcraft.io/dartpdf>.
+- `.github/workflows/publish-snap.yml` digest-verifies the same Linux release
+  asset, builds, lints, installs, and launches the strictly confined snap,
+  uploads it to `stable`, then verifies a clean install from the Store. The
+  repository secret `SNAPCRAFT_STORE_CREDENTIALS` must contain an exported
+  credential scoped to the `dartpdf` snap, stable channel, and
+  `package_push,package_release,package_update` ACLs. Rotate it with
+  `snapcraft export-login` before it expires; packaging details live in
+  [`packaging/snap/README.md`](packaging/snap/README.md).
+- The private repository key lives in the Actions secret
+  `FLATPAK_GPG_PRIVATE_KEY`. Its pinned fingerprint is
+  `32E53D6314CF1F1448462E2319EFDD96AD44514D`; backup details are in
+  [`../flatpak-hosting/README.md`](../flatpak-hosting/README.md). Do not rotate
+  it casually: existing clients trust this key.
+- AppImage and portable tarball artifacts remain available as fallbacks. The
+  AppImage uses the in-app updater; Flatpak and Snap builds deliberately leave
+  updates to their package managers.
 
 ### Web
 - The CI zip is a static bundle. Host it anywhere; for the file-association
@@ -143,8 +310,29 @@ The receive side ships in the app (see Phase 2). OS registration is per
 platform: macOS/iOS via the bundled Info.plist `CFBundleDocumentTypes`,
 Android via the manifest intent-filters, web via `manifest.json`
 `file_handlers`. Windows and Linux register the association at **install**
-time. Declare it in the MSIX manifest / `.desktop` file when you build those
-installers.
+time: the NSIS installer writes the ProgID registry keys, the Store MSIX
+declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
+the `.desktop` file's `MimeType`.
+
+Selecting many PDFs in Explorer: the NSIS installer's two verbs, the
+ProgID's `open` and the `SystemFileAssociations\.pdf` "Combine with DartPDF"
+(`--combine`), both set `MultiSelectModel=Player`. That raises Explorer's
+limit for a legacy command-line verb from 15 selected files (the default
+`Document` model, past which the verb is hidden) to 100. Explorer still
+launches one process per file, and the single-instance runner forwards each
+to the running window, which batches them (open-or-combine for Open,
+straight to ordering for Combine). Going past 100 would take a COM verb. The
+Store MSIX already has one for Combine (`windows/combine_menu`, an
+`IExplorerCommand` that receives the whole selection and has no item limit);
+its Open needs no change because Windows launches a packaged app once per
+file past 15 files rather than hiding the verb.
+
+Long paths: Explorer can hand any of these verbs a file past MAX_PATH as its
+8.3 short alias, so `PdfArguments` in `windows/runner/main.cpp` expands every
+path (Open or `--combine`) with `GetLongPathNameW` before it is opened or
+forwarded. The MSIX combine handler reads `SIGDN_FILESYSPATH`, which is
+already the long form, and splits a selection too long for one command line
+across several launches.
 
 ### Document (file) icon
 

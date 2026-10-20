@@ -19,6 +19,33 @@ Future<int> _inkPixels(PdfStandardFont font) async {
   return ink;
 }
 
+/// The darkest red channel inside a large black free-text box. On white paper
+/// a 25%-opaque black glyph bottoms out near 191 instead of 0.
+Future<int> _darkestTextPixel(double opacity) async {
+  final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
+    ..addFreeText(
+      0,
+      const PdfRect(72, 600, 360, 700),
+      'OPACITY',
+      fontSize: 42,
+      opacity: opacity,
+    );
+  final doc = PdfDocument.open(editor.save());
+  final image = await PdfPageRenderer.renderImage(doc.page(0));
+  final data = await image.toByteData();
+  var darkest = 255;
+  // buildClassicPdf is a 612x792pt page and renderImage defaults to 1x.
+  // PDF y-up [600,700] maps to raster y-down [92,192].
+  for (var y = 92; y < 192; y++) {
+    for (var x = 72; x < 360; x++) {
+      final red = data!.getUint8((y * image.width + x) * 4);
+      if (red < darkest) darkest = red;
+    }
+  }
+  image.dispose();
+  return darkest;
+}
+
 void main() {
   testWidgets('bold free text paints more ink than the regular face',
       (tester) async {
@@ -36,6 +63,17 @@ void main() {
     await tester.runAsync(() async {
       final italic = await _inkPixels(PdfStandardFont.timesBoldItalic);
       expect(italic, greaterThan(50));
+    });
+  });
+
+  testWidgets('free-text appearance opacity fades the rendered glyphs',
+      (tester) async {
+    await tester.runAsync(() async {
+      final opaque = await _darkestTextPixel(1);
+      final faded = await _darkestTextPixel(0.25);
+      expect(opaque, lessThan(80));
+      expect(faded, greaterThan(opaque + 100));
+      expect(faded, lessThan(245), reason: 'the faded text must still paint');
     });
   });
 }

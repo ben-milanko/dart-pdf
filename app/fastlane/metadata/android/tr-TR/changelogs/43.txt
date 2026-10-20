@@ -1,0 +1,6 @@
+7.0.0 sürümündeki yenilikler
+
+- Küçük yazılar ve çizimler için daha doğru, hızlı OCR ve daha net ilerleme.
+- Seçim modunda bağlantıları açın ve metni seçmek için uzun basın.
+- Yakınlaştırıldığında arama sonuçları görünür kalır.
+- Mürekkep önizlemesi seçilen opaklığı korur; vektör dışa aktarımları açıklamaları içerir.

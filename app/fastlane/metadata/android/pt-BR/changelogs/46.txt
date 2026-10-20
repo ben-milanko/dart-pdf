@@ -1,0 +1,8 @@
+Novidades da 9.0.0
+
+- Agrupe anotações para movê-las, redimensioná-las e girá-las juntas.
+- OCR automático em documentos digitalizados para você pesquisar neles.
+- Opção de salvar a cor da página nos PDFs.
+- Atalhos de formatação de texto e estilos próprios para setas de balões.
+- Polilinhas e reordenação de páginas mais fáceis.
+- Fontes serifadas melhores, imagens giradas mais nítidas e rolagem mais suave.

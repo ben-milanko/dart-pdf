@@ -1,0 +1,7 @@
+Nowość w wersji 2.1.0
+
+• Widok czytania z przepływem tekstu: czytaj dokument jako płynący tekst, z leniwym przewijaniem, zapamiętaną pozycją i przeglądarką ilustracji.
+• Szybsze otwieranie i renderowanie, zwłaszcza dużych plików i plików z obrazami, oraz niższe zużycie pamięci przy szerokich rysunkach.
+• Wyraźniejsze cienkie linie, czytelne po oddaleniu.
+• Lepsze kolory gradientów i obrazów indeksowanych.
+• Znaki Symbol i ZapfDingbats renderują się zamiast ramek.

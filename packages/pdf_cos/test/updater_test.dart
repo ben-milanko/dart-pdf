@@ -1,6 +1,15 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
+
+/// [pdf] with its trailer's `/Size 6` rewritten to [size]. The trailer (or
+/// the xref stream's dictionary) sits after every object and at the offset
+/// startxref names, so no offset moves.
+Uint8List withSize(Uint8List pdf, int size) =>
+    latin1.encode(latin1.decode(pdf).replaceFirst('/Size 6 ', '/Size $size '));
 
 void main() {
   group('incremental update of a classic-table file', () {
@@ -123,5 +132,43 @@ void main() {
       // objects still inside the original object stream remain reachable
       expect(reopened.catalog.typeName, 'Catalog');
     });
+  });
+
+  group('a junk /Size at or past 2^32', () {
+    // The updater numbers new objects from /Size (distrusting it only on the
+    // low side), so a writer that stored -1 as a uint32 hands it numbers past
+    // what the packed object-cache key holds. They must still resolve.
+    for (final size in [0xFFFFFFFF, 0x100000003]) {
+      for (final (layout, build) in [
+        ('classic table', buildClassicPdf),
+        ('xref stream', buildXrefStreamPdf),
+      ]) {
+        test('$layout, /Size $size: added objects resolve live and reopened',
+            () {
+          final doc = CosDocument.open(withSize(build(), size));
+          expect(doc.declaredSize, size);
+          final updater = CosIncrementalUpdater(doc);
+          final first = CosDictionary({'N': const CosInteger(1)});
+          final second = CosDictionary({'N': const CosInteger(2)});
+          final firstRef = updater.addObject(first);
+          final secondRef = updater.addObject(second);
+          expect(firstRef.objectNumber, size);
+          expect(secondRef.objectNumber, size + 1);
+          expect(doc.resolve(firstRef), same(first));
+          expect(doc.resolve(secondRef), same(second));
+          expect(doc.referenceTo(second), secondRef);
+          // (3, 1) packs to 2^32 + 3: the page, never an added object.
+          expect((doc.getObject(3, 1) as CosDictionary).typeName, 'Page');
+
+          final reopened = CosDocument.open(updater.save());
+          expect((reopened.resolve(firstRef) as CosDictionary)['N'],
+              const CosInteger(1));
+          expect((reopened.resolve(secondRef) as CosDictionary)['N'],
+              const CosInteger(2));
+          expect((reopened.getObject(3, 1) as CosDictionary).typeName, 'Page');
+          expect(reopened.catalog.typeName, 'Catalog');
+        });
+      }
+    }
   });
 }

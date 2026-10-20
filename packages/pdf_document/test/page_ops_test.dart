@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -28,8 +30,8 @@ void main() {
     test('movePage shifts a single page', () {
       final doc = PdfDocument.open(buildMultiPagePdf(4));
       final editor = PdfEditor(doc)..movePage(3, 0);
-      expect(labelsOf(reopened(editor)),
-          ['Page 4', 'Page 1', 'Page 2', 'Page 3']);
+      expect(
+          labelsOf(reopened(editor)), ['Page 4', 'Page 1', 'Page 2', 'Page 3']);
     });
 
     test('the edit is visible before saving too', () {
@@ -178,7 +180,8 @@ void main() {
       expect(movedPage1.rotation, 90,
           reason: 'rotation inherited from the cut-out inner node');
       expect(movedPage1.mediaBox, const PdfRect(0, 0, 400, 400));
-      expect(out.cos.resolve(movedPage1.resources['Font']), isA<CosDictionary>());
+      expect(
+          out.cos.resolve(movedPage1.resources['Font']), isA<CosDictionary>());
 
       final page3 = out.page(0);
       expect(page3.rotation, 0);
@@ -198,8 +201,7 @@ void main() {
       final source = PdfDocument.open(buildAnnotatedPdf());
       final editor = PdfEditor(dest)..appendPagesFrom(source);
       final out = reopened(editor);
-      expect(labelsOf(out),
-          ['Page 1', 'Page 2', 'Page 1', 'Page 2', 'Page 3']);
+      expect(labelsOf(out), ['Page 1', 'Page 2', 'Page 1', 'Page 2', 'Page 3']);
     });
 
     test('a subset inserts at the requested position', () {
@@ -211,15 +213,13 @@ void main() {
       expect(labelsOf(out), ['Page 1', 'Page 3', 'Page 2']);
     });
 
-    test('annotations come along and links between imported pages remap',
-        () {
+    test('annotations come along and links between imported pages remap', () {
       final dest = PdfDocument.open(buildMultiPagePdf(1));
       final source = PdfDocument.open(buildAnnotatedPdf());
       final editor = PdfEditor(dest)..appendPagesFrom(source);
       final out = reopened(editor);
 
-      final annots =
-          out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
+      final annots = out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
       expect(annots.length, 6);
 
       // the GoTo link on imported page 1 pointed at source page 3, which
@@ -237,16 +237,14 @@ void main() {
       // import only page 1, whose GoTo link targets source page 3
       final editor = PdfEditor(dest)..appendPagesFrom(source, indices: [0]);
       final out = reopened(editor);
-      final annots =
-          out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
+      final annots = out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
       final goTo = out.cos.resolve(annots[1]) as CosDictionary;
       final action = out.cos.resolve(goTo['A']) as CosDictionary;
       final destArray = out.cos.resolve(action['D']) as CosArray;
       expect(out.cos.resolve(destArray[0]), CosNull.instance);
     });
 
-    test('imported pages materialize attributes their source tree held',
-        () {
+    test('imported pages materialize attributes their source tree held', () {
       final dest = PdfDocument.open(buildMultiPagePdf(1));
       final source = PdfDocument.open(buildNestedPageTreePdf());
       final editor = PdfEditor(dest)..appendPagesFrom(source, indices: [0]);
@@ -292,8 +290,7 @@ void main() {
     test('link destinations between extracted pages remap', () {
       final doc = PdfDocument.open(buildAnnotatedPdf());
       final out = PdfDocument.open(doc.extractPages([0, 2]));
-      final annots =
-          out.cos.resolve(out.page(0).dict['Annots']) as CosArray;
+      final annots = out.cos.resolve(out.page(0).dict['Annots']) as CosArray;
       final goTo = out.cos.resolve(annots[1]) as CosDictionary;
       final action = out.cos.resolve(goTo['A']) as CosDictionary;
       final destArray = out.cos.resolve(action['D']) as CosArray;
@@ -342,8 +339,7 @@ void main() {
     test('a rearranged file accepts further incremental edits', () {
       final first = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)))
         ..reorderPages([2, 0, 1]);
-      final second =
-          PdfEditor(PdfDocument.open(first.save()))..removePage(0);
+      final second = PdfEditor(PdfDocument.open(first.save()))..removePage(0);
       expect(labelsOf(reopened(second)), ['Page 1', 'Page 2']);
     });
 
@@ -361,12 +357,74 @@ void main() {
       final source = PdfDocument.open(buildAnnotatedPdf());
       final editor = PdfEditor(dest)..appendPagesFrom(source, indices: [0]);
       final out = reopened(editor);
-      final annots =
-          out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
+      final annots = out.cos.resolve(out.page(1).dict['Annots']) as CosArray;
       final widget = out.cos.resolve(annots[3]) as CosDictionary;
       final parent = out.cos.resolve(widget['Parent']) as CosDictionary;
       final title = out.cos.resolve(parent['T']) as CosString;
       expect(title.text, 'actions');
+    });
+  });
+
+  group('an intermediate /Count that is too small', () {
+    /// Root /Pages with an inner node whose /Count claims 1 of its 2 leaves,
+    /// then a direct leaf. The real order is objects 4, 5, 6, told apart by
+    /// /Rotate 0, 90, 180. The /Count-trusting page(i) walk answers 4, 6, 6
+    /// on a cold wrapper - the state after any non-structural revision.
+    Uint8List buildLyingTree() {
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 3 '
+            '/MediaBox [0 0 612 792] >>',
+        '<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 3 0 R >>',
+        '<< /Type /Page /Parent 3 0 R /Rotate 90 >>',
+        '<< /Type /Page /Parent 2 0 R /Rotate 180 >>',
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xrefOffset = buffer.length;
+      buffer
+        ..write('xref\n0 ${objects.length + 1}\n')
+        ..write('0000000000 65535 f \n');
+      for (final offset in offsets) {
+        buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer
+        ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+        ..write('startxref\n$xrefOffset\n%%EOF\n');
+      return ascii(buffer.toString());
+    }
+
+    List<int> rotationsOf(PdfDocument doc) =>
+        [for (final page in doc.pages) page.rotation];
+
+    test('removePage on a cold wrapper keeps every other page', () {
+      final editor = PdfEditor(PdfDocument.open(buildLyingTree()))
+        ..removePage(0);
+      expect(rotationsOf(reopened(editor)), [90, 180]);
+    });
+
+    test('movePage on a cold wrapper keeps every page', () {
+      final editor = PdfEditor(PdfDocument.open(buildLyingTree()))
+        ..movePage(0, 2);
+      expect(rotationsOf(reopened(editor)), [90, 180, 0]);
+    });
+
+    test('insertBlankPage on a cold wrapper keeps every page', () {
+      final editor = PdfEditor(PdfDocument.open(buildLyingTree()))
+        ..insertBlankPage();
+      expect(rotationsOf(reopened(editor)), [0, 90, 180, 0]);
+    });
+
+    test('appendPagesFrom a cold source imports every page once', () {
+      final dest = PdfDocument.open(buildMultiPagePdf(1));
+      final source = PdfDocument.open(buildLyingTree());
+      final editor = PdfEditor(dest)..appendPagesFrom(source);
+      expect(rotationsOf(reopened(editor)), [0, 0, 90, 180]);
     });
   });
 }

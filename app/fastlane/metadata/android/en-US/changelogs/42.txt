@@ -1,0 +1,6 @@
+New in 6.0.0
+
+- Select page text with the Select tool; double-click a word in Hand mode.
+- Reader controls share one header.
+- Faster page rendering with lower memory use.
+- Fix missing detail after zooming quickly.

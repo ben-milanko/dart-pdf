@@ -1,0 +1,9 @@
+New in 5.1.0
+
+- Draw your signature with a finger on the trackpad.
+- Annotation lists show each mark as it looks on the page.
+- On touch screens, row actions move into a ⋮ menu.
+- Moved stamps no longer leave a white box on the page.
+- Fixes page edits that could drop a page in some PDFs.
+- P-521 digital signatures now validate.
+- Faster encrypted files, signature checks, JPEG 2000 and large drawings.

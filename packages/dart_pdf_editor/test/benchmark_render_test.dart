@@ -16,11 +16,26 @@
 // PDFium's scale); `openMs` is parse/load. File I/O is excluded (bytes are read
 // up front). toByteData(rawRgba) forces the GPU→CPU readback so the raster is
 // fully realized before the clock stops.
+//
+// PDF_BENCHMARK_DIR names a directory (every PDF under it), a single PDF, or a
+// comma-separated list of either.
+//
+// PDF_BENCHMARK_COLD=1 is the cold-cache mode: CanvasPdfDevice's text layout
+// caches are cleared before every file of every pass, so `renderMs` is the
+// first paint of a page nobody has drawn yet - the cost a best-of-N warm pass
+// hides (#649 regressed substituted-text first paint ~4x and the warm bench
+// did not move). The image caches need no reset: every pass opens a fresh
+// PdfDocument, and they key on its streams. Report cold runs under their own
+// PDF_BENCHMARK_SCENARIO name; the envelope records `params.cold`.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+// Import PdfDocument directly rather than relying on dart_pdf_editor to
+// re-export it (older releases don't), so this benchmark grafts cleanly onto
+// historical commits for the perf backfill.
+// ignore: unnecessary_import
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -35,6 +50,9 @@ void main() {
   final repeat =
       int.tryParse(Platform.environment['PDF_BENCHMARK_REPEAT'] ?? '') ?? 1;
   final outPath = Platform.environment['PDF_BENCHMARK_OUT'];
+  final scenario = Platform.environment['PDF_BENCHMARK_SCENARIO'];
+  final appendPath = Platform.environment['PDF_BENCHMARK_APPEND_HISTORY'];
+  final cold = Platform.environment['PDF_BENCHMARK_COLD'] == '1';
 
   testWidgets('benchmarks dart-pdf rasterization vs PDFium', (tester) async {
     if (dir == null) {
@@ -43,24 +61,38 @@ void main() {
     }
     await tester.runAsync(() async {
       await loadSystemFonts();
-      final corpus = Directory(dir);
-      final files = corpus
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.pdf'))
-          .toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
-
-      final root = corpus.path.endsWith('/') ? corpus.path : '${corpus.path}/';
+      // Each file with the name its results row carries: relative to its
+      // directory, or the bare file name for a file named directly.
+      final names = <File, String>{};
+      for (final entry in dir.split(',').where((e) => e.isNotEmpty)) {
+        if (FileSystemEntity.isFileSync(entry)) {
+          final file = File(entry);
+          names[file] = file.uri.pathSegments.last;
+          continue;
+        }
+        final corpus = Directory(entry);
+        final root =
+            corpus.path.endsWith('/') ? corpus.path : '${corpus.path}/';
+        final found = corpus
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.toLowerCase().endsWith('.pdf'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+        for (final file in found) {
+          names[file] = file.path.startsWith(root)
+              ? file.path.substring(root.length)
+              : file.uri.pathSegments.last;
+        }
+      }
+      final files = names.keys.toList();
       final best = <String, Map<String, Object?>>{};
 
       for (var r = 0; r < repeat; r++) {
         for (final file in files) {
-          final name = file.path.startsWith(root)
-              ? file.path.substring(root.length)
-              : file.uri.pathSegments.last;
-          final res =
-              await _benchFile(file, scale, maxPages, name);
+          final name = names[file]!;
+          if (cold) CanvasPdfDevice.clearTextLayoutCache();
+          final res = await _benchFile(file, scale, maxPages, name);
           final prev = best[file.path];
           final better = prev == null ||
               (res['error'] == null &&
@@ -72,15 +104,60 @@ void main() {
           }
         }
         // ignore: avoid_print
-        print('  dart-render pass ${r + 1}/$repeat done (${files.length} files)');
+        print(
+            '  dart-render pass ${r + 1}/$repeat done (${files.length} files)');
       }
 
+      String git(List<String> a) {
+        final r = Process.runSync('git', a);
+        return r.exitCode == 0 ? (r.stdout as String).trim() : '';
+      }
+
+      final resultList = [for (final f in files) best[f.path]];
+      final flutterVersion = Platform.environment['PDF_PERF_FLUTTER_VERSION'];
+      final imageOs = Platform.environment['ImageOS'];
+      final imageVersion = Platform.environment['ImageVersion'];
       final payload = {
+        // Envelope fields (tool/perf/SCHEMA.md); the legacy fields below are
+        // unchanged so benchmark/compare.py keeps working.
+        'schema': 1,
+        'suite': 'flutter-render',
+        'scenario': scenario,
+        // Aggregated distribution so the trend dashboard (build_report.mjs
+        // charts each numeric key in `metrics`) plots the render trend, not
+        // just the per-file `results` below.
+        'metrics': _aggregate(resultList),
+        'rev': {
+          'sha': git(['rev-parse', 'HEAD']),
+          'branch': git(['rev-parse', '--abbrev-ref', 'HEAD']),
+          'dirty': git(['status', '--porcelain']).isNotEmpty,
+          'date': git(['show', '-s', '--format=%cI', 'HEAD']),
+        },
+        'env': {
+          'os': Platform.operatingSystem,
+          'cpus': Platform.numberOfProcessors,
+          'dart': Platform.version.split(' ').first,
+          'ci': Platform.environment['CI'] == 'true',
+          'runner': Platform.environment['RUNNER_OS'] != null
+              ? 'github-actions'
+              : 'local',
+          // Toolchain + runner image, as perf_run_context.dart's envInfo
+          // records them (inlined: this file is grafted onto old commits).
+          if (flutterVersion != null && flutterVersion.isNotEmpty)
+            'flutter': flutterVersion,
+          if (imageOs != null &&
+              imageOs.isNotEmpty &&
+              imageVersion != null &&
+              imageVersion.isNotEmpty)
+            'runnerImage': '$imageOs/$imageVersion',
+        },
+        'ts': DateTime.now().toUtc().toIso8601String(),
         'tool': 'dart-pdf-render',
         'scale': scale,
         'maxPages': maxPages,
+        'params': {'repeat': repeat, 'cold': cold},
         'engine': 'dart-pdf (PdfPageRenderer.renderImage, Flutter raster)',
-        'results': [for (final f in files) best[f.path]],
+        'results': resultList,
       };
       final text = const JsonEncoder.withIndent('  ').convert(payload);
       if (outPath != null) {
@@ -92,6 +169,16 @@ void main() {
       } else {
         // ignore: avoid_print
         print(text);
+      }
+      // One NDJSON line per run for the trend history (mirrors perf_sweep's
+      // --append-history), used by the nightly + render backfill.
+      if (appendPath != null) {
+        final line = jsonEncode(payload);
+        File(appendPath)
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('$line\n', mode: FileMode.append);
+        // ignore: avoid_print
+        print('appended to $appendPath');
       }
     });
   }, timeout: const Timeout(Duration(minutes: 60)));
@@ -124,9 +211,9 @@ Future<Map<String, Object?>> _benchFile(
   final walk = Stopwatch()..start();
   for (var i = 0; i < limit; i++) {
     try {
-      final image = await PdfPageRenderer.renderImage(doc.page(i),
-              pixelRatio: scale)
-          .timeout(const Duration(seconds: 60));
+      final image =
+          await PdfPageRenderer.renderImage(doc.page(i), pixelRatio: scale)
+              .timeout(const Duration(seconds: 60));
       // Force the readback so rasterization is fully realized, then free it.
       await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       image.dispose();
@@ -141,7 +228,47 @@ Future<Map<String, Object?>> _benchFile(
     'pages': pages,
     'pagesRendered': rendered,
     'openMs': double.parse(openMs.toStringAsFixed(3)),
-    'renderMs': double.parse((walk.elapsedMicroseconds / 1000).toStringAsFixed(3)),
+    'renderMs':
+        double.parse((walk.elapsedMicroseconds / 1000).toStringAsFixed(3)),
     'error': error,
+  };
+}
+
+/// Aggregates per-file results into the `metrics` distribution the trend
+/// dashboard charts (same p50/p95/max shape perf_sweep emits for vm-sweep).
+Map<String, Object?> _aggregate(List<Map<String, Object?>?> results) {
+  final rows = results.whereType<Map<String, Object?>>().toList();
+  double round(double v) => double.parse(v.toStringAsFixed(3));
+  double pct(List<double> v, num p) {
+    if (v.isEmpty) return 0;
+    final s = [...v]..sort();
+    return s[((p / 100) * (s.length - 1)).round()];
+  }
+
+  List<double> vals(String key, {bool perPage = false}) => [
+        for (final r in rows)
+          if (r['error'] == null &&
+              r[key] is num &&
+              (!perPage || (r['pagesRendered'] as int? ?? 0) > 0))
+            perPage
+                ? (r[key] as num) / (r['pagesRendered'] as int)
+                : (r[key] as num).toDouble(),
+      ];
+  Map<String, Object?> dist(String key, String name, {bool perPage = false}) {
+    final v = vals(key, perPage: perPage);
+    if (v.isEmpty) return <String, Object?>{};
+    return {
+      'p50$name': round(pct(v, 50)),
+      'p95$name': round(pct(v, 95)),
+      'max$name': round(pct(v, 100)),
+    };
+  }
+
+  return {
+    'files': rows.length,
+    'errors': rows.where((r) => r['error'] != null).length,
+    ...dist('openMs', 'OpenMs'),
+    ...dist('renderMs', 'RenderMs'),
+    ...dist('renderMs', 'RenderMsPerPage', perPage: true),
   };
 }

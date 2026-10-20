@@ -1,0 +1,7 @@
+Neu in 3.1.0
+
+• Scannen Sie Papierdokumente direkt in ein PDF oder fotografieren Sie mit der Kamera.
+• Ungespeicherte Änderungen werden gespiegelt und nach einem Absturz wiederhergestellt.
+• Neue Werkzeuge: Hyperlinks, Bildzuschnitt, Anmerkungssperre und Tastenkürzel für jedes Werkzeug.
+• Getreues Überdrucken; schnellere, schrittweise Seitenanzeige.
+• Verkleinern Sie PDFs beim Speichern verlustfrei.

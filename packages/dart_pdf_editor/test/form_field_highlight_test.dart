@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -100,5 +100,31 @@ void main() {
     ));
     await tester.pump();
     expect(fieldPainter(tester), isNull);
+  });
+
+  testWidgets(
+      'flattening clears cached field highlights and undo restores them',
+      (tester) async {
+    final editing = PdfEditingController(buildAcroFormPdf());
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(fieldPainter(tester), isNotNull);
+
+    expect(editing.flattenDocument(), isTrue);
+    await tester.pump();
+    expect(fieldPainter(tester), isNull);
+
+    editing.undo();
+    await tester.pump();
+    expect(fieldPainter(tester), isNotNull);
   });
 }

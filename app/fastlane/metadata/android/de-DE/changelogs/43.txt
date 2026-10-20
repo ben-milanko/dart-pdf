@@ -1,0 +1,6 @@
+Neu in 7.0.0
+
+- Genauere, schnellere OCR für Kleingedrucktes und Zeichnungen mit klarerem Fortschritt.
+- Im Auswahlmodus Links öffnen und Text durch langes Drücken auswählen.
+- Suchtreffer bleiben beim Zoomen sichtbar.
+- Die Tintenvorschau behält die gewählte Deckkraft; Vektorexporte enthalten Anmerkungen.

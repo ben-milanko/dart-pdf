@@ -1,0 +1,6 @@
+Neu in 8.1.0
+
+- Schrift und Stil von Dropdown- und Listenfeldern ändern.
+- Neues Telefonmenü zum Erstellen, Öffnen, Drucken und Signieren.
+- Textbearbeitung bewahrt Schrift und Zeilenumbruch. Verbesserte iOS-Tastatur und Auswahlmenüs.
+- Vollständige Farbpalette für Stift und Textmarker auf Mobilgeräten.

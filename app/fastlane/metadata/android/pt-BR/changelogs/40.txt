@@ -1,0 +1,9 @@
+Novidades da 5.1.0
+
+- Assine com o dedo no trackpad.
+- As listas de anotações mostram cada marcação como aparece na página.
+- Em telas de toque, as ações de cada linha ficam em um menu ⋮.
+- Carimbos movidos não deixam mais uma caixa branca.
+- Editar páginas não perde mais páginas em alguns PDFs.
+- Assinaturas digitais P-521 agora são validadas.
+- Mais rápido: arquivos criptografados, assinaturas, JPEG 2000 e desenhos grandes.

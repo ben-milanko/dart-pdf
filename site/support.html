@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DartPDF support</title>
-<meta name="description" content="Get help with DartPDF - contact support, report a bug, and find answers to common questions." />
+<title data-i18n="sp_metaTitle">DartPDF support</title>
+<meta name="description" data-i18n-attr="content:sp_metaDesc" content="Get help with DartPDF - contact support, report a bug, and find answers to common questions." />
 <link rel="canonical" href="https://dart-pdf.com/support" />
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
@@ -85,7 +85,7 @@
 
 <header>
   <div class="nav">
-    <a class="brand" href="index.html" aria-label="DartPDF home">
+    <a class="brand" href="/" aria-label="DartPDF home">
       <span class="mark" aria-hidden="true">
         <svg viewBox="0 0 32 32" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs><linearGradient id="g-ink" x1="6" y1="20" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#16BAFD"/><stop offset="1" stop-color="#0169B4"/></linearGradient></defs>
@@ -97,51 +97,55 @@
       </span>
       DartPDF
     </a>
-    <a class="back" href="index.html">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      Back to DartPDF
-    </a>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span data-i18n-switcher></span>
+      <a class="back" href="/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span data-i18n="back_to">Back to DartPDF</span>
+      </a>
+    </div>
   </div>
 </header>
 
 <main>
-  <p class="eyebrow">Support</p>
-  <h1>Support</h1>
+  <p class="eyebrow" data-i18n="sp_eyebrow">Support</p>
+  <h1 data-i18n="sp_h1">Support</h1>
 
-  <p class="lede">Need a hand with DartPDF? We're happy to help. <strong>The fastest way to reach us is by email</strong>, and we usually reply within a couple of business days.</p>
+  <p class="lede" data-i18n-html="sp_lede">Need a hand with DartPDF? We're happy to help. <strong>The fastest way to reach us is by email</strong>, and we usually reply within a couple of business days.</p>
 
   <div class="card">
-    <h2>Contact us</h2>
-    <p class="contact-row"><strong>Email:</strong> <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a></p>
-    <p class="contact-row"><strong>Report a bug or request a feature:</strong> <a href="https://github.com/ben-milanko/dart-pdf/issues" target="_blank" rel="noopener">github.com/ben-milanko/dart-pdf/issues</a></p>
-    <p>When you write in, it helps to include your device and OS version, the DartPDF version (Settings → About), and the steps that led to the problem. If a specific PDF is involved and you're able to share it, that speeds things up - but it's never required.</p>
+    <h2 data-i18n="sp_contactH2">Contact us</h2>
+    <p class="contact-row" data-i18n-html="sp_email_label"><strong>Email:</strong> <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a></p>
+    <p class="contact-row" data-i18n-html="sp_bug_label"><strong>Report a bug or request a feature:</strong> <a href="https://github.com/ben-milanko/dart-pdf/issues" target="_blank" rel="noopener">github.com/ben-milanko/dart-pdf/issues</a></p>
+    <p data-i18n="sp_contact_note">When you write in, it helps to include your device and OS version, the DartPDF version (Settings → About), and the steps that led to the problem. If a specific PDF is involved and you're able to share it, that speeds things up - but it's never required.</p>
   </div>
 
-  <h2>Common questions</h2>
+  <h2 data-i18n="sp_faqH2">Common questions</h2>
 
-  <p><strong>Where do my changes save?</strong> Edits - markup, form fills, signatures, redaction, page changes, and text/image edits - save back to the original PDF on your device. Nothing is uploaded; there's no account or sync.</p>
+  <p data-i18n-html="sp_faq1"><strong>Where do my changes save?</strong> Edits - markup, form fills, signatures, redaction, page changes, and text/image edits - save back to the original PDF on your device. Nothing is uploaded; there's no account or sync.</p>
 
-  <p><strong>How do I open a PDF?</strong> Open DartPDF and pick a file, open a PDF from the Files app, send one to DartPDF from another app's share sheet, or drag and drop a file onto the window.</p>
+  <p data-i18n-html="sp_faq2"><strong>How do I open a PDF?</strong> Open DartPDF and pick a file, open a PDF from the Files app, send one to DartPDF from another app's share sheet, or drag and drop a file onto the window.</p>
 
-  <p><strong>Can I open password-protected PDFs?</strong> Yes. DartPDF prompts for the password and opens encrypted files for viewing and editing.</p>
+  <p data-i18n-html="sp_faq3"><strong>Can I open password-protected PDFs?</strong> Yes. DartPDF prompts for the password and opens encrypted files for viewing and editing.</p>
 
-  <p><strong>How does OCR work?</strong> Optical character recognition runs entirely on your device. On first use the app downloads the recognition model, then all processing happens locally - your pages are never sent to a server.</p>
+  <p data-i18n-html="sp_faq4"><strong>How does OCR work?</strong> Optical character recognition runs entirely on your device. On first use the app downloads the recognition model, then all processing happens locally - your pages are never sent to a server.</p>
 
-  <p><strong>Is my data private?</strong> Yes. DartPDF has no analytics, no ads, no accounts, and no servers. See the <a href="privacy.html">privacy policy</a> for the details.</p>
+  <p data-i18n-html="sp_faq5"><strong>Is my data private?</strong> Yes. DartPDF has no analytics, no ads, no accounts, and no servers. See the <a href="/privacy">privacy policy</a> for the details.</p>
 
-  <h2>Still stuck?</h2>
-  <p>Email <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a> and describe what you were trying to do. We read every message.</p>
+  <h2 data-i18n="sp_stuckH2">Still stuck?</h2>
+  <p data-i18n-html="sp_stuck_p">Email <a href="mailto:ben.milanko@protonmail.com?subject=DartPDF%20support">ben.milanko@protonmail.com</a> and describe what you were trying to do. We read every message.</p>
 
   <hr class="rule" />
-  <p><a href="index.html">← Back to DartPDF</a></p>
+  <p><a href="/" data-i18n="back_arrow">← Back to DartPDF</a></p>
 </main>
 
 <footer>
   <div class="foot">
     <span>© Railway Engineering Solutions</span>
-    <span><a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a> · <a href="privacy.html">Privacy</a> · <a href="index.html">DartPDF</a></span>
+    <span><a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a> · <a href="/privacy">Privacy</a> · <a href="/">DartPDF</a></span>
   </div>
 </footer>
 
+<script src="/i18n.js" defer></script>
 </body>
 </html>

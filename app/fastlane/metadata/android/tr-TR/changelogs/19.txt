@@ -1,0 +1,7 @@
+2.1.0 sürümündeki yenilikler
+
+• Yeniden akıtılan okuma görünümü: bir belgeyi akan metin olarak okuyun; tembel kaydırma, kaydedilen konum ve şekil görüntüleyici ile.
+• Özellikle büyük veya görsel yoğun dosyalarda daha hızlı açılma ve işleme, çok geniş çizimlerde daha düşük bellek kullanımı.
+• Daha net saç çizgileri; ince çizgiler uzaklaştırıldığında okunaklı kalır.
+• Gradyanlarda ve dizinlenmiş görsellerde daha iyi renk.
+• Symbol ve ZapfDingbats karakterleri kutular yerine işlenir.

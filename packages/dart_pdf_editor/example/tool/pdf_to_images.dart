@@ -19,7 +19,6 @@ import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 void main() {
   testWidgets('export PDF pages to images', (tester) async {

@@ -1,0 +1,93 @@
+# dart_pdf_editor_assets
+
+Optional bundled assets for [`dart_pdf_editor`](../dart_pdf_editor): the six
+editor fonts offered by the font menu (and used as composite-text fallbacks),
+the **metric-compatible substitute faces** for unembedded text - the standard
+14 and Calibri - and the prebuilt **web render worker**.
+
+These assets add roughly **4.1 MB** to a build (fonts plus the web worker,
+gzip-compressed; about 3.3 MB with brotli - the four Carlito faces are 2.7 MB of
+files but 0.9 MB over the wire with brotli, because TrueType hinting compresses
+well). They live in this separate package - not in
+`dart_pdf_editor` - so an app that only *views* PDFs never bundles them: Flutter
+includes a package's declared assets on every build target, so the only way to
+make these opt-in is to keep them out of the package every consumer depends on.
+
+## Substitute faces for unembedded text
+
+A PDF that names one of the standard 14 fonts carries no font program: the
+viewer draws the text, and the advances come from the AFM tables the page was
+typeset against. This package bundles URW's metric-compatible clones of those
+fonts - **TeX Gyre Heros** (Helvetica, Arial), **Termes** (Times), **Cursor**
+(Courier) and **Adventor** (Century Gothic, Avant Garde) - and the renderer
+names them ahead of anything the host has installed, so such a page is drawn
+with the advances it was written for on every platform.
+
+That matters more than the shapes: the renderer places every character at the
+PDF's own pen offset, so that selection, search and hit boxes land on the ink.
+A substitute whose glyphs are narrower than the table says therefore opens white
+space *inside* words - DejaVu Sans, the fallback without this package, draws `J`
+at 295/1000 em where Helvetica's table reserves 500, which put about 2.7pt of
+air after every capital J at 12pt. `test/substitute_metrics_test.dart` checks
+every bundled file against the AFM tables, and CI runs it.
+
+**Calibri** is the same problem arriving by a different road. It is not one of
+the standard 14 - a page that names it does carry a /Widths array - but Office
+and its print drivers emit it unembedded all the time, assuming Windows will
+have the font. The error runs the other way there: Helvetica is much *wider*
+than Calibri (`C` 722 against 529), so substituting Heros crowded every glyph
+into the next rather than spacing them out. This package bundles **Carlito**,
+Google's metric-compatible Calibri clone, which carries Calibri's advances
+exactly; the same test checks all four faces against them.
+
+Without this package the renderer falls back to whatever metric-compatible face
+the host has (Arial, Liberation Sans, Nimbus Sans and their serif/mono
+equivalents), then to any sans at all - text still renders, it just may not be
+spaced as the page intended.
+
+## Full-featured editor (the historical default)
+
+Add both packages and register the assets once at startup, before opening a
+viewer:
+
+```yaml
+dependencies:
+  dart_pdf_editor: ^2.1.0
+  dart_pdf_editor_assets: ^2.1.0
+```
+
+```dart
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
+
+void main() {
+  registerBundledEditorAssets();
+  runApp(const MyApp());
+}
+```
+
+That restores exactly what a `dart_pdf_editor` app got before the split: the
+bundled font catalogue in every font menu, DejaVu fallbacks for composite-text
+editing, and the off-main-thread web worker.
+
+## Size-minimal viewer
+
+Depend on `dart_pdf_editor` **only** and skip the registration call. The font
+menu still offers the base-14 families, the fonts already embedded in the open
+document, host/platform fonts, and any custom font the app loads; the web worker
+falls back to main-thread rendering (or an app-supplied worker URL). See the
+capability → asset matrix in the
+[`dart_pdf_editor` README](../dart_pdf_editor/README.md#optional-bundled-assets).
+
+## Selective registration
+
+`registerBundledEditorAssets(fonts: false)` or `webWorker: false` registers only
+one group - e.g. a web app that wants the worker but supplies its own font
+catalogue, or a native app that wants the fonts but no worker asset.
+
+## Licences
+
+The font licences are in `assets/fonts/*-LICENSE.txt`. DejaVu is a permissive
+Bitstream Vera / Arev licence; Fira Sans, Spectral, Lobster and Carlito are the
+SIL Open Font Licence; the TeX Gyre families (Heros, Termes, Cursor, Adventor)
+use the GUST Font License. All of them ship unmodified - and Carlito's OFL
+reserves its name, so a subset of it could not be called Carlito.

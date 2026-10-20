@@ -24,3 +24,6 @@ double? get detectedPdfDeviceMemoryGb {
   final gb = (value as JSNumber).toDartDouble;
   return gb.isFinite && gb > 0 ? gb : null;
 }
+
+/// No per-process RSS on the web; the tab's footprint is not exposed to script.
+int? get currentProcessRssBytes => null;

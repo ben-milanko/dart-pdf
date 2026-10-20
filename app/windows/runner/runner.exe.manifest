@@ -3,6 +3,10 @@
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <!-- Lets Win32 calls in this process (the engine, plugins, shell APIs)
+           take paths past MAX_PATH once the LongPathsEnabled policy is on.
+           dart:io already uses \\?\ paths, so reading a PDF never needed it. -->
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">

@@ -1,0 +1,5 @@
+Novedades de 3.3.1
+
+• Se corrigieron las anotaciones duplicadas tras cambiar sus propiedades.
+• Las fuentes incrustadas se conservan al cambiar el color del texto; las vistas previas de nubes y polígonos mantienen la escala del patrón.
+• Reordenar varias páginas ofrece una respuesta de grupo más clara y fiable.

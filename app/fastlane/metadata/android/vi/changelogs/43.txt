@@ -1,0 +1,6 @@
+Mới trong 7.0.0
+
+- OCR chính xác và nhanh hơn cho chữ nhỏ và bản vẽ, với tiến độ rõ ràng hơn.
+- Mở liên kết và nhấn giữ để chọn văn bản trong chế độ Chọn.
+- Kết quả tìm kiếm vẫn hiển thị khi phóng to.
+- Bản xem trước nét mực giữ độ mờ đã chọn; xuất vectơ bao gồm chú thích.

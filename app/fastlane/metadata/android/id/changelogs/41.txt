@@ -1,0 +1,4 @@
+Baru di 5.1.1
+
+- Tinta yang ditulis cepat secara berturut-turut tidak lagi menghilang dari halaman.
+- Mencakup semua peningkatan dari 5.1.0.

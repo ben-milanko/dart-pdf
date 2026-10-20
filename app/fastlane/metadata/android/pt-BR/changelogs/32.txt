@@ -1,0 +1,6 @@
+Novidades da versão 3.8.0
+
+- Navegue pelos PDFs recentes com prévias de páginas pesquisáveis.
+- Edite anotações além da borda, altere o estilo de seleções mistas e escolha a cor e a espessura da assinatura.
+- Visualize os trabalhos de impressão antes de enviar.
+- Rolagem e zoom mais suaves em desenhos grandes, além de correções no cursor, menus e falhas.

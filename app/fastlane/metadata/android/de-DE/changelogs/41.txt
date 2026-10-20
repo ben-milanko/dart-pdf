@@ -1,0 +1,4 @@
+Neu in 5.1.1
+
+- Schnell nacheinander geschriebene Freihandstriche verschwinden nicht mehr von der Seite.
+- Enthält alle Verbesserungen aus 5.1.0.

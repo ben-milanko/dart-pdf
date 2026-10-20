@@ -1,0 +1,5 @@
+Novità nella versione 3.5.1
+
+- Le pagine MRC e JBIG2 acquisite ora mantengono correttamente i livelli di testo, sfondo e maschera.
+- Le immagini con maschera di trasparenza non vengono più visualizzate come blocchi neri con Impeller o con il renderer GPU opzionale.
+- La scansione documenti Android legge in modo affidabile i risultati dal provider di contenuti di sistema e mostra errori utili.

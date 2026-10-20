@@ -1,0 +1,122 @@
+# Localized store metadata
+
+The full **DartPDF** app-store presence — every listing field and the
+per-release "What's New" — for both stores, in every language the app ships
+(see `app/lib/l10n/`). The English source of truth for the copy is
+[`../../store-listing.md`](../../store-listing.md); the files here are its
+localization, one folder per store language.
+
+The layout follows the **fastlane** `supply` (Play) / `deliver` (App Store)
+convention, so the trees upload as-is with `fastlane supply` /
+`fastlane deliver`, or can be read field-by-field by the custom release tooling
+described in [`../../RELEASING.md`](../../RELEASING.md) (App Store Connect
+`appStoreVersionLocalizations`, Play `listings`/`releaseNotes`).
+
+```
+metadata/
+  ios/<apple-locale>/            App Store Connect
+    name.txt              (≤30)  app name
+    subtitle.txt          (≤30)
+    promotional_text.txt  (≤170) editable without review
+    keywords.txt          (≤100) comma-separated, no spaces after commas
+    description.txt       (≤4000)
+    release_notes.txt     (≤4000) "What's New" for the current version
+  android/<play-locale>/         Play Console
+    title.txt             (≤30)
+    short_description.txt  (≤80)
+    full_description.txt   (≤4000)
+    video.txt             YouTube preview URL
+    changelogs/
+      <versionCode>.txt    (≤500) "What's New" (19 = 2.1.0+19)
+```
+
+## Languages & store locale codes
+
+The app's locale → the code each store expects. Apple and Play spell several
+locales differently; the folder names below are what each console accepts.
+
+| App locale | Language | App Store (`ios/`) | Play (`android/`) |
+|---|---|---|---|
+| en       | English (source)      | en-US   | en-US |
+| en (UK)  | British English       | —       | en-GB |
+| ar       | Arabic                | ar-SA   | ar    |
+| de       | German                | de-DE   | de-DE |
+| es       | Spanish               | es-ES   | es-ES |
+| fr       | French                | fr-FR   | fr-FR |
+| hi       | Hindi                 | hi      | hi-IN |
+| id       | Indonesian            | id      | id    |
+| it       | Italian               | it      | it-IT |
+| ja       | Japanese              | ja      | ja-JP |
+| ko       | Korean                | ko      | ko-KR |
+| nl       | Dutch                 | nl-NL   | nl-NL |
+| pl       | Polish                | pl      | pl-PL |
+| pt       | Portuguese (Brazil)   | pt-BR   | pt-BR |
+| ru       | Russian               | ru      | ru-RU |
+| th       | Thai                  | th      | th    |
+| tr       | Turkish               | tr      | tr-TR |
+| uk       | Ukrainian             | uk      | uk    |
+| vi       | Vietnamese            | vi      | vi    |
+| zh       | Chinese (Simplified)  | zh-Hans | zh-CN |
+| zh_Hant  | Chinese (Traditional) | zh-Hant | zh-TW |
+
+Google Play has a separate British English listing, so its 21 locale folders
+cover the app's 20 languages. `en-GB` must include the listing text as well as
+changelogs: existing Play translations do not inherit later `en-US` changes.
+
+All 21 Play listings use the same English app sting:
+<https://www.youtube.com/watch?v=jKLzTw32Jd4>. It is unlisted on the Ben Milanko
+channel, with English captions and embedding enabled. Each locale's `video.txt`
+preserves the URL for future metadata uploads. The video-only listing update
+was committed and verified through the Play API on 8 October 2026; existing
+listing text and release tracks were preserved.
+Play Console confirmed all 21 entries as **Change Video** under **Changes in
+review**, with managed publishing off (publication follows approval).
+
+## Rules that shaped the copy
+
+- **Apple Guideline 2.3.10 — no other-platform names.** The App Store
+  `description`/`subtitle`/`promotional_text`/`keywords` never mention Android,
+  Windows, Linux, or the web (v1.1.0 was rejected for this). The cross-platform
+  sentence lives **only** in the Play `full_description`. This holds in every
+  language, not just English.
+- **Brand names are not translated:** `DartPDF`, `PAdES`. `OCR` stays literal
+  unless a language has a conventional localized term.
+- **Terminology matches the app UI.** Feature words (annotate, redact, sign,
+  form, stamp, compare…) reuse the wording already in the app's ARB
+  translations (`app/lib/l10n/`, `packages/dart_pdf_editor/lib/l10n/`).
+- **Character limits are per store field**, counted in characters. The capped
+  fields (subtitle, promotional text, keywords, short description, changelog)
+  are kept within budget in every locale.
+- **Localized titles and subtitles may use shorter wording** to fit their
+  limits. Keywords use commas without following spaces; spaces within a
+  keyword phrase are allowed.
+
+## Keeping it current
+
+Normal Storeflight releases use `release_listing_policy: preserve`. Repository
+copy is not reapplied when shipping a binary. On Apple, a new version carries
+forward the latest live text from the same platform, including promotional text;
+Mac and iOS are read independently. Existing target drafts retain their edits.
+Only the release notes below are refreshed. Google Play listing text is left
+alone; screenshots, previews and native treatments are not replaced by the
+release adapters.
+
+Use the explicit `storeflight metadata --destination ...` workflow for a
+deliberate listing change, after checking any active test. Do not bundle such
+changes into routine release preparation. Storeflight's iOS test guard stops
+submission while an unfinished native product-page test exists; it never cancels
+the test or removes a review item. Schema 2 makes older clients fail rather than
+ignore these protections. See the release checklist below and `storeflight.yaml`.
+
+1. Edit the English source in [`../../store-listing.md`](../../store-listing.md)
+   and the matching `en-US` files here, plus the Play `en-GB` listing text.
+2. For a new release, add `android/<locale>/changelogs/<versionCode>.txt` and
+   refresh each `ios/<locale>/release_notes.txt` from
+   [`../../release-notes/`](../../release-notes/). Version code = the `+build`
+   in `app/pubspec.yaml`.
+3. Re-translate the changed fields across the locale folders (the app ARB files
+   are the terminology reference).
+
+The screenshot/marketing text is localized separately — see
+[`doc/screenshots/README.md`](../../../doc/screenshots/README.md) and
+`doc/screenshots/captions/<locale>.json`.

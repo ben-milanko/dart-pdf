@@ -1,0 +1,9 @@
+Nieuw in 5.1.0
+
+- Teken je handtekening met je vinger op het trackpad.
+- Annotatielijsten tonen elke markering zoals die op de pagina staat.
+- Op touchscreens staan rijacties nu in een ⋮-menu.
+- Verplaatste stempels laten geen wit vak meer achter.
+- Paginabewerkingen verliezen in sommige pdf's geen pagina meer.
+- Digitale P-521-handtekeningen worden nu gevalideerd.
+- Sneller: versleutelde bestanden, handtekeningen, JPEG 2000 en grote tekeningen.

@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show pdfPageLooksScanned;
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 
+import 'l10n/app_l10n.dart';
+import 'ocr_pages.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
@@ -31,6 +34,11 @@ class OnDeviceOcr {
 
   bool _cancelled = false;
 
+  /// Set when the user turns down the model download for an automatic run:
+  /// later scans this session don't ask again (the Settings switch or the
+  /// OCR menu item still can).
+  bool _autoDeclined = false;
+
   /// Whether on-device OCR can run on this platform at all.
   static bool get isSupported => PdfOcrModelManager.isSupported;
 
@@ -50,22 +58,32 @@ class OnDeviceOcr {
 
   /// Starts an OCR job over [bytes] in the background and returns once it
   /// finishes (so the caller can `unawaited` it). On success [onComplete] is
-  /// handed the OCR'd PDF; cancellation and failures are reported through
-  /// [onToast] and leave [onComplete] uncalled. A one-time confirm-download
+  /// handed the OCR'd PDF - or, when [onRecognized] is given instead, the
+  /// recognized spans by page index, for the caller to lay onto its live
+  /// session (and toast about) itself. Cancellation and failures are reported
+  /// through [onToast] and leave both uncalled. A one-time confirm-download
   /// dialog may show first (hence [context]); after that nothing blocks the UI.
+  ///
+  /// An [automatic] job (a scan was just opened) stays quiet where a user's
+  /// request would explain itself: it doesn't toast when another job is
+  /// running, only recognizes pages that look scanned, and once its download
+  /// prompt is declined it doesn't ask again this session.
   Future<void> start(
     BuildContext context, {
     required Uint8List bytes,
     required String title,
     required void Function(String message) onToast,
-    required void Function(Uint8List result) onComplete,
+    void Function(Uint8List result)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
+    bool automatic = false,
   }) async {
+    final l10n = appL10n(context);
     if (isBusy) {
-      onToast('OCR is already running - wait for it to finish or cancel it');
+      if (!automatic) onToast(l10n.ocrAlreadyRunning);
       return;
     }
     if (!isSupported) {
-      onToast('On-device OCR is not available on this platform');
+      if (!automatic) onToast(l10n.ocrNotAvailable);
       return;
     }
     _cancelled = false;
@@ -73,9 +91,13 @@ class OnDeviceOcr {
     // Make sure the model is present (download it on first use).
     try {
       if (!await _manager.isDownloaded(_model)) {
+        if (automatic && _autoDeclined) return;
         if (!context.mounted) return;
         final approved = await _confirmDownload(context);
-        if (approved != true) return;
+        if (approved != true) {
+          if (automatic) _autoDeclined = true;
+          return;
+        }
         status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
         await _manager.download(_model, onProgress: (p) {
           status.value = OcrJobStatus(
@@ -87,46 +109,59 @@ class OnDeviceOcr {
       }
     } on PdfOcrModelException catch (e) {
       status.value = null;
-      onToast('Could not download the OCR model: ${e.message}');
+      onToast(l10n.ocrDownloadFailed(e.message));
       return;
     }
     if (_cancelled) {
       status.value = null;
-      onToast('OCR cancelled');
+      onToast(l10n.ocrCancelled);
       return;
     }
 
     // Recognize every page, yielding between pages so the UI stays responsive.
     OnDeviceOcrEngine? engine;
     try {
+      status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
       engine = await OnDeviceOcrEngine.fromDownloadedModel(_manager, _model);
       final editor = PdfEditor(PdfDocument.open(bytes));
-      final count = editor.document.pageCount;
-      var spans = 0;
-      for (var i = 0; i < count; i++) {
-        if (_cancelled) break;
-        status.value = OcrJobStatus(
-          phase: OcrPhase.recognising,
-          title: title,
-          page: i + 1,
-          pageCount: count,
+      void onPage(int i, int count) => status.value = OcrJobStatus(
+            phase: OcrPhase.recognising,
+            title: title,
+            page: i + 1,
+            pageCount: count,
+          );
+      if (onRecognized != null) {
+        final recognized = await recognizeAllPages(
+          editor,
+          engine,
+          isCancelled: () => _cancelled,
+          onPage: onPage,
+          includePage:
+              automatic ? (i) => pdfPageLooksScanned(editor.document, i) : null,
         );
-        spans += await editor.applyOcr(i, engine, pixelRatio: 2);
-        // Hand the event loop a turn so taps/scrolls are serviced promptly.
-        await Future<void>.delayed(Duration.zero);
+        if (_cancelled) {
+          onToast(l10n.ocrCancelled);
+          return;
+        }
+        onRecognized(recognized);
+        return;
       }
+      final spans = await ocrAllPages(
+        editor,
+        engine,
+        isCancelled: () => _cancelled,
+        onPage: onPage,
+      );
       if (_cancelled) {
-        onToast('OCR cancelled after $spans text spans');
+        onToast(l10n.ocrCancelledAfterSpans(spans));
         return;
       }
       status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
       final result = editor.save();
-      onToast(spans == 0
-          ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans - the page text is now selectable');
-      onComplete(result);
+      onToast(l10n.ocrResult(spans));
+      onComplete?.call(result);
     } catch (e) {
-      onToast('OCR failed: $e');
+      onToast(l10n.ocrFailed(e.toString()));
     } finally {
       await engine?.dispose();
       status.value = null;
@@ -135,28 +170,29 @@ class OnDeviceOcr {
 
   Future<bool?> _confirmDownload(BuildContext context) {
     final size = _model.approxSizeBytes;
-    final sizeText =
-        size == null ? '' : ' (~${(size / 1024 / 1024).round()} MB)';
-    return showDialog<bool>(
+    final sizeText = size == null
+        ? ''
+        : ' ${appL10n(context).ocrModelApproxSize((size / 1024 / 1024).round())}';
+    return showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('ocr-download-confirm'),
-        title: const Text('Download OCR model?'),
+        title: Text(appL10n(context).ocrDownloadPromptTitle),
         content: Text(
-          'Adding a selectable text layer needs the on-device OCR model'
-          '$sizeText. It downloads once and then runs offline.\n\n'
-          'Model: ${_model.displayName}',
+          appL10n(context).ocrDownloadPromptBody(sizeText, _model.displayName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
-          FilledButton(
-            key: const ValueKey('ocr-download-confirm-ok'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Download'),
-          ),
+          PdfDialogSubmit.action(
+              onSubmit: () => Navigator.of(context).pop(true),
+              child: FilledButton(
+                key: const ValueKey('ocr-download-confirm-ok'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(appL10n(context).ocrDownload),
+              )),
         ],
       ),
     );

@@ -1,0 +1,8 @@
+Điểm mới trong 4.3.0
+
+- Giảm dung lượng PDF bằng các thiết lập mới.
+- Gộp, tách tài liệu và xóa nội dung trang đã chọn.
+- Tìm công cụ nhanh qua bảng lệnh.
+- Thêm bố cục và tùy chọn in.
+- Sao chép và dán ảnh chụp dạng vectơ giữa các tài liệu.
+- Sửa lỗi quét và cải thiện thao tác tài liệu trên thiết bị di động.

@@ -73,7 +73,7 @@ void main() {
     expect(behavior.textEditable, isTrue);
     expect(behavior.canRestyle, isTrue);
     expect(behavior.supportsFill, isTrue);
-    expect(behavior.supportsOpacity, isFalse);
+    expect(behavior.supportsOpacity, isTrue);
     expect(behavior.resizeBehavior, PdfAnnotationResizeBehavior.reflowText);
     expect(behavior.standardTextFont, PdfStandardFont.times);
     expect(behavior.style.color, 0x102030);

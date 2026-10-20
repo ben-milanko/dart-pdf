@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 Uint8List _pdf(List<String> pageContents) {
   final objects = <String>[
@@ -58,6 +59,145 @@ Future<void> _waitForColorProcessing(
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  test(
+      'annotation-only async replacement preserves content, selection and undo',
+      () async {
+    final controller = PdfEditingController(_pdf(['1 0 0 rg 0 0 10 10 re f']))
+      ..color = const Color(0xFFFF0000)
+      ..addRectangle(0, const PdfRect(20, 20, 50, 50))
+      ..selectAnnotation(0, 0);
+    addTearDown(controller.dispose);
+    final name = controller.selectedAnnotation!.name;
+    final count = await controller.replaceDocumentColorsAsync(
+      find: const Color(0xFFFF0000),
+      replace: const Color(0xFF0000FF),
+      includePageContent: false,
+      includeAnnotations: true,
+    );
+    expect(count, greaterThan(0));
+    expect(controller.selectedAnnotationSlots, [(0, 0)]);
+    expect(controller.selectedAnnotation!.name, name);
+    expect(controller.document.page(0).annotations.single.color, 0x0000FF);
+    expect(_content(controller, 0), contains('1 0 0 rg'));
+    final reopened = PdfDocument.open(controller.bytes);
+    expect(reopened.page(0).annotations.single.color, 0x0000FF);
+    controller.undo();
+    expect(controller.document.page(0).annotations.single.color, 0xFF0000);
+    controller.redo();
+    expect(controller.document.page(0).annotations.single.color, 0x0000FF);
+  });
+
+  test('annotation colour scans and replacement respect pages and protection',
+      () async {
+    final controller = PdfEditingController(_pdf(['', '']))
+      ..color = const Color(0xFFFF0000)
+      ..addRectangle(0, const PdfRect(5, 5, 15, 15))
+      ..addRectangle(1, const PdfRect(5, 5, 15, 15))
+      ..addRectangle(1, const PdfRect(20, 5, 30, 15))
+      ..addRectangle(1, const PdfRect(35, 5, 45, 15))
+      ..addRectangle(1, const PdfRect(50, 5, 60, 15));
+    addTearDown(controller.dispose);
+    controller.apply((e) {
+      e.setAnnotationFlags(1, controller.annotationAt(1, 1)!, 128);
+      e.setAnnotationFlags(1, controller.annotationAt(1, 3)!, 512);
+    });
+    controller.canEditAnnotation = (a) => a.rect.left != 35;
+    final colors = await controller.documentContentColorsAsync(
+        pages: [1], includePageContent: false, includeAnnotations: true);
+    expect(colors, [const Color(0xFFFF0000)]);
+    expect(
+        controller.replaceDocumentColors(
+            pages: [1],
+            find: const Color(0xFFFF0000),
+            replace: const Color(0xFF0000FF),
+            includePageContent: false,
+            includeAnnotations: true),
+        greaterThan(0));
+    expect(controller.document.page(0).annotations.single.color, 0xFF0000);
+    expect(controller.document.page(1).annotations.map((a) => a.color),
+        [0x0000FF, 0xFF0000, 0xFF0000, 0xFF0000]);
+  });
+
+  test(
+      'snapshot selection replacement does not change other snapshots or colours',
+      () async {
+    PdfSnapshotClipboard.instance.clear();
+    final controller = PdfEditingController(_pdf([
+      '1 0 0 rg 0 0 10 10 re f 0 1 0 RG 20 20 m 30 30 l S',
+    ]));
+    addTearDown(controller.dispose);
+    controller.copyVectorSnapshot(0, const PdfRect(0, 0, 40, 40));
+    controller.pasteSnapshot(0, at: (30, 70));
+    controller.pasteSnapshot(0, at: (70, 70));
+    final slots = controller.selectedAnnotationSlots;
+    expect(
+        await controller.replaceDocumentColorsAsync(
+            find: const Color(0xFFFF0000),
+            replace: const Color(0xFF0000FF),
+            includePageContent: false,
+            includeAnnotations: true,
+            annotationSlots: slots),
+        greaterThan(0));
+    final e = PdfEditor(controller.document);
+    expect(
+        e
+            .annotationColors(0, controller.annotationAt(0, 0)!)
+            .map((c) => c.rgb)
+            .toSet(),
+        {0xFF0000, 0x00FF00});
+    expect(
+        e
+            .annotationColors(0, controller.annotationAt(0, 1)!)
+            .map((c) => c.rgb)
+            .toSet(),
+        {0x0000FF, 0x00FF00});
+    expect(_content(controller, 0), contains('1 0 0 rg'));
+  });
+
+  testWidgets(
+      'Edit Colour scans annotations and replaces them without page content',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final controller = PdfEditingController(_pdf(['1 0 0 rg 0 0 10 10 re f']))
+      ..color = const Color(0xFFFF0000)
+      ..addRectangle(0, const PdfRect(20, 20, 50, 50))
+      ..color = const Color(0xFF0000FF);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: PdfEditorView(
+      controller: controller,
+      showSaveButton: false,
+    ))));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pdf-color-process-annotations')),
+        findsOneWidget);
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('pdf-color-process-content')));
+    await tester.tap(find.byKey(const ValueKey('pdf-color-process-content')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pdf-color-process-color-16711680')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pdf-color-process-apply')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await _waitForColorProcessing(tester,
+        () => controller.document.page(0).annotations.single.color == 0x0000FF);
+    expect(controller.document.page(0).annotations.single.color, 0x0000FF);
+    expect(_content(controller, 0), contains('1 0 0 rg'));
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   });
 
   test('replaceSelectedPageColors changes only the selected pages', () {
@@ -295,11 +435,9 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-color-process-scan-progress')),
         findsOneWidget);
     expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-color-process-apply')))
-            .onPressed,
-        isNull);
+        tester.getSemantics(
+            find.byKey(const ValueKey('pdf-color-process-apply'))),
+        isSemantics(isEnabled: false));
 
     await tester.pumpAndSettle();
 
@@ -308,11 +446,9 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-color-process-color-65280')),
         findsOneWidget);
     expect(
-        tester
-            .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-color-process-apply')))
-            .onPressed,
-        isNotNull);
+        tester.getSemantics(
+            find.byKey(const ValueKey('pdf-color-process-apply'))),
+        isSemantics(isEnabled: true));
   });
 
   testWidgets(

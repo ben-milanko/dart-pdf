@@ -1,0 +1,6 @@
+Nieuw in 6.0.0
+
+- Selecteer paginatekst met het selectiegereedschap; dubbelklik op een woord in handmodus.
+- Leesbediening deelt één kopbalk.
+- Snellere paginaweergave met minder geheugengebruik.
+- Ontbrekende details na snel zoomen verholpen.

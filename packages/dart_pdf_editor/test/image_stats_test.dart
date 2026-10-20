@@ -1,7 +1,7 @@
 // PdfPageRenderer.decodedImageStats: the diagnostic that counts a worker
-// buffer's decoded images and their total pixels (recursing soft-mask groups),
-// so a slow raster page's cause - one oversized image vs. many capped tiles -
-// is visible in the perf trace.
+// buffer's decoded images and their total pixels (recursing soft-mask groups
+// and retained tiling cells), so a slow raster page's cause - one oversized
+// image vs. many capped tiles - is visible in the perf trace.
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -16,8 +16,9 @@ PdfDrawImageCommand _image(int width, int height, {bool decoded = true}) {
     stream: stream,
     transform: PdfMatrix.identity,
     isInline: true,
-    decoded:
-        decoded ? PdfDecodedPixels(Uint8List(width * height * 4), width, height) : null,
+    decoded: decoded
+        ? PdfDecodedPixels(Uint8List(width * height * 4), width, height)
+        : null,
   ));
 }
 
@@ -52,6 +53,42 @@ void main() {
       ),
     ]);
     expect(stats, (2, 3 * 3 + 2 * 2));
+  });
+
+  test('descends into retained tiling cells without counting repeats', () {
+    final stats = PdfPageRenderer.decodedImageStats([
+      PdfDrawTiledCellCommand(
+        [_image(4, 3)],
+        Float64List.fromList([0, 10, 20]),
+        Float64List.fromList([0, 0, 0]),
+      ),
+    ]);
+    expect(stats, (1, 4 * 3));
+  });
+
+  test('decode callers can list a shared cell once; pricing keeps each stamp',
+      () {
+    // A Type3 bitmap glyph is one cell list stamped per letter. Decoding
+    // needs its images once; the motion-safe gate prices every draw.
+    final glyph = [_image(4, 3)];
+    PdfDrawTiledCellCommand stamp(List<PdfRenderCommand> cell, double x) =>
+        PdfDrawTiledCellCommand(
+            cell, Float64List.fromList([x]), Float64List.fromList([0]));
+    final commands = [
+      stamp(glyph, 0),
+      stamp(glyph, 10),
+      stamp([_image(2, 2)], 20),
+      stamp(glyph, 30),
+    ];
+    final everyStamp = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, everyStamp);
+    expect(everyStamp, hasLength(4));
+    final distinct = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, distinct,
+        distinctCells: true);
+    expect(distinct, hasLength(2));
+    expect(identical(distinct.first, everyStamp.first), isTrue);
+    expect(PdfPageRenderer.imageDrawPixels(commands), 3 * 4 * 3 + 2 * 2);
   });
 
   test('an image-free buffer reports zero', () {

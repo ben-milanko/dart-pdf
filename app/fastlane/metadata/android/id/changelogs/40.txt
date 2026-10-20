@@ -1,0 +1,9 @@
+Baru di 5.1.0
+
+- Gambar tanda tangan dengan jari di trackpad.
+- Daftar anotasi menampilkan tiap tanda seperti di halaman.
+- Di layar sentuh, aksi tiap baris kini ada di menu ⋮.
+- Stempel yang dipindahkan tidak lagi meninggalkan kotak putih.
+- Edit halaman tidak lagi menghilangkan halaman di beberapa PDF.
+- Tanda tangan digital P-521 kini tervalidasi.
+- Lebih cepat: file terenkripsi, cek tanda tangan, JPEG 2000, dan gambar besar.

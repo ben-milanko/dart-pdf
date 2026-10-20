@@ -1,0 +1,7 @@
+Novidades da 3.1.0
+
+• Digitalize documentos em papel diretamente para um PDF ou tire uma foto com a câmera.
+• Alterações não salvas são espelhadas e restauradas após uma falha.
+• Novas ferramentas: hiperlinks, corte de imagens, bloqueio de anotações e atalhos para cada ferramenta.
+• Overprint fiel; exibição de páginas mais rápida e progressiva.
+• Reduza o tamanho de um PDF sem perdas ao salvar.

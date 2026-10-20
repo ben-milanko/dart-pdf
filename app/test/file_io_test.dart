@@ -28,6 +28,16 @@ class _FakeFileSelector extends fs.FileSelectorPlatform {
     this.acceptedTypeGroups = acceptedTypeGroups;
     return files;
   }
+
+  @override
+  Future<fs.XFile?> openFile({
+    List<fs.XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    this.acceptedTypeGroups = acceptedTypeGroups;
+    return files.isEmpty ? null : files.first;
+  }
 }
 
 void main() {
@@ -91,10 +101,54 @@ void main() {
     fs.FileSelectorPlatform.instance = fake;
     addTearDown(() => fs.FileSelectorPlatform.instance = original);
 
-    final files = await pickPdfFiles();
+    final files = await pickPdfFiles('PDF documents');
     expect(fake.openedMultiple, isTrue);
-    expect(fake.acceptedTypeGroups, [pdfTypeGroup]);
+    expect(fake.acceptedTypeGroups, hasLength(1));
+    expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['pdf']);
     expect(files.map((f) => f.path), [a, b]);
+  });
+
+  testWidgets('single-file pickers pass their localized filter label through',
+      (tester) async {
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector(
+        [fs.XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'x')]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    await pickPdfBytes('PDF documents');
+    expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['pdf']);
+
+    await pickImageBytes('Images');
+    expect(fake.acceptedTypeGroups!.single.label, 'Images');
+    expect(fake.acceptedTypeGroups!.single.extensions,
+        containsAll(['png', 'jpg', 'jpeg']));
+  });
+
+  testWidgets('importCustomStamps filters on the stamp-bundle label',
+      (tester) async {
+    final stamp = PdfCustomStamp(
+      text: 'PAID',
+      color: 0xC03030,
+      template: PdfStampTemplate.text('PAID', 0xC03030),
+      type: 'Approval',
+    );
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([
+      fs.XFile.fromData(
+        Uint8List.fromList(utf8.encode(encodeCustomStampBundle([stamp]))),
+        name: 'stamps.json',
+      ),
+    ]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    final stamps = await importCustomStamps('DartPDF stamps');
+    expect(stamps, [stamp]);
+    expect(fake.acceptedTypeGroups!.single.label, 'DartPDF stamps');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['json']);
   });
 
   test('saveBytesToPath overwrites the file in place', () async {
@@ -111,6 +165,25 @@ void main() {
     // A second save overwrites, not appends.
     await saveBytesToPath(Uint8List.fromList([9, 9]), path);
     expect(await File(path).readAsBytes(), [9, 9]);
+  });
+
+  test('readPdfAtPath reads a snapshot back off disk on native', () async {
+    // Native's byte-snapshot store (readCachedPdf) declines, so readPdfAtPath
+    // reads the recent/session file straight off its filesystem path.
+    final dir = await Directory.systemTemp.createTemp('dartpdf_read');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/recent.pdf';
+    await File(path).writeAsBytes([37, 80, 68, 70]); // %PDF
+
+    expect(await readPdfAtPath(path), [37, 80, 68, 70]);
+  });
+
+  test('readPdfAtPath throws for a missing file so the caller drops it',
+      () async {
+    await expectLater(
+      readPdfAtPath('/no/such/dir/gone.pdf'),
+      throwsA(anything),
+    );
   });
 
   test('saveBytesToPath reports failure for an unwritable path', () async {
@@ -145,11 +218,77 @@ void main() {
         );
         try {
           final result = await saveBytesAs(
-              ctx, Uint8List.fromList([1, 2, 3, 4]), 'exported');
+              ctx, Uint8List.fromList([1, 2, 3, 4]), 'exported',
+              pdfLabel: 'PDF documents');
 
           expect(result.succeeded, isTrue);
           expect(result.path, '$chosen.pdf');
           expect(await File('$chosen.pdf').readAsBytes(), [1, 2, 3, 4]);
+        } finally {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/file_selector'),
+            null,
+          );
+          await dir.delete(recursive: true);
+        }
+      });
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  testWidgets('pickPdf reads the chosen file and passes the PDF filter label',
+      (tester) async {
+    // The platform override must be cleared before the test body returns (the
+    // binding asserts foundation debug vars are unset), so reset it inline.
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final dir = Directory.systemTemp.createTempSync('dartpdf_pickpdf');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/doc.pdf';
+    File(path).writeAsBytesSync([37, 80, 68, 70]); // %PDF
+
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([fs.XFile(path)]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    try {
+      await tester.runAsync(() async {
+        final picked = await pickPdf('PDF documents');
+        expect(picked, isNotNull);
+        expect(picked!.bytes, [37, 80, 68, 70]);
+        expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+      });
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  testWidgets('image and JSON save-as pass their filter label to the dialog',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    late BuildContext ctx;
+    await tester.pumpWidget(Builder(builder: (context) {
+      ctx = context;
+      return const SizedBox.shrink();
+    }));
+    try {
+      await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('dartpdf_savemisc');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/file_selector'),
+          (call) async =>
+              call.method == 'getSavePath' ? '${dir.path}/out' : null,
+        );
+        try {
+          final image = await saveImageBytesAs(
+              ctx, Uint8List.fromList([1, 2, 3]), 'page.png', 'image/png',
+              imageLabel: 'Images');
+          expect(image.succeeded, isTrue);
+
+          final json = await saveJsonAs(ctx, '{"a":1}', 'data.json',
+              typeLabel: 'DartPDF stamps');
+          expect(json.succeeded, isTrue);
         } finally {
           tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
             const MethodChannel('plugins.flutter.io/file_selector'),

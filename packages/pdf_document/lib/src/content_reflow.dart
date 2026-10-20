@@ -75,7 +75,6 @@ extension PdfParagraphReflow on PdfEditor {
 
       final font = fontFor(group.first.fontName);
       final reflowFont = _reflowFontFor(
-        page,
         group.first.fontName,
         font,
         group.first.fontSize,
@@ -141,17 +140,16 @@ extension PdfParagraphReflow on PdfEditor {
   /// A measuring/encoding strategy for [font] at [size], or null when the
   /// font isn't one paragraph reflow can rewrite.
   _ReflowFont? _reflowFontFor(
-    PdfPage page,
     String? name,
     CosDictionary? font,
     double size,
   ) {
     if (font == null) return null;
     if (PdfContentEditing._isType0(document.cos, font) && name != null) {
-      final editing = _Type0Editing.tryCreate(this, page, name, font, const []);
-      return editing == null ? null : _Type0ReflowFont(editing, size);
+      final type0 = Type0Font.forEditing(document.cos, font);
+      return type0 == null ? null : _Type0ReflowFont(type0, _updater, size);
     }
-    return _SimpleReflowFont(_widthsFor(font), size);
+    return _SimpleReflowFont(SimpleFont.decode(document.cos, font), size);
   }
 
   /// The paragraph lines flattened from [ops], decoding each show with
@@ -168,13 +166,12 @@ extension PdfParagraphReflow on PdfEditor {
     var leading = 0.0;
     var charSpace = 0.0;
     var wordSpace = 0.0;
-    // text line matrix (a, b, c, d, e, f)
-    var a = 1.0, b = 0.0, c = 0.0, d = 1.0, e = 0.0, f = 0.0;
+    // text line matrix
+    var lm = PdfMatrix.identity;
     _ReflowBreak? pending;
 
     void translate(double tx, double ty) {
-      e = tx * a + ty * c + e;
-      f = tx * b + ty * d + f;
+      lm = PdfMatrix.translation(tx, ty).concat(lm);
     }
 
     for (var i = 0; i < ops.length; i++) {
@@ -183,12 +180,7 @@ extension PdfParagraphReflow on PdfEditor {
       switch (op.operator) {
         case 'BT':
           objId++;
-          a = 1;
-          b = 0;
-          c = 0;
-          d = 1;
-          e = 0;
-          f = 0;
+          lm = PdfMatrix.identity;
           pending = const _ReflowBreak('first', 0, 0);
         case 'Tf':
           if (operands.isNotEmpty && operands[0] is CosName) {
@@ -226,12 +218,14 @@ extension PdfParagraphReflow on PdfEditor {
           }
         case 'Tm':
           if (operands.length >= 6) {
-            a = PdfContentEditing._num(operands[0]);
-            b = PdfContentEditing._num(operands[1]);
-            c = PdfContentEditing._num(operands[2]);
-            d = PdfContentEditing._num(operands[3]);
-            e = PdfContentEditing._num(operands[4]);
-            f = PdfContentEditing._num(operands[5]);
+            lm = PdfMatrix(
+              PdfContentEditing._num(operands[0]),
+              PdfContentEditing._num(operands[1]),
+              PdfContentEditing._num(operands[2]),
+              PdfContentEditing._num(operands[3]),
+              PdfContentEditing._num(operands[4]),
+              PdfContentEditing._num(operands[5]),
+            );
             pending = const _ReflowBreak('Tm', 0, 0);
           }
         case 'T*':
@@ -249,12 +243,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             const _ReflowBreak("'", 0, 0),
             textByOp,
           );
@@ -275,12 +264,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             const _ReflowBreak('"', 0, 0),
             textByOp,
           );
@@ -297,12 +281,7 @@ extension PdfParagraphReflow on PdfEditor {
             leading,
             charSpace,
             wordSpace,
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
+            lm,
             pending ?? const _ReflowBreak('cont', 0, 0),
             textByOp,
           );
@@ -322,12 +301,7 @@ extension PdfParagraphReflow on PdfEditor {
     double leading,
     double charSpace,
     double wordSpace,
-    double a,
-    double b,
-    double c,
-    double d,
-    double e,
-    double f,
+    PdfMatrix matrix,
     _ReflowBreak brk,
     Map<int, String> textByOp,
   ) {
@@ -341,12 +315,7 @@ extension PdfParagraphReflow on PdfEditor {
         leading: leading,
         charSpace: charSpace,
         wordSpace: wordSpace,
-        a: a,
-        b: b,
-        c: c,
-        d: d,
-        originX: e,
-        baselineY: f,
+        matrix: matrix,
         brk: brk,
         text: textByOp[opIndex] ?? '',
       ),
@@ -555,12 +524,7 @@ class _ReflowLine {
     required this.leading,
     required this.charSpace,
     required this.wordSpace,
-    required this.a,
-    required this.b,
-    required this.c,
-    required this.d,
-    required this.originX,
-    required this.baselineY,
+    required this.matrix,
     required this.brk,
     required this.text,
   });
@@ -573,11 +537,20 @@ class _ReflowLine {
   final double leading;
   final double charSpace;
   final double wordSpace;
-  final double a, b, c, d;
-  final double originX;
-  final double baselineY;
+
+  /// The text line matrix at the start of this show operation.
+  final PdfMatrix matrix;
   final _ReflowBreak brk;
   final String text;
+
+  double get a => matrix.a;
+  double get b => matrix.b;
+  double get c => matrix.c;
+  double get d => matrix.d;
+
+  /// The line's origin x and baseline y - the translation part of [matrix].
+  double get originX => matrix.e;
+  double get baselineY => matrix.f;
 }
 
 /// How a line was reached from the previous one.
@@ -604,28 +577,34 @@ abstract class _ReflowFont {
 }
 
 class _SimpleReflowFont extends _ReflowFont {
-  _SimpleReflowFont(this._widthOf, this._size);
+  _SimpleReflowFont(this._font, this._size);
 
-  final double Function(int code) _widthOf;
+  /// The run's font, which owns both directions of the code <-> text map:
+  /// a simple font's bytes are its own codes, not the characters, so a
+  /// reflowed line is measured and written through it rather than by
+  /// treating each code unit as a byte.
+  final SimpleFont _font;
   final double _size;
 
   @override
   double measure(String text) {
+    final codes = _font.encode(text);
+    // an unencodable line is refused by [showOp]; measuring it as zero here
+    // would let the wrapper build lines it cannot then emit.
+    if (codes == null) return double.infinity;
     var total = 0.0;
-    for (final unit in text.codeUnits) {
-      total += _widthOf(unit);
+    for (final code in codes) {
+      total += _font.widthOf(code);
     }
     return total / 1000 * _size;
   }
 
   @override
   ContentOperation? showOp(String text) {
-    for (final unit in text.codeUnits) {
-      if (unit > 0xFF) return null; // not representable in a simple font
-    }
-    return ContentOperation('Tj', [
-      CosString(Uint8List.fromList(text.codeUnits)),
-    ]);
+    // null when the font has no code for one of the characters - a subset
+    // that dropped the glyph - which bails the whole reflow.
+    final codes = _font.encode(text);
+    return codes == null ? null : ContentOperation('Tj', [CosString(codes)]);
   }
 
   @override
@@ -633,22 +612,21 @@ class _SimpleReflowFont extends _ReflowFont {
 }
 
 class _Type0ReflowFont extends _ReflowFont {
-  _Type0ReflowFont(this._editing, this._size);
+  _Type0ReflowFont(this._font, this._updater, this._size);
 
-  final _Type0Editing _editing;
+  final Type0Font _font;
+  final CosIncrementalUpdater _updater;
   final double _size;
 
   @override
-  double measure(String text) => _editing.measureReflow(text, _size);
+  double measure(String text) => _font.measure(text, _size);
 
   @override
   ContentOperation? showOp(String text) {
-    final string = _editing.encodeReflowLine(text);
+    final string = _font.encodeIdentity(text);
     return string == null ? null : ContentOperation('Tj', [string]);
   }
 
   @override
-  void commit() {
-    if (_editing.isDirty) _editing.commit();
-  }
+  void commit() => _font.commitFontDict(_updater);
 }

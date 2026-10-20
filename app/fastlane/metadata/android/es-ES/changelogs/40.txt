@@ -1,0 +1,9 @@
+Novedades de la 5.1.0
+
+- Firma con el dedo en el trackpad.
+- Las listas de anotaciones muestran cada marca como se ve en la página.
+- En pantallas táctiles, las acciones de fila están en un menú ⋮.
+- Los sellos movidos ya no dejan un recuadro blanco.
+- Editar páginas ya no puede perder una página en algunos PDF.
+- Las firmas digitales P-521 ahora se validan correctamente.
+- Más rápido: archivos cifrados, firmas, JPEG 2000 y planos grandes.

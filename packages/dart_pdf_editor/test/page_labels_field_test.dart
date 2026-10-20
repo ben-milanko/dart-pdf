@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -32,8 +32,8 @@ void main() {
     expect(controller.pageLabel(0), 'i');
     expect(controller.pageLabel(2), '1');
 
-    final field = tester.widget<TextField>(
-        find.byKey(const ValueKey('pdf-page-number-field')));
+    final field = tester
+        .widget<TextField>(find.byKey(const ValueKey('pdf-page-number-field')));
     expect(field.controller!.text, 'i');
     // physical position is still shown beside the label
     expect(find.text('  (1 / 4)'), findsOneWidget);
@@ -42,12 +42,12 @@ void main() {
   testWidgets('a plain document keeps the numeric field', (tester) async {
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
-    await pump(tester,
-        PdfReader(bytes: buildMultiPagePdf(3), controller: controller));
+    await pump(
+        tester, PdfReader(bytes: buildMultiPagePdf(3), controller: controller));
 
     expect(controller.hasPageLabels, isFalse);
-    final field = tester.widget<TextField>(
-        find.byKey(const ValueKey('pdf-page-number-field')));
+    final field = tester
+        .widget<TextField>(find.byKey(const ValueKey('pdf-page-number-field')));
     expect(field.controller!.text, '1');
     expect(find.text(' / 3'), findsOneWidget);
   });

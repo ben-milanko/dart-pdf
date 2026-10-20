@@ -1,0 +1,9 @@
+Nouveautés de la 5.0.0
+
+- Les formulaires calculent les totaux, formatent et vérifient la saisie.
+- Tab pour changer de champ ; choix multiples dans les listes.
+- Mots de passe de formulaire en stockage sécurisé, jamais dans le PDF.
+- Créez boutons radio, listes déroulantes, zones de liste et champs de signature.
+- Signez des PDF protégés par mot de passe.
+- Révocation des signatures vérifiée ; listes de confiance UE et Adobe (option).
+- Texte Calibri des documents Office bien affiché.

@@ -1,0 +1,9 @@
+Neu in 5.1.0
+
+- Unterschrift mit dem Finger auf dem Trackpad zeichnen.
+- Anmerkungslisten zeigen Markierungen so, wie sie auf der Seite aussehen.
+- Auf Touchscreens: Zeilenaktionen im ⋮-Menü.
+- Verschobene Stempel hinterlassen keinen weißen Kasten mehr.
+- Seitenbearbeitungen verlieren in manchen PDFs keine Seiten mehr.
+- Digitale P-521-Signaturen werden jetzt korrekt validiert.
+- Schneller: verschlüsselte Dateien, Signaturprüfung, JPEG 2000, große Zeichnungen.

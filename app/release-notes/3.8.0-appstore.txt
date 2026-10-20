@@ -1,0 +1,9 @@
+New in 3.8.0
+
+- Browse recent PDFs with searchable page previews.
+- Place and edit annotations beyond the page edge.
+- Restyle compatible mixed annotation selections together.
+- Choose any signature colour and adjust pen thickness.
+- Preview print jobs before sending them.
+- Scroll and deep-zoom large, image-heavy drawings more smoothly.
+- Fixed text caret alignment, popup placement, browser JPEG decoding, and several annotation and rendering crashes.

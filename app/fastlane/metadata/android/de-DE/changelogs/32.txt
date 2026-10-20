@@ -1,0 +1,6 @@
+Neu in 3.8.0
+
+- Zuletzt geöffnete PDFs mit durchsuchbaren Seitenvorschauen durchsuchen.
+- Anmerkungen über den Seitenrand hinaus bearbeiten, gemischte Auswahlen gestalten und Farbe sowie Stärke der Signatur wählen.
+- Druckaufträge vor dem Senden prüfen.
+- Flüssigeres Scrollen und Zoomen in großen Zeichnungen sowie Korrekturen für Cursor, Pop-ups und Abstürze.

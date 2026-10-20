@@ -1,0 +1,6 @@
+Neu in 3.5.0
+
+- Große und detailreiche PDFs reagieren beim Scrollen, Verschieben und Zoomen flüssiger; der sichtbare Bereich wird zuerst geschärft.
+- Seitenvorschauen werden bei schneller Navigation schrittweise klarer.
+- Seiten bleiben an den Rändern des Ansichtsbereichs scharf und sichtbar.
+- Schnellere Remote-Dokumente bei besser vorhersehbarer Speichernutzung.

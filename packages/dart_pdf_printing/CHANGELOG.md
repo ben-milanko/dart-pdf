@@ -1,0 +1,77 @@
+## 0.7.0
+
+- Update dependency constraints for the dart-pdf 10.0.0 suite. No public API changes.
+
+## 0.6.0
+
+- Update dependency constraints for the dart-pdf 9.0.0 suite. No public API changes.
+
+## 0.5.1
+
+- Update dependency constraints for the compatible dart-pdf 8.1.0 suite. No public API changes.
+
+## 0.5.0
+
+- Align dependency constraints with the dart-pdf 8.0.0 suite.
+
+## 0.4.0
+
+- **BREAKING:** built on `material_ui` like `dart_pdf_editor` 7.0.0: the print
+  preview and progress dialogs use material_ui widgets and run under a
+  material_ui, legacy Material, Cupertino or plain widgets host. Requires
+  Flutter 3.47.0. See `doc/MIGRATING-7.0.0.md`. The generated
+  `DartPdfPrintingLocalizations.localizationsDelegates` still lists the
+  legacy `flutter_localizations` delegates; a material_ui app registers
+  `DartPdfPrintingLocalizations.delegate` next to
+  `PdfEditorLocalizations.delegates`.
+
+## 0.3.0
+
+- Align dependencies with the dart-pdf 6.0.0 suite and its editor API changes.
+- The print preview's drop-downs are `PdfDropdown`s and its text fields use
+  the editor's shared context menu (`pdfTextContextMenu`), so the dialog runs
+  under a `CupertinoApp` or `WidgetsApp` host. Tests reading the selectors use
+  `PdfDropdown<T>` instead of `DropdownButton<T>`.
+- The print progress dialog opens through `showPdfDialog`, so it stays in
+  the window (no native-window promotion) and carries the host's themes and
+  `PdfEditorScope`, like the editor's own dialogs.
+
+## 0.2.2
+
+- Align dependency constraints with the dart-pdf 5.1.1 package suite.
+
+## 0.2.1
+
+- Align dependency constraints with the dart-pdf 5.1.0 package suite.
+
+## 0.2.0
+
+- Stop the print dialog carrying a previous document's page range. The Range
+  field restored the last job's typed pages even when the dialog reopened in
+  All mode, so a 2-page file showed a 14-page file's "1-14"; the saved range
+  is now restored only when the job resumes in Range mode.
+- Render copies once on the desktop print path. The composer lays copies out
+  as repeated pages sharing one content stream; each distinct sheet is now
+  encoded once and reused for later copies (up to 64 MB), and progress counts
+  distinct sheets - 10 copies of a 2-page file report "2 of 2", not "20". The
+  runner still receives every copy, so collation and duplex pairing are
+  unchanged.
+- Align dependency constraints with the dart-pdf 5.0.0 package suite.
+
+## 0.1.1
+
+- Align dependency constraints with the dart-pdf 4.5.0 package suite.
+
+## 0.1.0
+
+- Extract DartPDF's print preview, sheet composer and system printing into an
+  optional Flutter plugin for Android, iOS, macOS, Windows, Linux and web.
+- Include page ranges, paper sizes, scaling, n-up layout, copies, cropping,
+  markup controls, batch-file callbacks and the existing translations.
+- Register native backends automatically, with no PDFium dependency or host
+  runner code. Keep print buffers per plugin instance and reject overlapping
+  jobs on a native channel.
+- Include #899's direct Windows printing, printer discovery, color/duplex/tray
+  selection, advanced driver properties and saved print preferences.
+- Pair duplex fronts and backs before expanding copies, adding blank backs
+  for odd page counts and paper-size changes.

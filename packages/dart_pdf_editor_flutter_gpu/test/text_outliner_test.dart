@@ -1,0 +1,229 @@
+import 'dart:io';
+
+import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+void main() {
+  late FlutterGpuTrueTypeFontFace face;
+  late FlutterGpuTrueTypeTextOutliner outliner;
+
+  setUp(() {
+    face = FlutterGpuTrueTypeFontFace(buildTestTrueTypeFont());
+    outliner = FlutterGpuTrueTypeTextOutliner((_) => face);
+  });
+
+  PdfTextRun run(
+    String text,
+    List<double> offsets, {
+    double width = 1.6,
+    String fontName = 'Helvetica',
+    double letterSpacing = 0,
+  }) =>
+      PdfTextRun(
+        text: text,
+        transform: const PdfMatrix(20, 0, 0, 20, 40, 80),
+        color: PdfColor.black,
+        width: width,
+        fontName: fontName,
+        fontSize: 20,
+        charOffsets: offsets,
+        letterSpacing: letterSpacing,
+      );
+
+  test('retains PDF origins and copy-fits glyph shapes uniformly', () {
+    // Fixture natural advances are A=.6, B=1.0. Doubling the PDF advances
+    // makes xScale=2 while the mapped page-space origins remain 40 and 64.
+    final outlined =
+        outliner.outline(run('AB', const [0, 1.2, 3.2], width: 3.2));
+    expect(outlined, isNotNull);
+    expect(outlined!.transform.a, 40);
+    expect(outlined.width, 1.6);
+    expect(outlined.charOffsets, const [0, 0.6, 1.6]);
+    expect(outlined.glyphs, hasLength(2));
+    expect(outlined.glyphs![0].offset, 0);
+    expect(outlined.glyphs![1].offset, 0.6);
+    expect(outlined.glyphs!.every((glyph) => glyph.outline != null), isTrue);
+
+    final firstPageX = outlined.transform.transformX(
+      outlined.glyphs![0].offset,
+      0,
+    );
+    final secondPageX = outlined.transform.transformX(
+      outlined.glyphs![1].offset,
+      0,
+    );
+    expect(firstPageX, 40);
+    expect(secondPageX, 64);
+  });
+
+  test('copy-fits against the PDF glyph widths, not the spaced pen steps', () {
+    // Fixture natural advances are A=.6, B=1.0. The PDF gives them the same
+    // widths and adds a 0.5 em Tc, so the pen steps 1.1 and 1.5 em - copy-
+    // fitting to those steps would blow the outlines up by 1.44x. Only the
+    // origins take the spacing.
+    final outlined = outliner.outline(
+      run('AB', const [0, 1.1, 2.6], width: 2.6, letterSpacing: 0.5),
+    );
+    expect(outlined, isNotNull);
+    expect(outlined!.transform.a, closeTo(20, 1e-9),
+        reason: 'the glyphs keep their own width');
+    expect(outlined.charOffsets, const [0, 1.1, 2.6]);
+    expect(outlined.glyphs![1].offset, closeTo(1.1, 1e-9));
+  });
+
+  test(
+      'fits each glyph to its PDF slot: centred if narrower, squeezed if wider',
+      () {
+    // Fixture natural advances are A=.6, B=1.0; the PDF swaps them (A=1.0,
+    // B=.6), so the run scale stays 1 and only the per-glyph fit can keep the
+    // narrow A from sitting flush left with 0.4 em of air after it, and the
+    // wide B from running 0.4 em past its slot - Helvetica's i and e against
+    // an unembedded Minion's widths.
+    final plain = outliner.outline(run('AB', const [0, 0.6, 1.6]))!;
+    final fitted = outliner.outline(run('AB', const [0, 1.0, 1.6]))!;
+    expect(fitted.transform.a, closeTo(20, 1e-9));
+    expect(fitted.glyphs![0].offset, closeTo(0.2, 1e-9),
+        reason: 'A is centred in its 1.0 em slot');
+    expect(fitted.glyphs![1].offset, closeTo(1.0, 1e-9),
+        reason: 'B starts its slot');
+
+    double maxX(PdfPath path) {
+      var x = double.negativeInfinity;
+      final reader = path.cursor();
+      while (reader.moveNext()) {
+        if (reader.verb == PdfPathVerb.close) continue;
+        x = [
+          x,
+          reader.x1,
+          if (reader.verb == PdfPathVerb.cubicTo) ...[
+            reader.x2,
+            reader.x3,
+          ]
+        ].reduce((a, b) => a > b ? a : b);
+      }
+      return x;
+    }
+
+    expect(maxX(fitted.glyphs![1].outline!),
+        closeTo(maxX(plain.glyphs![1].outline!) * 0.6, 1e-9),
+        reason: 'B is squeezed into its 0.6 em slot');
+    expect(fitted.glyphs![0].outline, same(plain.glyphs![0].outline),
+        reason: 'a centred glyph keeps its own outline');
+  });
+
+  test('keeps whitespace as an empty placement at its PDF offset', () {
+    final outlined = outliner.outline(
+      run('A B', const [0, 0.6, 0.9, 1.9], width: 1.9),
+    );
+    expect(outlined, isNotNull);
+    expect(outlined!.glyphs, hasLength(3));
+    expect(outlined.glyphs![1].outline, isNull);
+    expect(outlined.glyphs![1].text, ' ');
+  });
+
+  test('keeps default-ignorable controls as empty placements', () {
+    final outlined = outliner.outline(
+      run('A\u007fB\u0081', const [0, 0.6, 0.8, 1.8, 2.0], width: 2),
+    );
+    expect(outlined, isNotNull);
+    expect(outlined!.glyphs, hasLength(4));
+    expect(outlined.glyphs![1].outline, isNull);
+    expect(outlined.glyphs![1].text, '\u007f');
+    expect(outlined.glyphs![3].outline, isNull);
+    expect(outlined.glyphs![3].text, '\u0081');
+
+    final controlsOnly =
+        outliner.outline(run('\u007f', const [0, 0.5], width: 0.5));
+    expect(controlsOnly, isNotNull);
+    expect(controlsOnly!.glyphs!.single.outline, isNull);
+    expect(controlsOnly.transform, run('', const [0]).transform);
+  });
+
+  test('declines missing glyphs, malformed offsets, and complex shaping', () {
+    expect(outliner.outline(run('AC', const [0, 0.6, 1.2])), isNull);
+    expect(outliner.outline(run('AB', const [0, 0.6])), isNull);
+    expect(outliner.outline(run('AB', const [0, 0.6, 1.6]).copyWithText('אב')),
+        isNull);
+  });
+
+  test('system adapter declines until the bundled faces have settled',
+      () async {
+    final system = FlutterGpuSystemTextOutliner.tryCreate();
+    if (system == null) return; // platform with no known font locations
+    // Canvas draws unembedded standard-14 text in the bundled metric-compatible
+    // face wherever the assets package supplies one, so until this adapter
+    // knows whether it has that face it outlines nothing: a declined run keeps
+    // the scene on the exact Canvas fallback, where a wrongly-spaced one would
+    // not.
+    expect(
+      system.outline(run('AB', const [0, 0.6, 1.6], fontName: 'Helvetica')),
+      isNull,
+    );
+    await system.ready;
+  });
+
+  test(
+    'macOS system adapter resolves exact Latin and CJK faces',
+    () async {
+      final system = FlutterGpuSystemTextOutliner.tryCreate();
+      expect(system, isNotNull);
+      // This test package does not ship the bundled substitute faces, so once
+      // the read of them settles the platform catalogue answers - which is what
+      // Canvas falls back to as well.
+      await system!.ready;
+      for (final name in const [
+        'Helvetica',
+        'Helvetica-Bold',
+        'Helvetica-Oblique',
+        'Helvetica-BoldOblique',
+      ]) {
+        expect(
+          system.outline(
+            run('AB', const [0, 0.6, 1.6], fontName: name),
+          ),
+          isNotNull,
+          reason: name,
+        );
+      }
+      expect(
+        system.outline(
+          run(
+            'AB',
+            const [0, 0.6, 1.6],
+            fontName: 'TeXGyreAdventor-Regular',
+          ),
+        ),
+        isNull,
+      );
+      for (final (name, text) in const [
+        ('ºÚÌå', '中文'),
+        ('·ÂËÎ_GB2312', '中文'),
+        ('HeiseiMin-W3', '日本'),
+        ('MS-Gothic', '日本'),
+      ]) {
+        expect(
+          system.outline(
+            run(text, const [0, 0.8, 1.6], fontName: name),
+          ),
+          isNotNull,
+          reason: name,
+        );
+      }
+    },
+    skip: !Platform.isMacOS,
+  );
+}
+
+extension on PdfTextRun {
+  PdfTextRun copyWithText(String value) => PdfTextRun(
+        text: value,
+        transform: transform,
+        color: color,
+        width: width,
+        fontName: fontName,
+        fontSize: fontSize,
+        charOffsets: charOffsets,
+      );
+}

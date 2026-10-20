@@ -15,7 +15,7 @@ PORT=8753
 if [[ "${1:-}" != "--serve" ]]; then
   [[ -f "$PDF" ]] || { echo "missing $PDF" >&2; exit 1; }
   fvm dart run dart_pdf_editor:build_web_worker \
-    --out ../assets/web/pdf_render_worker.dart.js
+    --out ../../dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
   fvm flutter build web --release --dart-define=PDF=cad.pdf
   cp "$PDF" build/web/cad.pdf
 fi

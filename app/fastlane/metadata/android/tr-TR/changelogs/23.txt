@@ -1,0 +1,5 @@
+3.2.0 sürümündeki yenilikler
+
+• Belleğe duyarlı sayfa önbelleği ve daha az yinelenen işleme ile daha hızlı, kararlı görüntüleme.
+• Daha iyi FreeText ve açıklama uyumluluğu ile çok satırlı işaretlemelerde daha hassas seçim.
+• Yükleme duraklamaları, uzak oturum geri yükleme gecikmeleri ve kısıtlı çizimden sonra Ctrl/Cmd+tekerlek yakınlaştırma düzeltildi.

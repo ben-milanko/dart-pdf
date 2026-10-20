@@ -1,0 +1,23 @@
+New in 3.1.0
+
+SCAN AND CAPTURE
+• Scan paper documents straight into a PDF — start a new document from a scan or insert pages into the open file.
+• Take a photo with the camera and add it to your document.
+
+PEACE OF MIND
+• Unsaved changes are mirrored in the background and restored after a crash, so your work survives.
+
+NEW TOOLS
+• Add hyperlinks to the web or to another page in the document.
+• Crop placed images and pasted pictures.
+• Lock annotations against accidental edits, and unlock them when needed.
+• Every editing tool now has a keyboard shortcut.
+• Search now finds text inside your notes and annotations, too.
+
+RENDERING
+• Overprint now renders faithfully, so print-oriented PDFs with knockouts and spot inks look the way they print.
+• Pages reveal progressively as they render — much faster on large or image-heavy files.
+• Recent files can show as a grid of page thumbnails.
+• Shrink a PDF's file size losslessly when saving.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

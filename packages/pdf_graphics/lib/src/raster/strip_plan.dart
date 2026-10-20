@@ -144,7 +144,7 @@ class StripPlanBinner extends StripBinningDevice {
       return;
     }
     flushPending();
-    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, run.fillAlpha))) {
       slugFallbackOutlineRuns++;
       slugFallbackOrdinals.add(flushPointCount - 1);
       super.drawText(run);
@@ -203,7 +203,17 @@ class StripPlanBinner extends StripBinningDevice {
   @override
   void delegateSetBlendMode(mode) {}
   @override
+  void delegateSetOverprint({required fill, required stroke, required mode}) {}
+  @override
   void delegateBeginGroup(double alpha, {required bool knockout}) {}
+  @override
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    bounds,
+    backdropColor,
+  }) {}
   @override
   void delegateEndGroup() {}
   @override

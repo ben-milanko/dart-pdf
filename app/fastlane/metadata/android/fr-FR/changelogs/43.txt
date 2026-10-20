@@ -1,0 +1,6 @@
+Nouveautés de 7.0.0
+
+- OCR plus précis et plus rapide pour les petits caractères et les plans, avec une progression plus claire.
+- Suivez les liens et sélectionnez le texte par appui long en mode Sélection.
+- Les résultats de recherche restent visibles après un zoom.
+- L’aperçu de l’encre conserve l’opacité choisie ; les exports vectoriels incluent les annotations.

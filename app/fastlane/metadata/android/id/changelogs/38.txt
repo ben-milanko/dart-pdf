@@ -1,0 +1,9 @@
+Baru di 4.5.0
+
+- Lihat yang baru di setiap rilis melalui Pengaturan > Tentang.
+- Teks dan garis PDF lebih tajam di Linux.
+- Halaman yang diekspor terbuka di tab baru.
+- Beralih antara halaman, teks alir ulang, dan kisi halaman dari satu kontrol.
+- Jarak huruf yang tepat untuk teks dengan font standar yang tidak disematkan.
+- Pemilihan teks lebih baik antarkolom dan dalam bahasa Tionghoa, Jepang, dan Korea.
+- Teks bergaris tepi kini tampil jelas.

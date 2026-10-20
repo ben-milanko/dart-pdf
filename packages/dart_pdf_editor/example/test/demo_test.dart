@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_viewer_example/main.dart';
@@ -10,7 +10,15 @@ void main() {
     // the mock store is process-global: start every test from defaults
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const ViewerApp());
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load
+    // asynchronously, so the app subtree - and the post-frame demo open -
+    // only appear after the deferred unit resolves over several frames.
+    // pumpAndSettle can't be used (the open demo runs a periodic clock timer
+    // that never settles), so pump a bounded number of frames until the demo
+    // viewer is up.
+    for (var i = 0; i < 20 && find.byType(PdfViewer).evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   /// Demo pages are 612×792pt and the viewer opens fit-page (the whole
@@ -68,11 +76,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
 
-    expect(find.byType(Switch), findsOneWidget);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
-    await tester.tap(find.byType(Switch));
+    final toggle = find.byKey(const ValueKey('demo-overlay-switch'));
+    expect(toggle, findsOneWidget);
+    expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+    await tester.tap(toggle);
     await tester.pump(const Duration(milliseconds: 400));
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
 
     // the counter control edits the same state the page-1 link increments
     // (.first: the page overlay's button - the AppBar tab strip's new-tab

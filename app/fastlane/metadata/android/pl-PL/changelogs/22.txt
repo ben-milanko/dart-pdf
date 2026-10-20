@@ -1,0 +1,4 @@
+Nowości w wersji 3.1.1
+
+• Płynniejsze przewijanie dużych lub złożonych wizualnie plików PDF, z mniejszą liczbą utraconych klatek.
+• Podglądy stron pozostają widoczne podczas szybkiego przewijania, a potem wracają do pełnej szczegółowości.

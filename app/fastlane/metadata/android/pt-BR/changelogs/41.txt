@@ -1,0 +1,4 @@
+Novidades da 5.1.1
+
+- A tinta escrita em sequência rápida não desaparece mais da página.
+- Inclui todas as melhorias da 5.1.0.

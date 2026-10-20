@@ -1,0 +1,29 @@
+{
+  "source_sha": "4495e229559809280c210c9aef23423f3199cbe0",
+  "capture": "running Windows app render surface via RenderRepaintBoundary.toImage at 2x",
+  "screenshots": [
+    {
+      "height": 1458,
+      "file": "01-welcome.png",
+      "width": 2016,
+      "sha256": "553a3b3216f86eaf761f5812e6196fff257205eeadd2ed08bb73be0a0b6c40c4"
+    },
+    {
+      "height": 1458,
+      "file": "02-editor.png",
+      "width": 2016,
+      "sha256": "350697effaf753796d04dbace2d5982dce342fda573cb8daa2995edebaefe5d4"
+    },
+    {
+      "height": 1458,
+      "file": "03-dark.png",
+      "width": 2016,
+      "sha256": "2d074d03166149d6c8e8199c81cd59aaeae2a9b0caa6a7b1366e64cb92ec399f"
+    }
+  ],
+  "platform": "windows",
+  "workflow_run": "https://github.com/ben-milanko/dart-pdf/actions/runs/35702267605",
+  "harness_sha": "a9ed97e59b52947a7cf904d55597293e77f0cf63",
+  "app_version": "version: 4.5.0+38",
+  "captured_at": "2026-09-22T08:03:59.5911267Z"
+}

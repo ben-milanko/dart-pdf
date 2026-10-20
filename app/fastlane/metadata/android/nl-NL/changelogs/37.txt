@@ -1,0 +1,8 @@
+Nieuw in 4.4.0
+
+- Print rechtstreeks op Windows en behoud je printinstellingen tussen taken.
+- Zoom in tot 10000%, met voorinstellingen voor de dichtstbijzijnde weergaven.
+- Open en scroll dichte vectortekeningen sneller.
+- Selecteer en doorzoek tekst eerder op zware pagina's.
+- Stel verticale uitlijning in voor tekstvelden in formulieren.
+- Toon het opgeslagen bestand in Verkenner na Opslaan als.

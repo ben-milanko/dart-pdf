@@ -1,0 +1,532 @@
+// _AnnotationAppearanceLayer caches rendered appearances by appearance-stream
+// identity (#404), so committing one edit no longer re-renders every
+// annotation on the page.
+//
+// The risk caching introduces is lifetime, not reuse: a picture dropped from
+// the cache may still be referenced by the list the painter holds, and
+// Canvas.drawPicture ASSERTS on a disposed picture. A first cut disposed on
+// eviction and broke ~40 existing tests, because a render awaits its missing
+// appearances and a frame can paint during that window.
+//
+// These pump through the transitions that open that window. A
+// disposed-picture paint surfaces as an unhandled framework exception, which
+// flutter_test fails on by itself, so the pumps carry the real assertion and
+// the expects below just pin the document state.
+//
+// Re-run against the disposing version, the last TWO fail: restyling replaces
+// one appearance stream and deleting drops one, so both evict. The first only
+// adds annotations, so nothing is ever evicted and it passes either way - it
+// is here to cover the plain repeat-commit path, not the lifetime bug.
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('annotation picture disposal is release-safe', () {
+    final source = File('lib/src/pdf_viewer.dart').readAsStringSync();
+
+    expect(
+      source.contains('.debugDisposed'),
+      isFalse,
+      reason: 'Picture.debugDisposed throws when asserts are disabled',
+    );
+  });
+
+  Future<PdfEditingController> pumpViewer(WidgetTester tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListenableBuilder(
+          listenable: editing,
+          builder: (context, _) => PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: editing.document,
+            editing: editing,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    return editing;
+  }
+
+  testWidgets('repeated commits on an annotated page keep painting',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    for (var i = 0; i < 6; i++) {
+      editing.addRectangle(
+          0, PdfRect(100, 600.0 - i * 20, 250, 640.0 - i * 20));
+      await tester.pumpAndSettle();
+    }
+    expect(editing.document.page(0).annotations, hasLength(6));
+  });
+
+  testWidgets('cold annotation appearances are paced across frames',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    for (var i = 0; i < 6; i++) {
+      editing.addRectangle(
+        0,
+        PdfRect(50.0 + i * 20, 600, 65.0 + i * 20, 620),
+      );
+    }
+
+    var renders = 0;
+    PdfViewer.debugAnnotationAppearanceRendererOverride = (_, __, ___) async {
+      renders++;
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawRect(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..color = const Color(0xFF000000),
+      );
+      return recorder.endRecording();
+    };
+    addTearDown(
+        () => PdfViewer.debugAnnotationAppearanceRendererOverride = null);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+
+    expect(renders, lessThan(6),
+        reason: 'the opening frame must not synchronously start every scan');
+    await tester.pumpAndSettle();
+    expect(renders, 6);
+  });
+
+  /// A page carrying [count] small rectangles, opened in an editing viewer
+  /// whose appearance renders go through [render].
+  Future<(PdfEditingController, PdfViewerController)> pumpMarkedViewer(
+    WidgetTester tester,
+    int count,
+    Future<ui.Picture?> Function() render,
+  ) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.apply((editor) {
+      for (var i = 0; i < count; i++) {
+        final x = 20.0 + (i % 20) * 25;
+        final y = 700.0 - (i ~/ 20) * 25;
+        editor.addSquare(0, PdfRect(x, y, x + 15, y + 15));
+      }
+    });
+    PdfViewer.debugAnnotationAppearanceRendererOverride =
+        (_, __, ___) => render();
+    addTearDown(
+        () => PdfViewer.debugAnnotationAppearanceRendererOverride = null);
+    final viewer = PdfViewerController();
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+          controller: viewer,
+        ),
+      ),
+    ));
+    return (editing, viewer);
+  }
+
+  ui.Picture dot() {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = const Color(0xFF000000),
+    );
+    return recorder.endRecording();
+  }
+
+  testWidgets('cheap cold appearances batch into a few frames, not one each',
+      (tester) async {
+    var renders = 0;
+    await pumpMarkedViewer(tester, 200, () async {
+      renders++;
+      return dot();
+    });
+
+    // One appearance per engine frame took 200 frames here. Under the frame
+    // budget, trivially cheap appearances all fit the first few grants.
+    var frames = 0;
+    while (renders < 200 && frames < 20) {
+      await tester.pump(const Duration(milliseconds: 16));
+      frames++;
+    }
+    expect(renders, 200);
+    expect(frames, lessThan(20));
+  });
+
+  testWidgets('an appearance that overruns the budget still yields per frame',
+      (tester) async {
+    var renders = 0;
+    final budget = PdfPageRenderScheduler.appearanceFrameBudget;
+    await pumpMarkedViewer(tester, 6, () async {
+      renders++;
+      final spin = Stopwatch()..start();
+      while (spin.elapsed <= budget) {}
+      return dot();
+    });
+
+    // Each render alone spends the budget, so every grant draws exactly one
+    // and the rest wait for later frames - the old pacing, preserved for
+    // heavy appearances.
+    final seen = <int>[];
+    for (var i = 0; i < 12 && renders < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      seen.add(renders);
+    }
+    expect(renders, 6);
+    for (var i = 1; i < seen.length; i++) {
+      expect(seen[i] - seen[i - 1], lessThanOrEqualTo(1),
+          reason: 'frame $i drew more than one over-budget appearance: $seen');
+    }
+  });
+
+  testWidgets('the viewer controller reports overlay drawing until it lands',
+      (tester) async {
+    final budget = PdfPageRenderScheduler.appearanceFrameBudget;
+    final (_, viewer) = await pumpMarkedViewer(tester, 5, () async {
+      final spin = Stopwatch()..start();
+      while (spin.elapsed <= budget) {}
+      return dot();
+    });
+    var notifications = 0;
+    void onActivity() => notifications++;
+    viewer.pageRenderActivity.addListener(onActivity);
+    addTearDown(() => viewer.pageRenderActivity.removeListener(onActivity));
+
+    // Owed from the first frame, before any count is known.
+    expect(viewer.isAnnotationAppearanceBusy, isTrue);
+
+    final progress = <double?>[];
+    for (var i = 0; i < 12 && viewer.isAnnotationAppearanceBusy; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      progress.add(viewer.annotationAppearanceProgress);
+    }
+    await tester.pumpAndSettle();
+
+    expect(viewer.isAnnotationAppearanceBusy, isFalse);
+    expect(viewer.annotationAppearanceProgress, isNull);
+    expect(notifications, greaterThan(0));
+    final fractions = progress.whereType<double>().toList();
+    expect(fractions, isNotEmpty);
+    for (var i = 1; i < fractions.length; i++) {
+      expect(fractions[i], greaterThanOrEqualTo(fractions[i - 1]));
+    }
+    expect(fractions.every((f) => f >= 0 && f <= 1), isTrue);
+  });
+
+  testWidgets('a page without annotations never reads as busy for long',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    final viewer = PdfViewerController();
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+          controller: viewer,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(viewer.isAnnotationAppearanceBusy, isFalse);
+  });
+
+  testWidgets('one annotation can own and dispose several appearance pictures',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+
+    final rendered = <ui.Picture>[];
+    final disposals = Map<ui.Picture, int>.identity();
+    PdfViewer.debugAnnotationAppearancePicturesRendererOverride =
+        (_, __, ___) async {
+      for (var i = 0; i < 2; i++) {
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder).drawRect(
+          Rect.fromLTWH(i.toDouble(), 0, 1, 1),
+          Paint()..color = const Color(0xFF000000),
+        );
+        rendered.add(recorder.endRecording());
+      }
+      return List.unmodifiable(rendered);
+    };
+    PdfViewer.debugAnnotationAppearanceDisposeObserver = (picture) {
+      disposals.update(picture, (count) => count + 1, ifAbsent: () => 1);
+    };
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearancePicturesRendererOverride = null;
+      PdfViewer.debugAnnotationAppearanceDisposeObserver = null;
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(rendered, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(disposals.keys, unorderedEquals(rendered));
+    expect(disposals.values, everyElement(1));
+  });
+
+  testWidgets('restyling one annotation keeps the other on screen',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    // One appearance stream is replaced; the other is untouched and has to
+    // survive out of the cache while the replacement renders.
+    expect(editing.selectAnnotation(0, 0), isTrue);
+    expect(editing.restyleSelected(color: const Color(0xFF00FF00)), isTrue);
+    await tester.pumpAndSettle();
+    expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  testWidgets('deleting then undoing retires and revives pictures safely',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    expect(editing.selectAnnotation(0, 0), isTrue);
+    editing.deleteSelected();
+    await tester.pumpAndSettle();
+    expect(editing.document.page(0).annotations, hasLength(1));
+
+    editing.undo();
+    await tester.pumpAndSettle();
+    expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  testWidgets(
+      'unmount while a replacement renders disposes every appearance once',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    final pending = Completer<ui.Picture?>();
+    final disposals = Map<ui.Picture, int>.identity();
+    var delayedRenders = 0;
+    PdfViewer.debugAnnotationAppearanceRendererOverride = (_, __, ___) {
+      delayedRenders++;
+      return pending.future;
+    };
+    PdfViewer.debugAnnotationAppearanceDisposeObserver = (picture) {
+      disposals.update(picture, (count) => count + 1, ifAbsent: () => 1);
+    };
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearanceRendererOverride = null;
+      PdfViewer.debugAnnotationAppearanceDisposeObserver = null;
+    });
+
+    expect(editing.selectAnnotation(0, 0), isTrue);
+    expect(editing.restyleSelected(color: const Color(0xFF00FF00)), isTrue);
+    await tester.pump();
+    await tester.pump();
+    expect(delayedRenders, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(find.byType(PdfViewer), findsNothing);
+    expect(disposals, hasLength(2));
+    expect(disposals.values, everyElement(1));
+
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = const Color(0xFF000000),
+    );
+    pending.complete(recorder.endRecording());
+    await tester.pump();
+    await tester.pump();
+
+    expect(disposals, hasLength(3));
+    expect(disposals.values, everyElement(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  // Regression (#418 follow-up): the appearance cache is keyed on the
+  // appearance stream, but a move rewrites only /Rect and leaves that stream
+  // identical - so keying on the stream alone returned the stale picture
+  // pinned at the old spot, and the annotation appeared not to move until the
+  // layer was rebuilt (a tab switch). The /Rect must be part of the key.
+  testWidgets('moving an annotation repaints it at the new /Rect',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(300, 460);
+    addTearDown(tester.view.reset);
+
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.preferences
+      ..shapeFillColor = const Color(0xFFFF0000)
+      ..opacity = 1.0;
+    editing.color = const Color(0xFFFF0000);
+
+    final boundaryKey = GlobalKey();
+    await tester.pumpWidget(RepaintBoundary(
+      key: boundaryKey,
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              editing: editing,
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // A solid-red box near the top of the page, then the same box slid far
+    // down (same appearance stream, new /Rect).
+    const oldRect = PdfRect(120, 620, 260, 700);
+    const newRect = PdfRect(120, 120, 260, 200);
+    editing.addRectangle(0, oldRect);
+    await tester.pumpAndSettle();
+
+    final pageRect = tester.getRect(find.byType(PdfPageView).first);
+    final geometry = PdfPageGeometry(
+      cropBox: editing.document.page(0).cropBox,
+      rotation: 0,
+      viewSize: pageRect.size,
+    );
+    Offset centerOf(PdfRect r) =>
+        pageRect.topLeft + geometry.toViewRect(r).center;
+    final oldCenter = centerOf(oldRect);
+    final newCenter = centerOf(newRect);
+
+    // Count red pixels in an 11×11 window around a boundary-local point.
+    Future<int> reds(Offset at) async {
+      return (await tester.runAsync(() async {
+        final boundary =
+            tester.renderObject<RenderRepaintBoundary>(find.byKey(boundaryKey));
+        final image = await boundary.toImage();
+        final width = image.width;
+        final height = image.height;
+        final data =
+            (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+        image.dispose();
+        var count = 0;
+        for (var dy = -5; dy <= 5; dy++) {
+          for (var dx = -5; dx <= 5; dx++) {
+            final x = (at.dx + dx).round();
+            final y = (at.dy + dy).round();
+            if (x < 0 || x >= width || y < 0 || y >= height) continue;
+            final i = (y * width + x) * 4;
+            final r = data.getUint8(i);
+            final g = data.getUint8(i + 1);
+            final b = data.getUint8(i + 2);
+            if (r > 150 && g < 100 && b < 100) count++;
+          }
+        }
+        return count;
+      }))!;
+    }
+
+    // The box paints where it was added and nowhere it wasn't.
+    expect(await reds(oldCenter), greaterThan(20),
+        reason: 'the added box should paint at its /Rect');
+    expect(await reds(newCenter), 0,
+        reason: 'nothing painted at the destination yet');
+
+    // Slide it down by 500pt and let the appearance layer re-render.
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    editing.moveSelected(0, newRect.bottom - oldRect.bottom);
+    await tester.pumpAndSettle();
+    expect(editing.document.page(0).annotations.single.rect, newRect);
+
+    // The picture must follow the box: red at the new spot, gone from the
+    // old one. Before the fix the stale cached picture stayed put and the
+    // old spot was still red.
+    expect(await reds(newCenter), greaterThan(20),
+        reason: 'the moved box must repaint at its new /Rect');
+    expect(await reds(oldCenter), 0,
+        reason: 'the stale picture must not linger at the old /Rect');
+  });
+
+  // Regression: a moved annotation's old picture used to stay painted until
+  // its re-render published, so the editing overlay washed the old spot with
+  // paper to hide it - and a heavy appearance (a vector snapshot replaying a
+  // whole CAD page) left that paper box over the real page content for as
+  // long as the re-render took. The layer now drops the stale picture in the
+  // same frame the revision lands, keeping every untouched one.
+  testWidgets('a move drops the stale picture before its re-render lands',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    List<ui.Picture> painted() => [
+          for (final paint
+              in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+            if (paint.painter.runtimeType.toString() ==
+                '_AnnotationAppearancePainter')
+              ...(paint.painter as dynamic).pictures as List<ui.Picture>,
+        ];
+    final before = painted();
+    expect(before, hasLength(2));
+
+    final pending = Completer<ui.Picture?>();
+    PdfViewer.debugAnnotationAppearanceRendererOverride =
+        (_, __, ___) => pending.future;
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearanceRendererOverride = null;
+      if (!pending.isCompleted) pending.complete(null);
+    });
+
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    editing.moveSelected(0, -300);
+    await tester.pump();
+
+    // The re-render is still pending: only the untouched box paints.
+    expect(painted(), [same(before[1])]);
+
+    pending.complete(dot());
+    await tester.pumpAndSettle();
+    expect(painted(), hasLength(2));
+  });
+}

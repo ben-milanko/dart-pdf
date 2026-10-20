@@ -1,0 +1,19 @@
+New in 2.1.0
+
+READING
+• Reflow reading view: read a document as flowing text instead of fixed pages, with lazy scrolling through long files, quick navigation, a reading position that is remembered, and a figure viewer for tapping through images and diagrams.
+
+SPEED AND MEMORY
+• Documents open and render noticeably faster, with the biggest gains on large or image-heavy files.
+• Saving an edit is now proportional to the size of the change rather than the size of the document, so edits stay fast in long files.
+• Lower memory use on very wide drawings, which now keep only the visible portion of the page in memory as you pan.
+• Faster decoding of scanned black-and-white documents.
+
+RENDERING FIXES
+• Fine linework stays crisp and legible when zoomed out, instead of fading away — a difference you will notice most on drawings and plans.
+• More accurate colour in gradients, including radial gradients that previously showed only a partial shape.
+• Correct colour for indexed images, including those built on JPEG 2000, Separation and DeviceN bases.
+• Symbol and ZapfDingbats characters now render properly instead of appearing as empty boxes.
+• Sampled colour functions with multiple inputs are evaluated correctly.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

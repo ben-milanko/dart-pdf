@@ -1,0 +1,252 @@
+// The app-wide command palette: one ⌘K index over the menu's actions, the
+// dock's tools, the panels and the view options.
+import 'package:flutter/foundation.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:dart_pdf_editor_app/command_palette.dart';
+import 'package:dart_pdf_editor_app/editor_screen.dart';
+
+void main() {
+  group('ranking', () {
+    test('a whole-name match beats a prefix, which beats a word boundary', () {
+      final exact = scoreCommand('Print…', 'print…')!;
+      final prefix = scoreCommand('Print…', 'pri')!;
+      final word = scoreCommand('Export page as image…', 'page')!;
+      final anywhere = scoreCommand('Digitally sign…', 'gital')!;
+      expect(exact, greaterThan(prefix));
+      expect(prefix, greaterThan(word));
+      expect(word, greaterThan(anywhere));
+    });
+
+    test('letters found in order still reach a command', () {
+      expect(scoreCommand('Cloud polygon', 'cpg'), isNotNull);
+      expect(scoreCommand('Cloud polygon', 'zzz'), isNull);
+    });
+  });
+
+  group('in the app', () {
+    late PdfEditingPreferences prefs;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      prefs = PdfEditingPreferences();
+    });
+    tearDown(() => prefs.dispose());
+
+    Future<void> pump(WidgetTester tester, {bool withDoc = true}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          initialDocument:
+              withDoc ? (bytes: buildClassicPdf(), title: 'Report.pdf') : null,
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    Future<void> openWithKeyboard(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Ctrl+K opens it, and it indexes menu actions and tools alike',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        await openWithKeyboard(tester);
+
+        expect(find.byKey(const ValueKey('command-palette')), findsOneWidget);
+
+        // Results are built lazily, and how many fit depends on the surface
+        // and on which optional rows this platform contributes (OCR, the
+        // scanner). So ask for each by name rather than trusting a row to
+        // have been built: a menu action, one the palette never wired by
+        // hand - Insert document joins because the menu and the palette read
+        // the same descriptors - and a tool from the dock's catalogue.
+        Future<void> search(String query) async {
+          await tester.enterText(
+              find.byKey(const ValueKey('command-palette-field')), query);
+          await tester.pumpAndSettle();
+        }
+
+        await search('print');
+        expect(find.byKey(const ValueKey('palette-result-menu-print')),
+            findsOneWidget);
+
+        await search('insert document');
+        expect(
+            find.byKey(const ValueKey('palette-result-menu-insert-document')),
+            findsOneWidget);
+
+        await search('rect');
+        expect(find.byKey(const ValueKey('palette-result-tool-rectangle')),
+            findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('typing narrows to matches across surfaces', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        await openWithKeyboard(tester);
+
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), 'sig');
+        await tester.pumpAndSettle();
+
+        expect(
+            find.byKey(const ValueKey('palette-result-menu-digital-signature')),
+            findsOneWidget);
+        expect(find.byKey(const ValueKey('palette-result-tool-signature')),
+            findsOneWidget);
+        // Unrelated commands are gone.
+        expect(find.byKey(const ValueKey('palette-result-menu-print')),
+            findsNothing);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('running a tool result arms that tool', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        await openWithKeyboard(tester);
+
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), 'rectangle');
+        await tester.pumpAndSettle();
+        await tester
+            .tap(find.byKey(const ValueKey('palette-result-tool-rectangle')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('command-palette')), findsNothing);
+        final controller =
+            tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+        expect(controller.tool, PdfEditTool.rectangle);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('a measure tool asks for its scale first, as the toolbar does',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        final controller =
+            tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+        expect(controller.hasMeasurementScale, isFalse);
+        await openWithKeyboard(tester);
+
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')),
+            'measure distance');
+        await tester.pumpAndSettle();
+        await tester.tap(
+            find.byKey(const ValueKey('palette-result-tool-measureDistance')));
+        await tester.pumpAndSettle();
+
+        // The palette armed it through the editor's commands, so the tool's
+        // prerequisite runs instead of arming a measure tool with no scale.
+        expect(find.byKey(const ValueKey('command-palette')), findsNothing);
+        expect(find.byType(PdfScaleDialog), findsOneWidget);
+        expect(controller.tool, isNot(PdfEditTool.measureDistance));
+
+        await tester.enterText(
+            find.byKey(const ValueKey('pdf-scale-value')), '2');
+        await tester.tap(find.byKey(const ValueKey('pdf-scale-apply')));
+        await tester.pumpAndSettle();
+        expect(controller.hasMeasurementScale, isTrue);
+        expect(controller.tool, PdfEditTool.measureDistance);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('panel commands come from the editor catalog', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+        final before = prefs.showBookmarkSidebar;
+        await openWithKeyboard(tester);
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), 'bookmarks');
+        await tester.pumpAndSettle();
+        await tester
+            .tap(find.byKey(const ValueKey('palette-result-panel-bookmarks')));
+        await tester.pumpAndSettle();
+        expect(prefs.showBookmarkSidebar, !before);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets("the View commands drive this window's view mode",
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester);
+
+        Future<void> runViewCommand(String query, String id) async {
+          await openWithKeyboard(tester);
+          await tester.enterText(
+              find.byKey(const ValueKey('command-palette-field')), query);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(ValueKey('palette-result-$id')));
+          await tester.pumpAndSettle();
+        }
+
+        // The palette is the app's other way into a view mode (the shell's
+        // View options being the first), and it goes through the same
+        // per-window controller.
+        await runViewCommand('page grid', 'view-page-grid');
+        expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+        await runViewCommand('reflow', 'view-reflow');
+        expect(find.byType(PdfThumbnailView), findsNothing);
+        expect(find.byType(PdfReflowView), findsOneWidget);
+
+        // ticking the mode you are in is the way back to plain pages
+        await runViewCommand('reflow', 'view-reflow');
+        expect(find.byType(PdfReflowView), findsNothing);
+        expect(find.byType(PdfViewer), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('with nothing open, document commands still list - dimmed',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pump(tester, withDoc: false);
+        await openWithKeyboard(tester);
+
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), 'print');
+        await tester.pumpAndSettle();
+
+        final row = find.byKey(const ValueKey('palette-result-menu-print'));
+        expect(row, findsOneWidget);
+        expect(find.text('Needs an open document'), findsWidgets);
+        // Dimmed means unrunnable, not hidden.
+        expect(tester.getSemantics(row), isSemantics(hasTapAction: false));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  });
+}

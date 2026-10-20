@@ -1,0 +1,6 @@
+3.6.0 sürümündeki yenilikler
+
+- Ek açıklama panellerinde gezinmek kolaylaştı; seçimler görünür ve metin kutusu opaklığı korunur.
+- Bluebeam metin kutuları hizalama, aralık ve imleç konumunu korur.
+- Belge sekmeleri artık birden fazla pencere arasında sürüklenebilir.
+- Yedek yazı tiplerinde aralıklar daha doğal; eski sayfalar ve bulut klasörü eylemleri de düzeltildi.

@@ -1,0 +1,1 @@
+ocr,markup,resaltar,notas,sellos,formularios,unir,lector,contraseña,comparar,escaneo,páginas,tinta

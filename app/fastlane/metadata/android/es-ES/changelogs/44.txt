@@ -1,0 +1,7 @@
+Novedades de 8.0.0
+
+- Combine PDF e intercale páginas.
+- Capture recortes poligonales y recorte capturas pegadas.
+- Añada varias flechas a una llamada y mantenga sus destinos fijos.
+- Cambie el estilo y tamaño de varios campos a la vez.
+- Decodificación de escaneos más rápida y vistas previas más claras.

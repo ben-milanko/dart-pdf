@@ -1,0 +1,6 @@
+Neu in 3.6.0
+
+- Annotationsbereiche sind leichter zu navigieren, halten Auswahlen sichtbar und bewahren die Deckkraft von Textfeldern.
+- Bluebeam-Textfelder behalten Ausrichtung, Abstände und Cursorposition.
+- Dokument-Tabs lassen sich jetzt zwischen mehreren Fenstern ziehen.
+- Ersatzschriften haben natürlichere Abstände; veraltete Seiten und Cloud-Ordneraktionen wurden korrigiert.

@@ -1,0 +1,6 @@
+Novidades da versão 3.6.0
+
+- Os painéis de anotações estão mais fáceis de navegar, mantêm a seleção visível e preservam a opacidade do texto.
+- As caixas de texto do Bluebeam mantêm alinhamento, espaçamento e posição do cursor.
+- Agora é possível arrastar abas de documentos entre várias janelas.
+- O texto substituído tem espaçamento mais natural; também corrigimos páginas antigas e ações de pastas na nuvem.

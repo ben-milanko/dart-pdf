@@ -1,15 +1,21 @@
 import 'dart:async';
+import '../design/viewer_tokens.dart';
+import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../annotation_tap.dart';
 import '../mouse_cursor.dart';
+import '../design/material_host.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
+import 'editing_text_menu.dart';
+import 'form_tab_navigation.dart';
 import 'text_prompt.dart';
+import '../design/editor_presenter.dart';
 
 TextDirection _flutterTextDirection(String text) =>
     pdfTextLooksRtl(text) ? TextDirection.rtl : TextDirection.ltr;
@@ -41,8 +47,7 @@ class FormFieldLabelLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chrome = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chrome = PdfViewerTheme.of(context).chrome;
     final fields = controller.formWidgetsOn(pageIndex);
     final chromeScale = _chromeScale;
     return IgnorePointer(
@@ -98,7 +103,15 @@ class FormFieldLabelLayer extends StatelessWidget {
 /// coexists with plain reading and annotation selection but yields the
 /// whole page to the drawing/authoring tools. Tap targets cover only the
 /// field rects, leaving the rest of the page transparent so scrolling,
-/// link taps, and text selection are untouched.
+/// link taps, and text selection are untouched. A signed signature field is
+/// a selection target too, exposing its confirmed remove action.
+///
+/// Tab / Shift+Tab moves between fields in the document's
+/// [PdfFormTabOrder] (page /Tabs, across pages, wrapping at the ends): a
+/// text field commits and the next field opens - its inline editor, a
+/// focus ring on a check box or radio button (Space toggles it), or a
+/// choice field's menu. The move is posted through [pdfFormTabRequests] so
+/// the target page's layer can take it, and [onRevealField] scrolls it in.
 class FormInteractionLayer extends StatefulWidget {
   const FormInteractionLayer({
     super.key,
@@ -110,6 +123,8 @@ class FormInteractionLayer extends StatefulWidget {
     this.zoom = 1,
     this.formImagePicker,
     this.onAnnotationTap,
+    this.onRevealField,
+    this.tapTargets = true,
   });
 
   final PdfEditingController controller;
@@ -131,6 +146,18 @@ class FormInteractionLayer extends StatefulWidget {
   /// See [PdfViewer.onAnnotationTap].
   final PdfAnnotationTapHandler? onAnnotationTap;
 
+  /// Scrolls a field (page space on a page) into view for a Tab move -
+  /// [PdfViewerController.revealRect]. When null, Tab still moves but
+  /// nothing scrolls.
+  final Future<void> Function(int pageIndex, PdfRect rect)? onRevealField;
+
+  /// Whether the layer puts a tap target over each field. False while the
+  /// form-authoring tool is armed: that tool's overlay owns the page's taps
+  /// and hands its fill gesture (double-tap) here through
+  /// [pdfFormFillRequests], so every fill - editor, keystroke filtering,
+  /// validation, choice menu - runs this layer's code.
+  final bool tapTargets;
+
   @override
   State<FormInteractionLayer> createState() => _FormInteractionLayerState();
 }
@@ -143,6 +170,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   // The text field being edited, if any. Fields die with every revision,
   // so the name is the stable handle; the rest is layout captured at open.
   String? _editingField;
+  int _editingWidget = 0;
   Rect? _editRect; // view space; derived from _editPageRect per build
   // page space is the source of truth: a zoom that re-lays-out the page
   // (the _layoutZoom regime changes geometry.scale) would leave a cached
@@ -152,6 +180,14 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   PdfStandardFont _editFont = PdfStandardFont.helvetica;
   double _editSize = 12;
   bool _editMultiline = false;
+  // The edited field's /AA scripts: the keystroke helper filters typing,
+  // and a refused commit shows [_editError] under the field.
+  PdfFieldScripts _editScripts = PdfFieldScripts.none;
+  String? _editError;
+  // /MaxLen caps what the editor accepts; a password field edits masked
+  // and single-line, and its afterimage stays masked (#931)
+  int? _editMaxLength;
+  bool _editPassword = false;
 
   // The just-committed value, painted over the field until the new
   // revision's raster lands (see [widget.rasterCurrent]).
@@ -159,10 +195,60 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _afterRect;
   PdfStandardFont _afterFont = PdfStandardFont.helvetica;
   double _afterSize = 12;
-  PdfDocument? _afterDocument;
+  bool _afterMultiline = false;
+  bool _afterPassword = false;
+  String? _afterFieldName;
+  int? _afterRevisionId;
+
+  // Keyboard focus on a check box / radio / choice widget reached by Tab:
+  // (field name, widget index), outlined and taking Space / Tab.
+  (String, int)? _focusedWidget;
+  late final FocusNode _fieldFocus =
+      FocusNode(debugLabel: 'pdf-form-field', skipTraversal: true)
+        ..addListener(_onFieldFocusChange);
+  // true while a Tab move tears the current field down, and while a choice
+  // menu (which takes focus) is open over the focused field
+  bool _tabbing = false;
+  bool _menuOpen = false;
+
+  late ValueNotifier<PdfFormTabRequest?> _tabRequests =
+      pdfFormTabRequests(widget.controller);
+  late ValueNotifier<PdfFormFillRequest?> _fillRequests =
+      pdfFormFillRequests(widget.controller);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabRequests.addListener(_onTabRequest);
+    _fillRequests.addListener(_onFillRequest);
+    // a Tab move onto a page that wasn't built yet: this layer mounting is
+    // the page scrolling in - take the move once laid out
+    if (_tabRequests.value?.pageIndex == widget.pageIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onTabRequest();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(FormInteractionLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      _tabRequests.removeListener(_onTabRequest);
+      _tabRequests = pdfFormTabRequests(widget.controller)
+        ..addListener(_onTabRequest);
+      _fillRequests.removeListener(_onFillRequest);
+      _fillRequests = pdfFormFillRequests(widget.controller)
+        ..addListener(_onFillRequest);
+    }
+  }
 
   @override
   void dispose() {
+    _tabRequests.removeListener(_onTabRequest);
+    _fillRequests.removeListener(_onFillRequest);
+    _fieldFocus.removeListener(_onFieldFocusChange);
+    _fieldFocus.dispose();
     _focus.removeListener(_onFocusChange);
     _focus.dispose();
     _text.dispose();
@@ -170,7 +256,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   }
 
   void _onTextChanged() {
-    if (_editingField != null && mounted) setState(() {});
+    if (_editingField != null && mounted) {
+      setState(() => _editError = null);
+    }
   }
 
   PdfEditingController get _controller => widget.controller;
@@ -192,23 +280,33 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
 
   /// Opens the inline editor over a text field, prefilled with its value
   /// and styled from its /DA font and size.
-  void _openTextEditor(PdfFormField field, Rect viewRect) {
+  void _openTextEditor(PdfFormField field, Rect viewRect,
+      {int widgetIndex = 0}) {
     final tf = RegExp(r'/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf')
         .firstMatch(field.defaultAppearance ?? '');
     final size = double.tryParse(tf?.group(2) ?? '') ?? 0;
-    _text.text = field.value ?? '';
+    _text.text = _controller.formFieldTextValue(field) ?? '';
     setState(() {
       _editingField = field.name;
+      _editingWidget = widgetIndex;
       _editRect = viewRect;
       _editPageRect = widget.geometry.toPageRect(viewRect);
-      _editMultiline = field.isMultiline;
+      _editScripts = field.scripts;
+      _editError = null;
+      _editPassword = field.isPassword;
+      _editMultiline = field.isMultiline && !_editPassword;
+      _editMaxLength = field.maxLength;
       _editFont = tf == null
           ? PdfStandardFont.helvetica
           : PdfStandardFont.fromName(tf.group(1)!);
       // an auto-size /DA (0 Tf) edits at a readable default; the committed
       // appearance derives its own size as usual
       _editSize = size > 0 ? size : 12;
-      _afterValue = null; // any prior afterimage is superseded
+      // reopening the field supersedes its afterimage; another field's
+      // (the one a Tab just committed) stays until its raster lands
+      if (_afterRevisionId != null && _afterFieldName == field.name) {
+        _afterValue = null;
+      }
     });
     _controller.setEditingText(true);
     // autofocus only fires into an unfocused scope and the tapping
@@ -218,9 +316,28 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     });
   }
 
+  /// Enter in a single-line field: a value the field's keystroke/validate
+  /// script refuses keeps the editor open with the reason shown under it;
+  /// anything else unfocuses, which commits (the stock Enter behaviour).
+  void _onEditingComplete() {
+    final name = _editingField;
+    if (name == null) return;
+    final check = _controller.checkFormFieldText(name, _text.text);
+    if (!check.isValid) {
+      setState(() => _editError = check.message);
+      return;
+    }
+    _text.clearComposing();
+    _focus.unfocus();
+  }
+
   /// Commits the inline editor into the field's /V. Empty is a legitimate
   /// value (clearing the field). Keeps the entered text painted over the
   /// field until the new raster lands so it doesn't flash.
+  ///
+  /// A value the field's scripts refuse (AFNumber_Keystroke,
+  /// AFRange_Validate, ...) is dropped - the field keeps its old value, as
+  /// in other viewers - and the reason is shown as a toast.
   void _commitText() {
     final name = _editingField;
     final rect = _editRect;
@@ -228,17 +345,42 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final value = _text.text;
     final font = _editFont;
     final size = _editSize;
+    final check = _controller.checkFormFieldText(name, value);
+    final multiline = _editMultiline;
+    final password = _editPassword;
     _closeEditor();
-    final before = _controller.document;
+    if (!check.isValid) {
+      _showInputError(check.message!);
+      return;
+    }
+    final before = _controller.revisionId;
     _controller.setFormFieldText(name, value);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     setState(() {
-      _afterValue = value;
+      // the appearance shows the format script's text (AFNumber_Format ...);
+      // a password's afterimage is masked from the raw entry below, never
+      // formatted (a format could re-derive what the mask hides)
+      _afterValue = password
+          ? value
+          : _controller.acroForm?.fieldNamed(name)?.formattedValue ?? value;
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
-      _afterDocument = _controller.document;
+      _afterMultiline = multiline;
+      _afterPassword = password;
+      _afterFieldName = name;
+      _afterRevisionId = _controller.revisionId;
     });
+  }
+
+  void _showInputError(String message) {
+    if (!mounted) return;
+    PdfEditorPresenter.of(context).notice(
+        context,
+        PdfEditorNotice(message,
+            kind: PdfNoticeKind.error,
+            replaceCurrent: false,
+            key: const ValueKey('pdf-form-input-error')));
   }
 
   /// Escape: discard the edit and close (the typed value is dropped).
@@ -251,28 +393,64 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         _editingField = null;
         _editRect = null;
         _editPageRect = null;
+        _editError = null;
       });
     } else {
       _editingField = null;
       _editRect = null;
       _editPageRect = null;
+      _editError = null;
     }
     _controller.setEditingText(false);
   }
 
-  Future<void> _onFieldTap(
-      PdfFormField field, int widgetIndex, Rect viewRect) async {
+  /// A fill gesture another layer handed over (the form tool's double-tap):
+  /// filled exactly like a tap on the field's own target.
+  void _onFillRequest() {
+    final request = _fillRequests.value;
+    if (request == null || request.pageIndex != widget.pageIndex) return;
+    _fillRequests.value = null;
+    if (request.revisionId != _controller.revisionId) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != request.fieldName ||
+          widgetIndex != request.widgetIndex) {
+        continue;
+      }
+      unawaited(_onFieldTap(
+          field, widgetIndex, widget.geometry.toViewRect(annotation.rect),
+          anchor: request.anchor));
+      return;
+    }
+  }
+
+  Future<void> _onFieldTap(PdfFormField field, int widgetIndex, Rect viewRect,
+      {Offset? anchor}) async {
+    if (_focusedWidget != null && _focusedWidget != (field.name, widgetIndex)) {
+      _clearFieldFocus();
+    }
+    if (field.type == PdfFieldType.signature) {
+      if (_isSigned(field)) {
+        final pageRect = widget.geometry.toPageRect(viewRect);
+        _controller.selectFormWidgetAt(
+          widget.pageIndex,
+          (pageRect.left + pageRect.right) / 2,
+          (pageRect.bottom + pageRect.top) / 2,
+        );
+      }
+      return;
+    }
     if (field.isReadOnly) return;
     switch (field.type) {
       case PdfFieldType.text:
-        _openTextEditor(field, viewRect);
+        _openTextEditor(field, viewRect, widgetIndex: widgetIndex);
       case PdfFieldType.checkBox:
         _controller.toggleFormCheckBox(field.name);
       case PdfFieldType.radioGroup:
         final state = field.widgetOnState(widgetIndex);
         if (state != null) _controller.setFormRadioValue(field.name, state);
       case PdfFieldType.comboBox || PdfFieldType.listBox:
-        await _pickChoice(field, viewRect);
+        await _pickChoice(field, viewRect, anchor: anchor);
       case PdfFieldType.pushButton:
         final picker = widget.formImagePicker;
         if (picker == null) return;
@@ -286,8 +464,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
   }
 
-  /// A choice field's options as a menu anchored under the widget.
-  Future<void> _pickChoice(PdfFormField field, Rect viewRect) async {
+  /// A choice field's options as a menu anchored under the widget (or at
+  /// [anchor], a global tap position). A multi-select list box shows a
+  /// checkable menu: each pick toggles that option in or out of the
+  /// selection ([PdfEditingController.pickFormChoiceOption]).
+  Future<void> _pickChoice(PdfFormField field, Rect viewRect,
+      {Offset? anchor}) async {
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
@@ -295,42 +477,226 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
-    final topLeft = box.localToGlobal(viewRect.bottomLeft, ancestor: overlay);
-    final picked = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-          topLeft & Size.zero, Offset.zero & overlay.size),
-      items: [
-        for (final (export, display) in options)
-          PopupMenuItem(
-            key: ValueKey('pdf-form-option-$export'),
-            value: export,
-            height: 34,
-            child: Text(display,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(height: 1.1)),
-          ),
-      ],
+    final bottomLeft = anchor ?? box.localToGlobal(viewRect.bottomLeft);
+    final values = await PdfEditorPresenter.of(context).formChoice(
+      context,
+      PdfFormChoiceRequest(
+        fieldName: name,
+        options: options,
+        anchor: bottomLeft & Size.zero,
+        multiSelect: field.isMultiSelect,
+        selected: field.values.toSet(),
+      ),
     );
-    if (picked != null) _controller.setFormChoiceValue(name, picked);
+    if (values != null) pdfApplyFormChoice(_controller, name, values);
   }
 
-  PdfMouseCursorKind? _cursorFor(PdfFormField field) =>
-      pdfFormFieldMouseCursor(field,
-          canPickButtonImage: widget.formImagePicker != null);
+  // ---- Tab / Shift+Tab ----------------------------------------------------
+
+  /// Tab (or Shift+Tab when [backward]) from the field this layer has
+  /// active: commit it, then post a move to the next stop in the
+  /// document's tab order and scroll it into view.
+  ///
+  /// A text value the field's keystroke/validate script refuses stops the
+  /// move, exactly like Enter: the editor stays open on the field with the
+  /// reason shown under it.
+  void _moveFocus({required bool backward}) {
+    final editing = _editingField;
+    if (editing != null) {
+      final check = _controller.checkFormFieldText(editing, _text.text);
+      if (!check.isValid) {
+        setState(() => _editError = check.message);
+        _focus.requestFocus();
+        return;
+      }
+    }
+    final String? name;
+    final int widgetIndex;
+    if (_editingField != null) {
+      (name, widgetIndex) = (_editingField, _editingWidget);
+    } else if (_focusedWidget != null) {
+      (name, widgetIndex) = _focusedWidget!;
+    } else {
+      (name, widgetIndex) = (null, 0);
+    }
+    _tabbing = true;
+    try {
+      _commitText();
+      _clearFieldFocus();
+    } finally {
+      _tabbing = false;
+    }
+    final next = pdfFormTabOrderOf(_controller).step(
+      pageIndex: widget.pageIndex,
+      fieldName: name,
+      widgetIndex: widgetIndex,
+      backward: backward,
+    );
+    if (next == null) return;
+    final revealed = widget.onRevealField?.call(next.pageIndex, next.rect) ??
+        Future<void>.value();
+    _tabRequests.value = PdfFormTabRequest(
+      pageIndex: next.pageIndex,
+      fieldName: next.fieldName,
+      widgetIndex: next.widgetIndex,
+      revisionId: _controller.revisionId,
+      revealed: revealed,
+    );
+  }
+
+  /// Takes a posted Tab move that lands on this page.
+  void _onTabRequest() {
+    final request = _tabRequests.value;
+    if (request == null || request.pageIndex != widget.pageIndex) return;
+    _tabRequests.value = null;
+    if (request.revisionId != _controller.revisionId) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != request.fieldName ||
+          widgetIndex != request.widgetIndex) {
+        continue;
+      }
+      final viewRect = widget.geometry.toViewRect(annotation.rect);
+      switch (field.type) {
+        case PdfFieldType.text:
+          _openTextEditor(field, viewRect, widgetIndex: widgetIndex);
+        case PdfFieldType.checkBox || PdfFieldType.radioGroup:
+          _focusFieldWidget(field.name, widgetIndex);
+        case PdfFieldType.comboBox || PdfFieldType.listBox:
+          _focusFieldWidget(field.name, widgetIndex);
+          // anchor the menu where the field lands once scrolled in
+          unawaited(request.revealed.whenComplete(() {
+            if (mounted && _focusedWidget == (field.name, widgetIndex)) {
+              unawaited(_activateFocused());
+            }
+          }));
+        case PdfFieldType.pushButton ||
+              PdfFieldType.signature ||
+              PdfFieldType.unknown:
+          break;
+      }
+      return;
+    }
+  }
+
+  /// Puts keyboard focus on a check box / radio / choice widget.
+  void _focusFieldWidget(String name, int widgetIndex) {
+    setState(() => _focusedWidget = (name, widgetIndex));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _focusedWidget != null) _fieldFocus.requestFocus();
+    });
+  }
+
+  void _clearFieldFocus() {
+    if (_focusedWidget == null) return;
+    if (mounted) {
+      setState(() => _focusedWidget = null);
+    } else {
+      _focusedWidget = null;
+    }
+  }
+
+  void _onFieldFocusChange() {
+    // focus went elsewhere (a click off the field): drop the ring - but not
+    // while our own choice menu holds focus over it
+    if (!_fieldFocus.hasFocus && !_tabbing && !_menuOpen) _clearFieldFocus();
+  }
+
+  KeyEventResult _onFieldKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.tab) {
+      _moveFocus(backward: HardwareKeyboard.instance.isShiftPressed);
+      return KeyEventResult.handled;
+    }
+    if (event is KeyRepeatEvent) return KeyEventResult.ignored;
+    if (key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      unawaited(_activateFocused());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      _clearFieldFocus();
+      _fieldFocus.unfocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Space on the focused widget: toggle a check box, select a radio
+  /// button, open a choice field's menu.
+  Future<void> _activateFocused() async {
+    final focused = _focusedWidget;
+    if (focused == null) return;
+    for (final (field, widgetIndex, annotation)
+        in _controller.formWidgetsOn(widget.pageIndex)) {
+      if (field.name != focused.$1 || widgetIndex != focused.$2) continue;
+      if (field.isReadOnly) return;
+      switch (field.type) {
+        case PdfFieldType.checkBox:
+          _controller.toggleFormCheckBox(field.name);
+        case PdfFieldType.radioGroup:
+          final state = field.widgetOnState(widgetIndex);
+          if (state != null) _controller.setFormRadioValue(field.name, state);
+        case PdfFieldType.comboBox || PdfFieldType.listBox:
+          _menuOpen = true;
+          try {
+            await _pickChoice(
+                field, widget.geometry.toViewRect(annotation.rect));
+          } finally {
+            _menuOpen = false;
+          }
+          // the menu took focus; hand it back so Tab carries on from here
+          if (mounted && _focusedWidget == focused) _fieldFocus.requestFocus();
+        case PdfFieldType.text ||
+              PdfFieldType.pushButton ||
+              PdfFieldType.signature ||
+              PdfFieldType.unknown:
+          break;
+      }
+      return;
+    }
+  }
+
+  PdfMouseCursorKind? _cursorFor(PdfFormField field) {
+    if (field.type == PdfFieldType.signature && _isSigned(field)) {
+      return PdfMouseCursorKind.click;
+    }
+    return pdfFormFieldMouseCursor(field,
+        canPickButtonImage: widget.formImagePicker != null);
+  }
+
+  bool _interactive(PdfFormField field) {
+    if (field.type == PdfFieldType.signature) return _isSigned(field);
+    if (field.isReadOnly) return false;
+    return switch (field.type) {
+      PdfFieldType.text ||
+      PdfFieldType.checkBox ||
+      PdfFieldType.radioGroup ||
+      PdfFieldType.comboBox ||
+      PdfFieldType.listBox =>
+        true,
+      // push buttons only fill when the host supplies an image picker
+      PdfFieldType.pushButton => widget.formImagePicker != null,
+      PdfFieldType.signature || PdfFieldType.unknown => false,
+    };
+  }
+
+  bool _isSigned(PdfFormField field) =>
+      _controller.signatureByFieldName.containsKey(field.name);
 
   @override
   Widget build(BuildContext context) {
     // the afterimage has served once the committed revision's raster is
     // on screen, or is stale once the document moved past it
-    if (_afterDocument != null &&
-        (widget.rasterCurrent ||
-            !identical(_afterDocument, _controller.document))) {
+    if (_afterRevisionId != null &&
+        (widget.rasterCurrent || _afterRevisionId != _controller.revisionId)) {
       _afterValue = null;
       _afterRect = null;
-      _afterDocument = null;
+      _afterRevisionId = null;
     }
 
     final geometry = widget.geometry;
@@ -348,16 +714,66 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         if (mounted) _closeEditor();
       });
     }
+    Rect? focusRect;
+    final focused = _focusedWidget;
+    if (focused != null) {
+      for (final (field, widgetIndex, annotation) in fields) {
+        if (field.name == focused.$1 && widgetIndex == focused.$2) {
+          focusRect = geometry.toViewRect(annotation.rect);
+          break;
+        }
+      }
+      // likewise a Tab-focused widget that vanished drops its ring
+      if (focusRect == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _focusedWidget == focused) _clearFieldFocus();
+        });
+      }
+    }
 
     return Stack(children: [
       for (final (field, widgetIndex, annotation) in fields)
-        if (_cursorFor(field) != null && field.name != _editingField)
+        if (widget.tapTargets &&
+            _interactive(field) &&
+            field.name != _editingField)
           _tapTarget(field, widgetIndex, annotation,
               geometry.toViewRect(annotation.rect)),
       if (_afterValue != null && _afterRect != null)
-        _afterimage(_afterRect!, _afterValue!, _afterFont, _afterSize),
+        _afterimage(
+            _afterRect!,
+            _afterPassword
+                ? _controller.formPasswordMask(_afterValue!)
+                : _afterValue!,
+            _afterFont,
+            _afterSize),
+      if (focusRect != null) _focusRing(focusRect),
       if (_editingField != null && _editRect != null) _inlineEditor(),
+      if (_editingField != null && _editRect != null && _editError != null)
+        _inputError(_editRect!, _editError!),
     ]);
+  }
+
+  /// The keyboard-focus outline over a Tab-focused check box / radio /
+  /// choice widget; its [Focus] takes Space, Enter, Tab and Escape.
+  Widget _focusRing(Rect rect) {
+    final chromeScale = _chromeScale;
+    final chromeColor = PdfViewerTheme.of(context).chrome;
+    return Positioned.fromRect(
+      key: const ValueKey('pdf-form-focus-ring'),
+      rect: rect.inflate(2 * chromeScale),
+      child: IgnorePointer(
+        child: Focus(
+          focusNode: _fieldFocus,
+          onKeyEvent: _onFieldKey,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: chromeColor, width: 2 * chromeScale),
+              borderRadius: BorderRadius.circular(2 * chromeScale),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _tapTarget(PdfFormField field, int widgetIndex,
@@ -368,6 +784,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
         kind: _cursorFor(field),
         scale: _chromeScale,
         child: GestureDetector(
+          key: ValueKey(
+            'pdf-form-field-${widget.pageIndex}-${field.name}-$widgetIndex',
+          ),
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) {
             final pageViewPosition = rect.topLeft + details.localPosition;
@@ -390,9 +809,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final rect = _editRect!;
     final scale = widget.geometry.scale;
     final chromeScale = _chromeScale;
-    final chromeColor = PdfViewerTheme.of(context).annotationChromeColor ??
-        const Color(0xFF1E88E5);
+    final chromeColor = PdfViewerTheme.of(context).chrome;
     return Positioned.fromRect(
+      // keyed so a Tab from one field of this page to another keeps the
+      // same TextField (and its focus) rather than rebuilding it
+      key: const ValueKey('pdf-form-inline-editor'),
       rect: rect,
       child: Container(
         // cover the old rendered value so it doesn't ghost under the field
@@ -401,47 +822,96 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           border: Border.all(color: chromeColor, width: 1.5 * chromeScale),
         ),
         // Escape cancels here, nearer to the field's focus than the
-        // viewer's shortcuts, so it wins and closes the editor
+        // viewer's shortcuts, so it wins and closes the editor. Tab and
+        // Shift+Tab move to the next / previous field - bound here, so a
+        // multi-line field never types a tab character and the app's focus
+        // traversal never sees the key
         child: CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.escape): _cancelText,
+            const SingleActivator(LogicalKeyboardKey.tab): () =>
+                _moveFocus(backward: false),
+            const SingleActivator(LogicalKeyboardKey.tab, shift: true): () =>
+                _moveFocus(backward: true),
           },
-          child: TextField(
-            key: const ValueKey('pdf-form-text-editor'),
-            controller: _text,
-            focusNode: _focus,
-            autofocus: true,
-            // single-line fields commit on Enter, not a newline
-            maxLines: _editMultiline ? null : 1,
-            expands: _editMultiline,
-            onSubmitted: (_) => _commitText(),
-            // tapping off the field commits it - the viewer suppresses its
-            // own focus steal while editing, so the field keeps focus
-            // until this fires
-            onTapOutside: (_) => _commitText(),
-            textDirection: _flutterTextDirection(_text.text),
-            textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
-                ? TextAlign.right
-                : TextAlign.left,
-            textAlignVertical: _editMultiline
-                ? TextAlignVertical.top
-                : TextAlignVertical.center,
-            cursorColor: const Color(0xFF000000),
-            cursorWidth: 2 * chromeScale,
-            style: TextStyle(
-              color: const Color(0xFF000000),
-              fontSize: _editSize * scale,
-              height: 1.2,
-              fontFamily: _uiFamily(_editFont),
-              fontWeight:
-                  _editFont.isBold ? FontWeight.bold : FontWeight.normal,
-              fontStyle:
-                  _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
-            ),
-            decoration: InputDecoration(
-              isCollapsed: true,
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.all(2 * scale),
+          // the same zoom-space caret treatment the free-text editor gets:
+          // Apple's device-pixel nudge cancelled, and the caret gutter
+          // handed back below so right-aligned (RTL) values stay put
+          child: pdfZoomAwareCaret(
+            context,
+            chromeScale: chromeScale,
+            child: TextField(
+              key: const ValueKey('pdf-form-text-editor'),
+              controller: _text,
+              focusNode: _focus,
+              autofocus: true,
+              obscureText: _editPassword,
+              maxLength: _editMaxLength,
+              // the /MaxLen cap is silent - no counter under the field
+              buildCounter: _noCounter,
+              // single-line fields commit on Enter, not a newline
+              maxLines: _editMultiline ? null : 1,
+              expands: _editMultiline,
+              // after a refusal in [_onEditingComplete] the editor stays open
+              onSubmitted: (_) {
+                if (_editError == null) _commitText();
+              },
+              onEditingComplete: _editMultiline ? null : _onEditingComplete,
+              // a recognised keystroke script (AFNumber_Keystroke,
+              // AFSpecial_Keystroke, ...) refuses characters as they are
+              // typed, like other viewers
+              inputFormatters: [
+                if (_editScripts.keystroke?.isSupported ?? false)
+                  TextInputFormatter.withFunction((before, after) =>
+                      _editScripts.acceptsPartial(after.text) ? after : before),
+              ],
+              // tapping off the field commits it - the viewer suppresses its
+              // own focus steal while editing, so the field keeps focus
+              // until this fires
+              onTapOutside: (_) => _commitText(),
+              // the zoom transform would otherwise scale AND displace the
+              // long-press selection menu off-screen
+              contextMenuBuilder: (context, editableTextState) =>
+                  pdfStockTextContextMenu(
+                context,
+                editableTextState,
+                systemMenu: false,
+                place: pdfPlacedTextSelectionMenu,
+              ),
+              textDirection: _flutterTextDirection(_text.text),
+              textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
+                  ? TextAlign.right
+                  : TextAlign.left,
+              textAlignVertical: _editMultiline
+                  ? TextAlignVertical.top
+                  : TextAlignVertical.center,
+              cursorColor: const Color(0xFF000000),
+              cursorWidth: 2 * chromeScale,
+              cursorHeight: pdfZoomAwareCursorHeight(
+                context,
+                lineHeight: _editSize * scale * 1.2,
+                chromeScale: chromeScale,
+              ),
+              style: TextStyle(
+                color: const Color(0xFF000000),
+                fontSize: _editSize * scale,
+                height: 1.2,
+                fontFamily: _uiFamily(_editFont),
+                fontWeight:
+                    _editFont.isBold ? FontWeight.bold : FontWeight.normal,
+                fontStyle:
+                    _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
+              ),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.fromLTRB(
+                  2 * scale,
+                  2 * scale,
+                  math.max(0.0, 2 * scale - pdfCaretGutter(chromeScale)),
+                  2 * scale,
+                ),
+              ),
             ),
           ),
         ),
@@ -449,17 +919,52 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     );
   }
 
+  /// Why the field's scripts refused the entered value, under the editor.
+  Widget _inputError(Rect rect, String message) {
+    final chromeScale = _chromeScale;
+    return Positioned(
+      left: rect.left,
+      top: rect.bottom + 2 * chromeScale,
+      child: IgnorePointer(
+        child: Transform.scale(
+          scale: chromeScale,
+          alignment: Alignment.topLeft,
+          child: Container(
+            key: const ValueKey('pdf-form-input-error-label'),
+            constraints: const BoxConstraints(maxWidth: 320),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFB3261E),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget? _noCounter(BuildContext context,
+          {required int currentLength,
+          required int? maxLength,
+          required bool isFocused}) =>
+      null;
+
   /// The committed value frozen over the field until the new raster lands.
   Widget _afterimage(
       Rect rect, String value, PdfStandardFont font, double size) {
     return Positioned.fromRect(
+      key: const ValueKey('pdf-form-afterimage'),
       rect: rect,
       child: IgnorePointer(
         child: Container(
           color: widget.pageColor.withValues(alpha: 0.92),
           alignment: _flutterTextDirection(value) == TextDirection.rtl
-              ? (_editMultiline ? Alignment.topRight : Alignment.centerRight)
-              : (_editMultiline ? Alignment.topLeft : Alignment.centerLeft),
+              ? (_afterMultiline ? Alignment.topRight : Alignment.centerRight)
+              : (_afterMultiline ? Alignment.topLeft : Alignment.centerLeft),
           padding: EdgeInsets.all(2 * widget.geometry.scale),
           child: Text(
             value,
@@ -467,7 +972,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             textAlign: _flutterTextDirection(value) == TextDirection.rtl
                 ? TextAlign.right
                 : TextAlign.left,
-            maxLines: _editMultiline ? null : 1,
+            maxLines: _afterMultiline ? null : 1,
             overflow: TextOverflow.clip,
             style: TextStyle(
               color: const Color(0xFF000000),

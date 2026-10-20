@@ -36,6 +36,7 @@ class PdfFieldContext {
     required this.type,
     required this.value,
     required this.pageIndex,
+    this.values,
   });
 
   /// Fully qualified field name - the stable handle for setting a value.
@@ -44,8 +45,13 @@ class PdfFieldContext {
   /// Field kind ('text', 'checkBox', 'comboBox', ...).
   final String type;
 
-  /// Current value, if any.
+  /// Current value, if any. For a multi-select list box this is the first
+  /// selection; [values] carries all of them.
   final String? value;
+
+  /// Every selected option of a multi-select list box, or null for any
+  /// other field.
+  final List<String>? values;
 
   /// Page showing the field's first widget, or −1 when unplaced.
   final int pageIndex;
@@ -54,6 +60,7 @@ class PdfFieldContext {
         'name': name,
         'type': type,
         if (value != null) 'value': value,
+        if (values != null) 'values': values,
         'page': pageIndex,
       };
 }
@@ -134,6 +141,7 @@ class PdfDocumentContext {
             name: field.name,
             type: field.type.name,
             value: field.value,
+            values: field.isMultiSelect ? field.values : null,
             pageIndex: field.widgetPageIndex(0),
           ),
     ];
@@ -169,8 +177,8 @@ class PdfDocumentContext {
     if (fields.isNotEmpty) {
       buffer.writeln('Form fields:');
       for (final field in fields) {
-        buffer.writeln(
-            '  ${field.name} (${field.type}) = ${field.value ?? ''}');
+        buffer.writeln('  ${field.name} (${field.type}) = '
+            '${field.values?.join(', ') ?? field.value ?? ''}');
       }
       buffer.writeln();
     }

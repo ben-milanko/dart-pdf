@@ -1,0 +1,8 @@
+Neu in 4.3.0
+
+- PDF-Dateien mit neuen Vorgaben verkleinern.
+- Dokumente zusammenführen und teilen sowie ausgewählte Seiteninhalte löschen.
+- Werkzeuge schnell über die Befehlspalette finden.
+- Mehr Drucklayouts und Seitenoptionen wählen.
+- Vektorausschnitte zwischen Dokumenten kopieren und einfügen.
+- Scannen korrigiert und mobile Dokumentsteuerung verbessert.

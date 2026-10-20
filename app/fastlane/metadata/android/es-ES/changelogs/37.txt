@@ -1,0 +1,8 @@
+Novedades de 4.4.0
+
+- Imprime directamente en Windows y conserva los ajustes de impresión entre trabajos.
+- Amplía hasta el 10000%, con ajustes predefinidos para las vistas más cercanas.
+- Abre y desplaza dibujos vectoriales densos más rápido.
+- Selecciona y busca texto antes en páginas pesadas.
+- Define la alineación vertical de los campos de texto de formularios.
+- Muestra el archivo guardado en el Explorador de archivos tras Guardar como.

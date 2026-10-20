@@ -1,0 +1,38 @@
+{
+  "locale": "id",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Edit PDF yang privat",
+      "subtitle": "Tanpa akun. Tanpa unggahan. Berkas tetap di perangkat Anda."
+    },
+    "app/02-editor": {
+      "headline": "Anotasi, tanda tangan, redaksi",
+      "subtitle": "Isi formulir, tambah catatan, dan pindahkan halaman."
+    },
+    "app/03-dark": {
+      "headline": "Dibuat untuk dokumen nyata",
+      "subtitle": "Cari teks, jalankan OCR, bandingkan versi,\ndan buka berkas terproteksi."
+    },
+    "example/01-document": {
+      "headline": "Buka PDF apa pun",
+      "subtitle": "Dirender dalam Dart murni, di setiap platform"
+    },
+    "example/02-graphics": {
+      "headline": "Grafik",
+      "subtitle": "Gradien, gradasi, dan transparansi"
+    },
+    "example/03-annotations": {
+      "headline": "Anotasi",
+      "subtitle": "Sorotan, tinta, catatan, stempel, dan formulir"
+    },
+    "example/04-markup": {
+      "headline": "Alat markup",
+      "subtitle": "Gambar, tambah bentuk, dan tandatangani di halaman"
+    },
+    "example/05-reader": {
+      "headline": "Tampilan baca",
+      "subtitle": "Mengalirkan ulang teks agar pas di layar"
+    }
+  }
+}

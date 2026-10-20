@@ -1,13 +1,23 @@
 # Releasing the pub.dev packages
 
-This covers the seven workspace **packages** (`pdf_cos`, `pdf_test_fixtures`,
-`pdf_document`, `pdf_graphics`, `dart_pdf_editor`, `pdf_ocr_vlm`,
-`pdf_ocr_ondevice`). The standalone **app** ships separately - see
+This covers the eleven publishable workspace **packages** (`pdf_cos`,
+`pdf_test_fixtures`, `pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
+`dart_pdf_editor_flutter_gpu`, `dart_pdf_editor_assets`, `pdf_ocr_vlm`,
+`pdf_ocr_ondevice`, `dart_pdf_cli`, `dart_pdf_printing`). The eight established packages release in
+lockstep. The experimental GPU companion, CLI and printing plugin are independently versioned
+at `0.x`; the GPU package has a newer Flutter requirement and a deliberately
+evolving API, while the CLI follows its own command/API lifecycle. The standalone
+**app** ships separately - see
 [`app/RELEASING.md`](../app/RELEASING.md).
 
-The packages are released **in lockstep** at one version. Cutting a release is:
+The established packages are released **in lockstep** at one version; bump the
+GPU companion only when it has changes. Cutting a release is:
 
-1. Bump `version:` in every package's `pubspec.yaml` to the new `X.Y.Z`.
+1. Bump `version:` in the eight established packages to the new `X.Y.Z`;
+   bump the three independently versioned companions according to their changes.
+   When the CLI changes version, also update `_version` in
+   `packages/dart_pdf_cli/bin/dartpdf.dart`; its integration test checks the
+   executable output against the package manifest.
 2. Roll each `## Unreleased` changelog section into `## X.Y.Z` (add a
    version-bump line for packages with no unreleased entries).
 3. Update inter-package lower bounds to the new version (`pdf_document: ^X.Y.Z`).
@@ -25,10 +35,18 @@ is how 1.1.0–1.2.3 actually shipped.
 
 ### Automated (tag-driven OIDC) - preferred
 
+The first release of a brand-new package cannot use this route because its
+pub.dev Admin page does not exist yet. Publish that package once with the
+manual path, then enable automated publishing before its next release. For
+this release, that applies to `dart_pdf_cli` 0.1.0.
+
 Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
 isn't yet on pub.dev it pushes a `<pkg>-v<version>` tag. Each tag triggers
 `publish-pub.yml`, which publishes that package via pub.dev OIDC (tokenless).
+The `dart_pdf_editor_assets` job first generates the real bundled web worker
+over the committed placeholder, mirroring `tool/release.sh`, and force-publishes
+that prepared archive.
 If a deploy push contains no unpublished package versions, the workflow exits
 without probing the tag token or running the release suite.
 
@@ -37,7 +55,7 @@ self-configure them.
 
 #### 1. Enable automated publishing on pub.dev (per package)
 
-For **each** of the seven packages, on pub.dev → the package → **Admin** tab →
+For **each** of the eleven packages, on pub.dev → the package → **Admin** tab →
 **Automated publishing**:
 
 - Enable **Publishing from GitHub Actions**.
@@ -91,7 +109,7 @@ Always works; needs a pub.dev login on the machine.
 ```bash
 fvm dart pub login                 # once, OAuth in a browser
 tool/release.sh                    # dry-run every package (no publishing)
-tool/release.sh --publish --yes    # publish all 7 in dependency order
+tool/release.sh --publish --yes    # publish all 11 in dependency order
 ```
 
 The script publishes dependencies first and waits for each version to be
@@ -100,7 +118,9 @@ resolve). Afterwards, push the tags for the record:
 
 ```bash
 for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
-         dart_pdf_editor pdf_ocr_vlm pdf_ocr_ondevice; do
+         dart_pdf_cli dart_pdf_editor dart_pdf_printing dart_pdf_editor_flutter_gpu \
+         dart_pdf_editor_assets pdf_ocr_vlm \
+         pdf_ocr_ondevice; do
   git tag -a "$p-v<version>" -m "Release $p <version>"
 done
 git push origin --tags        # or in batches of <=3 if any are unpushed

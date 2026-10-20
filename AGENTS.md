@@ -2,11 +2,13 @@
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
-`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.44.4/bin/`.
+`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.47.7/bin/`.
 
 ## Commands
 
 - `fvm flutter pub get` (at repo root - resolves every workspace package)
+- `fvm dart tool/format.dart <files...>` (format changed files; do not invoke
+  `dart format` directly because a fresh worktree has no package config yet)
 - `fvm dart analyze` (at root)
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`
@@ -15,8 +17,10 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 
 `pdf_cos` ← `pdf_document` ← `pdf_graphics` ← `dart_pdf_editor`
 
-- `dart:ui` and Flutter imports are **only** allowed in `dart_pdf_editor`.
-  Everything else must run on the Dart VM (server/CLI/tests) and on the web.
+- `dart:ui` and Flutter imports belong in `dart_pdf_editor` and optional
+  Flutter companion packages (including `dart_pdf_printing`). The core
+  `pdf_cos`, `pdf_document`, and `pdf_graphics` packages must run on the
+  Dart VM (server/CLI/tests) and on the web.
 - `dart:io` is not allowed anywhere in `lib/` (web support); use
   `package:archive` for compression.
 - `pdf_cos` knows nothing about pages or rendering - only the COS object
@@ -92,8 +96,15 @@ PDF.js baseline, Dart render, and diff side by side.
 See README.md. The pipeline through the viewer is done: interpreter, font
 engine, Flutter rendering, text selection/search, annotation appearance
 rendering, and encryption both ways (RC4/AES-128/AES-256 decryption;
-encrypt-on-write re-encrypts changed objects on save - `_encryptedCopy`
-in updater.dart; signing encrypted files stays refused). Annotation authoring is in:
+encrypt-on-write re-encrypts changed objects on save -
+`StandardSecurityHandler.encryptObjectGraph` (the graph walk + exempt
+policy live on the handler, shared with the loader's `decryptObjectGraph`);
+encrypted files sign in place: a signature dictionary's /Contents is the one
+string exempt both ways (`StandardSecurityHandler.isSignatureContents`,
+§7.6.1), so the placeholder is patched after the rest of the revision is
+encrypted; PAdES's follow-on revisions reopen via `PdfDocument.openAppended`,
+which reuses the authenticated keys. See
+doc/dev-log/2026-09-23-sign-encrypted-pdfs.md). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
 them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
@@ -107,8 +118,17 @@ Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` - asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
 (`signature_editor.dart`, adbe.pkcs7.detached with ByteRange patching).
-No trust-store chain validation. Test signer identity in
-`pdf_test_fixtures/src/signer_identity.dart`.
+`validate(trustStore:)` builds the chain to caller-supplied anchors and
+reports per-certificate revocation from the /DSS; `validateOnline(
+revocationClient:)` adds live OCSP-then-CRL checks of the signer and each
+intermediate (`revocation.dart`; a revoked certificate untrusts the chain
+unless a verified timestamp predates the revocation). Encrypted signed files
+validate the same way. Roots stay opt-in: `package:pdf_document/
+trust_lists.dart` fetches and XMLDSig-verifies the EU trusted lists and
+fetches (one-click opt-in in the app) or loads Adobe's AATL - no root data is
+committed or redistributed. Test signer identity in
+`pdf_test_fixtures/src/signer_identity.dart`; revocation PKI in
+`test_revocation.dart`.
 Content editing is in: `PdfEditor.stampPage` (text/shapes/JPEG via
 `PdfStamp`), `PdfPageElements.of` + `PdfEditor.deleteElements` (element
 enumeration with approximate bounds, stream rewriting), and
@@ -123,8 +143,8 @@ page lookup with full-walk fallback, gradient /Extend semantics, JPEG
 (selection, highlights, overlays, and hit-testing are rotation-aware;
 the geometry mirrors the renderer's canvas transform).
 The big-gap batch landed next, all KAT-validated against reference
-codecs: encrypt-on-write (updater `_encryptedCopy`; signing encrypted
-files still refused), trust-store chain validation
+codecs: encrypt-on-write (`StandardSecurityHandler.encryptObjectGraph`),
+trust-store chain validation
 (`verifyCertificateChain` in pdf_cos cms.dart, `PdfTrustStore` +
 `validate(trustStore:)` in pdf_document), mesh shadings 4-7
 (`PdfMeshParser`/`PdfMesh`, device `fillMesh`, drawVertices in

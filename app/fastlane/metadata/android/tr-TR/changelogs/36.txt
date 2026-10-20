@@ -1,0 +1,8 @@
+4.3.0 sürümündeki yenilikler
+
+- Yeni hazır ayarlarla PDF dosyalarını küçültün.
+- Belgeleri birleştirin, bölün ve seçili sayfa içeriğini silin.
+- Komut paletinden araçları hızla bulun.
+- Daha fazla yazdırma düzeni ve sayfa seçeneği kullanın.
+- Belgeler arasında vektör görüntülerini kopyalayıp yapıştırın.
+- Tarama düzeltildi ve mobil belge denetimleri iyileştirildi.

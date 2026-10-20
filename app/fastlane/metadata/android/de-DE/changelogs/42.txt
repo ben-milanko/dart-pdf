@@ -1,0 +1,6 @@
+Neu in 6.0.0
+
+- Seitentext mit dem Auswahlwerkzeug auswählen; im Handmodus ein Wort doppelt anklicken.
+- Die Lesesteuerung teilt sich eine Kopfleiste.
+- Schnellere Seitendarstellung mit weniger Speicherverbrauch.
+- Fehlende Details nach schnellem Zoomen behoben.

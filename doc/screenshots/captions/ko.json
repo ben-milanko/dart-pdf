@@ -1,0 +1,38 @@
+{
+  "locale": "ko",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "비공개 PDF 편집",
+      "subtitle": "계정 없음. 업로드 없음. 파일은 기기에 남습니다."
+    },
+    "app/02-editor": {
+      "headline": "마크업, 서명, 교정",
+      "subtitle": "양식을 작성하고, 메모를 추가하고, 페이지를 옮기세요."
+    },
+    "app/03-dark": {
+      "headline": "실제 문서를 위한 설계",
+      "subtitle": "텍스트 검색, OCR 실행, 버전 비교,\n그리고 보호된 파일 열기까지."
+    },
+    "example/01-document": {
+      "headline": "어떤 PDF든 열기",
+      "subtitle": "순수 Dart로 렌더링, 모든 플랫폼에서"
+    },
+    "example/02-graphics": {
+      "headline": "그래픽",
+      "subtitle": "그라디언트, 셰이딩, 투명도"
+    },
+    "example/03-annotations": {
+      "headline": "주석",
+      "subtitle": "형광펜, 잉크, 메모, 스탬프, 양식"
+    },
+    "example/04-markup": {
+      "headline": "마크업 도구",
+      "subtitle": "페이지에 그리고, 도형을 추가하고, 서명하세요"
+    },
+    "example/05-reader": {
+      "headline": "읽기 보기",
+      "subtitle": "화면에 맞게 텍스트를 리플로우"
+    }
+  }
+}

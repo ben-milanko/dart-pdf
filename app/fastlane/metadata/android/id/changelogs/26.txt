@@ -1,0 +1,7 @@
+Yang baru di 3.4.0
+
+• Salin dan tempel anotasi antar dokumen yang terbuka.
+• Letakkan PDF di antara thumbnail untuk menyisipkan halaman tepat di posisi yang diinginkan.
+• Simpan stempel yang ditempatkan ke koleksi dan lihat warna anotasi terpilih di toolbar.
+• Pemilihan teks dan rendering font pengganti kini lebih presisi.
+• Kisi tab lebih cepat, zoom trackpad lebih mulus, akses file progresif lebih aman, dan pratinjau cetak lebih andal.

@@ -1,0 +1,9 @@
+Nowości w 5.1.0
+
+- Rysuj podpis palcem na gładziku.
+- Listy adnotacji pokazują każdy znak tak, jak wygląda na stronie.
+- Na ekranach dotykowych akcje wiersza trafiły do menu ⋮.
+- Przeniesione pieczątki nie zostawiają już białego prostokąta.
+- Edycja stron nie gubi już stron w niektórych plikach PDF.
+- Podpisy cyfrowe P-521 są teraz poprawnie weryfikowane.
+- Szybciej: pliki zaszyfrowane, podpisy, JPEG 2000 i duże rysunki.

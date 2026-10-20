@@ -1,0 +1,6 @@
+Nouveautés de la version 4.0.0
+
+- Commandes d’édition plus fines et ancrables, et meilleure navigation dans les pages et fichiers récents.
+- Ajustez le texte à sa zone et aplatissez les annotations choisies ; les champs vides sont bien aplatis.
+- Couleurs, surimpression, transparence, masques et polices plus fidèles dans les PDF complexes.
+- Rendu GPU et zoom profond plus rapides, avec de meilleurs flux de glisser, numériser et ouvrir.

@@ -1,0 +1,6 @@
+Có gì mới trong 3.7.0
+
+- Trang được kết xuất khi bạn cuộn thay vì chờ bạn dừng lại, và trang đã đọc hiện lại tức thì.
+- Tìm và thay thế trong bảng tìm kiếm: thay một kết quả hoặc tất cả chỉ trong một bước.
+- Sửa lỗi chữ bị xáo trộn và sửa nhầm nội dung trong công cụ nội dung với phông chữ tập con.
+- Sửa lỗi treo khi mở hoặc lưu tệp.

@@ -1,0 +1,38 @@
+{
+  "locale": "it",
+  "_comment": "Didascalie localizzate per gli screenshot marketing. Chiave <target>/<basename>, corrispondente ai nomi dei PNG catturati. Ogni voce è il titolo e il sottotitolo sovrapposti allo screenshot dello store da tool/compose_marketing.dart. Mantieni i titoli brevi (vengono composti a grande dimensione) e rispetta la regola App Store 2.3.10: nessun nome di altra piattaforma nelle didascalie app/*.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Modifica PDF in privato",
+      "subtitle": "Nessun account. Nessun caricamento. I file restano sul dispositivo."
+    },
+    "app/02-editor": {
+      "headline": "Annota, firma, oscura",
+      "subtitle": "Compila moduli, aggiungi note e sposta le pagine."
+    },
+    "app/03-dark": {
+      "headline": "Pensato per documenti reali",
+      "subtitle": "Cerca testo, esegui l'OCR, confronta versioni\ne apri file protetti."
+    },
+    "example/01-document": {
+      "headline": "Apri qualsiasi PDF",
+      "subtitle": "Renderizzato in puro Dart, su ogni piattaforma"
+    },
+    "example/02-graphics": {
+      "headline": "Grafica",
+      "subtitle": "Gradienti, sfumature e trasparenza"
+    },
+    "example/03-annotations": {
+      "headline": "Annotazioni",
+      "subtitle": "Evidenziazioni, inchiostro, note, timbri e moduli"
+    },
+    "example/04-markup": {
+      "headline": "Strumenti di marcatura",
+      "subtitle": "Disegna, aggiungi forme e firma sulla pagina"
+    },
+    "example/05-reader": {
+      "headline": "Vista di lettura",
+      "subtitle": "Ridispone il testo per adattarlo allo schermo"
+    }
+  }
+}

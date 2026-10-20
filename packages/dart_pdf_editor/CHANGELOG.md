@@ -1,16 +1,1355 @@
 # Changelog
 
-## Unreleased
+## 10.0.0
 
+- **BREAKING:** add `PdfEditTool.measureCustom` and four abstract localization getters. Update exhaustive tool switches and custom localization implementations; see `doc/MIGRATING-10.0.0.md`.
+- Add written-value measurements, word-level editing across split glyph runs, link badges and empty-page context-menu actions.
+- Adapt shells and floating controls to separating display folds. Hide compact header and toolbar chrome while reading, with `autoHideChrome: false` available to opt out.
+- Keep edited annotations visible after deselection, remove the pen cursor after a stroke, simplify callout selection and improve image-crop controls.
+- Fix cloning a disposed image when OCR decodes a large scan.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` implementations must accept, and forward if they delegate, the new `decodeGate` parameter on `record`. See `doc/MIGRATING-9.0.0.md`.
+- Group annotations so they select, move, resize, rotate, copy and paste as one object, and rotate a selection around its shared centre or each object's own centre.
+- Optionally bake the page colour into saved and exported PDFs and page images (`PdfEditingPreferences.bakePageColor`, `pdfBakePageColor`). Signed documents save unbaked.
+- Toggle bold, italic and underline on selected text with Ctrl/Cmd+B, I and U, and style callout leaders separately from the box outline.
+- Polyline placement supports middle-button pan, edge auto-scroll and Ctrl+Z to remove the last vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag in Select mode draws a selection box, selection happens on lift, and switching tool-sheet tabs arms that tab's first tool.
+- Draw unembedded serif fonts in a serif substitute and fit substituted glyphs to their slots, including level baselines on Impeller.
+- Fix one document showing another's images when both have an image at the same object number, and re-sharpen rotated images on deep zoom.
+- Smoother scrolling: off-screen neighbours no longer render beside the focused page, and large worker replies wait out a wheel scroll before decoding.
+
+## 8.1.0
+
+- Style dropdown and list-box form fields, including mixed selections with text fields. Add `selectedFormStyleFieldNames` and retain `selectedFormTextFieldNames` as a deprecated alias.
+- Preserve free-text fonts, wrapping and baselines when editing, and keep the caret aligned after resizing text.
+- Keep the iOS text-selection menu clear of the style chip and open the keyboard reliably for inline text in iOS browsers.
+- Show the full colour palette in the mobile pen and highlighter tune menu.
+
+## 8.0.0
+
+- **BREAKING:** custom `PdfRenderWorker` and `PdfPageSurfaceSession` implementations must accept and forward `hiddenAnnotationSubtypes` on the affected rendering methods. See `doc/MIGRATING-8.0.0.md`.
+- Add display-only annotation subtype filtering, including consistent caches, hit testing and worker rendering.
+- Insert pages from multiple documents with interleaving and insertion options.
+- Capture polygon snapshots, crop pasted snapshots and show the paste position in the page grid.
+- Add multiple callout leaders, keep arrow targets fixed when moving the box, and apply style changes while editing text.
+- Bulk-edit selected form fields' style and dimensions.
+- Fix thumbnail identity after page reorders, stamp-template refresh on paste and enlarged Controls accessibility.
+- Add Central Kurdish localizations and remove the double-tap delay when placing polygon vertices.
+
+
+## 7.0.0
+
+- Open documents in Select mode; links and host page widgets remain usable,
+  and long-press selects text there. Cmd/Ctrl+A selects page text in Select
+  and Hand modes.
+- Pan horizontally to a search match when zoomed in.
+- Keep freehand ink previews at the committed opacity and align desktop text
+  context-menu actions with the touch selection chip.
+- Skip OCR spans already present in page text and show clearer OCR progress.
+- **BREAKING: built on `material_ui`.** The library's widgets now come from
+  `package:material_ui` (and `package:cupertino_ui`) instead of
+  `package:flutter/material.dart`, which Flutter is retiring. Their `Theme`,
+  `ThemeData`, `MaterialLocalizations`, `ScaffoldMessenger`, `InputDecoration`
+  and friends are different types from the legacy ones. Hosts on either
+  library keep working; see `doc/MIGRATING-7.0.0.md`.
+  - A host on the legacy `MaterialApp` keeps its look: a small bridge
+    carries the host theme's colour scheme, text and icon themes, platform
+    and density into the editor, and shows notices as SnackBars on the host's
+    `ScaffoldMessenger`. Legacy component themes and `ThemeExtension`s no
+    longer reach the editor; use `PdfEditorThemeData` or a material_ui `Theme`
+    around the editor instead. Build with
+    `--dart-define=PDF_LEGACY_MATERIAL_BRIDGE=false` to compile the bridge out
+    when no host uses the legacy library (`kPdfLegacyMaterialBridge`).
+  - `PdfMaterialHost` (installed by `PdfViewer`, `PdfReader`, `PdfEditorView`
+    and `PdfComparisonView`) now supplies material_ui's localizations,
+    `Theme` and surface whenever the host lacks them - a legacy
+    `MaterialApp`, a `CupertinoApp` or a `WidgetsApp`. It installs the
+    material_ui and cupertino_ui localizations for the ambient locale
+    whenever they are missing, which also fixes a crash under a material_ui
+    app that registered the generated delegate list with a locale material_ui
+    does not cover by default (Ukrainian, for one).
+  - Add `PdfEditorLocalizations.delegates` (the editor's delegate plus
+    material_ui's `GlobalMaterialLocalizations.delegates`) and
+    `PdfEditorLocalizations.supportedLocales`, the recommended list for an
+    app's `localizationsDelegates`. The generated
+    `DartPdfEditorLocalizations.localizationsDelegates` still lists the legacy
+    `flutter_localizations` delegates, which suit a legacy host only.
+  - Add `PdfEditorThemeData.primary` and `PdfEditorThemeData.brightness`:
+    set either and the stock chrome draws with a colour scheme seeded from
+    them, whatever theme the host has.
+  - Remove the APIs deprecated in 5.x and kept through 6.0.0:
+    `PdfEditingPreferences.themeMode` (use `themePreference`), the
+    `ButtonStyleButton` form of `PdfDialogSubmit` (use
+    `PdfDialogSubmit.action`), and `pdfSearchInputBorder` (use
+    `pdfSearchFieldBorderRadius`).
+  - Public parameters typed with Material classes now take the material_ui
+    ones (`PdfDropdown.decoration` is a material_ui `InputDecoration`).
+  - Tests that import the legacy library find nothing with type-based finders
+    on editor widgets (`find.byType(TextField)` matches the legacy class);
+    use the `pdf-*` keys or import material_ui.
+  - Requires Flutter 3.47.0 (`flutter: '>=3.47.0'`, material_ui 1.4's floor);
+    the Dart language version stays 3.5.
+- Toolbar strips (the open tool group's card) draw their own ink surface, so
+  pressed and hovered splashes show over the card's fill under every host.
+
+## 6.0.0
+
+- Breaking: `PdfDialogSubmit.child` is now `Widget`, so an arbitrary host
+  control can be the submit action. Code reading Material button properties
+  from it must keep its own button reference or check/cast the widget type.
+  The original constructor, `themeMode` and `pdfSearchInputBorder` remain
+  available and deprecated; their removal is deferred to 7.0.0.
+- `PdfRenderWorker` gains `trimMemory()`: subclasses inherit its no-op default;
+  hosts using `implements PdfRenderWorker` must implement the new method.
+  Workers now use platform-sized decode budgets and release reconstructible
+  caches on memory pressure and mobile backgrounding.
+- Stream native render records directly into the command buffer and keep text
+  offsets in unboxed typed arrays, reducing allocation and worker memory.
+- Fix deep zoom losing its scene when a later zoom supersedes an image refine.
+- The Select tool selects page text as well as annotations. Hand mode retains
+  double-click word selection while single drags pan the page.
+- Export `PdfDropdown` and `PdfDropdownItem`, the drop-down picker the
+  editor's own dialogs use: its options open through the
+  `PdfEditorPresenter`'s menu, so it works under any host. Companion
+  packages (dart_pdf_printing's print preview) use it too.
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`).
+  5.0.0 already needed 3.44, since the thumbnail strip's reorder uses
+  `ReorderableListView.onReorderItem`, which first shipped in Flutter 3.44, so
+  this strands nobody. A new `floor-analyze` CI job analyzes the package on
+  Flutter 3.44.0 to keep the floor honest.
+- Add `PdfThemePreference` and `PdfEditingPreferences.themePreference`, the
+  saved theme choice as an editor-owned enum instead of Material's
+  `ThemeMode`. It is stored under the same key, so a choice saved by an older
+  build reads back. `themeMode` still works and is deprecated (removed in
+  7.0.0); map the new value to `ThemeMode` in the host.
+- Add `PdfDialogSubmit.action(onSubmit:, child:)`, which marks any widget as
+  a dialog's Enter action. The `ButtonStyleButton`-only default constructor is
+  deprecated (removed in 7.0.0). Enter now tells a focused command button
+  (which keeps Enter) from a focused value control such as segments, a
+  dropdown or a checkbox (Enter submits) by semantics role rather than by
+  Material widget type, so controls from any design system classify the same.
+- Add `pdfSearchFieldBorderRadius`; `pdfSearchInputBorder` (a Material
+  `OutlineInputBorder`) is deprecated (removed in 7.0.0).
+- Move the headless model types (`PdfMeasurementScale`, `PdfInkSignature`,
+  `PdfSavedSignature`, the trackpad signature capture types, `PdfCustomStamp`,
+  `PdfStampDateFormat`/`PdfStampTimeFormat`, the picker and prompt typedefs,
+  `PdfSnapshot`, `PdfClipboardPdf`, `PdfSelectedContentImage`,
+  `PdfColorFormat`, `PdfDockablePanel`, `PdfPanelDock`, `PdfSidebarSide`) out
+  of the files that hold their Material dialogs. They are exported exactly as
+  before; `PdfEditingController` and `PdfPageView` no longer import Material
+  through them, which a new CI check (`tool/check_design_imports.dart`) keeps
+  true. `PdfDockablePanel.icon` values are now plain `IconData` constants equal
+  to the Material icons they were.
+- Localize the remaining English strings: the guides, snapping and rulers
+  dialog, the search field placeholder, the page-range dialog's default title
+  and button, the styled-text dialog's "Keep" font label, the progressive
+  loader's error and the crop overlay's tooltips.
+- README: a "Customising the UI" section covering `uses-material-design` and
+  localization delegate registration.
+- Add `PdfEditorCommands`, the stock toolbar's intents as one public object:
+  `armTool`/`toggleTool` (with the prerequisites - a measure tool asks for
+  the measuring scale, the signature tool for a signature), `openGroup`,
+  `applyMarkup`, `applyColor`, `flatten`/`flattenFormFields` (with an Undo
+  notice), hand/select/clear, and `recentTools`. `PdfEditorView` owns one
+  (or takes the host's through `PdfEditorView.commands`) and provides it to
+  everything beneath it; a standalone `PdfEditingToolbar` shares the commands
+  above it when they drive the same controller and otherwise owns its own.
+  Find them with `PdfEditorCommands.of(context)` / `maybeOf`, or place a
+  `PdfEditorCommandsScope` yourself. Swapping the controller restarts the
+  recent tools and keeps the open tool group, as the toolbar always did. Its
+  prompts and notices go through `PdfEditorPresenter` (below).
+- Add `PdfCommand` (id, icon, label, tooltip, shortcut, `enabled`/`selected`
+  listenables, category, `invoke`) and `PdfEditorCommands.catalog(context)`:
+  the editor's tools and markup kinds in dock order, and, under
+  `PdfEditorView`, its panels, view options, view modes and Save / Save as -
+  filtered by the view's `features` - for a command palette or menu.
+- Add ordered `toolGroups` (a `List<PdfToolGroup>`, default `pdfToolGroups`)
+  to `PdfEditingToolbar` and `PdfEditorView`: reorder or trim the dock, or add
+  groups of your own. `PdfToolEntry.command(PdfCommand)` puts a host action in
+  a group beside the stock tools. `PdfToolGroup` gains `kind` (which stock
+  group's behaviour it has, and which `groups`/`features.toolGroups` value
+  filters it; defaults to the stock group named by its `id`),
+  `labelledTools` and `labelBuilder`. A group the toolbar doesn't know no
+  longer throws.
+- Behaviour change: under `PdfEditorView` (or a `PdfEditorCommandsScope`), a
+  viewer tool shortcut now arms through the commands, so `M` asks for the
+  measuring scale before arming a measure tool and `H` asks for a signature
+  when none is saved, exactly as the toolbar does. A bare `PdfViewer` arms
+  directly, as before.
+- Under `PdfEditorView` the toolbar's open group and recent tools now live in
+  the view's commands, so they survive the toolbar remounting (a dock or
+  breakpoint change).
+- Add `PdfEditorPresenter`, how the editor shows things: `dialog`, `sheet`,
+  `menu` (an anchor rectangle plus `PdfMenuItem`/`PdfMenuDivider` entries),
+  `notice` (message, kind, optional Undo), and the prompts `text`,
+  `styledText`, `confirm`, `link`, `color` (`PdfColorResult.picked` or
+  `.sampleFromPage`), `font`, `formChoice`, `measurementScale`,
+  `measurementInput` (calibration length, volume depth), `pageRange`,
+  `splitRanges` and `signature`, each with a small immutable request type.
+  Every method defaults to today's stock UI; extend the class (don't
+  implement it) and override the ones you want. `PdfEditorView`, `PdfViewer`
+  and `PdfReader` take `presenter:`, or put a `PdfEditorScope` (an
+  `InheritedTheme`) above them; `PdfEditorPresenter.of(context)` finds it.
+  Stock dialogs carry the scope into their routes, so the prompts they open
+  in turn - the stamp editor's colour picker and signature pad, the
+  annotation library's rename, colour processing's picker - ask the same
+  presenter. Every editor notice, popup menu, bottom sheet and dialog now
+  goes through it (`tool/check_design_imports.dart`'s `showMenu`,
+  `showModalBottomSheet` and `ScaffoldMessenger` counters are at 0).
+- `PdfEditorView.textPrompt`/`styledTextPrompt` and
+  `PdfViewer.editingTextPrompt`/`editingStyledTextPrompt` keep working and,
+  when set, take precedence over the presenter's text prompts for that
+  widget's subtree. That fixes the places that ignored them: the author-name
+  prompt, the annotation library's four rename/group prompts, and a saved
+  annotation's name from the annotation menu. The text-selection "Add link"
+  and the link tool now ask `PdfEditorPresenter.link` (there was no way to
+  replace that dialog). The six colour pickers that called
+  `showPdfColorPicker` directly ask `PdfEditorPresenter.color`.
+  `PdfEditingToolbar.textPrompt`/`styledTextPrompt` and the `textPrompt`
+  of `showPdfAnnotationMenu`/`showPdfFormFieldMenu` default to the new
+  `pdfPresentTextPrompt`/`pdfPresentStyledTextPrompt`, which ask the
+  presenter (stock UI unchanged).
+- The font menu's picker result is public: `PdfFontChoice` (sealed:
+  `PdfStandardFontChoice`, `PdfBundledFontChoice`, `PdfPlatformFontChoice`,
+  `PdfDocumentFontChoice`, `PdfLoadFontChoice`) and its catalogue rows,
+  `PdfFontCatalogEntry`. `showPdfFontMenu` still builds the catalogue and
+  applies the pick; only the picker in between is the presenter's.
+- `showPdfDialog` keeps its signature and route (in-view, no native-window
+  promotion; Enter submits through `PdfDialogSubmit`). It no longer asserts
+  `MaterialLocalizations`, and its barrier label comes from the editor's own
+  localizations (new string `dialogDismiss`).
+- `showPdfRemoveSignatureDialog` is now a stock `confirm` (unchanged look).
+- The stock editor runs under any host: `PdfViewer`, `PdfReader`,
+  `PdfEditorView` and `PdfComparisonView` work under a `CupertinoApp` or a
+  plain `WidgetsApp` as well as a `MaterialApp`. Each wraps its content in
+  the new `PdfMaterialHost`, which supplies what the stock (Material) chrome
+  needs and the host lacks - Material and Cupertino localizations (from
+  `flutter_localizations`, English where a locale has none), a `Theme`
+  derived from the host's `CupertinoTheme` or, failing that, its platform
+  brightness, `DefaultSelectionStyle` and `IconTheme`, and a transparent
+  `Material` surface. Under a host that already has a `Theme` and both
+  localizations it adds nothing. Wrap any stock widget you mount on its own
+  (a `PdfEditingToolbar` beside your own viewer) in `PdfMaterialHost` the
+  same way.
+- What builds under the root navigator re-injects those too: `showPdfDialog`
+  (so it now opens from any context, not just from inside the editor), the
+  presenter's popup menus, its bottom sheets (a library-owned route,
+  `showModalBottomSheet`'s presentation unchanged) and the fullscreen reflow
+  image.
+- Notices show under any host: with no `ScaffoldMessenger` above,
+  `PdfEditorPresenter.notice`'s default now shows the notice (and its Undo)
+  as a SnackBar-styled toast in the root overlay instead of returning false.
+- Every editor text field (and the reflow view's `SelectableText`) uses the
+  new `pdfTextContextMenu`, the platform's stock context menu with the
+  localizations it needs re-injected - a right-click or long-press under a
+  non-Material host used to paint an error widget. Under a Material host it
+  is the default menu. Use it on text fields of your own dialogs.
+- The ten `DropdownButton`/`DropdownButtonFormField`s (line type, line
+  endings, scale and calibration units, stamp date/time format, the styled
+  text font family) are now a dropdown that opens through
+  `PdfEditorPresenter.menu`, drawn like the `DropdownButton` it replaces and
+  keeping its keys; its options open as a popup menu over the button.
+  `DropdownButton`'s menu route had no hook for running under a non-Material
+  host.
+- Fix: the form tool's double-tap fill now runs a field's keystroke and
+  validation scripts (`AFNumber_Keystroke`, `AFRange_Validate`, ...), refusing
+  characters and invalid values exactly as reading mode does. Both modes
+  fill through one component (the page's form layer); the form tool keeps
+  its own taps (select, move, resize) and hands its double-tap over.
+- `tool/check_design_imports.dart` also counts text fields without the
+  shared context menu; it and the `DropdownButton` counter are at 0.
+- Add `PdfEditorThemeData`, the editor's design tokens: `success`/`warning`/
+  `danger`/`info` status colours (the signature and review pills), the
+  `sectionLabel` style, `compactWidth` and `toastLift`, plus canvas tokens in
+  `viewer`. Provide it with `PdfEditorView(theme:)` or
+  `PdfEditorScope(theme:)`; read it with `PdfEditorThemeData.of(context)`.
+  Defaults equal the old literals. `PdfEditorScope` also gains `platform`
+  and `PdfEditorScope.platformOf` (the in-page text editors' Apple caret
+  correction reads it instead of the Material theme's platform).
+- `PdfViewerThemeData` gains `merge`, `copyWith`, `lerp` and the canvas
+  tokens that were hard-coded: `marqueeColor`, `snapGridColor`,
+  `alignmentGuideColor`, `redactionHatchColor`, `rulerBackgroundColor`/
+  `rulerForegroundColor`/`rulerAccentColor`, `chipColor`/
+  `chipForegroundColor`, `handleSize`, `inlineSelectionHandleColor` and
+  `diffInsertedColor`/`diffDeletedColor`/`diffReplacedColor`;
+  `PdfScrollbarThemeData` gains `markerColor`, `merge`, `copyWith` and
+  `lerp`; `PdfViewerTheme.maybeOf`. The stock fallbacks now resolve in one
+  place.
+- Add `PdfEditorView.headerBuilder`, which builds the header from
+  `PdfHeaderParts` (page number, zoom, search, view options, panel switch,
+  save, the compact Controls button, `compact`, the `stock` header, and
+  `bar(...)` in the stock look). Export `pdfShellCompactWidth`.
+- Add context-menu entry builders: `annotationMenuEntries`,
+  `textMenuEntries` and `formFieldMenuEntries` (on `PdfViewer` and
+  `PdfEditorView`; `textMenuEntries` on `PdfReader`) receive the stock rows
+  and return the rows to show. `PdfMenuEntry.id` names stock rows by their
+  `pdf-*` key; `pdfAnnotationMenuEntry`/`pdfTextMenuEntry` build rows in the
+  stock style; `PdfFormFieldMenuRequest` describes the field menu.
+  `showPdfAnnotationMenu`/`showPdfFormFieldMenu` take `entriesBuilder:`.
+- Add `PdfEditorPresenter.actionBar` and `readout`, which draw the floating
+  chips (`PdfActionBarRequest`: the touch annotation selection, touch text
+  selection and image crop chips with their actions as data;
+  `PdfReadoutRequest`: the measurement and style readouts). The defaults
+  return the stock chips unchanged.
+- Add `PdfViewer.showInlineTextStyleChip` (and on `PdfEditorView`) to turn
+  off the touch text-style chip over an in-place text editor.
+- Add `PdfViewerController.globalRectOf(page, rect)`, a page-space
+  rectangle's on-screen position, and `selectionGlobalRect`, a
+  `ValueListenable<Rect?>` of the selection's on-screen bounds.
+- Layout change: the editing toolbar's phone breakpoint is now the shells'
+  compact width, 700 (was 600), so between 600 and 700px wide the toolbar
+  docks below the viewer as a solid bar, matching the header and panels,
+  which were already compact there. `PdfEditingToolbar.mobileBreakpoint` is
+  700; a `PdfEditorThemeData.compactWidth` moves both.
+- Add `PdfReader.headerBuilder`: the reader's header from the same
+  `PdfHeaderParts` `PdfEditorView` hands out (page number, zoom, search, view
+  options, panel switch, the compact Controls part; `save` is always null).
+- Add `PdfHeaderParts.saveButton(enabledWhenUnchanged:)`, a save button that
+  stays enabled while the document is unchanged and saves when pressed - for
+  hosts whose save shares or exports. The ⌘S / Ctrl+S shortcut still saves
+  only when there is something to save (or with `alwaysAllowSave`).
+- Add `PdfEditorView.extraPanels` and `PdfEditorPanel`: a host's own dock
+  panels beside the stock ones, with a panel switch toggle, a resizable frame
+  whose move handle redocks them to any edge, and a bottom sheet on compact
+  layouts. Their dock, width and visibility persist by id
+  (`PdfEditingPreferences.extraPanelDock`/`extraPanelWidth`/
+  `extraPanelOpen`), or the host keeps visibility in a `ValueNotifier`
+  (`PdfEditorPanel.open`). `PdfSidebarPanelFrame.hostPanel` gives a host
+  panel's frame its move handle. Host panels dock standalone; they do not
+  join a stock panel's tab group.
+- The viewer's keyboard commands are intents: `PdfCopyIntent`,
+  `PdfCutIntent`, `PdfPasteIntent`, `PdfSelectAllIntent`, `PdfDismissIntent`,
+  `PdfUndoIntent`, `PdfRedoIntent`, `PdfDeleteSelectionIntent`,
+  `PdfAutosizeTextBoxIntent`, `PdfNudgeSelectionIntent` and
+  `PdfArmToolIntent`. `pdfViewerDefaultShortcuts` holds the stock bindings
+  (unchanged); `PdfViewer.shortcuts` (and `viewerShortcuts` on
+  `PdfEditorView` and `PdfReader`) replaces them. A `Shortcuts` above the
+  viewer can bind more keys to the intents, and an `Actions` above it
+  overrides what one does (the viewer's actions are `Action.overridable`).
+- Add `PdfSignaturePad` and `PdfSignaturePadController`, the signature
+  dialog's drawing surface as a widgets-only widget: pointer and stylus
+  capture with pressure, the predicted lead, and trackpad drawing, over a
+  controller holding the strokes, ink and pen (`toSignature()`).
+  `PdfSignatureDialog` is built on it, with the same keys and behaviour.
+- Add `PdfPreferencesStore` and `PdfEditingPreferences(store:)`, so the
+  preferences can live somewhere other than the device's shared_preferences
+  (`PdfSharedPreferencesStore` is the default; `PdfMemoryPreferencesStore`
+  keeps them in memory).
+- Fix a viewer controller swap on `PdfEditorView`/`PdfReader`: handing in a
+  controller where the shell owned one disposed the old controller while the
+  viewer's pages still used it ("`_PdfForwardingListenable` used after being
+  disposed"), and swapping one host controller for another left the new one
+  unbound. The viewer is now rebuilt bound to the new controller, and a
+  replaced owned controller is disposed at the end of the frame.
+- New `pdf-*` keys for tests that should not depend on Material widget types
+  (they keep working after the move to material_ui): the text prompt and its
+  field, the signature dialog's Done/Cancel, the colour picker's OK/Cancel,
+  the stamp editor's Save, annotation list rows and checkboxes, the link
+  dialog's fields, the thumbnail list and its delete buttons, the toolbar's
+  save, ink confirm/discard, delete, guides dialog and sliders, the identity
+  name field, the stock popup menu divider, the text context menu, and the
+  loading indicators.
+
+## 5.1.1
+
+- Fix ink written in quick succession disappearing from the page. The editing
+  overlay kept only the latest ink commit as its afterimage, but ink
+  auto-commits 800 ms after the last stroke, so the next glyph could commit
+  before the page had drawn the previous one; the new revision restarted the
+  annotation layer's pass and the earlier glyph was painted nowhere until the
+  page re-rendered, while the annotation list still showed it. Back-to-back
+  ink commits now accumulate, and each page's afterimages are retired only
+  once its raster and annotation layer are both current.
+- Add `PdfEditingController.committedInksOn(page)`, every ink commit on a page
+  that has not reached its raster yet (oldest first), and
+  `retireCommittedInk(page, throughRevision:)`, which the viewer calls once a
+  page shows that revision. `committedInkOn` is unchanged and returns the
+  newest of them.
+
+## 5.1.0
+
+- `DartPdfEditorLocalizations` gained abstract getters `sigUseTrackpad` and
+  `sigTrackpadHint`. A custom subclass must implement them; extending a
+  bundled locale class picks them up.
+- Draw signatures on the trackpad, the way Preview does. The signature pad
+  offers "Use trackpad" when `showPdfSignatureDialog` / `PdfSignatureDialog`
+  get a `trackpad:` capture (defaulting to
+  `PdfTrackpadSignatureCapture.platform`) whose `isAvailable()` reports one:
+  the trackpad surface maps absolutely onto the pad, a finger down is the pen
+  down, any key finishes, clicks are absorbed and losing app focus ends it.
+  Flutter pointer events carry no absolute finger positions, so the host
+  supplies the capture; the DartPDF app does on macOS, Windows and Android.
+- Lead each row of the annotation sidebar and the annotation library with the
+  annotation's own rendered appearance (`PdfAnnotationAppearancePreview`),
+  falling back to the subtype icon when there is no appearance stream.
+- On touch, fold the annotation sidebar's lock and delete and the bookmark
+  panel's add-child, edit and delete into a per-row more (⋮) menu. Desktop
+  keeps the hover-revealed icons.
+- Stop a moved stamp leaving a white box over the page until its re-render
+  landed. The overlay no longer washes the old spot with paper, and the
+  appearance layer drops pictures whose stream and /Rect are no longer live
+  as soon as a revision lands.
+- Stop one rejected stream killing the web render worker. When the browser's
+  `DecompressionStream` refused a payload, the unobserved output future
+  escaped as an uncaught error, fired `Worker.onerror`, and every later page
+  of the document fell back to main-thread rendering.
+- Compile the web render worker at dart2js -O3 (0.81-0.86x of the worker's
+  record time). `build_web_worker` takes `-O<n>` / `--optimization-level`
+  (default 3) and now exits non-zero when the compile fails.
+- Apply editor revisions to the render workers in place. Native worker
+  isolates grow a buffer instead of copying the whole document per edit
+  (growth per edit on a 60 MB file: 188 MB to 0.5 MB), roll back in place on
+  undo and keep their image caches, and the pool seeds its urgent lane from
+  the host's revision view through the new, non-breaking
+  `PdfRenderWorker.updateRevisionTo`. The web worker takes revisions in place
+  too instead of restarting per edit, undo and redo; an older cached worker
+  bundle keeps the restart path.
+- Stop hashing the whole file on the UI isolate when opening a PDF without a
+  trailer /ID with a form-secret store attached; the decision waits for the
+  first read of the form's fields. Undo reopens with the session's
+  authenticated keys, so an AES-256 undo no longer re-runs the password hash
+  (about 26 ms to under 1 ms).
+- Keep signature validation work across revisions. The controller holds each
+  signature's crypto core by field name and drops it only where signed bytes
+  can change, so an edit, undo or a trust store arriving no longer re-hashes
+  signed files, and on native platforms a miss covering 512 KB or more is
+  hashed on a helper isolate. A signature whose /ByteRange can never validate
+  is not sent there again.
+- Rebuild a thumbnail tile's viewport frame only when its current-page ring or
+  viewport mark changes, instead of rebuilding every tile on every scroll tick.
+- Path-cache hits skip the recency relink and the record key:
+  `PdfBudgetedCache.lookup` counts a hit without touching recency, for
+  admission-only caches.
+- Paint unembedded-font text faster on a cold page. The run-layout key is
+  typed, digits and capitals in a kern-free substitute face are composed from
+  cached glyphs instead of shaped, and word pieces are shared across runs
+  (label-dense CAD pages paint cold in 28 ms instead of 155 ms; text-cache
+  memory is lower). Composition matches shaping except for a rare subpixel
+  rounding flip of one glyph.
+- Rasterize a retained page's first base raster from its already-built
+  picture through a layer (`PdfPageRenderer.rasterizeViaLayer`) instead of
+  replaying the transcript a second time on the UI isolate.
+- Follow pdf_graphics' codec v11 through the seam: a Type3 glyph cell shared
+  by every stamp is restored, compacted and image-walked once
+  (`PdfPageRenderer.collectImageRequests(distinctCells: true)` for the decode
+  callers), so a bitmap-font page's picture builds in 37 ms instead of 456 ms.
+
+## 5.0.0
+
+### Breaking changes
+
+- `PdfFormFieldKind` gained `radioGroup`, `comboBox`, `listBox` and
+  `signature`. Exhaustive `switch`es over it need the new cases (or a
+  default).
+- `PdfBundledSubstitute` gained `carlito`. Exhaustive `switch`es over it need
+  the new case.
+- `PdfEditingController.setFormFieldText` now treats the value as user entry
+  (`PdfEditor.enterTextValue`): a field's recognised keystroke and validate
+  scripts (AFNumber_Keystroke, AFDate_KeystrokeEx, AFRange_Validate, ...)
+  run first, so it returns false for a refused value and stores the
+  normalised one. Through `setTextValue` it also truncates to /MaxLen,
+  recalculates calculated fields and drops stale /XFA. Call
+  `checkFormFieldText` first to learn why a value would be refused. With a
+  `formSecretStore`, a password field's value goes to the store instead of
+  /V.
+- `PdfEditorView` and `PdfReader` given no `viewMode:` now own a
+  `PdfViewModeController` of their own, seeded from the preferences once they
+  load. The shell no longer follows later writes to
+  `preferences.viewMode` / `showReflowView` / `showThumbnailView`, so a host
+  that switched the shell's mode by writing those must create a
+  `PdfViewModeController` and pass it as `viewMode:`, then drive that.
+- `DartPdfEditorLocalizations` gained abstract getters for the new form,
+  XFA and signature-revocation strings (`formXfaUnsupportedNotice`,
+  `sidebarSignatureRevokedStatus`, `menuConvertToRadioGroup`,
+  `formOptionsTitle`, ...). A custom subclass must implement them; extending a
+  bundled locale class picks them up.
+
+### Changes
+
+- `PdfEditingController.signatureTrustAction` lets a host offer a one-click
+  way to trust an unknown signer, for example by loading a trust list. The
+  signature panel now also names the trust list a root came from.
+
+- The signature panel checks revocation when the controller has a
+  `revocationClient`. It shows a Revoked status, whether revocation was
+  confirmed online or from embedded data or could not be checked, and it names
+  self-signed signers and untrusted issuers.
+
+- Multi-select list boxes take several values (#933):
+  `PdfEditingController.setFormChoiceValues` and `pickFormChoiceOption`
+  (which toggles an option on a multi-select box), and the form option menus
+  show checkable items for those fields, each pick toggling one option.
+
+- The form tool creates radio groups, combo boxes, list boxes and empty
+  signature fields (#934): `PdfFormFieldKind` gains `radioGroup`,
+  `comboBox`, `listBox` and `signature`, and the new-field and field-type
+  menus list them. A selected radio group offers "Add button to group"
+  (`PdfEditingController.addFormRadioButton`), a selected choice field
+  "Edit options…" (`showPdfFormOptionsDialog` / `PdfFormOptionsEditor`,
+  applied through `setFormFieldOptions`), and every field converts to the
+  new kinds.
+- Draw cold annotation appearances against a frame budget instead of one per
+  frame. With an editing or form controller attached, marks are drawn by the
+  page's annotation overlay on the platform thread, and each render-scheduler
+  grant used to draw exactly one appearance - so a drawing carrying 1,000
+  stamps filled in over eight seconds at 120 Hz (sixteen at 60 Hz) while the
+  thread sat idle for most of every frame. A grant now keeps drawing until
+  `PdfPageRenderScheduler.appearanceFrameBudget` (4 ms) is spent, publishing
+  once per batch rather than once per mark. One appearance still draws per
+  grant however long it takes, so heavy appearances keep the old pacing.
+- Add `PdfViewerController.isAnnotationAppearanceBusy` and
+  `annotationAppearanceProgress`, notified through `pageRenderActivity`. The
+  overlay finishes after the page raster, so `isPageRenderBusy` and
+  `isPageRasterReady` read done while marks are still landing; these report
+  the overlay's own outstanding work on the pages it is live for, from the
+  moment a pass is queued until the frame that paints its last appearance.
+- Draw unembedded Calibri in Carlito instead of TeX Gyre Heros.
+  `pdfBundledSubstituteFor` had no Calibri entry, so it fell through to the
+  default sans, and Helvetica's advances are much wider than Calibri's - with
+  every character pinned to the PDF's own pen offset by
+  `exactSubstitutedGlyphPlacement`, the surplus had nowhere to go and the
+  glyphs crowded into each other - which is what an Office-printed cover page
+  looked like. Carlito matches Calibri's advances exactly, in all four styles.
+  The faces come from the optional `dart_pdf_editor_assets` package; without
+  it, the fallback chain now names a host Carlito or Calibri before anything
+  else. `PdfBundledSubstitute` gained `assetSuffix` (Carlito is TrueType where
+  the TeX Gyre faces are CFF) and `fontFaceFormat`, which the web worker's
+  `FontFace` now names instead of assuming `opentype`.
+- Give each window its own view mode. `PdfEditingPreferences` is one object per
+  process, so reading the live mode off it meant switching to the page grid (or
+  reflow) in one window switched every other window with it. The live mode now
+  belongs to the window: `PdfViewModeController` holds it, `PdfEditorView` and
+  `PdfReader` take it as `viewMode:`, and a multi-window host creates one per
+  window and hands it to every shell that window builds - so all of that
+  window's tabs share a mode and no other window follows.
+  `PdfEditingPreferences.viewMode` still persists each choice, now as the mode
+  the NEXT window starts in and the one the next launch restores. A shell given
+  no controller owns one seeded from - and written back to - the preferences,
+  so a single-window host is unchanged. `pdfShellViewModeControls` takes
+  `viewMode:` in place of `preferences:`, and `PdfShellViewOptionsButton` takes
+  an optional `viewMode:` that falls back to its preferences.
+- Hold Shift while dragging a line, polyline or polygon vertex handle to
+  straighten the segment being reshaped onto the nearest 45° axis, the same
+  constraint the tools already apply while drawing. A vertex with a neighbour
+  on each side (every vertex of a polygon, whose ends wrap) takes whichever of
+  its two segments the pointer was already closest to lining up. Callout
+  leader handles keep their free aim.
+- Run the recognised AF* form scripts while filling (#930): a keystroke
+  script filters typing (a number field won't take letters), Enter on a
+  refused value keeps the inline editor open with the reason under the field,
+  leaving a field with a refused value keeps its old value and shows a toast,
+  and the afterimage shows the formatted value.
+  `PdfEditingController.checkFormFieldText` checks a value without editing.
+- Honour comb fields, /MaxLen and password masking in the inline editors
+  (#931): they cap input at /MaxLen and obscure password fields, their
+  afterimages stay masked, and the Edit value prompts no longer prefill a
+  password. Add `PdfFormSecretStore` with `InMemoryFormSecretStore` and
+  `SecureFormSecretStore` (flutter_secure_storage), keyed by the document's
+  permanent id and the field name. `PdfEditingController(formSecretStore:)`
+  routes password fills there instead of the file, restores stored values on
+  open without dirtying the document, keeps the store in step with undo and
+  redo, and `forgetFormSecrets()` clears a document's values.
+- Show a one-time, closable notice when a form is dynamic XFA instead of
+  silently showing no fields (#929). Hybrid forms fill normally.
+- Tab and Shift+Tab move between form fields (#932), across pages and
+  wrapping at the ends, in each page's /Tabs order. Text fields open their
+  inline editor; check boxes, radio buttons and choice fields get a focus
+  ring (Space toggles, a choice field opens its menu). Multi-line fields move
+  on Tab instead of typing a tab. `PdfViewerController.revealRect` scrolls a
+  rect into view without zooming.
+- A thumbnail reorder drag carried out of the strip's window is reported
+  through `PdfThumbnailDropController.onPageDragOutside` /
+  `onPageDropOutside` (`PdfPageDragOut`) instead of reordering the strip, so a
+  host can move the pages into another window.
+  `PdfEditingController.removePages` removes several pages in one edit. The
+  thumbnail strip and page grid bind undo/redo themselves, so a paste made
+  there can be undone while the panel keeps focus, and undo/redo of a
+  structural edit clears the stale page selection. A held drop is cancelled
+  when an edit changes the document under it.
+
+## 4.5.0
+
+- Group the view-options menu around what its rows actually do. Reflow text
+  and the page grid each REPLACE the page viewer, but they were drawn as two
+  independent checkmarks among the display overlays, and each silently cleared
+  the other - so leaving a mode meant unticking the one you ticked, and plain
+  pages existed only as the absence of both. They are now one `SegmentedButton`
+  at the top of the menu, with `Pages` as a real destination, over a
+  `PdfEditingPreferences.viewMode` (`PdfViewMode`) that owns the exclusivity
+  the callers kept re-implementing - including the command palette, which
+  toggled the two bools independently and could show both at once. On compact
+  layouts the modes move up into the Controls sheet's View section, one tap
+  from the document: Reflow already had a tile there, and the page grid needed
+  Controls -> Settings -> scroll -> tick. The Settings sheet keeps only
+  settings, and `showPdfShellViewOptionsSheet` no longer takes `reflow` /
+  `pageGrid`.
+
+- Draw unembedded standard-14 text in the metric-compatible TeX Gyre faces
+  bundled by `dart_pdf_editor_assets` - Heros for Helvetica/Arial, Termes for
+  Times, Cursor for Courier - ahead of any host font. Substituting a face with
+  different advances opened white space inside words, because each character is
+  placed at the PDF's own pen offset: DejaVu Sans, the previous fallback, drew
+  `J` at 295/1000 em where Helvetica's table reserves 500, leaving ~2.7pt of air
+  after every capital J at 12pt. Without the assets package the renderer now
+  names the host's metric equivalents (Arial, Liberation Sans, Nimbus Sans and
+  their serif/mono counterparts) before falling back further.
+- Load only the substitute weights and slants a page actually shows in the
+  canvas2d web worker, and none for an invisible OCR layer.
+- Export the substitution policy (`PdfBundledSubstitute`,
+  `pdfBundledSubstituteFor`) so a host can resolve the same faces the renderer
+  does.
+- Keep a text selection that crosses separately drawn runs continuous:
+  selection rects and the quads `addMarkup` saves are normalized to one box
+  per visual line, joining fragments only across a gap of up to 1.5 line
+  heights so a column gutter keeps its two boxes.
+- Hit-test text with each run's own ascent and descent, so CJK lines select
+  over the whole glyph height.
+- Floor stroked text (rendering modes 1/2/5/6) at one device pixel on both
+  text paths. A `0 w` width no longer becomes a hundredth of an em in the
+  substituted-font painter, which left stroked text nearly invisible.
+- Add an off-by-default glyph stem darkening flag,
+  `CanvasPdfDevice.glyphStemDarkening`, which darkens thin stems of small text
+  without widening them.
+- Keep the viewer's `State` when the editing toolbar comes and goes, so
+  double-clicking a page in the page grid lands on that page instead of
+  rewinding to page 1.
+- Opt the example's Linux runner out of Impeller (`DARTPDF_IMPELLER=1` turns
+  it back on): on desktop OpenGL Impeller fills PDF glyph paths without
+  antialiasing.
+
+## 4.4.0
+
+- Reach at least 10000% actual size independently of viewport width, with
+  3000%, 5000% and 10000% shell presets. Explicit host zoom caps keep their
+  previous behaviour.
+- Treat balanced compositing groups as indivisible indexed ranges, so a page
+  carrying transparency groups or soft masks no longer falls back to replaying
+  every command for a small zoomed viewport. Dense pages start using the
+  spatial grid at 32,768 commands, warmed through the render worker.
+- Cache native path geometry in the retained scene across zoom and detail
+  replays, under a 32 MiB geometry budget and a 65,536-entry cap that
+  participate in memory-pressure eviction.
+- Reuse the render worker's recorded text for selection and search, retaining
+  at most 32 pages and an estimated 16 MiB per worker. Warm a focused page's
+  text after 500 ms of viewport idle; motion cancels the pending warm.
+- Reserve one-tile-per-paint admission for pages above 250,000 commands, so an
+  ordinary indexed page can still fill the eight-tile batch.
+
+## 4.3.0
+
+- Add `PdfKeyboardAvailability` so hosts can hide shortcut hints and shortcut
+  settings when a physical keyboard is unavailable. Shortcut bindings stay active.
+- Group mobile Controls into View and Panels sections in both shells, keeping
+  Settings and Reflow with view controls and allowing the sheet to scroll.
+- Add `PdfDialogSubmit` to mark a `showPdfDialog` primary button for Enter and
+  numpad Enter submission. Wire the stock editing dialogs to it, preserving
+  validation, IME composition, Shift+Enter, and keyboard-focused buttons.
+- Expose snapshot PDF bytes, `pasteSnapshotBytes`, and `systemPdfPasteProvider`
+  on the viewer and editor shell. External PDFs paste as editable vector stamps
+  through keyboard and context-menu Paste, with image/text fallback.
+- Add complete Australian and UK English locales for editor controls, including
+  colour, centre and organisation, while the base English locale uses US spelling.
+  Localise the smart alignment guide hint.
+- Add the Erase content tool (Shift+E) to the toolbar and shared tool catalogue,
+  with a compact "Erase" label and full instructions in its tooltip.
+  Drag a rectangle or click polygon vertices and double-click to finish;
+  crossing graphics are clipped at the boundary and text is sliced by glyph.
+  Deletion is undoable and leaves annotations unchanged.
+- Add `PdfCompressionTask` in `compression_worker.dart`: cancellable PDF
+  optimisation in native isolates and dedicated browser workers, with exact
+  savings reports and no main-thread fallback when a worker fails.
+- Expose the toolbar's tool catalogue: `pdfToolGroups`, `pdfToolCatalog()`,
+  `PdfToolGroup`/`PdfToolEntry`, and `pdfEditToolLabel`/`pdfEditToolTooltip`/
+  `pdfMarkupLabel`/`pdfMarkupTooltip`. The dock now reads the same list a host
+  can enumerate, so a command palette or shortcut sheet stays in step with the
+  tools the toolbar actually shows.
+- Add `PdfEditingController.exportPageRanges`, `showPdfSplitDialog`, and the
+  `onSplitPages` host callback on the editor shell and both thumbnail layouts.
+  The Split PDF action accepts comma-separated ranges and generates one PDF
+  per range in a single batch. The example opens extracted results in new tabs.
+- Preserve sparse-buffer ranges across native and web render workers, pooled
+  and urgent workers, and overprint retries, including edit/undo/redo updates.
+
+## 4.2.0
+
+- Add `textMenuBuilder`, the text-selection counterpart to
+  `annotationMenuBuilder`: hosts append their own entries to the right-click
+  text menu (below a divider, after the stock markup/Copy/Select all) on
+  `PdfViewer`, `PdfEditorView`, and `PdfReader`, in reader mode as well as
+  with an editing session. Also expose `PdfViewerController.selectAllTextOn`
+  so a host that takes the whole menu over with `onContextMenuRequested` can
+  rebuild Select all.
+- Sharpen pages directionally during sustained slow scrolling with a bounded
+  accelerated look-ahead, and warm pages ahead of the scroll direction, while
+  preserving fast-scroll preemption and strict worker, raster-cache, and
+  Canvas-fallback safeguards.
+- Use the optional Flutter GPU route to accelerate full-page raster warming
+  when the backend reports support for it.
+- Add annotation alignment guides and page rulers for precise placement.
+- Anchor `Ctrl`/`Cmd`+wheel zoom on the pointer across the fit-width seam, and
+  carry the focal point through the zoom settle so the web's pinch-reported
+  `Ctrl`+wheel also holds the point under the cursor. `PdfViewerController.setZoom`
+  now zooms about the viewport centre the reader is looking at.
+- Fix selection chrome, resize previews, and inline text editing on pages with
+  a display `/Rotate`: the resting rotation now comes from
+  `PdfAnnotation.appearanceRotation` in page space rather than from a
+  view-space quad, so a square annotation on a `/Rotate 90` page is no longer
+  treated as turned a quarter turn (which transposed committed rects). Resize
+  cursors now follow the handle's on-screen direction.
+- Fix text-markup hit testing for disjoint highlight quads, so multi-line
+  markup is selected by its `QuadPoints` rather than its bounding box.
+- Avoid blurry text under multi-line highlights by rendering wrapped highlight
+  appearances as tightly clipped per-region pictures instead of one large
+  Multiply compositing surface.
+- Allow panning between text lines instead of starting a text selection.
+- Defer editing notifications raised during viewer frame updates.
+- Align dependency constraints with the dart-pdf 4.2.0 package suite.
+
+## 4.1.0
+
+- Add a persistent named handwritten-signature library with previews,
+  selection, rename/redraw/delete management, and automatic migration from the
+  previous single saved signature.
+- Add a dockable, searchable reusable-annotation library backed by detached
+  `PdfAnnotationSnapshot`s, with named groups, context-menu capture,
+  cross-document placement, cursor-following drop previews, repeat Paste, and
+  a direct path to the custom-stamp collection.
+- Add independently configurable horizontal and vertical cursor guide lines,
+  an optional visible page-space grid, and persisted grid snapping for
+  annotation placement, movement, resizing, and vertices (hold Alt to bypass
+  snapping temporarily). These controls live in the editor Settings popup.
+- Enable the example's visible digital-signature tool with a secure, persisted
+  signing identity on macOS and web, and hide that tool from the stock
+  `PdfEditorView` when a host has not supplied a signing handler.
+- Let users select a signed box and remove its digital signature from the
+  contextual toolbar on desktop or mobile, with confirmation and undo.
+- Refresh signed pages immediately after placement so the visible signature
+  box appears as soon as signing completes.
+- Let the content tool reposition selected page content and drag it across
+  pages with destination-aware previews and undo.
+- Add the eyedropper to the colour dialog and keep it responsive across every
+  page in a document.
+- Improve retained rendering and the optional GPU route for complex blends,
+  transparency groups, images, text, and large engineering drawings.
+- Fix sparse progressive loading, digital-signature key import, and selection
+  refresh across supported platforms.
+
+## 4.0.0
+
+- Add an optional asynchronous tile-backend retry hook and exact retained-scene
+  re-recording, while preserving the existing Canvas fallback when a retry is
+  unavailable, fails, or remains inexact.
+- **Breaking:** classes that `implements PdfTileRasterBackend` must add
+  `supportsWarmUp`, `supportsSessionWarmUp`, and `warmUp()`. Extending the base
+  class keeps the default no-op implementations.
+
+- Fit a free-text font to its existing box from the selection toolbar, tighten
+  Alt+Z box autosizing to the font's real vertical metrics, and add selected
+  annotation flattening to the right-click menu.
+- Add compact docked editing controls and horizontal thumbnail layouts, with
+  steadier panel sizing, scrolling, selection, and recent-document previews.
+- Collect worker-decoded images inside retained tiling cells, so bitmap Type 3
+  glyphs keep their image pixels when a command buffer is rebuilt on the UI
+  isolate.
+- Let optional tile backends prepare view-scoped resources and live-page scene
+  sessions after first useful pixels and a 750 ms quiet window. Foreground
+  rendering cancels and restarts the delay, keeping first paint and immediate
+  navigation uncontended while avoiding cold setup during deep zoom.
+- Carry exact output-intent colour, overprint, transparency, soft-mask, and
+  high-bit-depth image rendering through Canvas, retained, worker, and tile
+  paths.
+
+## 3.8.0
+
+- Let annotations extend beyond the page edge while remaining selectable,
+  movable, resizable, and editable.
+- Add configurable signature ink colour and thickness, and allow the shared
+  properties UI to restyle compatible mixed annotation selections.
+- Add print-preview support, a searchable recent-files browser surface, and
+  `PdfViewerFeatures.showSelectionChip` for host control of the touch selection
+  chip.
+- Keep page and annotation caches stable across incremental saves, page
+  reordering, undo, and redo through revision-aware invalidation.
+- Improve rendering throughput and scroll stability on large image-heavy and
+  CAD documents with viewport culling, lighter retained scenes, better worker
+  scheduling, and more efficient deep-zoom tiles.
+- Fix popup placement in nested overlays, free-text caret alignment at deep
+  zoom, browser JPEG decoding, and a release-mode annotation-picture disposal
+  crash.
+
+## 3.7.1
+
+- Fix a release-mode crash when an annotated viewer unmounts while a cached
+  annotation picture is still being disposed.
+
+## 3.7.0
+
+- Anchor thumbnail context menus to the correct position when the editor is
+  hosted inside an offset nested navigator.
+- Anchor viewer text, annotation, and form popups in that same nested-navigator
+  configuration instead of shifting them by the overlay origin.
+- Render ordinary pages *through* a scroll instead of waiting it out.
+  `PdfPageRenderScheduler` gains a motion lane: a request declares a
+  `PdfRenderMotionClass`, evaluated at grant time rather than baked in, so a
+  worker-backed page renders during any motion, a small page without a worker
+  renders in the scroll-quiet window, and anything heavier keeps the old hold.
+  A page on screen with nothing to paint now asks for its render on every
+  rebuild (guarded by `isQueued`), which is what was missing for a page the
+  reader scrolled onto.
+- Weigh an image by its declared size rather than its existence:
+  `PdfPageView.motionSafeMaxImagePixels` and `PdfPageRenderer.imageDrawPixels`
+  admit the letterhead mark that every page of a corporate report carries,
+  which the first cut of the gate refused outright.
+- Price retained scenes honestly. `PdfPagePreviewCache.priceRetainedScene`
+  floors an entry at the raster it stands in for - the engine's own picture
+  estimate under-reports a text page by ~18x - and the budget becomes
+  platform-aware (`pdfDefaultRetainedSceneBytes`), so the entry cap goes back
+  to being a backstop. A cached scene is now adopted when it is sharp at the
+  current zoom, not only when it carries a fresh render's decode headroom.
+- Add find **and replace** to the search panel. `PdfSearchResultsPanel(editing:)`
+  reveals a replacement field behind a disclosure in the options row, with
+  Replace and Replace all (one undo step); a null `editing` leaves it a pure
+  find panel. Backed by `replaceMatchText` and `replaceTextOnPages` on the
+  editing controller, and persisted through
+  `PdfEditingPreferences.searchReplaceExpanded`.
+- Fix the element strip's "Replace text" rewriting every matching run on the
+  page: both element-strip entry points now use the targeted
+  `replaceElementText`, as the selection menu already did.
+- Report the text of a remapped or subsetted simple font correctly in the
+  content tool, through `pdf_document`'s new `SimpleFont`.
+- Yield a frame between thumbnail tiles and re-read the busy gate, so the strip
+  can no longer run 400-500 ms of tile work ahead of the page the reader landed
+  on.
+- Say when the render worker fails to start. A failed isolate spawn was
+  swallowed, leaving every page to interpret on the UI thread for the rest of
+  the document with nothing in any log; it now reaches `PdfPerfLog` and prints
+  a debug warning, and the interpret line distinguishes `recorded(no-worker)`
+  from `recorded(declined)`.
+- Translate the new search and replace strings into all 19 non-English locales.
+
+## 3.6.0
+
+- Add `showPdfDialog`, a view-local Material dialog helper for hosts using
+  Flutter's desktop multi-window support.
+- Keep the annotation sidebar's selected item visible, make page and
+  annotation navigation more reliable across edits, and preserve FreeText
+  opacity in live editing and raster output.
+- Preserve substituted glyph advances on the worker-owned web Canvas2D
+  surface. Unembedded Century Gothic and Avant Garde use the metric-compatible
+  TeX Gyre Adventor fallback supplied by the optional assets package.
+- Preserve Bluebeam FreeText alignment, spacing, and caret placement while
+  editing annotations that describe their style through CSS metadata.
+
+## 3.5.1
+
+- Keep image soft-mask compositing correct on Impeller by applying the mask at
+  the layer boundary, preventing masked images from rendering as black blocks.
+
+## 3.5.0
+
+- Sharpen deep-zoom pages visible-first: the foreground render now covers the
+  exact viewport. Once that sharp frame paints, tile-capable pages grow bounded
+  pan-ahead underneath it; fallback pages avoid a second unpreemptible raster.
+  Translation settles cannot abandon an in-flight exact recovery, and tile
+  admission is bounded across frames so unrelated repaints cannot build a long
+  GPU queue. Foreground paint telemetry remains distinct, and every retained
+  detail allocation rebalances the live-raster budget, preventing visible
+  quality and memory from stepping backwards.
+- Promote fast-scroll page previews through a configurable 200 -> 400 -> 800
+  px LoD ladder before the final display raster. Intermediate levels warm only
+  around the viewport, share a 32 MiB byte-budgeted LRU, and are generated from
+  completed page rasters by serial image blits when possible; live pages never
+  downgrade when a cached level is evicted. Expose LoD occupancy and evictions
+  through `PdfViewerController.pagePreviewLodStats` and perf logs.
+- Let a tile raster session opt out of adjacent-tile slab batching and cap new
+  work admitted by each paint, while preserving Canvas batching and existing
+  third-party session compatibility. Expose the exact visible-tile budget
+  decision in diagnostics so single-patch fallbacks are explainable.
+- Keep off-screen neighbour pages at fit-resolution base rasters during deep
+  zoom, promoting them only when they enter the viewport, so navigation no
+  longer allocates high-zoom full-page rasters that are immediately replaced.
+  Cache-restored fit rasters now trigger that same promotion instead of
+  remaining enlarged after entering an already-zoomed viewport.
+- Require 750 ms of continuous viewer idle time before whole-document
+  thumbnail warming starts or resumes, and restart that quiet window when
+  navigation changes focus.
+- Let optional tile backends expose their latest session rejection reason and
+  include requested backend, actual route, reason, and command count in perf
+  logs.
+- Add an optional persistent tier for 512 px LoD tiles. Disk reads race live
+  rendering, writes happen after display admission, cache keys include the
+  complete page visual identity, and the existing byte-budgeted memory LRU and
+  coarse-tile fallback remain authoritative. Export the retained-scene bounds
+  and content-stable image-key helpers used by optional raster backends.
+- Let `PdfComparisonView` receive the same optional tile raster backend as the
+  reader, editor, and viewer, so hosts can switch every mounted view together.
+- Stop treating a page that shares the screen with the current one as an
+  off-screen prefetch neighbour: `PdfPageView.onScreen` now gates the
+  reduced-resolution image decode and the live-raster reclaim, so pages above
+  and below no longer soften and blank as they cross the viewport edge on
+  large-format scans (#657). `PdfLiveRasterHolder` implementations must add
+  `liveRasterOnScreen`.
+
+## 3.4.0
+
+- Add a reproducible Chromium/PDFium competitive harness and reduce deep-zoom
+  memory pressure by reserving large rasters for visible-region detail,
+  reusing fit rasters as zoom bases, immediately settling discrete zooms, and
+  prioritising the focused page ahead of speculative neighbours. On web,
+  proactive off-screen preview warming now waits for a one-second idle window so
+  CanvasKit readbacks cannot extend the visible navigation response tail;
+  fast-scroll vector previews remain immediate. Small resource-simple pages
+  may take one startup-only local first paint while the worker boots, and a
+  completed web raster no longer performs an immediate duplicate preview
+  readback. Below-fit layout zooms now defer mounted neighbour refreshes just
+  like transform zooms, so only the focused page sharpens on the interaction's
+  critical path. The harness can also build SkWasm and validate its offscreen
+  canvas through symmetric full-compositor screenshot polling; custom build
+  output paths are resolved before changing directories so an A/B cannot
+  silently serve a stale bundle, and per-action Flutter frame timings make
+  page/zoom presentation tails directly attributable in the result artifact.
+  Competitive records now pin Chrome's GPU/Skia backend and diagnostics-only
+  no-capture runs cannot be used as parity gates. A prepared or revisited
+  exact raster is adopted synchronously in the focused page's first build,
+  avoiding a placeholder frame without blocking navigation to create it. A
+  default-off worker-owned Canvas2D path now covers ordinary path/text pages
+  and correctness-gated decoded images while declining unsupported command
+  profiles to the established renderer. Browser-native grayscale frames avoid
+  a Dart RGBA upload for common scans, and deep zoom overlays a viewport-sized
+  region on a retained 2× base instead of committing a full 3× page canvas.
+  A real-Chrome pixel gate checks representative pages/zooms for channel error,
+  foreground recall/precision, and foreground-coverage bounds before benchmark
+  results are accepted. The competitive runner now calibrates full-screenshot
+  pixel sampling separately from JPEG response completion, excludes its
+  pre-navigation baseline capture from cold-open time, preserves page-side
+  readiness timestamps across delayed CDP polls, and emits wheel events at a
+  fixed hardware cadence without serial acknowledgement throttling. This
+  removes capture/driver floors from page, zoom, and scroll comparisons while
+  retaining screenshot hashes as the common visible-output boundary. Cold-open
+  diagnostics now retain both full app-shell and first-PDF-request clocks, so
+  pre-Flutter startup is separated from document/render work without removing
+  application startup from the parity gate. The benchmark bootstrap can now
+  fetch once and paint page zero in the render worker before Flutter/SkWasm
+  starts, then hold that canvas through an exact hydrated-surface handoff.
+  Focused worker surfaces render directly at requested zoom-out sizes for
+  thin-line fidelity, use a 120 ms interaction settle, and retain an exact-size
+  `ImageBitmap` LRU capped at 8 MP / 32 MiB per live surface. Five-run gates for
+  the plan, scan, text, and ultra-dense diagram scenarios now meet every
+  configured PDFium p50/p95 interaction and RSS budget while the path remains
+  experimental and default-off.
+- Extend the competitive gate with a deterministic 138-page CAD journey that
+  measures normalized scrollbar scrubs, same-process warm reopen, continuous
+  peak RSS, and settled memory, plus a matched HTTP Range scenario that records
+  document first paint, complete background handoff, bytes, requests, and RSS.
+  Both five-sample gates meet their PDFium budgets. Progressive shells can stop
+  their sparse page-tree walk after the requested first-paint pages, render that
+  preview locally, then hand the complete document to the worker renderer;
+  immutable web revisions share one identity-keyed `SharedArrayBuffer` across
+  sibling workers instead of copying the full file per worker. A weekly
+  Chromium/PDFium workflow and `tool/perf.sh pdfium-gate` run all six acceptance
+  scenarios with checked-in budgets.
+- Add `PdfAnnotationSnapshotClipboard`, shared by default across editing
+  controllers, so annotations copied in one document can be pasted into
+  another open document (#653).
+- Add `PdfThumbnailDropController` and thumbnail-panel drop targets, enabling
+  hosts to insert externally dropped PDFs at an exact page position (#654).
+- Save eligible placed stamps back into the custom stamp collection while
+  preserving unresolved template fields, type, tags, and colour (#651).
+- Add optional persistent scrollbar chapter markers and surface the selected
+  annotation's colour in editing style controls (#643, #652).
+- Align selection, search, and substituted-font painting to the PDF's exact
+  per-character advances for proportional fonts (#647, #648, #649, #655).
+- Keep the touch text-selection menu under the viewer zoom transform and hide
+  page-colour editing from reader-only shells (#650, #656).
+
+## 3.3.1
+
+- Fix annotation property edits duplicating an annotation in PDFs that store
+  the page annotation array indirectly (#638).
+- Keep cloud and polygon pattern spacing at the configured scale in the live
+  drag preview (#639).
+- Preserve embedded fonts when changing FreeText colour (#641).
+- Improve multi-page thumbnail reordering with group drag feedback, insertion
+  markers, and reliable movement of the selected page set (#642).
+
+## 3.3.0
+
+- Add `PdfPageRasterWarmPolicy` (`disabled` by default, plus `nearby(window:)`
+  and `document()`): the viewer can now spend genuine idle time baking the
+  exact, display-sized raster of pages the user has not visited, so arriving on
+  one paints immediately instead of interpreting and reading back first. On a
+  16-page vector plan set in real Chrome that is ~2100 ms → ~107 ms; on a 12-page
+  A3 scan, ~1720 ms → ~49 ms, for 60–85 MB of retained rasters. Warming stands
+  down for any scroll, zoom, edit, armed tool, deep zoom, or queued page render,
+  paces itself to one page at a time, prefers the render worker, and declines a
+  page whose raster `PdfPageRasterCachePolicy` could not admit before doing any
+  work. Available on `PdfViewer`, `PdfReader`, `PdfEditorView`, and
+  `PdfComparisonView`; diagnostics through
+  `PdfViewerController.pageRasterWarmStats`.
+- The exact-raster cache is now keyed by `(page, raster signature)` — page
+  index, physical size, paper colour, annotation visibility, and rotation —
+  rather than by page index alone, so warming or visiting one size no longer
+  overwrites a useful raster at another. Up to two geometries per page are
+  retained, bounded by the same `PdfPageRasterCachePolicy` byte budget; rasters
+  belonging to a superseded document revision are dropped on sight. This
+  supersedes 3.2.0's "discard unusable visited-page cache entries": a lookup at
+  another geometry is now a plain miss that leaves the raster it did not ask
+  for alone, because that raster is exactly what a zoom back to fit — or the
+  idle warm — needs.
+- Re-offer pages to the idle warm only when the exact-raster budget actually
+  *grows*. An adaptive host re-prices that budget every few seconds, usually
+  downward; clearing the attempt set on every change re-attempted and
+  re-declined every page on every tick.
+- Add an optional persistent full-resolution raster tier through
+  `PdfRasterCache(fullRasters:)`. Exact page rasters can now survive process
+  restarts, use an independent size-bounded LRU, validate a versioned payload,
+  and fall back safely on cache corruption or I/O failure. New
+  `PdfRasterCacheStats` and `PdfDiskCache` counters expose hits, misses,
+  stores, rejections, evictions, byte totals, and codec latency (#615).
+- Re-decode image content at the requested deep-zoom tile resolution, so scans
+  and image-backed drawings become sharp instead of magnifying the capped
+  full-page decode. Tiles wait for the region-scoped high-resolution scene and
+  fall back cleanly if the worker declines it (#634).
+- Honour the platform touch slop in the viewer's custom recognizers, restoring
+  one-finger panning on mobile and removing the dead zone before a zoomed drag
+  begins (#632).
+- Add rectangle corner-radius controls to `PdfAnnotationPropertiesPanel`, keep
+  newly inserted PDF pages in view, and expose `PdfViewer.trailingPadding` so
+  floating editor chrome can reserve clearance below the document (#622,
+  #631, #637).
+
+## 3.2.0
+
+- Add `PdfPageRasterCachePolicy` to configure the in-memory byte budget and
+  per-page limit for exact rasters of previously visited pages. The existing
+  32 MiB total / 16 MiB per-page defaults are unchanged; `PdfViewer`,
+  `PdfReader`, and `PdfEditorView` can now opt into a much larger desktop
+  working set. Retained full-page rasters participate in process-wide cache
+  accounting and memory-pressure cleanup, so multiple viewers share the
+  coordinated host ceiling. Performance traces now report exact-raster policy,
+  hit, miss, admission rejection, store, and budget-eviction events, while
+  cache diagnostics expose lifetime hit/miss/eviction counters. Dense
+  deep-zoom scenes now bootstrap their worker-built spatial index correctly
+  instead of remaining on repeated full-viewport detail rasters indefinitely;
+  the capped base remains visible during that warm-up rather than launching an
+  obsolete fallback record, and traces split tile replay/raster/slicing costs.
+- Stop redundant full-page and detail rasters after unchanged-scale settles,
+  discard unusable visited-page cache entries, and avoid making
+  memory-pressure cache caps persistent when caches hold little of the process
+  RSS. Trace output now distinguishes progressive phases and reports raster
+  concurrency and render-hold state accurately (#628).
+- Add host-owned context menus. `PdfViewer`, `PdfReader`, and `PdfEditorView`
+  accept `onContextMenuRequested`; with the stock menu disabled, a
+  `PdfContextMenuRequest` reports the resolved text, annotation, locked
+  annotation, form widget, or empty-page paste target for mouse and touch
+  gestures (#538).
+- Hit-test and draw selection chrome for Highlight, Underline, StrikeOut, and
+  Squiggly annotations from their `/QuadPoints` quads instead of the enclosing
+  `/Rect`, so gaps between marked lines no longer steal clicks or show as
+  selected (#627).
+- Keep Ctrl/Cmd-wheel zoom available after a Shift-constrained drawing gesture
+  has latched its axis (#624).
+
+## 3.1.1
+
+- Fix intermittent frame drops while scrolling large or visually dense
+  documents. Page recording and raster work now keep the frame scheduler
+  awake between cooperative slices, visible thumbnails yield to page renders,
+  and repeated wheel events retain the low-resolution preview cache until the
+  gesture has genuinely settled.
+- Bound speculative thumbnail warming on web and add command budgets to vector
+  thumbnail previews, keeping long documents responsive without blanking pages
+  during fast scrolling.
+
+## 3.1.0
+
+- Overprint (§8.6.7) now renders faithfully: the interpreter resolves it in a
+  CMYK/spot colorant buffer — including per-sample colorant readings from
+  images — and hands `CanvasPdfDevice` the composited colour, so a neutral ink
+  knocks a DeviceCMYK backdrop's process colorants out to grey while a spot
+  backdrop of the same colour survives. `CanvasPdfDevice`'s `darken`
+  approximation remains only for draws the buffer declines (#502, #604).
+
+- New tools: a **hyperlink tool** (`PdfEditTool.link`) authors external (URI)
+  and in-document (GoTo) links from a box drag or the current text selection,
+  via `PdfLinkTarget` and `showPdfAddLinkDialog` (#500); **crop** for placed
+  images and raster snapshots (`PdfImageCropOverlay`) (#504); annotation
+  **lock/unlock** with Acrobat/Bluebeam interop (#493); and keyboard shortcuts
+  for every editing tool through Shift-extension bindings (#497).
+- The annotation properties panel groups its controls into collapsible
+  sections (#543), and the search panel can search annotation contents
+  (note bodies, free-text boxes) alongside page text — `PdfSearchOptions`
+  gains `searchAnnotations` (on by default) (#495). Pages can be deleted from
+  the thumbnail strip and grid with Delete/Backspace (#498).
+
+- Rendering is dramatically faster on large or image-heavy documents, and now
+  **progressive**: `PdfViewer` starts a default render worker (#396), streams
+  partial records as they are produced and reveals pages top-down as content
+  arrives (on by default, native and web transports) (#564), resumes a
+  preempted page record instead of restarting (#530), decodes a page's images
+  concurrently (#454), extracts search text off the UI thread (#396), and
+  budgets the thumbnail record to its tile size off the platform thread
+  (#603). A page's image decodes are shared across its records, glyph
+  outlines are written once per record, the decoded-image cache is keyed by
+  resolution on every path, and the scheduler no longer grants a page a
+  second concurrent render (#451).
+
+- Annotation sync diffs against a cached baseline instead of re-opening the
+  previous revision's document (#416). Bundled editor fonts defer off cold
+  start (#569). The tune (style) button shows on the mobile toolbar (#584);
+  the image tool hides when no `imagePicker` is wired (#574); free-text
+  selection stays visible while the tune popup is open (#573); zoom is held,
+  not just scroll, when a side panel is resized (#509); overlay hover cursors
+  paint on their own repaint layer (#403).
+
+## 3.0.0
+
+- The keyboard-shortcuts editor (Settings → Keyboard shortcuts…) now groups
+  tools under tool-category headers (Select, Draw, Shapes, Insert, Measure,
+  Edit) and adds a search box that filters by tool name or bound key. New
+  public `pdfEditToolGroupOf(PdfEditTool)`; `PdfEditToolGroup` moved to the
+  `tool_shortcuts` library (still exported, so no import change for callers).
+
+- **Breaking:** the six bundled editor fonts and the web render worker moved out
+  of this package into the optional
+  [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package, so viewer-only
+  apps no longer bundle their ~1.7 MB on every platform (#459). To keep the
+  historical full-featured behaviour, add that package and call
+  `registerBundledEditorAssets()` once at startup. Missing assets degrade
+  gracefully: the font menu drops its "bundled" group, composite-text fallback
+  is skipped, and web rendering falls back to the main thread.
+  `pdfBundledFonts` is now a mutable, empty-by-default registry (a
+  `PdfBundledFont` can also carry a `loadBytes` byte loader for
+  application-provided fonts), and `pdfRenderWorkerScriptUrl` defaults to null.
+- On web, if page rendering falls back to the main thread because no
+  render-worker script is configured, a one-time **debug-only** warning is now
+  logged pointing at `registerBundledEditorAssets()`, so an app that forgot to
+  opt into the worker asset notices the silent performance cliff. Release and
+  profile builds stay silent.
+
+### Internationalization
+
+- The editor is now fully localized: every user-facing string is extracted to
+  ARB message catalogs and looked up through generated localizations, with an
+  RTL layout sweep and a DevTools locale override for testing (#477, #499,
+  #512). Ships tier-1 locales — Spanish, German, French, Portuguese, Russian,
+  Japanese, Chinese, Hindi, Arabic — alongside a Settings language picker and an
+  ARB coverage gate (#516, #519). Web builds load non-active locales lazily
+  (#483).
+
+### Editing
+
+- Replace document-identity checks with an explicit revision token so the viewer
+  and controller track edits by revision rather than object identity, fixing
+  stale state after same-geometry document swaps (#414).
+- Add `contextMenuEnabled` to suppress the built-in annotation/text context
+  menus for hosts that supply their own (#463).
+- Hold Shift while drawing to constrain ink/line strokes to straight lines
+  (#494), and right-click an annotation to "Set as default style" (#492).
+- Group large context menus with dividers (#488).
+- Paste now works on web (text via the browser clipboard) (#476), the Snapshot
+  vector clipboard is shared across document tabs (#474), and a pasted image's
+  opacity can be changed after the fact (#466).
+- Signature pad gains predictive ink and a touch more stroke width (#484).
+- Show a paste-location indicator on thumbnail-strip hover and keep the strip on
+  the pasted page instead of scrolling to the top (#491, #489).
+- Counter-rotate a pasted annotation for the destination page's `/Rotate` so it
+  is not spun when moved across pages of differing rotation (#460).
+- Key the annotation appearance cache on `/Rect` so a move repaints the
+  annotation (#467), and fix stray dots in reduced-opacity ink annotations
+  (#482).
+
+### Performance
+
+- Make the recorded single-walk render path the default (#394), split
+  substituted-text shaping out of the replay phase and compose it per glyph
+  (#454), and cap UI-thread and browser JPEG image decode to display resolution
+  (#458).
+- Add a global live-raster memory budget (#405), memoize per-build
+  search/selection rescans (#403), prewarm the render worker at app boot (#450),
+  and cap prefetched off-focus pages' image resolution (#451).
+
+## 2.1.0
+
+- Add a reflow reading view: lazy scrolling over the extracted text, in-view
+  navigation, a saved reading position, and a figure viewer (#380).
+- Expose progressive open on the reusable viewer widgets, so a host can render
+  a document as its bytes arrive rather than after the last one (#378).
+- Grid-cull region replay and size-gate hover hit-testing on dense pages, so a
+  CAD sheet's replay touches only the commands overlapping the region (#383),
+  and build the region-replay grid index on the render-worker isolate to keep
+  it off the UI thread (#389).
+- Scope tile invalidation to the pages it names: the ordering counter is now
+  separate from the staleness test, so invalidating one page no longer discards
+  in-flight tiles for every other page (#374).
+- Apply incremental revisions in place on the commit path instead of reopening
+  the document (#395).
+- Resolve the hovered page once per pointer event rather than once per hit-test
+  candidate (#403).
+- Let a page leave its sticky render worker when that worker is busier than
+  another active one, so a queued page is not held behind an unrelated backlog
+  (#456).
+- Fix a failed deep-zoom detail render stranding the full-image refinement, and
+  give each render its own vector-first detail completer so concurrent renders
+  cannot complete each other's futures (#420).
+- Add an unstable render-trace diagnostics entry point,
+  `package:dart_pdf_editor/perf_log.dart` (deliberately not exported from the
+  package entry, mirroring `package:pdf_cos/perf.dart`). `PdfPerfLog` gains a
+  `sink` so a host can route the trace into its own log, and the interpret
+  trace splits into wait/build and decode/replay phases (#454).
+
+- Make the viewer scroll-indicator API axis-aware: `PdfScrollMetrics` now
+  describes the viewer's **main layout axis** and carries an `Axis scrollAxis`
+  saying which. In `PdfPageLayout.horizontalContinuous`,
+  `PdfViewer.scrollIndicatorBuilder` replaces the stock bottom bar (not just
+  the right-edge bar in vertical layout), the metrics report the horizontal
+  position/extent/pixels, and `jumpToNormalized` moves along the horizontal
+  axis; the cross-axis (zoom-window) scrollbar is unchanged. Vertical behavior
+  is source-compatible (`scrollAxis` defaults to `Axis.vertical`) (#428).
+- Add X-strip transcript banding to bound retained memory on extreme-aspect
+  pages (`PdfBandedTranscript`): partition a page's `PdfRenderCommand`
+  transcript into N vertical strips along the horizontal pan axis, retain only
+  the strips overlapping the viewport, and re-materialize an evicted strip on
+  demand. `PdfRetainedScene` gains `bandTranscript`/`bands`/`reband`,
+  `dropRegionIndex`, and `debugUnitBandHistogram`; the viewer's memory-pressure
+  path now sheds retained-scene spatial metadata via
+  `PdfRetainedScene.handleMemoryPressure` (dropped indices rebuild identically,
+  evicted strips re-materialize, so there is no visual regression) (#385).
+
+## 2.0.0
+
+- **Breaking:** remove the pure style forwarders from `PdfEditingController`.
+  The ~19 tool-style properties that only mirrored `preferences`
+  (`strokeWidth`, `cornerRadius`, `eraserRadius`, `fontSize`, `textAlign`,
+  `opacity`, `lineStyle`, `lineScale`, `lineStartEnding`, `lineEndEnding`,
+  `textFillColor`, `textBorderColor`, `shapeFillColor`, `author`,
+  `stampDateFormat`, `stampTimeFormat`, `fingerDrawsInk`, `measurementScale`,
+  `signature`) are gone; read and write them through
+  `controller.preferences.<name>` instead. The setters that carried editing
+  side effects stay on the controller (`color` still recolours the active
+  stamp and honours the colour lock; `fontFamily` still clears the embedded
+  `activeFont`), as do the computed helpers (`dashedStroke`,
+  `hasMeasurementScale`) and every signature/measurement behaviour method
+  (`placeSignature`, `calibrateScale`, `measuredDistance`, …) (#317).
+- Expose a customizable viewer scroll indicator / page-scrubber API: a
+  read-only `PdfScrollMetrics` snapshot (page count, current page,
+  normalized position/extent, pixel offsets, zoom) via
+  `PdfViewerController.scrollMetrics`, page-aware commands
+  `jumpToNormalized` and `animateToPage` alongside the existing
+  `jumpToPage`, and a `PdfViewer.scrollIndicatorBuilder` that replaces the
+  built-in vertical scrollbar with a host widget (#326).
+- Add configurable page layouts to `PdfViewer`: the new `pageLayout`
+  parameter takes a `PdfPageLayout` - `verticalContinuous()` (the default,
+  top-to-bottom) or `horizontalContinuous()` (left-to-right, book-like
+  reading and wide documents). The horizontal layout keeps every viewer
+  behaviour along the new axis - virtualization, zoom/pan, current-page
+  tracking, search and destination navigation, text selection, overlays,
+  links, forms/annotation hit-testing, keyboard navigation, and mixed page
+  sizes (pages fit the viewport height and centre on the cross axis).
+  `PdfPageLayout` is a value type with named constructors so further layouts
+  (facing/two-page) can be added without changing the viewer's API.
+  `PdfReader` and `PdfEditorView` forward the option (#324).
+- Deep-zoom detail via a budgeted zoom-bucket tile pyramid (`PdfTileStore`),
+  now enabled by default on every platform: past the raster caps the viewer
+  renders and caches the visible slice at native resolution instead of
+  upscaling, with a budget-vs-demand guard against eviction thrash (#314).
+- Open local and remote files through the ranged `PdfByteSource` so the first
+  page paints before the whole file is read/downloaded (#359, #328).
+- Wire Sigstore/Fulcio keyless and one-tap self-signed signing into the editor,
+  including the "Create signing identity" UI and secure key storage (#322).
+- Introduce `PdfEditToolBehavior` as the single source of tool identity, and
+  collapse `PdfViewer`'s separate `document` + editing inputs into one revision
+  source (#311, #319).
+- Draggable, dockable side panels (any edge, side-by-side or tab groups, with a
+  saved layout) and an F12 developer-tools overlay (#362, #360).
+- Annotation list gains a hover more-menu and ctrl/shift multi-select (#350),
+  and the toolbar font chip shows the real embedded face (#348).
+
+## 1.4.7
+
+- Print through each platform's native print system: the Dart engine
+  renders every page itself and streams it to the OS (Windows, macOS,
+  iOS, Android, Linux) or the browser, replacing the `printing` plugin
+  and its bundled PDFium so broken-but-renderable documents no longer
+  crash on print. `rasterizePdfForPrinting` and `printPdfBytes` back the
+  path (#291).
+- Add page copy/cut/paste to the thumbnail strip and grid, shared across
+  document tabs via a process-wide `PdfPageClipboard`: controller gains
+  `copyPages`/`cutPages`/`pastePages` (and the `*SelectedPages` variants),
+  wired into the context menu, bulk-selection bar, header menu, and
+  Cmd/Ctrl+C/X/V (#299).
+- Round the corners of rectangle (/Square) shapes: a rectangle-only
+  "Corner radius" slider in the tune popup, applied at creation and
+  restylable on a selected rectangle (`restyleSelected(cornerRadius:)`,
+  `canRoundSelectedCorners`, `selectedCornerRadius`) (#297).
+- Separate line thickness from pattern scale: a "Pattern scale" slider
+  (0.5x–4x) sizes dash lengths and cloud scallops independently of the
+  pen width (`restyleSelected(scale:)`, `selectedLineScale`), so a thin
+  outline can carry big puffs or a heavy line tight dashes (#300).
+- Add and remove /PolyLine and /Polygon vertices from the context menu
+  (Add node / Remove node), splicing into the nearest edge or dropping
+  the nearest vertex — `addSelectedVertexAt`, `removeSelectedVertexNear`,
+  `canAddSelectedVertex`, `canRemoveSelectedVertex` (#288).
+- Recolour pasted vector snapshots from the annotation context menu
+  ("Recolour…"): retints the captured Form XObject to a single ink
+  without touching geometry — `recolorSnapshotSelected`,
+  `canRecolorSnapshotSelected` (#301).
+- Add a swatch grid to the annotation colour picker below the value row:
+  a fixed palette plus recently-chosen colours (persisted, capped at 18)
+  and the colours already used in the open document
+  (`documentAnnotationColors`), via `pickEditingColor` (#292).
 - Shapes and revision clouds: add an "Outline" colour row to the tune popup,
   next to "Fill", so a cloud's stroke colour can be picked from the tune menu
   (not just the toolbar swatches) — armed or with the shape selected.
+- Curl revision-cloud scallops inward with a trailing-foot lean so each
+  puff rolls one way into the hand-drawn Bluebeam/Acrobat look, matched in
+  the live editor preview (#295).
+- Fill cloudy /Polygon annotations to the scalloped cloud edges instead
+  of only to the straight vertex polygon, mirrored in the live preview so
+  no unfilled crescent shows under each row of puffs (#287).
+- Preview a 'TEXT' placeholder while hovering the text-stamp tool so the
+  click target is visible even when no custom stamp is active (#293).
+- Make the custom-stamp template composer use the on-page overlay's
+  touch interaction: a GestureDetector with touch slop and eight
+  corner/edge handles, so tap-to-select no longer nudges the component
+  and resizing grabs a forgiving target (#304).
+- Let the style sliders' numeric readouts accept a wider typed range than
+  the slider scale can reach (`PdfSliderValueField` fieldMin/fieldMax;
+  point/size values up to `kPdfTypedSizeMax` = 1000, opacity a true
+  0–100%, line spacing 0.1–100x) (#302).
+- Fix Ctrl/⌘+S doing nothing on a brand-new untitled document with no
+  edits yet: `PdfEditorView.alwaysAllowSave` keeps Save enabled so the
+  first save routes to Save As (#294).
+- Nudge the selected annotation(s) with the arrow keys — 1 pt per press,
+  10 pt with Shift — translating the move through the page's /Rotate so a
+  key always slides the annotation the way it points on screen. A bare
+  arrow still scrolls the page when nothing is selected.
 - Bound the render worker's page-record cache by entry count, not only by
   decoded-image bytes: image-free and vector-first records weigh zero, so on a
   long scroll they used to accumulate one (or more) per page for the life of
   the worker with no limit (issue #283). The cache now caps retained records
   (`pdfRenderWorkerCacheMaxEntries`, default 64), so a long document's memory
   no longer grows unbounded in the page count.
+- Bound the viewer's four per-page maps (text, annotations, visible
+  annotations, form-field rects) by entry count via the new LRU
+  `PdfPageObjectCache` (`pdfViewerPageObjectCacheMaxEntries`, default
+  128), so revisiting pages still hits but retention no longer grows one
+  entry per page visited for the life of the viewer (issue #283).
+- Size the decoded-image cache budget per platform (`PdfImageCache`
+  default 256 MB desktop, 128 MB mobile/web, 64 MB on a ≤2 GB browser
+  device), measured against the corpus, and clear the image + preview
+  caches on `didHaveMemoryPressure` (#284, issue #281).
+- Unify per-page render timings into one `PdfRenderTrace` value type that
+  both isolates fill (worker parse/interpret/serialize; main isolate
+  transfer/deserialize/replay/rasterize), surfaced via
+  `PdfRenderTrace.captureOffThread` and `PdfRenderWorker.lastRenderTrace`
+  (free unless `PdfPerfLog` is on). Adds `PdfRenderPhaseBudget` and a
+  default-on render-trace gate test guarding against per-phase
+  regressions; `PdfWorkerPhaseTimings` is now an alias of the new type
+  (#321).
 - Free-text boxes: add line spacing, character spacing, font width
   (horizontal scaling), and underline controls (tune popup + properties
   panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.

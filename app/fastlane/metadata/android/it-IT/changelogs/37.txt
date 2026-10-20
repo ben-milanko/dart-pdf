@@ -1,0 +1,8 @@
+Novità della 4.4.0
+
+- Stampa direttamente su Windows e mantieni le impostazioni di stampa tra un lavoro e l'altro.
+- Ingrandisci fino al 10000%, con preset per le viste più ravvicinate.
+- Apri e scorri più velocemente i disegni vettoriali densi.
+- Seleziona e cerca il testo prima nelle pagine pesanti.
+- Imposta l'allineamento verticale dei campi di testo dei moduli.
+- Mostra il file salvato in Esplora file dopo un Salva con nome.

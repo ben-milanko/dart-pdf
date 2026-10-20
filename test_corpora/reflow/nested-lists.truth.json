@@ -1,0 +1,173 @@
+{
+  "name": "nested-lists",
+  "description": "Bulleted and numbered lists at two depths, between prose - each item its own block, never folded into the paragraph above.",
+  "pages": 1,
+  "blocks": [
+    {
+      "page": 0,
+      "role": "heading",
+      "text": "What the reader has to recover",
+      "bounds": [
+        72.0,
+        697.6875,
+        540.0,
+        720.0
+      ],
+      "reading": 0,
+      "level": 1
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Reading order is not stored in an ordinary page, so it has to be inferred from the geometry of the text that was drawn. A column detector that trusts horizontal gaps will split a justified paragraph down the middle and read it as two narrow columns. Annotations live beside the page content and carry their own appearance streams, which the viewer draws after the page itself.",
+      "bounds": [
+        72.0,
+        632.6875,
+        540.0,
+        690.6875
+      ],
+      "reading": 1
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "• Visual lines, grouped from runs that share a baseline.",
+      "bounds": [
+        90.0,
+        612.1875,
+        540.0,
+        626.6875
+      ],
+      "reading": 2,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "• Columns, separated by a gutter that no line crosses.",
+      "bounds": [
+        90.0,
+        594.6875,
+        540.0,
+        609.1875
+      ],
+      "reading": 3,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "• Paragraphs, bounded by leading, indentation, and a short last line.",
+      "bounds": [
+        90.0,
+        577.1875,
+        540.0,
+        591.6875
+      ],
+      "reading": 4,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Incremental updates append a new revision instead of rewriting the file, so every earlier version remains byte for byte intact. The graphics state stack restores clipping, colour, and transformation together, which is why a stray q without Q corrupts a page. Text is positioned by two matrices, one for the line and one for the run, and every show operator advances the second of them.",
+      "bounds": [
+        72.0,
+        516.1875,
+        540.0,
+        574.1875
+      ],
+      "reading": 5
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "1. Collect the positioned runs for the page.",
+      "bounds": [
+        90.0,
+        495.6875,
+        540.0,
+        510.1875
+      ],
+      "reading": 6,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "2. Sort them into bands and merge the bands into lines.",
+      "bounds": [
+        90.0,
+        478.1875,
+        540.0,
+        492.6875
+      ],
+      "reading": 7,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "a) A band is a baseline plus the ascent it carries.",
+      "bounds": [
+        108.0,
+        460.6875,
+        540.0,
+        475.1875
+      ],
+      "reading": 8,
+      "depth": 1
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "b) Bands that overlap vertically belong to one line.",
+      "bounds": [
+        108.0,
+        443.1875,
+        540.0,
+        457.6875
+      ],
+      "reading": 9,
+      "depth": 1
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "3. Cluster the lines into columns by horizontal overlap.",
+      "bounds": [
+        90.0,
+        425.6875,
+        540.0,
+        440.1875
+      ],
+      "reading": 10,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "listItem",
+      "text": "4. Walk the columns in order and split them into paragraphs.",
+      "bounds": [
+        90.0,
+        408.1875,
+        540.0,
+        422.6875
+      ],
+      "reading": 11,
+      "depth": 0
+    },
+    {
+      "page": 0,
+      "role": "paragraph",
+      "text": "Word spacing applies only to the single byte code thirty two, which is why it silently does nothing inside a composite font. Images arrive as samples in some colour space and a transform that maps the unit square onto the region they occupy. The interpreter walks the content stream once and hands every operator to the device it was built with. A cross reference table maps object numbers to byte offsets so the reader can load an object without scanning the file.",
+      "bounds": [
+        72.0,
+        332.6875,
+        540.0,
+        405.1875
+      ],
+      "reading": 12
+    }
+  ]
+}

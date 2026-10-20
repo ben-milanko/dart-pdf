@@ -1,6 +1,8 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:bidi/bidi.dart' as bidi;
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -9,7 +11,10 @@ import 'interpreter.dart';
 import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'recorded_text.dart';
+import 'render_command.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 final _bidiFormattingControls =
     RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
@@ -22,6 +27,9 @@ class PdfExtractedRun {
     required this.transform,
     required this.width,
     required this.bounds,
+    this.descent = _defaultTextDescent,
+    this.ascent = _defaultTextAscent,
+    this.charOffsets,
     this.isRightToLeft = false,
     this.mcid,
   });
@@ -44,6 +52,26 @@ class PdfExtractedRun {
 
   /// Page-space bounding box.
   final PdfRect bounds;
+
+  /// Lower edge of this run's selection band in em space, relative to the
+  /// baseline.
+  final double descent;
+
+  /// Upper edge of this run's selection band in em space, relative to the
+  /// baseline.
+  final double ascent;
+
+  /// Em-space offset of every character boundary in [text], measured from this
+  /// run's own origin: entry `i` is the advance to the start of `text[i]`, and
+  /// the last entry (index `text.length`) is [width]. Ascending, length
+  /// `text.length + 1`.
+  ///
+  /// This is what puts a selection or search highlight on the actual glyphs of
+  /// a proportional font (issue #647) - `world` in `Hello, world!` starts 51.5%
+  /// of the way along the run, not 7/13 = 53.8% of it. Null when the source
+  /// run carried no metrics (vertical writing mode, or text reordered by the
+  /// BiDi pass); callers then interpolate across [width] as before.
+  final List<double>? charOffsets;
 
   /// Whether logical character order runs opposite this run's em-space
   /// advance. Search and selection use this to map logical Arabic/Hebrew
@@ -210,16 +238,30 @@ class PdfPageText {
       final overlapStart = math.max(start, run.startIndex);
       final overlapEnd = math.min(end, runEnd);
       if (overlapStart >= overlapEnd) continue;
-      // approximate within-run positions by character fraction; per-glyph
-      // geometry arrives with the font engine
-      final logicalStart = (overlapStart - run.startIndex) / run.text.length;
-      final logicalEnd = (overlapEnd - run.startIndex) / run.text.length;
-      final f0 = run.isRightToLeft ? 1 - logicalEnd : logicalStart;
-      final f1 = run.isRightToLeft ? 1 - logicalStart : logicalEnd;
+      // The offsets ascend with the em advance, so they only index logical
+      // character order on an LTR run - extraction leaves them null for RTL.
+      final offsets = run.isRightToLeft ? null : run.charOffsets;
+      double x0, x1;
+      if (offsets != null) {
+        // Real per-character metrics: the highlight lands on the glyphs even
+        // when they have wildly different widths (issue #647).
+        x0 = offsets[overlapStart - run.startIndex];
+        x1 = offsets[overlapEnd - run.startIndex];
+      } else {
+        // No metrics for this run - approximate by character fraction.
+        final logicalStart = (overlapStart - run.startIndex) / run.text.length;
+        final logicalEnd = (overlapEnd - run.startIndex) / run.text.length;
+        final f0 = run.isRightToLeft ? 1 - logicalEnd : logicalStart;
+        final f1 = run.isRightToLeft ? 1 - logicalStart : logicalEnd;
+        x0 = run.width * f0;
+        x1 = run.width * f1;
+      }
       quads.add(_quadOf(
         run.transform,
-        run.width * f0,
-        run.width * f1,
+        x0,
+        x1,
+        descent: run.descent,
+        ascent: run.ascent,
         isRightToLeft: run.isRightToLeft,
       ));
     }
@@ -275,12 +317,34 @@ class PdfPageText {
       }
     }
     if (best == null || bestDistance > tolerance * tolerance) return -1;
-    // fraction along the run's baseline, in em space
+    // offset along the run's baseline, in em space
     final inverse = best.transform.inverted();
     final ex = inverse == null ? 0.0 : inverse.transformX(x, y);
+    final offsets = best.isRightToLeft ? null : best.charOffsets;
+    if (offsets != null) {
+      return best.startIndex + _nearestBoundary(offsets, ex);
+    }
     final fraction = best.width > 0 ? (ex / best.width).clamp(0.0, 1.0) : 0.0;
     final logicalFraction = best.isRightToLeft ? 1 - fraction : fraction;
     return best.startIndex + (logicalFraction * best.text.length).round();
+  }
+
+  /// The index into the ascending [offsets] whose value is closest to [ex] -
+  /// the caret position a click at [ex] snaps to.
+  static int _nearestBoundary(List<double> offsets, double ex) {
+    // Binary search for the first boundary at or past `ex`.
+    var lo = 0, hi = offsets.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (offsets[mid] < ex) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo == 0) return 0;
+    // `lo - 1` sits before `ex` and `lo` at or past it - snap to the nearer.
+    return ex - offsets[lo - 1] <= offsets[lo] - ex ? lo - 1 : lo;
   }
 }
 
@@ -414,12 +478,16 @@ class PdfReflowPage {
   final List<PdfReflowItem> items;
 
   /// The text blocks only, in reading order.
-  List<PdfReflowBlock> get blocks =>
-      [for (final item in items) if (item is PdfReflowBlock) item];
+  List<PdfReflowBlock> get blocks => [
+        for (final item in items)
+          if (item is PdfReflowBlock) item
+      ];
 
   /// The images only, in reading order.
-  List<PdfReflowImage> get images =>
-      [for (final item in items) if (item is PdfReflowImage) item];
+  List<PdfReflowImage> get images => [
+        for (final item in items)
+          if (item is PdfReflowImage) item
+      ];
 
   /// The reading-order text - blocks joined with blank lines (images skipped).
   String get text => blocks.map((block) => block.text).join('\n\n');
@@ -440,17 +508,48 @@ class PdfReflowDocument {
 class PdfTextExtractor {
   PdfTextExtractor._();
 
-  static PdfPageText extract(PdfDocument document, int pageIndex) =>
-      _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+  static PdfPageText extract(PdfDocument document, int pageIndex) {
+    final t0 = PdfPerf.begin();
+    try {
+      return _pageTextFrom(pageIndex,
+          _interpret(document, pageIndex, collectImages: false).runs);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.textExtract, t0);
+    }
+  }
 
-  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
-    final device = _ExtractionDevice();
-    PdfInterpreter(cos: document.cos, device: device)
-        .drawPage(document.page(pageIndex));
+  /// Reuses text from a completed page recording without interpreting again.
+  ///
+  /// Applies the same separators, bidirectional ordering, and selection
+  /// geometry as [extract]. See [PdfRecordedText.capture] for the recording
+  /// requirements and the page-content-only capture boundary.
+  static PdfPageText fromRecordedText(PdfRecordedText recorded, int pageIndex) {
+    final t0 = PdfPerf.begin();
+    try {
+      return _pageTextFrom(pageIndex, recorded.runs);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.textExtract, t0);
+    }
+  }
+
+  static _ExtractionDevice _interpret(PdfDocument document, int pageIndex,
+      {required bool collectImages}) {
+    final device = _ExtractionDevice(collectImages: collectImages);
+    // Extraction reads geometry and Unicode, never colour, so the overprint
+    // colorant buffer (§8.6.7) would be pure cost on a page that uses it.
+    PdfInterpreter(
+      cos: document.cos,
+      device: device,
+      resolveOverprint: false,
+      // Selection and search highlights need the real per-character advances,
+      // not a linear guess across the run (issue #647).
+      collectCharOffsets: true,
+    ).drawPage(document.page(pageIndex));
     return device;
   }
 
-  static PdfPageText _pageTextFrom(int pageIndex, List<PdfTextRun> deviceRuns) {
+  static PdfPageText _pageTextFrom(
+      int pageIndex, Iterable<PdfTextRun> deviceRuns) {
     final buffer = StringBuffer();
     final runs = <PdfExtractedRun>[];
     final line = <_SourceRun>[];
@@ -458,12 +557,15 @@ class PdfTextExtractor {
 
     void flushLine() {
       if (line.isEmpty) return;
+      final ascent =
+          _lineHasCjk(line) ? _expandedTextAscent : _defaultTextAscent;
       final bidiLine = _bidiLine(line);
       if (bidiLine == null) {
         for (final item in line) {
           buffer.write(item.separator);
           _appendExtractedRun(
-              buffer, runs, item.run, item.run.text, 0, item.run.text.length);
+              buffer, runs, item.run, item.run.text, 0, item.run.text.length,
+              ascent: ascent);
         }
       } else {
         final groups =
@@ -490,6 +592,7 @@ class PdfTextExtractor {
                 rightToLeft: group.kind == _BidiKind.rtl,
                 sourceX0: piece.sourceX0,
                 sourceX1: piece.sourceX1,
+                ascent: ascent,
               );
             }
           }
@@ -520,6 +623,7 @@ class PdfTextExtractor {
   /// those are rendered by a BiDi-aware substitute and may already contain
   /// logical Unicode (including appearances authored by this package).
   static _BidiLine? _bidiLine(List<_SourceRun> line) {
+    if (!_mayHaveRtl(line)) return null;
     final pieces = <_BidiPiece>[];
     _BidiKind? previousKind;
     var hasRtl = false;
@@ -555,14 +659,14 @@ class PdfTextExtractor {
 
       for (final rune in text.runes) {
         runeCount++;
-        final char = String.fromCharCode(rune);
         final kind = _bidiKind(rune, previousKind);
         if (kind != segmentKind) {
           flush();
           segmentStart = offset;
           segmentKind = kind;
         }
-        offset += char.length;
+        // UTF-16 length of the code point, without allocating a String for it.
+        offset += rune > 0xFFFF ? 2 : 1;
         previousKind = kind;
         if (kind == _BidiKind.rtl) {
           hasRtl = true;
@@ -633,6 +737,61 @@ class PdfTextExtractor {
     return _BidiLine(groups, rightToLeft: rtlCount > runeCount * 0.3);
   }
 
+  /// Whether any character on [line] is CJK ([_isCjkRune]), which widens the
+  /// whole line's selection band.
+  ///
+  /// Walks code units rather than `runes` through closures: every CJK range
+  /// starts at U+2E80, so almost everything is rejected by one compare, and
+  /// only a real surrogate pair is decoded. A lone surrogate is tested as
+  /// itself, exactly as the rune iterator yields it (none is CJK).
+  static bool _lineHasCjk(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      final length = text.length;
+      for (var i = 0; i < length; i++) {
+        var rune = text.codeUnitAt(i);
+        if (rune < 0x2E80) continue;
+        if ((rune & 0xFC00) == 0xD800 && i + 1 < length) {
+          final low = text.codeUnitAt(i + 1);
+          if ((low & 0xFC00) == 0xDC00) {
+            rune = 0x10000 + ((rune & 0x3FF) << 10) + (low & 0x3FF);
+            i++;
+          }
+        }
+        if (_isCjkRune(rune)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Whether [_bidiLine] could find right-to-left text on [line]; false
+  /// lets it return null without building the per-glyph pieces, which is
+  /// most of the cost on an ordinary left-to-right page.
+  ///
+  /// Exact, not a heuristic. [_bidiKind] yields RTL for a strong R/AL/RLE/
+  /// RLO/RLI class, for the supplementary RTL blocks, and for a nonspacing
+  /// mark that has no preceding class (`previous ?? rtl`). In bidi 2.0.13
+  /// every one of those strong classes is at or above U+0590 (surrogates
+  /// included, so astral scripts are caught too) and the only nonspacing
+  /// marks below it are U+0300-036F and U+0483-0489. The separators the
+  /// pass inserts are ASCII, and every code unit it walks is one of these
+  /// runs' own text. `text_extraction_test.dart` enumerates the classes
+  /// below U+0590 so a bidi upgrade can't quietly break this.
+  static bool _mayHaveRtl(List<_SourceRun> line) {
+    for (var r = 0; r < line.length; r++) {
+      final text = line[r].run.text;
+      for (var i = 0; i < text.length; i++) {
+        final unit = text.codeUnitAt(i);
+        if (unit >= 0x0590 ||
+            (unit >= 0x0300 && unit <= 0x036F) ||
+            (unit >= 0x0483 && unit <= 0x0489)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   static void _appendExtractedRun(
     StringBuffer buffer,
     List<PdfExtractedRun> runs,
@@ -643,12 +802,23 @@ class PdfTextExtractor {
     bool rightToLeft = false,
     double? sourceX0,
     double? sourceX1,
+    double ascent = _defaultTextAscent,
   }) {
-    final sourceLength = source.text.length;
-    final f0 = sourceLength == 0 ? 0.0 : sourceStart / sourceLength;
-    final f1 = sourceLength == 0 ? 1.0 : sourceEnd / sourceLength;
-    final x0 = sourceX0 ?? source.width * f0;
-    final width = (sourceX1 ?? source.width * f1) - x0;
+    final offsets =
+        _sliceCharOffsets(source, text, sourceStart, sourceEnd, rightToLeft);
+    final double x0, width;
+    if (offsets != null) {
+      // Exact metrics beat both the caller's glyph bracket and the character
+      // fraction below, and keep bounds consistent with `offsets`.
+      x0 = source.charOffsets![sourceStart];
+      width = offsets.last;
+    } else {
+      final sourceLength = source.text.length;
+      final f0 = sourceLength == 0 ? 0.0 : sourceStart / sourceLength;
+      final f1 = sourceLength == 0 ? 1.0 : sourceEnd / sourceLength;
+      x0 = sourceX0 ?? source.width * f0;
+      width = (sourceX1 ?? source.width * f1) - x0;
+    }
     final transform = x0 == 0
         ? source.transform
         : PdfMatrix.translation(x0, 0).concat(source.transform);
@@ -659,10 +829,43 @@ class PdfTextExtractor {
       startIndex: start,
       transform: transform,
       width: width,
-      bounds: _boundsOf(transform, 0, width),
+      bounds: _boundsOf(transform, 0, width, ascent: ascent),
+      ascent: ascent,
+      charOffsets: offsets,
       isRightToLeft: rightToLeft,
       mcid: source.mcid,
     ));
+  }
+
+  /// [source]'s character offsets for `[sourceStart, sourceEnd)`, rebased so
+  /// entry 0 is 0 - or null when they can't be trusted for [text].
+  ///
+  /// The BiDi pass reverses and re-splits runs, so the offsets only line up
+  /// when [text] is still the source's own characters in their own order.
+  /// Everything else falls back to interpolating across the run width.
+  static List<double>? _sliceCharOffsets(
+    PdfTextRun source,
+    String text,
+    int sourceStart,
+    int sourceEnd,
+    bool rightToLeft,
+  ) {
+    final all = source.charOffsets;
+    if (all == null || rightToLeft) return null;
+    if (sourceEnd - sourceStart != text.length) return null;
+    if (sourceStart < 0 || sourceEnd >= all.length) return null;
+    final base = all[sourceStart];
+    // The overwhelmingly common case is one extracted run per source run, so
+    // the slice is the whole table already rebased at 0 - share it rather
+    // than copying every run's advances. Nothing mutates it.
+    if (base == 0 && sourceEnd == all.length - 1) return all;
+    // Unboxed, filled by index (a list literal boxes each value on the VM;
+    // `sublist` costs dart2js a view plus a second typed array).
+    final out = Float64List(sourceEnd - sourceStart + 1);
+    for (var i = sourceStart; i <= sourceEnd; i++) {
+      out[i - sourceStart] = all[i] - base;
+    }
+    return out;
   }
 
   /// Groups zero-advance marks with their following base run, then orders the
@@ -770,7 +973,7 @@ class PdfTextExtractor {
   /// Extracts one page and infers paragraph blocks and images in reading
   /// order.
   static PdfReflowPage reflowPage(PdfDocument document, int pageIndex) {
-    final device = _interpret(document, pageIndex);
+    final device = _interpret(document, pageIndex, collectImages: true);
     return PdfTextReflower.reflow(
       _pageTextFrom(pageIndex, device.runs),
       images: device.images,
@@ -912,48 +1115,63 @@ class PdfTextReflower {
       return y != 0 ? y : a.bounds.left.compareTo(b.bounds.left);
     });
 
-    final bands = <List<_LinePiece>>[];
+    // Each band keeps a running centre sum and its font sizes in ascending
+    // order, so the two per-candidate questions below - "what is the median
+    // font size including this piece?" and "where is this band centred?" -
+    // are answered without building or sorting a list. Previously both were
+    // recomputed from scratch for every (piece, candidate) pair, which made
+    // this O(pieces x bands x bandSize) with an allocation and a sort inside
+    // the innermost loop.
+    //
+    // The scan itself still walks bands in creation order and takes the FIRST
+    // match, which is load-bearing: band centres are running means, so an
+    // earlier band can drift back within tolerance of a later piece. Taking
+    // the most recent band instead - tempting, since pieces arrive sorted by
+    // descending centreY - is not equivalent.
+    final bands = <_LineBand>[];
     for (final piece in pieces) {
-      List<_LinePiece>? band;
+      _LineBand? band;
       for (final candidate in bands) {
         final tolerance = math.max(
-            2.0,
-            0.55 *
-                _median([
-                  piece.fontSize,
-                  ...candidate.map((p) => p.fontSize),
-                ]));
-        final center = candidate.map((p) => p.centerY).reduce((a, b) => a + b) /
-            candidate.length;
-        if ((piece.centerY - center).abs() <= tolerance) {
+            2.0, 0.55 * _medianWith(candidate.fontSizes, piece.fontSize));
+        if ((piece.centerY - candidate.center).abs() <= tolerance) {
           band = candidate;
           break;
         }
       }
-      (band ?? (bands..add(<_LinePiece>[])).last).add(piece);
+      (band ?? (bands..add(_LineBand())).last).add(piece);
     }
 
     final out = <PdfReflowLine>[];
     for (final band in bands) {
-      band.sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
+      final pieces = band.pieces
+        ..sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
       var current = <_LinePiece>[];
-      for (final piece in band) {
+      var currentFonts = <double>[];
+      for (final piece in pieces) {
         if (current.isNotEmpty) {
           final previous = current.last;
           final gap = piece.bounds.left - previous.bounds.right;
-          final font =
-              _median([...current.map((p) => p.fontSize), piece.fontSize]);
+          final font = _medianWith(currentFonts, piece.fontSize);
           if (gap > math.max(36.0, font * 4.0)) {
             out.add(_lineFrom(current));
             current = <_LinePiece>[];
+            currentFonts = <double>[];
           }
         }
         current.add(piece);
+        _insertSorted(currentFonts, piece.fontSize);
       }
       if (current.isNotEmpty) out.add(_lineFrom(current));
     }
     return out;
   }
+
+  /// Whether the page drew whitespace on the boundary between [left] and
+  /// [right] - a trailing space on one, or a leading space on the other.
+  static bool _drewSpaceBetween(_LinePiece left, _LinePiece right) =>
+      left.text.trimRight().length != left.text.length ||
+      right.text.trimLeft().length != right.text.length;
 
   static PdfReflowLine _lineFrom(List<_LinePiece> pieces) {
     final logicalOrder = pieces.any((piece) => piece.isRightToLeft);
@@ -964,7 +1182,18 @@ class PdfTextReflower {
     _LinePiece? previous;
     for (final piece in ordered) {
       if (previous != null) {
-        if (logicalOrder) {
+        if (_drewSpaceBetween(previous, piece)) {
+          // A space the page actually drew settles it, and geometry cannot
+          // second-guess it. Text justified by per-gap kerns - the shape
+          // LaTeX and InDesign emit - arrives as one run per word with the
+          // space carried INSIDE the run ('Fonts', ' are', ' embedded'), so
+          // consecutive boxes touch and the gap below measures a fraction of
+          // a point. Trimming those pieces and then asking the geometry is
+          // what used to bring a whole justified page back as one run-on
+          // word. Only when neither side drew a space is spacing a question
+          // for the geometry at all.
+          buffer.write(' ');
+        } else if (logicalOrder) {
           final gap =
               piece.startIndex - (previous.startIndex + previous.text.length);
           if (gap > 0) buffer.write(' ');
@@ -1079,8 +1308,7 @@ class PdfTextReflower {
 
   /// A line that opens with a bullet glyph or an enumerator (`1.`, `a)`,
   /// `(iv)`) followed by whitespace - the start of a list item.
-  static final RegExp _listMarker = RegExp(
-      r'^\s*([•‣◦⁃∙·▪●❖*\-–-]'
+  static final RegExp _listMarker = RegExp(r'^\s*([•‣◦⁃∙·▪●❖*\-–-]'
       r'|\(?([0-9]{1,3}|[A-Za-z]|[ivxlcdmIVXLCDM]{1,5})[.)])\s+\S');
 
   static bool _startsListItem(String text) => _listMarker.hasMatch(text);
@@ -1263,17 +1491,35 @@ class _Column {
   }
 }
 
-/// Quad of the em-space span [x0]..[x1] (with conventional 0.25 em descent
-/// and 0.75 em ascent) mapped through [transform], in perimeter order
-/// (ll, lr, ur, ul). Rotated text yields a rotated parallelogram.
+/// Quad of the em-space span [x0]..[x1], mapped through [transform] in
+/// perimeter order (ll, lr, ur, ul). Rotated text yields a rotated
+/// parallelogram. The default vertical band uses the conventional 0.25 em
+/// descent and 0.75 em ascent; callers can supply line-aware metrics.
+const _defaultTextDescent = -0.25;
+const _defaultTextAscent = 0.75;
+const _expandedTextAscent = 1.0;
+
+bool _isCjkRune(int rune) =>
+    (rune >= 0x2E80 && rune <= 0x33FF) ||
+    (rune >= 0x3400 && rune <= 0x4DBF) ||
+    (rune >= 0x4E00 && rune <= 0x9FFF) ||
+    (rune >= 0xA960 && rune <= 0xA97F) ||
+    (rune >= 0xAC00 && rune <= 0xD7AF) ||
+    (rune >= 0xF900 && rune <= 0xFAFF) ||
+    (rune >= 0xFE30 && rune <= 0xFE4F) ||
+    (rune >= 0xFF01 && rune <= 0xFF60) ||
+    (rune >= 0xFF66 && rune <= 0xFF9D) ||
+    (rune >= 0x20000 && rune <= 0x323AF) ||
+    (rune >= 0x2F800 && rune <= 0x2FA1F);
+
 PdfTextQuad _quadOf(
   PdfMatrix transform,
   double x0,
   double x1, {
+  double descent = _defaultTextDescent,
+  double ascent = _defaultTextAscent,
   bool isRightToLeft = false,
 }) {
-  const descent = -0.25;
-  const ascent = 0.75;
   return PdfTextQuad(
     [
       for (final (x, y) in [
@@ -1290,8 +1536,41 @@ PdfTextQuad _quadOf(
 
 /// Axis-aligned bounding box of the em-space span [x0]..[x1] mapped
 /// through [transform].
-PdfRect _boundsOf(PdfMatrix transform, double x0, double x1) =>
-    _quadOf(transform, x0, x1).bounds;
+///
+/// Equal to `_quadOf(...).bounds` bit for bit - the same corners in the same
+/// order folded with the same `math.min`/`math.max` (the quad's redundant
+/// first-corner step is `min(a, a) == a`, even for -0.0 and NaN) - without
+/// allocating the quad, its corner list and records for every run.
+PdfRect _boundsOf(
+  PdfMatrix transform,
+  double x0,
+  double x1, {
+  double descent = _defaultTextDescent,
+  double ascent = _defaultTextAscent,
+}) {
+  var minX = transform.transformX(x0, descent);
+  var minY = transform.transformY(x0, descent);
+  var maxX = minX, maxY = minY;
+  final x2 = transform.transformX(x1, descent);
+  final y2 = transform.transformY(x1, descent);
+  minX = math.min(minX, x2);
+  maxX = math.max(maxX, x2);
+  minY = math.min(minY, y2);
+  maxY = math.max(maxY, y2);
+  final x3 = transform.transformX(x1, ascent);
+  final y3 = transform.transformY(x1, ascent);
+  minX = math.min(minX, x3);
+  maxX = math.max(maxX, x3);
+  minY = math.min(minY, y3);
+  maxY = math.max(maxY, y3);
+  final x4 = transform.transformX(x0, ascent);
+  final y4 = transform.transformY(x0, ascent);
+  minX = math.min(minX, x4);
+  maxX = math.max(maxX, x4);
+  minY = math.min(minY, y4);
+  maxY = math.max(maxY, y4);
+  return PdfRect(minX, minY, maxX, maxY);
+}
 
 PdfRect _union(Iterable<PdfRect> rects) {
   final iterator = rects.iterator;
@@ -1317,11 +1596,66 @@ double _horizontalOverlap(PdfRect a, PdfRect b) =>
 /// (0 when they don't overlap, 1 when one contains the other).
 double _overlapFraction(PdfRect a, PdfRect b) {
   final w = _horizontalOverlap(a, b);
-  final h = math.max(0.0, math.min(a.top, b.top) - math.max(a.bottom, b.bottom));
+  final h =
+      math.max(0.0, math.min(a.top, b.top) - math.max(a.bottom, b.bottom));
   final overlap = w * h;
   if (overlap <= 0) return 0;
   final smaller = math.min(a.width * a.height, b.width * b.height);
   return smaller <= 0 ? 0 : overlap / smaller;
+}
+
+/// Index where [value] would be inserted to keep [sorted] ascending.
+int _lowerBound(List<double> sorted, double value) {
+  var lo = 0;
+  var hi = sorted.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    if (sorted[mid] < value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+void _insertSorted(List<double> sorted, double value) =>
+    sorted.insert(_lowerBound(sorted, value), value);
+
+/// Median of [sorted] (ascending) with [extra] merged in, without building
+/// the merged list.
+///
+/// Equivalent to `_median([...sorted, extra])`, but the line-banding loop asks
+/// this once per piece per candidate band, where materialising and sorting a
+/// fresh list dominated the cost of [_visualLines] on a text-heavy page.
+double _medianWith(List<double> sorted, double extra) {
+  final length = sorted.length + 1;
+  final pos = _lowerBound(sorted, extra);
+  // the merged sequence is sorted[0..pos) + [extra] + sorted[pos..)
+  double at(int rank) =>
+      rank < pos ? sorted[rank] : (rank == pos ? extra : sorted[rank - 1]);
+  final middle = length ~/ 2;
+  if (length.isOdd) return at(middle);
+  return (at(middle - 1) + at(middle)) / 2;
+}
+
+/// A run of pieces sharing a visual line, with the aggregates the banding
+/// scan needs kept incrementally rather than recomputed per comparison.
+class _LineBand {
+  final List<_LinePiece> pieces = [];
+
+  /// Ascending, so [_medianWith] can merge one more value in O(log n).
+  final List<double> fontSizes = [];
+
+  double _sumCenterY = 0;
+
+  double get center => _sumCenterY / pieces.length;
+
+  void add(_LinePiece piece) {
+    pieces.add(piece);
+    _insertSorted(fontSizes, piece.fontSize);
+    _sumCenterY += piece.centerY;
+  }
 }
 
 double _median(Iterable<double> values) {
@@ -1335,9 +1669,63 @@ double _median(Iterable<double> values) {
 String _normalizeSpaces(String text) =>
     text.replaceAll(RegExp(r'[ \t\f\v]+'), ' ').trim();
 
-class _ExtractionDevice implements PdfDevice {
+/// Collects text runs (and, for reflow, image draws) from one page walk.
+///
+/// Being a [PdfTiledCellSink] routes both recorded tiling-pattern cells and
+/// cached Type3 glyph cells here instead of through a per-tile
+/// [TranslatingPdfDevice] expansion, so a cell that can't produce anything
+/// this device keeps - a hatch tile, a vector Type3 glyph - is skipped
+/// outright rather than having every path re-translated just to be dropped.
+class _ExtractionDevice implements PdfDevice, PdfTiledCellSink {
+  _ExtractionDevice({required this.collectImages});
+
+  /// Whether image draws are kept: [PdfTextExtractor.reflowPage] needs them,
+  /// plain extraction doesn't (which also skips image-only cells such as the
+  /// bitmap glyphs of TeX-era Type3 fonts).
+  final bool collectImages;
   final List<PdfTextRun> runs = [];
   final List<PdfImageRequest> images = [];
+
+  /// Per-walk verdicts keyed by cell identity: a tiling cell is recorded once
+  /// per fill and a Type3 glyph cell once per interpreter, then drawn many
+  /// times. Recorded cells are complete before they are drawn, so they can't
+  /// contain themselves.
+  final _cellNeeded = Map<List<PdfRenderCommand>, bool>.identity();
+
+  bool _needsCell(List<PdfRenderCommand> cell) =>
+      _cellNeeded[cell] ??= _scanCell(cell);
+
+  /// Same rule as `PdfRecordedText.capture`: only text (and images, when
+  /// collected) survives into this device, recursing into nested cells but
+  /// never into soft-mask definitions - [endSoftMasked] doesn't run
+  /// `drawMask`, so nothing in a mask reaches [runs] or [images].
+  bool _scanCell(List<PdfRenderCommand> cell) {
+    for (final command in cell) {
+      if (command is PdfDrawTextCommand) return true;
+      if (collectImages && command is PdfDrawImageCommand) return true;
+      if (command is PdfDrawTiledCellCommand &&
+          command.originsX.isNotEmpty &&
+          _needsCell(command.cellCommands)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    final cell = command.cellCommands;
+    if (!_needsCell(cell)) return;
+    // The same per-origin expansion the interpreter and `replayCommands`
+    // give a device that isn't a sink - base repeat verbatim, the rest
+    // translated - so runs, their order and their float translations are
+    // unchanged.
+    for (var t = 0; t < command.originsX.length; t++) {
+      final dx = command.originsX[t], dy = command.originsY[t];
+      replayCommands(
+          cell, dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+    }
+  }
 
   @override
   void drawText(PdfTextRun run) => runs.add(run);
@@ -1358,10 +1746,15 @@ class _ExtractionDevice implements PdfDevice {
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {}
   @override
-  void drawImage(PdfImageRequest request) => images.add(request);
+  void drawImage(PdfImageRequest request) {
+    if (collectImages) images.add(request);
+  }
 
   @override
   void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
   @override
   void beginGroup(double alpha, {bool knockout = false}) {}
   @override

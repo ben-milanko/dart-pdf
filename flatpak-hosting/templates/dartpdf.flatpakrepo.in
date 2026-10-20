@@ -1,0 +1,9 @@
+[Flatpak Repo]
+Title=DartPDF
+Comment=Official DartPDF Flatpak repository
+Description=Edit, annotate, sign, fill, redact, compare, and OCR PDFs locally.
+Url=@BASE_URL@/repo/
+Homepage=https://dart-pdf.com
+Icon=https://dart-pdf.com/assets/icon-512.png
+GPGKey=@GPG_KEY@
+DefaultBranch=stable

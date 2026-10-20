@@ -78,6 +78,28 @@ void main() {
     cache.dispose();
   });
 
+  test('evict drops one master; dispose stops caching', () async {
+    final cache = PdfImageCache(maxBytes: 1 << 20);
+    final key = Object();
+    cache.put(key, await _solid(8, 8, 1)).dispose();
+    expect(cache.debugLength, 1);
+
+    cache.evict(key);
+    expect(cache.debugLength, 0);
+    expect(cache.take(key), isNull);
+    expect(cache.debugHits, 0);
+    expect(cache.debugMisses, greaterThan(0));
+    cache.debugResetCounters();
+    expect(cache.debugMisses, 0);
+
+    cache.dispose();
+    // After dispose the cache stores nothing and hands the master straight back.
+    final master = await _solid(8, 8, 2);
+    expect(identical(cache.put(key, master), master), isTrue);
+    expect(cache.debugLength, 0);
+    master.dispose();
+  });
+
   test('clear empties the cache', () async {
     final cache = PdfImageCache();
     cache.put(Object(), await _solid(8, 8, 1)).dispose();

@@ -1,6 +1,7 @@
 // Known-answer tests for the LTV/PAdES crypto primitives, validated against
 // OpenSSL-produced reference artifacts (see tool/gen_pkix_fixtures.sh).
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -29,6 +30,58 @@ void main() {
       expect(leafCert.isSignedBy(caCert), isTrue);
       expect(revokedCert.isSignedBy(caCert), isTrue);
       expect(tsaCert.isSignedBy(caCert), isTrue);
+    });
+  });
+
+  group('certificate chain building', () {
+    final notBefore = DateTime.utc(2026);
+    final notAfter = DateTime.utc(2036);
+    final caKey = EcPrivateKey.generate(EcCurve.p256, random: Random(31));
+    final caDer = buildCaCertificate(
+      key: caKey,
+      commonName: 'Chain Test CA',
+      notBefore: notBefore,
+      notAfter: notAfter,
+      random: Random(32),
+    );
+    final ca = X509Certificate.parse(caDer);
+    final leaf = X509Certificate.parse(issueCertificate(
+      issuerKey: caKey,
+      issuerCertificate: caDer,
+      subjectPublicKey:
+          EcPrivateKey.generate(EcCurve.p256, random: Random(33)).publicKey,
+      commonName: 'Chain Test Leaf',
+      notBefore: notBefore,
+      notAfter: notAfter,
+      random: Random(34),
+    ));
+    // Same subject name as the CA, different key: it matches the leaf's
+    // issuer by name, but its signature check on the leaf fails.
+    final impostor = X509Certificate.parse(buildCaCertificate(
+      key: EcPrivateKey.generate(EcCurve.p256, random: Random(35)),
+      commonName: 'Chain Test CA',
+      notBefore: notBefore,
+      notAfter: notAfter,
+      random: Random(36),
+    ));
+
+    test('a verified issuer chains to the anchor', () {
+      expect(impostor.subjectDer, ca.subjectDer);
+      final result = verifyCertificateChain(
+          leaf: leaf, intermediates: [impostor], trustAnchors: [ca]);
+      expect(result.trusted, isTrue, reason: result.problems.join('; '));
+      expect(result.chain, [leaf, ca]);
+    });
+
+    test('a name-matched issuer whose signature fails is reported as such', () {
+      final result = verifyCertificateChain(
+          leaf: leaf, intermediates: [impostor], trustAnchors: const []);
+      expect(result.trusted, isFalse);
+      expect(result.chain, [leaf]);
+      expect(result.problems, [
+        'signature on "Chain Test Leaf" does not verify against its issuer '
+            '"Chain Test CA"',
+      ]);
     });
   });
 
@@ -80,11 +133,8 @@ void main() {
           .children[0] // Request
           .children[0]; // reqCert (CertID)
       final theirs = DerObject.parse(der(ocspReqGoodB64));
-      final theirCertId = theirs
-          .children[0]
-          .children[0]
-          .children[0]
-          .children[0];
+      final theirCertId =
+          theirs.children[0].children[0].children[0].children[0];
       expect(ourCertId.encoded, theirCertId.encoded);
     });
   });

@@ -25,6 +25,20 @@ void main() {
     expect(context.toJson()['fields'], isA<List<Object?>>());
   });
 
+  test('carries every selection of a multi-select list box', () {
+    final context =
+        PdfDocumentContext.of(PdfDocument.open(buildListBoxFormPdf()));
+    final toppings = context.fields.singleWhere((f) => f.name == 'toppings');
+    expect(toppings.value, 'Ham');
+    expect(toppings.values, ['Ham', 'Olives']);
+    expect(toppings.toJson()['values'], ['Ham', 'Olives']);
+    expect(
+        context.toPromptText(), contains('toppings (listBox) = Ham, Olives'));
+    final crust = context.fields.singleWhere((f) => f.name == 'crust');
+    expect(crust.values, isNull);
+    expect(crust.toJson().containsKey('values'), isFalse);
+  });
+
   test('surfaces text injected by an OCR layer', () {
     final doc = PdfDocument.open(buildClassicPdf());
     PdfEditor(doc).injectTextLayer(0, const [

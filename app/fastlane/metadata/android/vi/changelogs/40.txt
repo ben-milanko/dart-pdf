@@ -1,0 +1,9 @@
+Có gì mới trong 5.1.0
+
+- Vẽ chữ ký bằng ngón tay trên bàn di chuột.
+- Danh sách chú thích hiển thị từng dấu đúng như trên trang.
+- Trên màn hình cảm ứng, thao tác của mỗi dòng nằm trong menu ⋮.
+- Con dấu đã di chuyển không còn để lại ô trắng trên trang.
+- Chỉnh sửa trang không còn làm mất trang trong một số PDF.
+- Chữ ký số P-521 nay được xác thực đúng.
+- Nhanh hơn với tệp mã hóa, kiểm tra chữ ký, JPEG 2000 và bản vẽ lớn.

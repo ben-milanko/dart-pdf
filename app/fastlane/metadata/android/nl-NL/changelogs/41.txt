@@ -1,0 +1,4 @@
+Nieuw in 5.1.1
+
+- Snel achter elkaar geschreven inkt verdwijnt niet meer van de pagina.
+- Bevat alle verbeteringen uit 5.1.0.

@@ -1,0 +1,8 @@
+Baru di 4.4.0
+
+- Cetak langsung di Windows dan simpan pengaturan cetak antar pekerjaan.
+- Perbesar hingga 10000%, dengan prasetel untuk tampilan terdekat.
+- Buka dan gulir gambar vektor padat lebih cepat.
+- Pilih dan cari teks lebih cepat pada halaman berat.
+- Atur perataan vertikal untuk bidang teks formulir.
+- Tampilkan berkas tersimpan di File Explorer setelah Simpan Sebagai.

@@ -1,8 +1,9 @@
 name: dart_pdf_editor
 description: >-
-  Flutter PDF viewer and editor for Dart: native rendering, text selection,
+  Flutter PDF editor and viewer for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 1.4.6
+version: 10.0.0
+homepage: https://dart-pdf.com/flutter-pdf-editor
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -15,25 +16,44 @@ resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.24.0'
+  flutter: '>=3.47.0'
 
 dependencies:
+  archive: ^4.3.0
+  # The iOS/macOS text-selection menus and their localizations (material_ui
+  # depends on it too; listed because the library imports it directly).
+  cupertino_ui: ^1.1.2
   flutter:
     sdk: flutter
-  image: ^4.9.1
-  pdf_cos: ^1.4.6
-  pdf_document: ^1.4.6
-  pdf_graphics: ^1.4.6
-  shared_preferences: ^2.3.0
+  flutter_localizations:
+    sdk: flutter
+  # ICU message formatting (plurals/select/dates) for the shipped
+  # localizations; see lib/l10n/.
+  intl: ^0.20.2
+  # The Material design library (the stock chrome). 7.0 moved off
+  # package:flutter/material.dart; see doc/MIGRATING-7.0.0.md.
+  material_ui: ^1.6.0
+  # Keychain/Keystore-backed persistence for signing identities
+  # (SecureIdentityStore); the private key never touches shared_preferences.
+  flutter_secure_storage: ^11.2.0
+  # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
+  # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
+  # code. See src/http_byte_source.dart.
+  http: ^1.2.0
+  image: ^4.12.0
+  pdf_cos: ^10.0.0
+  pdf_document: ^10.0.0
+  pdf_graphics: ^10.0.0
+  shared_preferences: ^2.5.6
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
-  url_launcher: ^6.3.0
+  url_launcher: ^6.3.3
   # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
   # Worker over package:web's typed bindings. A no-op everywhere else.
   web: ^1.1.0
 
 dev_dependencies:
-  pdf_test_fixtures: ^1.4.0
+  pdf_test_fixtures: '>=1.4.0 <11.0.0'
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
@@ -43,41 +63,20 @@ dev_dependencies:
   url_launcher_platform_interface: ^2.3.2
 
 flutter:
-  # Bundled fonts offered by the font menu. DejaVu is a permissive
-  # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are
-  # SIL Open Font Licence - see the *-LICENSE.txt files in assets/fonts/.
+  generate: true
+  # The editor fonts and the prebuilt web render worker are NOT declared here.
+  # They live in the optional companion package `dart_pdf_editor_assets`, so a
+  # viewer-only app never bundles their ~1.7 MB: Flutter includes a package's
+  # declared assets on every build target, so keeping them in a separate
+  # package is the only way to make them opt-in. Depend on that package and call
+  # `registerBundledEditorAssets()` to restore the full-featured defaults.
+  #
   # Runtime fragment shaders for the sparse-strip render device (see
-  # doc/dev-log). flutter_tools compiles these per target; keep them
-  # inside the SkSL-safe subset (no dynamic loop bounds, bit ops,
+  # doc/dev-log) stay here - they are core to rendering, tiny, and not part of
+  # the optional editor asset story. flutter_tools compiles these per target;
+  # keep them inside the SkSL-safe subset (no dynamic loop bounds, bit ops,
   # texelFetch).
   shaders:
     - shaders/pdf_probe.frag
     - shaders/pdf_strips.frag
     - shaders/pdf_slug.frag
-  assets:
-    - assets/web/pdf_render_worker.dart.js
-    - assets/fonts/DejaVuSans.ttf
-    - assets/fonts/DejaVuSerif.ttf
-    - assets/fonts/DejaVuSansMono.ttf
-    - assets/fonts/FiraSans-Regular.ttf
-    - assets/fonts/Spectral-Regular.ttf
-    - assets/fonts/Lobster-Regular.ttf
-  fonts:
-    - family: DejaVu Sans
-      fonts:
-        - asset: assets/fonts/DejaVuSans.ttf
-    - family: DejaVu Serif
-      fonts:
-        - asset: assets/fonts/DejaVuSerif.ttf
-    - family: DejaVu Sans Mono
-      fonts:
-        - asset: assets/fonts/DejaVuSansMono.ttf
-    - family: Fira Sans
-      fonts:
-        - asset: assets/fonts/FiraSans-Regular.ttf
-    - family: Spectral
-      fonts:
-        - asset: assets/fonts/Spectral-Regular.ttf
-    - family: Lobster
-      fonts:
-        - asset: assets/fonts/Lobster-Regular.ttf

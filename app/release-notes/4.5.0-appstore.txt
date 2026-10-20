@@ -1,0 +1,9 @@
+New in 4.5.0
+
+- See what's new in each release under Settings > About.
+- Sharper PDF text and line art on Linux.
+- Exported pages open in a new tab.
+- Switch between pages, reflowed text and the page grid from one control.
+- Correct letter spacing for text in unembedded standard fonts.
+- Better text selection across columns and in Chinese, Japanese and Korean.
+- Outlined text now draws clearly.

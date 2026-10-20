@@ -1,0 +1,12 @@
+[Flatpak Ref]
+Name=dev.milanko.dartpdf
+Branch=stable
+Title=DartPDF @VERSION@
+Comment=Install DartPDF from its official repository
+Url=@BASE_URL@/repo/
+Homepage=https://dart-pdf.com
+Icon=https://dart-pdf.com/assets/icon-512.png
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+IsRuntime=false
+SuggestRemoteName=dartpdf
+GPGKey=@GPG_KEY@

@@ -45,9 +45,9 @@ Uint8List _coloredPagePdf() {
 /// A one-page PDF whose content draws a **nested** Form XObject (/Fm0) that
 /// sets its own blue fill - so a recolour has to recurse into the nested form,
 /// not just rewrite the top-level content.
-Uint8List _nestedFormPagePdf() {
-  const pageContent = '/Fm0 Do';
-  const formContent = '0 0 1 rg 0 0 50 50 re f';
+Uint8List _nestedFormPagePdf(
+    {String pageContent = '/Fm0 Do',
+    String formContent = '0 0 1 rg 0 0 50 50 re f'}) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -91,12 +91,201 @@ double _num(CosObject o) => switch (o) {
     };
 
 void main() {
+  test('find/replace in one shared snapshot preserves the other ink and paste',
+      () {
+    var doc = PdfDocument.open(_coloredPagePdf());
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    final shared =
+        editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap);
+    editor.pasteVectorSnapshot(0, const PdfRect(100, 100, 200, 200), snap,
+        sharedObject: shared);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.first)
+            .map((c) => c.rgb)
+            .toSet(),
+        {0xFF0000, 0x00FF00});
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.first,
+            find: 0xFF0000, replace: 0x0000FF),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    final first = _capContent(doc, doc.page(0).annotations.first);
+    final second = _capContent(doc, doc.page(0).annotations.last);
+    expect(first, contains('0 0 1 rg'));
+    expect(first, contains('0 1 0 RG'));
+    expect(first, isNot(contains('1 0 0 rg')));
+    expect(second, contains('1 0 0 rg'));
+    expect(second, contains('0 1 0 RG'));
+    expect(latin1.decode(doc.page(0).contentBytes()), contains('1 0 0 rg'));
+  });
+
+  test('find/replace reaches nested forms with inherited resources', () {
+    var doc = PdfDocument.open(_nestedFormPagePdf());
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0x0000FF]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0x0000FF, replace: 0x00FF00),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    expect(
+        PdfEditor(doc)
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0x00FF00]);
+  });
+
+  test('find/replace finds default-black snapshot text without explicit colour',
+      () {
+    var doc = PdfDocument.open(buildMultiPagePdf(1));
+    var editor = PdfEditor(doc);
+    final snap =
+        editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 160, 40), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0, replace: 0x0000FF),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    expect(
+        _capContent(doc, doc.page(0).annotations.single), contains('0 0 1 rg'));
+    expect(_capContent(doc, doc.page(0).annotations.single),
+        contains('(Page 1) Tj'));
+  });
+
+  test('transparent replacement follows inherited colour into a nested form',
+      () {
+    var doc = PdfDocument.open(_nestedFormPagePdf(
+        pageContent: '1 0 0 rg /Fm0 Do', formContent: '0 0 10 10 re f'));
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0xFF0000]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0xFF0000, transparent: true),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    final res = doc.cos.resolve(doc
+        .page(0)
+        .annotations
+        .single
+        .normalAppearance!
+        .dictionary['Resources']) as CosDictionary;
+    final xo = doc.cos.resolve(res['XObject']) as CosDictionary;
+    final cap = doc.cos.resolve(xo['Cap']) as CosStream;
+    final capRes =
+        doc.cos.resolve(cap.dictionary['Resources']) as CosDictionary;
+    final childXo = doc.cos.resolve(capRes['XObject']) as CosDictionary;
+    final child = doc.cos.resolve(childXo['Fm0']) as CosStream;
+    final ops = ContentStreamParser.parse(doc.cos.decodeStreamData(child));
+    expect(ops.map((o) => o.operator), contains('n'));
+    expect(ops.map((o) => o.operator), isNot(contains('f')));
+  });
+
   group('PdfVectorSnapshot', () {
     test('capture detaches the region, content, and resources', () {
       final doc = PdfDocument.open(buildMultiPagePdf(2));
       final snap = PdfEditor(doc)
           .captureVectorSnapshot(0, const PdfRect(60, 700, 200, 740));
       expect(snap.region, const PdfRect(60, 700, 200, 740));
+    });
+
+    group('un-flattened annotations', () {
+      // page 0 with a red square annotation inside the capture region and a
+      // blue one well outside it
+      PdfDocument annotated() {
+        final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+        editor.addSquare(0, const PdfRect(80, 705, 120, 735),
+            strokeColor: 0xFF0000);
+        editor.addSquare(0, const PdfRect(300, 100, 340, 140),
+            strokeColor: 0x0000FF);
+        return PdfDocument.open(editor.save());
+      }
+
+      CosDictionary xObjectsOf(PdfDocument pdf) {
+        final res = pdf.cos.resolve(pdf.page(0).resources) as CosDictionary;
+        return pdf.cos.resolve(res['XObject']) as CosDictionary;
+      }
+
+      test('are drawn over the content from their appearances', () {
+        final doc = annotated();
+        final snap = PdfEditor(doc)
+            .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        final pdf = PdfDocument.open(snap.toPdfBytes());
+        final content = latin1.decode(pdf.page(0).contentBytes());
+        // the page text comes first, bracketed, then the annotation
+        expect(content.indexOf('(Page 1) Tj'),
+            lessThan(content.indexOf('/SnapAnnot0 Do')));
+        // only the overlapping annotation travels with the snapshot
+        expect(content, isNot(contains('/SnapAnnot1 Do')));
+        final xobj = xObjectsOf(pdf);
+        expect(xobj.entries.keys, ['SnapAnnot0']);
+        final form = pdf.cos.resolve(xobj['SnapAnnot0']) as CosStream;
+        expect(_name(form.dictionary['Subtype']), 'Form');
+        expect(latin1.decode(pdf.cos.decodeStreamData(form)),
+            contains('1 0 0 RG'));
+        // the snapshot is still a plain page: no annotations of its own
+        expect(pdf.page(0).annotations, isEmpty);
+      });
+
+      test('pasted back, the annotation draws inside the captured form', () {
+        final doc = annotated();
+        final editor = PdfEditor(doc);
+        final snap =
+            editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        editor.pasteVectorSnapshot(0, const PdfRect(100, 100, 260, 140), snap);
+        final out = PdfDocument.open(editor.save());
+        final stamp = out.page(0).annotations.last;
+        expect(_capContent(out, stamp), contains('/SnapAnnot0 Do'));
+      });
+
+      test('are left out when annotations is false', () {
+        final doc = annotated();
+        final snap = PdfEditor(doc).captureVectorSnapshot(
+            0, const PdfRect(60, 700, 220, 740),
+            annotations: false);
+        final content = latin1
+            .decode(PdfDocument.open(snap.toPdfBytes()).page(0).contentBytes());
+        expect(content, isNot(contains('SnapAnnot')));
+      });
+
+      test('hidden annotations are left out', () {
+        final editor = PdfEditor(annotated());
+        final square = editor.document.page(0).annotations.first;
+        editor.setAnnotationFlags(0, square, 2); // Hidden
+        final doc = PdfDocument.open(editor.save());
+        final snap = PdfEditor(doc)
+            .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        final content = latin1
+            .decode(PdfDocument.open(snap.toPdfBytes()).page(0).contentBytes());
+        expect(content, isNot(contains('SnapAnnot')));
+      });
     });
 
     test('paste makes a vector /Stamp drawing the captured form', () {
@@ -113,14 +302,16 @@ void main() {
       expect(stamp.rect, const PdfRect(100, 100, 260, 140));
 
       // the appearance maps the captured form onto the rect and draws it
-      final ap = latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
+      final ap =
+          latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
       expect(ap, contains('/Cap Do'));
 
       // /Cap is a Form XObject in an upright [0 0 dW dH] box whose content
       // is the page's own operators under the capture matrix - i.e. real
       // vectors, not a raster
-      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-          as CosDictionary;
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
       final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
       final cap = out.cos.resolve(xobj['Cap']) as CosStream;
       expect(_name(cap.dictionary['Subtype']), 'Form');
@@ -149,7 +340,8 @@ void main() {
       editor.pasteVectorSnapshot(0, const PdfRect(10, 20, 210, 220), snap);
       final out = PdfDocument.open(editor.save());
       final stamp = out.page(0).annotations.single;
-      final ap = latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
+      final ap =
+          latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
       // cm: 2 0 0 4 (10 - 2*0) (20 - 4*0) = 2 0 0 4 10 20
       expect(ap, contains('2 0 0 4 10 20 cm'));
     });
@@ -159,15 +351,17 @@ void main() {
       expect(doc.page(0).rotation, 90); // sanity: page 0 is rotated
       final editor = PdfEditor(doc);
       // a 300x200 user-space region on a 90° page displays as 200x300
-      final snap = editor.captureVectorSnapshot(0, const PdfRect(50, 50, 350, 250));
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(50, 50, 350, 250));
       expect(snap.displayWidth, 200);
       expect(snap.displayHeight, 300);
 
       editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 300), snap);
       final out = PdfDocument.open(editor.save());
       final stamp = out.page(0).annotations.single;
-      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-          as CosDictionary;
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
       final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
       final cap = out.cos.resolve(xobj['Cap']) as CosStream;
       final bbox = out.cos.resolve(cap.dictionary['BBox']) as CosArray;
@@ -200,6 +394,7 @@ void main() {
         // stored as an indirect reference, not resolved inline
         return (xobj.entries['Cap'] as CosReference).objectNumber;
       }
+
       expect(capNum(stamps[0]), capNum(stamps[1]));
     });
 
@@ -216,13 +411,15 @@ void main() {
       expect(ref, greaterThan(0));
       final out = PdfDocument.open(editor.save());
       final stamp = out.page(0).annotations.single;
-      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-          as CosDictionary;
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
       final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
       expect(out.cos.resolve(xobj['Cap']), isA<CosStream>());
     });
 
-    test('paste with opacity < 1 adds an ExtGState alpha to the appearance', () {
+    test('paste with opacity < 1 adds an ExtGState alpha to the appearance',
+        () {
       final doc = PdfDocument.open(buildMultiPagePdf(1));
       final editor = PdfEditor(doc);
       final snap =
@@ -234,8 +431,9 @@ void main() {
       final ap =
           latin1.decode(out.cos.decodeStreamData(stamp.normalAppearance!));
       expect(ap, contains('/GS0 gs'));
-      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-          as CosDictionary;
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
       expect(out.cos.resolve(res['ExtGState']), isA<CosDictionary>());
     });
 
@@ -247,6 +445,167 @@ void main() {
       editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 50, 50), snap);
       expect(editor.hasChanges, isFalse);
       expect(doc.page(0).annotations, isEmpty);
+    });
+
+    test('toPdfBytes writes a one-page PDF sized to the captured region', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final snap = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+
+      final pdf = PdfDocument.open(snap.toPdfBytes());
+      expect(pdf.pageCount, 1);
+      // the page is exactly the captured region (160x40 at the origin)
+      expect(pdf.page(0).mediaBox, const PdfRect(0, 0, 160, 40));
+      // and it draws the captured vectors, with the page font carried along
+      final content = latin1.decode(pdf.page(0).contentBytes());
+      expect(content, contains('(Page 1) Tj'));
+      expect(content, contains('1 0 0 1 -60 -700 cm'));
+    });
+
+    test(
+        'toPdfBytes hoists resource streams (an image XObject) to indirect '
+        'objects', () {
+      // a page whose /Resources carry an image XObject — i.e. a stream that
+      // can't live inline once another object references it (§7.3.8)
+      final base = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      base.stampPage(
+          0,
+          (s) => s.jpegImage(buildTestJpeg(),
+              x: 50, y: 700, width: 80, height: 80));
+      final doc = PdfDocument.open(base.save());
+
+      final snap = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(40, 690, 140, 790));
+      final pdf = PdfDocument.open(snap.toPdfBytes());
+
+      // the image rode along as an indirect stream, not an inline one
+      final res = pdf.cos.resolve(pdf.page(0).resources) as CosDictionary;
+      final xobj = pdf.cos.resolve(res['XObject']) as CosDictionary;
+      expect(xobj.entries, isNotEmpty);
+      for (final value in xobj.entries.values) {
+        expect(value, isA<CosReference>());
+        expect(pdf.cos.resolve(value), isA<CosStream>());
+      }
+    });
+
+    for (final rotation in [0, 90, 180, 270]) {
+      test('PDF interchange preserves crop offsets and rotation $rotation', () {
+        final editor = PdfEditor(PdfDocument.open(_nestedFormPagePdf()));
+        editor.rotatePages([0], rotation);
+        final source = PdfDocument.open(editor.save());
+        final snapshot = PdfEditor(source)
+            .captureVectorSnapshot(0, const PdfRect(10, 20, 110, 70));
+        final bytes = snapshot.toPdfBytes();
+        expect(snapshot.toPdfBytes(), bytes,
+            reason: 'export must not mutate resources');
+        final out = PdfDocument.open(bytes);
+        expect(out.page(0).rotation, 0);
+        expect(out.page(0).mediaBox.width, rotation % 180 == 0 ? 100 : 50);
+        expect(out.page(0).mediaBox.height, rotation % 180 == 0 ? 50 : 100);
+        final imported = PdfVectorSnapshot.fromPdfBytes(bytes);
+        expect(imported.displayWidth, snapshot.displayWidth);
+        expect(imported.displayHeight, snapshot.displayHeight);
+        final xobjects =
+            out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
+        final form = out.cos.resolve(xobjects['Fm0']) as CosStream;
+        expect(latin1.decode(out.cos.decodeStreamData(form)),
+            contains('0 0 1 rg'));
+      });
+    }
+
+    test('import takes the first page and rejects unreadable or empty PDFs',
+        () {
+      final snapshot = PdfVectorSnapshot.fromPdfBytes(buildMultiPagePdf(2));
+      final out = PdfDocument.open(snapshot.toPdfBytes());
+      expect(out.pageCount, 1);
+      expect(latin1.decode(out.page(0).contentBytes()), contains('(Page 1)'));
+      expect(() => PdfVectorSnapshot.fromPdfBytes(Uint8List(0)),
+          throwsA(anything));
+      expect(() => PdfVectorSnapshot.fromPdfBytes(buildMultiPagePdf(0)),
+          throwsA(anything));
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      expect(
+          () => editor
+              .captureVectorSnapshot(0, const PdfRect(0, 0, 0, 20))
+              .toPdfBytes(),
+          throwsFormatException);
+    });
+
+    test('export hoists array lookup streams and keeps small resource numbers',
+        () {
+      final source = PdfDocument.open(_nestedFormPagePdf());
+      final lookup = Uint8List.fromList([255, 0, 0, 0, 0, 255]);
+      source.page(0).resources['ColorSpace'] = CosDictionary({
+        'Palette': CosArray([
+          const CosName('Indexed'),
+          const CosName('DeviceRGB'),
+          CosInteger(1),
+          CosStream(CosDictionary(), lookup)
+        ]),
+      });
+      final form = source.cos.resolve(
+              (source.page(0).resources['XObject'] as CosDictionary)['Fm0'])
+          as CosStream;
+      form.dictionary['Matrix'] = CosArray([
+        CosReal(0.0000123456789),
+        CosInteger(0),
+        CosInteger(0),
+        CosReal(0.0000123456789),
+        CosInteger(0),
+        CosInteger(0)
+      ]);
+      final snapshot = PdfEditor(source)
+          .captureVectorSnapshot(0, const PdfRect(0, 0, 100, 100));
+      final out = PdfDocument.open(snapshot.toPdfBytes());
+      final spaces = out.page(0).resources['ColorSpace'] as CosDictionary;
+      final palette = spaces['Palette'] as CosArray;
+      expect(palette[3], isA<CosReference>());
+      expect(out.cos.decodeStreamData(out.cos.resolve(palette[3]) as CosStream),
+          lookup);
+      final outForm = out.cos.resolve(
+              (out.page(0).resources['XObject'] as CosDictionary)['Fm0'])
+          as CosStream;
+      expect(
+          _num((outForm.dictionary['Matrix'] as CosArray)[0]), 0.0000123456789);
+    });
+
+    test('password-protected PDF imports to an unencrypted standalone PDF', () {
+      final encrypted = buildEncryptedPdf(revision: 4, userPassword: 'secret');
+      expect(() => PdfVectorSnapshot.fromPdfBytes(encrypted),
+          throwsA(isA<CosPasswordException>()));
+      final snapshot =
+          PdfVectorSnapshot.fromPdfBytes(encrypted, password: 'secret');
+      final out = PdfDocument.open(snapshot.toPdfBytes());
+      expect(out.cos.isEncrypted, isFalse);
+      expect(latin1.decode(out.page(0).contentBytes()),
+          contains('(Hello, world!)'));
+    });
+
+    test('fromPdfBytes re-imports a snapshot written by toPdfBytes', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final original = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+
+      // round-trip through the interchange PDF, then paste into a fresh doc
+      final reimported = PdfVectorSnapshot.fromPdfBytes(original.toPdfBytes());
+      expect(reimported.displayWidth, original.displayWidth);
+      expect(reimported.displayHeight, original.displayHeight);
+
+      final target = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(target);
+      editor.pasteVectorSnapshot(
+          0, const PdfRect(100, 100, 260, 140), reimported);
+      final out = PdfDocument.open(editor.save());
+      final stamp = out.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      // the captured vectors survived the PDF round-trip
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
+      final cap = out.cos.resolve(xobj['Cap']) as CosStream;
+      expect(latin1.decode(out.cos.decodeStreamData(cap)),
+          contains('(Page 1) Tj'));
     });
 
     test('a detached snapshot survives further edits to the source', () {
@@ -263,11 +622,13 @@ void main() {
           .page(0)
           .annotations
           .firstWhere((a) => a.rect == const PdfRect(300, 300, 460, 340));
-      final res = out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
-          as CosDictionary;
+      final res =
+          out.cos.resolve(stamp.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
       final xobj = out.cos.resolve(res['XObject']) as CosDictionary;
       final cap = out.cos.resolve(xobj['Cap']) as CosStream;
-      expect(latin1.decode(out.cos.decodeStreamData(cap)), contains('(Page 1) Tj'));
+      expect(latin1.decode(out.cos.decodeStreamData(cap)),
+          contains('(Page 1) Tj'));
     });
   });
 
@@ -398,6 +759,118 @@ void main() {
       final content = _capContent(out, out.page(0).annotations.single);
       expect(content, contains('0 1 0 rg'));
       expect(content, contains('(Page 1) Tj'));
+    });
+  });
+
+  group('PdfVectorSnapshot polygon clip', () {
+    test('a traced polygon clips the captured content', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final snap = editor.captureVectorSnapshot(
+          0, const PdfRect(0, 0, 100, 100),
+          clip: const [(0, 0), (100, 0), (0, 100)]);
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap);
+      final out = PdfDocument.open(editor.save());
+      final content = _capContent(out, out.page(0).annotations.single);
+      // the triangle is a W n clip path ahead of the page's own drawing
+      final clipAt = content.indexOf('W');
+      expect(content, contains('0 0 m'));
+      expect(content, contains('100 0 l'));
+      expect(content, contains('0 100 l'));
+      expect(clipAt, greaterThanOrEqualTo(0));
+      expect(content.indexOf('1 0 0 rg'), greaterThan(clipAt));
+      expect(snap.displayWidth, 100);
+      expect(snap.displayHeight, 100);
+      // the PDF interchange carries the clip too
+      final exported = PdfDocument.open(snap.toPdfBytes());
+      expect(latin1.decode(exported.page(0).contentBytes()), contains('W\nn'));
+    });
+
+    test('fewer than three vertices captures the plain box', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final snap = editor.captureVectorSnapshot(
+          0, const PdfRect(0, 0, 100, 100),
+          clip: const [(0, 0), (100, 0)]);
+      final exported = PdfDocument.open(snap.toPdfBytes());
+      final content = latin1.decode(exported.page(0).contentBytes());
+      expect(content, contains('re'));
+      expect(content, isNot(contains('W\nn')));
+    });
+  });
+
+  group('PdfVectorSnapshot crop', () {
+    PdfAnnotation pasted(PdfEditor editor, PdfDocument doc) {
+      final snap =
+          editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+      editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap,
+          opacity: 0.5);
+      return doc.page(0).annotations.single;
+    }
+
+    test('crop shrinks the box and clips the captured form', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final stamp = pasted(editor, doc);
+      expect(editor.vectorSnapshotCrop(stamp), isNull);
+      expect(
+          editor.cropVectorSnapshot(0, stamp,
+              crop: const PdfRect(0.5, 0, 1, 0.5),
+              rect: const PdfRect(50, 0, 100, 50)),
+          isTrue);
+
+      final out = PdfDocument.open(editor.save());
+      final outEditor = PdfEditor(out);
+      final cropped = out.page(0).annotations.single;
+      expect(outEditor.isVectorSnapshotStamp(cropped), isTrue);
+      expect(cropped.rect, const PdfRect(50, 0, 100, 50));
+      final crop = outEditor.vectorSnapshotCrop(cropped)!;
+      expect(crop.left, closeTo(0.5, 1e-6));
+      expect(crop.top, closeTo(0.5, 1e-6));
+      final ap = cropped.normalAppearance!;
+      final bbox = pdfRectFrom(out.cos, ap.dictionary['BBox'])!;
+      expect(bbox, const PdfRect(50, 0, 100, 50));
+      final drawing = latin1.decode(out.cos.decodeStreamData(ap));
+      // opacity survives; the box clips; the 200pt capture is drawn at
+      // half scale shifted so its right half lands in the box
+      expect(drawing, contains('/GS0 gs'));
+      expect(drawing, contains('50 0 50 50 re'));
+      expect(drawing, contains('W'));
+      expect(drawing, contains('0.5 0 0 0.5 0 0 cm'));
+      expect(drawing, contains('/Cap Do'));
+      // the captured vectors are untouched
+      expect(_capContent(out, cropped), contains('1 0 0 rg'));
+    });
+
+    test('a full crop restores the uncropped capture', () {
+      final doc = PdfDocument.open(_coloredPagePdf());
+      final editor = PdfEditor(doc);
+      final stamp = pasted(editor, doc);
+      editor.cropVectorSnapshot(0, stamp,
+          crop: const PdfRect(0, 0, 0.5, 0.5),
+          rect: const PdfRect(0, 0, 50, 50));
+      final cropped = doc.page(0).annotations.single;
+      expect(editor.vectorSnapshotCrop(cropped), isNotNull);
+      editor.cropVectorSnapshot(0, cropped,
+          crop: const PdfRect(0, 0, 1, 1), rect: const PdfRect(0, 0, 100, 100));
+      final out = PdfDocument.open(editor.save());
+      final restored = out.page(0).annotations.single;
+      expect(PdfEditor(out).vectorSnapshotCrop(restored), isNull);
+      expect(restored.rect, const PdfRect(0, 0, 100, 100));
+      final drawing =
+          latin1.decode(out.cos.decodeStreamData(restored.normalAppearance!));
+      expect(drawing, isNot(contains('re')));
+    });
+
+    test('an ordinary stamp is not croppable as a snapshot', () {
+      final doc = PdfDocument.open(buildMultiPagePdf(1));
+      final editor = PdfEditor(doc)
+        ..addStamp(0, const PdfRect(0, 0, 120, 40), 'APPROVED');
+      final stamp = doc.page(0).annotations.single;
+      expect(
+          editor.cropVectorSnapshot(0, stamp,
+              crop: const PdfRect(0, 0, 0.5, 0.5)),
+          isFalse);
     });
   });
 }

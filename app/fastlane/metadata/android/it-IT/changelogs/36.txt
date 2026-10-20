@@ -1,0 +1,8 @@
+Novità della versione 4.3.0
+
+- Riduci le dimensioni dei PDF con nuove impostazioni predefinite.
+- Unisci e dividi documenti ed elimina contenuti selezionati.
+- Trova gli strumenti nella tavolozza dei comandi.
+- Scegli nuovi layout e opzioni di stampa.
+- Copia e incolla istantanee vettoriali tra documenti.
+- Scansione corretta e comandi mobili migliorati.

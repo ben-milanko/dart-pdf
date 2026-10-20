@@ -1,0 +1,1 @@
+ocr,markup,highlight,notes,stamps,forms,merge,reader,viewer,password,compare,scan,pages,ink,export

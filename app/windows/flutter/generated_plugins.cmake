@@ -3,9 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  dart_pdf_printing
   desktop_drop
   file_selector_windows
-  printing
+  flutter_doc_scanner
+  flutter_secure_storage_windows
   share_plus
   url_launcher_windows
 )

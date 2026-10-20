@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title data-i18n="nf_metaTitle">Page not found - DartPDF</title>
+<meta name="description" data-i18n-attr="content:nf_metaDesc" content="That page doesn't exist. Head back to DartPDF - the private, local PDF editor for every device." />
+<meta name="robots" content="noindex, follow" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png" />
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+<link rel="manifest" href="/site.webmanifest" />
+<meta name="theme-color" content="#0169b4" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="DartPDF" />
+<meta property="og:title" content="Page not found - DartPDF" />
+<meta property="og:description" content="That page doesn't exist. Head back to DartPDF - the private, local PDF editor for every device." />
+<meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #ffffff;
+    --bg: #fbfcfd;
+    --ink: #202124;
+    --ink-soft: #3c4043;
+    --grey: #6b7177;
+    --grey-muted: #9aa0a6;
+    --line: #e7ebee;
+    --line-soft: #eef2f5;
+    --tint: #c6e3f8;
+    --tint-soft: #eaf5fe;
+    --blue-1: #16bafd;
+    --blue-2: #0169b4;
+    --amber: #ffc93c;
+    --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+    --shadow-sm: 0 1px 2px rgba(32,33,36,.06), 0 1px 3px rgba(32,33,36,.05);
+    --maxw: 880px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; line-height: 1.62;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  a { color: var(--blue-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: rgba(255,201,60,.5); }
+
+  header {
+    background: rgba(251,252,253,.82); backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 28px; height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: inline-flex; align-items: center; gap: 11px; font-weight: 800; font-size: 19px; letter-spacing: -.02em; color: var(--ink); }
+  .brand:hover { text-decoration: none; }
+  .mark { width: 30px; height: 30px; flex: none; }
+  .back { font-size: 15px; font-weight: 600; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 7px; }
+  .back:hover { color: var(--blue-2); text-decoration: none; }
+
+  main { flex: 1 0 auto; width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 84px 28px 96px; }
+
+  /* ---------- 404 mark ---------- */
+  .code {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: clamp(64px, 12vw, 108px); font-weight: 800; line-height: 1;
+    letter-spacing: -.04em;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .code .sheet { width: .82em; height: .82em; flex: none; }
+  h1 { font-size: clamp(30px, 4.4vw, 42px); line-height: 1.14; letter-spacing: -.02em; margin: 22px 0 0; font-weight: 800; text-wrap: balance; }
+  h1 .hl {
+    background-image: linear-gradient(var(--amber), var(--amber));
+    background-repeat: no-repeat; background-position: 0 92%; background-size: 100% .30em;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
+  .lede { margin-top: 20px; font-size: 18px; color: var(--ink-soft); max-width: 60ch; text-wrap: pretty; }
+
+  /* ---------- Buttons ---------- */
+  .actions { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: inherit; font-size: 15px; font-weight: 700;
+    padding: 12px 20px; border-radius: 11px; border: 1px solid transparent;
+    transition: transform .15s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease;
+    white-space: nowrap;
+  }
+  .btn:hover { text-decoration: none; }
+  .btn-primary { background: var(--grad); color: #fff; box-shadow: 0 6px 18px -6px rgba(1,105,180,.6); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -6px rgba(1,105,180,.65); }
+  .btn-ghost { background: var(--paper); color: var(--ink); border-color: var(--line); box-shadow: var(--shadow-sm); }
+  .btn-ghost:hover { border-color: var(--tint); background: var(--tint-soft); transform: translateY(-1px); }
+
+  /* ---------- Link cards ---------- */
+  h2 { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--grey); margin: 56px 0 0; }
+  .links { margin-top: 18px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .link-card {
+    display: block; padding: 18px 20px; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 14px; color: var(--ink);
+    transition: border-color .2s ease, transform .15s ease, box-shadow .2s ease;
+  }
+  .link-card:hover { text-decoration: none; border-color: var(--tint); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .link-card .t { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .link-card .t svg { flex: none; color: var(--blue-2); }
+  .link-card .d { margin-top: 4px; font-size: 14.5px; color: var(--grey); line-height: 1.5; }
+
+  footer { border-top: 1px solid var(--line); background: var(--paper); }
+  .foot { max-width: 1140px; margin: 0 auto; padding: 28px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13.5px; color: var(--grey-muted); }
+  .foot a { color: var(--ink-soft); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    main { padding: 56px 24px 72px; }
+    .actions .btn { flex: 1 1 auto; justify-content: center; }
+    /* the brand already links home, and the page leads with a home CTA */
+    .back { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a class="brand" href="/" aria-label="DartPDF home">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g-ink" x1="6" y1="20" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#16BAFD"/><stop offset="1" stop-color="#0169B4"/></linearGradient></defs>
+          <path d="M7 3.5h12.5L26 10v17.2A1.3 1.3 0 0 1 24.7 28.5H7A1.3 1.3 0 0 1 5.7 27.2V4.8A1.3 1.3 0 0 1 7 3.5Z" fill="#fff" stroke="#d8dde1" stroke-width="1.2"/>
+          <path d="M19.5 3.5 26 10h-5.2A1.3 1.3 0 0 1 19.5 8.7V3.5Z" fill="#eef2f5" stroke="#d8dde1" stroke-width="1.2"/>
+          <rect x="9.4" y="12.2" width="13.2" height="3.5" rx="1.2" fill="#FFC93C"/>
+          <path d="M9.6 21.4c2.2-1.5 4.1-1.5 6.2 0 2.1 1.5 4 1.5 6.2-.2" stroke="url(#g-ink)" stroke-width="2.1" stroke-linecap="round"/>
+        </svg>
+      </span>
+      DartPDF
+    </a>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span data-i18n-switcher></span>
+      <a class="back" href="/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span data-i18n="back_to">Back to DartPDF</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <p class="code" aria-hidden="true">
+    4<span class="sheet">
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+        <path d="M7 3.5h12.5L26 10v17.2A1.3 1.3 0 0 1 24.7 28.5H7A1.3 1.3 0 0 1 5.7 27.2V4.8A1.3 1.3 0 0 1 7 3.5Z" fill="#fff" stroke="#d8dde1" stroke-width="1.2"/>
+        <path d="M19.5 3.5 26 10h-5.2A1.3 1.3 0 0 1 19.5 8.7V3.5Z" fill="#eef2f5" stroke="#d8dde1" stroke-width="1.2"/>
+        <path d="M11 17.5h10M11 22h6.5" stroke="#c9ced3" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="m12.5 11.5 7 7m0-7-7 7" stroke="#FFC93C" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+    </span>4
+  </p>
+
+  <h1 data-i18n-html="nf_h1">This page didn't make the <span class="hl">final draft.</span></h1>
+  <p class="lede" data-i18n="nf_lede">The link may be out of date, or the page may have moved. Nothing is wrong with your PDFs - they never left your device in the first place.</p>
+
+  <div class="actions">
+    <a class="btn btn-primary" href="/" data-i18n="nf_ctaHome">Back to home</a>
+    <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener" data-i18n="nav_openBrowser">Open in browser</a>
+  </div>
+
+  <h2 data-i18n="nf_linksH2">Popular pages</h2>
+  <div class="links">
+    <a class="link-card" href="/#features">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 14h5"/></svg>
+        <span data-i18n="nf_linkFeatures">Features</span>
+      </span>
+      <span class="d" data-i18n="nf_linkFeaturesDesc">Annotate, OCR, forms, signatures, redaction, and text editing.</span>
+    </a>
+    <a class="link-card" href="/#download">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 12 5 5 5-5"/><path d="M4 20h16"/></svg>
+        <span data-i18n="nf_linkDownload">Download</span>
+      </span>
+      <span class="d" data-i18n="nf_linkDownloadDesc">Get DartPDF for Windows, macOS, Linux, iOS, and Android.</span>
+    </a>
+    <a class="link-card" href="/support">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.7.6-.7 1.1v.5"/><path d="M12 17h.01"/></svg>
+        <span data-i18n="nf_linkSupport">Support</span>
+      </span>
+      <span class="d" data-i18n="nf_linkSupportDesc">Common questions, and how to reach us about a bug.</span>
+    </a>
+    <a class="link-card" href="/flutter-pdf-editor">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 8-5 4 5 4"/><path d="m15 8 5 4-5 4"/></svg>
+        <span data-i18n="nf_linkSdk">Flutter PDF editor</span>
+      </span>
+      <span class="d" data-i18n="nf_linkSdkDesc">Embed the viewer and editor in your own Dart or Flutter app.</span>
+    </a>
+    <a class="link-card" href="/privacy">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v6c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6l-7-3Z"/></svg>
+        <span data-i18n="nf_linkPrivacy">Privacy</span>
+      </span>
+      <span class="d" data-i18n="nf_linkPrivacyDesc">No accounts, no analytics, no uploads - here's the policy.</span>
+    </a>
+    <a class="link-card" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
+      <span class="t">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4 1.3-4-2.2-6-2.7m12 5.4v-3.4c0-1 .1-1.4-.5-2 2.3-.3 4.5-1.2 4.5-5a3.9 3.9 0 0 0-1.1-2.7 3.6 3.6 0 0 0-.1-2.7s-.9-.3-3 1.1a10.3 10.3 0 0 0-5.5 0C7.2 5.6 6.3 5.9 6.3 5.9a3.6 3.6 0 0 0-.1 2.7A3.9 3.9 0 0 0 5 11.3c0 3.8 2.2 4.7 4.5 5-.4.4-.5.9-.5 1.5v4.2"/></svg>
+        <span data-i18n="nf_linkSource">Source code</span>
+      </span>
+      <span class="d" data-i18n="nf_linkSourceDesc">The whole engine and app, open source under Apache-2.0.</span>
+    </a>
+  </div>
+</main>
+
+<footer>
+  <div class="foot">
+    <span>© Railway Engineering Solutions</span>
+    <span><a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/">DartPDF</a></span>
+  </div>
+</footer>
+
+<script src="/i18n.js" defer></script>
+</body>
+</html>

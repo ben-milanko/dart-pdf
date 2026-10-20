@@ -3,16 +3,19 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'device.dart';
+import 'image_decode_cache.dart';
 import 'image_pixels.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'recording_device.dart' show RecordingPdfDevice;
 import 'render_command.dart';
 import 'shading.dart';
+import 'text_extraction.dart';
 
 /// Binary (de)serialization for a recorded [PdfRenderCommand] buffer.
 ///
@@ -41,21 +44,49 @@ import 'shading.dart';
 /// interpret synchronously on the UI thread.
 ///
 /// Two cases still decline (the buffer serializes to `null`, and the caller
-/// renders the page on the owning isolate): an INLINE image (`BI .. ID .. EI`),
-/// whose `/CS` may name a page-resource colour space that isn't reachable from
-/// the stream alone; and any image when no `cos` is supplied. Image-free pages
-/// - the dense vector/text pages that also dominate the interpret cost -
-/// serialize regardless.
+/// renders the page on the owning isolate): a COLOUR inline image
+/// (`BI .. ID .. EI`), whose `/CS` may name a page-resource colour space that
+/// isn't reachable from the stream alone; and any image when no `cos` is
+/// supplied. An ImageMask (stencil) inline image has no colour space and
+/// serializes fine (#554), so Type3 bitmap-glyph pages reach the worker.
+/// Image-free pages - the dense vector/text pages that also dominate the
+/// interpret cost - serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
-/// consumer are the same build, shipped together, so a version mismatch is a
-/// programming error, asserted on read.
-const int _formatVersion = 2;
+/// consumer are the same build, shipped together, and nothing persists a
+/// buffer. A mismatch still happens in the field - a stale cached or
+/// self-hosted web worker script, or mismatched editor/assets packages - so it
+/// is checked on read and throws a [FormatException], which every caller
+/// already turns into a local render instead of misparsing the buffer.
+///
+/// Version 10: fills and strokes carry their paint as changes against the
+/// previous fill/stroke ([_writeFillPaint]), and paths are verb and
+/// coordinate blocks rather than interleaved scalars ([_writePath]).
+///
+/// Version 11: a tiled cell's command list is written once per record and
+/// referenced by id after that ([_writeTiledCellReference]), so the cell a
+/// repeated Type3 glyph shares stays one list across the seam.
+///
+/// Version 12: a text run carries its font descriptor's Serif flag
+/// ([PdfTextRun.serif]) after its font name, for the face a substituting
+/// device picks.
+const int _formatVersion = 12;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
 /// the record path and intentionally mirrors `decodeStripPlanMicros`.
 int deserializeCommandsMicros = 0;
+
+/// Selects which otherwise-decodable images [serializeCommands] should turn
+/// into embedded RGBA when `decodeImages` is enabled.
+///
+/// Returning false keeps that image's self-contained source stream in the
+/// command buffer for the consumer's platform codec. Pixels already attached
+/// to [PdfImageRequest.decoded] are always retained regardless of the filter.
+typedef PdfCommandImageDecodeFilter = bool Function(
+  CosDocument document,
+  PdfImageRequest request,
+);
 
 // Command tags. Stable within a build; order mirrors the sealed hierarchy.
 const int _tSave = 0;
@@ -72,6 +103,8 @@ const int _tBeginGroup = 10;
 const int _tEndGroup = 11;
 const int _tBeginSoftMasked = 12;
 const int _tEndSoftMasked = 13;
+const int _tSetOverprint = 14;
+const int _tDrawTiledCell = 15;
 
 /// Thrown internally when an image cannot be serialized (an inline image, or
 /// no [CosDocument] to resolve against); [serializeCommands] catches it and
@@ -95,8 +128,13 @@ class _UnserializableImage implements Exception {
 /// page's vector/text command stream without forcing the caller to render the
 /// whole page locally.
 ///
+/// [imageDecodeFilter] can defer selected images to the consumer's platform
+/// codec while retaining worker decoding for the rest. Deferred images are
+/// excluded from the aggregate embedded-pixel budget. Null preserves the
+/// default of decoding every image supported by the pure-Dart decoder.
+///
 /// [maxImagePixelRatio] (screen pixels per page point, including the device
-/// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
+/// pixel ratio) caps the resolution of each decoded image to the pixels it
 /// covers on screen - a giant raster underlay on a CAD sheet is shipped (and
 /// later rasterized, and cached) at display resolution instead of its native
 /// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
@@ -104,39 +142,68 @@ class _UnserializableImage implements Exception {
 /// re-rasters the page. Null leaves images at native resolution (the historic
 /// behavior). Only consulted when [decodeImages] is true.
 ///
+/// [pageRasterPixels] is how many pixels the raster this buffer will be drawn
+/// into actually has (page area x [maxImagePixelRatio]^2, or the tile's own
+/// width x height). It bounds the *total* decoded image pixels the buffer may
+/// carry to a small multiple of what the raster can ever show. Null falls back
+/// to the full-page raster cap, which is 17 MP - right for a page render,
+/// wildly generous for a 256px thumbnail tile (#603). Only consulted when
+/// [decodeImages] is true.
+///
 /// [imageDecodeRegion], when supplied, is a PDF page-space rectangle for the
-/// visible detail patch. Axis-aligned image draws are decoded only for the
-/// intersecting source pixels and their image transform is retargeted to the
-/// cropped page area; unsupported transforms fall back to the full scaled
-/// decode. The total decoded-image budget is also reduced to the region's own
+/// visible detail patch. Image draws (axis-aligned, rotated, or skewed) are
+/// decoded only for the intersecting source pixels and their image transform
+/// is retargeted to the cropped page area; a degenerate transform falls back
+/// to the full scaled decode. The total decoded-image budget is also reduced to the region's own
 /// raster footprint, rather than the full-page raster budget.
 ///
 /// [compactStateScopes] removes `save`/`restore` pairs whose scope never
-/// changes the device clip. Recorded geometry, image transforms, paint, and
-/// blend state are already explicit in the commands (the interpreter also
-/// emits blend restoration explicitly), so those pairs are redundant for
-/// replay. Clip-bearing scopes remain byte-for-byte ordered. Render workers
-/// enable this to shrink dense command buffers before they cross to the UI
-/// isolate; the default stays false so the public codec remains a lossless
-/// command-transcript round trip.
+/// changes the device clip or opens a layer inside it ([_ScopeCompactor]).
+/// Recorded geometry, image transforms, paint, and blend state are already
+/// explicit in the commands (the interpreter also emits blend restoration
+/// explicitly), so those pairs are redundant for replay. Render workers enable
+/// this to shrink dense command buffers before they cross to the UI isolate;
+/// the default stays false so the public codec remains a lossless
+/// command-transcript round trip. [PdfStreamingCommandWriter] writes the
+/// same compacted bytes while the page is still being interpreted.
 /// The page raster never exceeds this many pixels (the viewer's full-page
-/// raster cap), so it is also the natural unit for the page image budget.
+/// raster cap), so it is the ceiling on the page image budget - the fallback
+/// unit when the caller does not say what raster the buffer is drawn into.
 const int _maxImagePixels = 1 << 24;
 
-/// Total decoded image pixels per page are bounded to this multiple of
-/// [_maxImagePixels]. The per-image cap keeps each image near its own
-/// on-screen footprint, but a sheet layered from dozens of overlapping raster
-/// tiles can still sum to many times the page raster - only the topmost layer
-/// per pixel is ever shown, so the rest is decoded, shipped, and cached for
-/// nothing. This ceiling (~17 MP at the default) scales every image down to
-/// fit, bounding the command buffer and the decoded-image cache no matter how
-/// the sheet is layered. Larger keeps more sharpness on heavy overlap at the
-/// cost of a bigger payload.
+/// Total decoded image pixels per page are bounded to this multiple of the
+/// raster the buffer is drawn into. The per-image cap keeps each image near
+/// its own on-screen footprint, but a sheet layered from dozens of overlapping
+/// raster tiles can still sum to many times the page raster - only the topmost
+/// layer per pixel is ever shown, so the rest is decoded, shipped, and cached
+/// for nothing. This ceiling scales every image down to fit, bounding the
+/// command buffer and the decoded-image cache no matter how the sheet is
+/// layered. Larger keeps more sharpness on heavy overlap at the cost of a
+/// bigger payload.
 const double _imageBudgetFactor = 1.0;
 
+/// The per-image cap ([cappedImagePixelSize]) keeps this much linear headroom
+/// over an image's on-screen footprint, so ONE full-bleed image legitimately
+/// carries this squared times the raster's pixels. The page budget starts
+/// there, otherwise a single underlay would trip it on its own.
+const double _imageBudgetHeadroom = 1.0;
+
 int _imageBudgetPixels(double ratio, double factor,
-    {PdfRect? imageDecodeRegion}) {
+    {PdfRect? imageDecodeRegion, int? pageRasterPixels}) {
   var budget = (factor * _maxImagePixels).round();
+  // What the buffer is actually drawn into. `_maxImagePixels` is only the
+  // *cap* on a full-page raster; a 256px thumbnail tile rasterizes ~85k
+  // pixels, and budgeting it 17 MP of decoded images (200x what it can ever
+  // show) is what let warm thumbnails ship ~10 MB records - and pay for every
+  // one of those pixels again as main-thread `ui.Image` work at replay (#603).
+  if (pageRasterPixels != null && pageRasterPixels > 0) {
+    final scaled = (factor *
+            _imageBudgetHeadroom *
+            _imageBudgetHeadroom *
+            pageRasterPixels)
+        .round();
+    if (scaled > 0 && scaled < budget) budget = scaled;
+  }
   if (imageDecodeRegion != null &&
       imageDecodeRegion.width > 0 &&
       imageDecodeRegion.height > 0 &&
@@ -151,133 +218,167 @@ int _imageBudgetPixels(double ratio, double factor,
   return budget;
 }
 
+/// How many pixels a page whose media/crop box is [box] rasterizes into at
+/// [ratio] screen pixels per page point - `serializeCommands`'s
+/// `pageRasterPixels`.
+///
+/// The render worker calls this for every record it serializes: it knows both
+/// the page box and the ratio the caller asked for, so the buffer's image
+/// budget can follow the raster the caller will actually draw (a 256px
+/// thumbnail tile, a full-resolution page) instead of the worst-case full-page
+/// raster cap. Null when [ratio] or the box is degenerate - the codec then
+/// falls back to that cap, the historic behaviour.
+int? pdfPageRasterPixels(PdfRect box, double? ratio) {
+  if (ratio == null || !(ratio > 0)) return null;
+  final width = box.width * ratio;
+  final height = box.height * ratio;
+  if (!(width > 0) || !(height > 0)) return null;
+  final pixels = width * height;
+  if (!pixels.isFinite) return null;
+  return pixels.ceil();
+}
+
+/// The shared page-wide decoded-image scale used by [serializeCommands].
+///
+/// Browser render workers use this before serialization when they predecode a
+/// Flate stream asynchronously. Exposing the exact calculation keeps that
+/// predecode at the same dimensions as the subsequent command serializer;
+/// otherwise layered pages can be decoded at native size only to be capped a
+/// second time by the page raster budget.
+double pdfCommandImageBudgetScale(
+  List<PdfRenderCommand> commands,
+  CosDocument cos,
+  double ratio, {
+  PdfRect? imageDecodeRegion,
+  double imageBudgetFactor = _imageBudgetFactor,
+  int? pageRasterPixels,
+}) {
+  if (!(ratio > 0)) return 1;
+  return _imageBudgetScale(
+    commands,
+    cos,
+    ratio,
+    _imageBudgetPixels(
+      ratio,
+      imageBudgetFactor,
+      imageDecodeRegion: imageDecodeRegion,
+      pageRasterPixels: pageRasterPixels,
+    ),
+    imageDecodeRegion: imageDecodeRegion,
+  );
+}
+
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
     double? maxImagePixelRatio,
     PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
+    int? pageRasterPixels,
     bool imagePlaceholders = false,
     int? commandLimit,
+    PdfImageDecodeCache? imageCache,
+    PdfCommandImageDecodeFilter? imageDecodeFilter,
     bool compactStateScopes = false}) {
-  final wireCommands = compactStateScopes
-      ? _compactStateScopes(commands, commandLimit: commandLimit)
-      : commands;
   final w = _Writer();
   w.u8(_formatVersion);
   // Page-pixel budget: a global downscale applied on top of the per-image
   // cap so the sum of all decoded images fits within a few page rasters. 1.0
   // (no-op) unless decoding with a per-image cap active and the page's images
-  // overflow the budget.
+  // overflow the budget. A compacted record counts the images of the
+  // command-limited prefix it writes (compaction never drops an image); an
+  // uncompacted one has always counted the whole list.
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
-    budgetScale = _imageBudgetScale(
-        wireCommands,
-        cos,
-        maxImagePixelRatio,
-        _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
-            imageDecodeRegion: imageDecodeRegion),
-        imageDecodeRegion: imageDecodeRegion);
+    final limited = compactStateScopes &&
+        commandLimit != null &&
+        commandLimit < commands.length;
+    budgetScale = pdfCommandImageBudgetScale(
+      limited ? commands.sublist(0, math.max(0, commandLimit)) : commands,
+      cos,
+      maxImagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
+      imageBudgetFactor: imageBudgetFactor,
+      pageRasterPixels: pageRasterPixels,
+    );
   }
   try {
-    _writeCommands(w, wireCommands, cos,
+    _writeCommands(w, commands, cos,
         decode: decodeImages,
         maxImageRatio: maxImagePixelRatio,
         imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
         imagePlaceholders: imagePlaceholders && !decodeImages,
-        commandLimit: compactStateScopes ? null : commandLimit);
+        imageCache: imageCache,
+        imageDecodeFilter: imageDecodeFilter,
+        commandLimit: commandLimit,
+        compact: compactStateScopes);
   } on _UnserializableImage {
     return null;
   }
   return w.takeBytes();
 }
 
-/// Drops replay-state scopes that cannot change rendering.
+/// Online replay-state scope compaction, shared by [serializeCommands]
+/// (`compactStateScopes`) and [PdfStreamingCommandWriter] so the two write the
+/// same bytes by construction.
 ///
 /// A recorded `q`/`Q` pair only has an observable device effect when a clip
-/// is installed at that same nesting depth. Paths are already transformed to
+/// is installed inside it, or a layer (group, soft mask, tiled cell) opens
+/// inside it - a layer brackets its own device save, and a scope that is
+/// written only once a later clip arrives would otherwise land inside that
+/// layer while its restore lands outside. Paths are already transformed to
 /// page space, every paint command owns its complete style, images own their
 /// transform, and the interpreter emits an explicit blend-mode command when
-/// `Q` restores a different blend. Nested clip scopes protect themselves, so
-/// they do not make an otherwise empty parent scope necessary.
+/// `Q` restores a different blend.
 ///
-/// The command prefix is taken before compaction to preserve [commandLimit]'s
-/// existing preview semantics. Unbalanced prefixes keep their unmatched
-/// state commands. Soft-mask callback transcripts are compacted recursively.
-List<PdfRenderCommand> _compactStateScopes(
-  List<PdfRenderCommand> commands, {
-  int? commandLimit,
-}) {
-  final length = commandLimit == null
-      ? commands.length
-      : math.min(commands.length, math.max(0, commandLimit));
-  final keep = Uint8List(length)..fillRange(0, length, 1);
-  final saveIndices = <int>[];
-  final clipped = <bool>[];
-  var removed = 0;
+/// The decision is made as commands arrive, so a streamed record can be
+/// written without looking ahead:
+/// - `save` opens a *pending* scope and writes nothing;
+/// - before a clip, a group, a soft mask or a tiled cell, every pending scope
+///   is written ([flush]), outermost first. So the written scopes are always
+///   a bottom prefix of the open ones, and the device's save stack can never
+///   be inverted;
+/// - `restore` is written only when its scope was; a restore with no open
+///   scope is written as is;
+/// - scopes still pending when the list (or a partial) ends are not written.
+///
+/// Each soft-mask command list gets its own compactor; tiled-cell bodies are
+/// written uncompacted.
+final class _ScopeCompactor {
+  /// Per open scope: 1 once its `save` was written.
+  Uint8List _written = Uint8List(16);
+  int _depth = 0;
 
-  for (var i = 0; i < length; i++) {
-    switch (commands[i]) {
-      case PdfSaveCommand():
-        saveIndices.add(i);
-        clipped.add(false);
-      case PdfClipPathCommand():
-        if (clipped.isNotEmpty) clipped[clipped.length - 1] = true;
-      case PdfRestoreCommand():
-        if (saveIndices.isEmpty) break;
-        final save = saveIndices.removeLast();
-        final scopeClipped = clipped.removeLast();
-        if (!scopeClipped) {
-          keep[save] = 0;
-          keep[i] = 0;
-          removed += 2;
-        }
-      default:
-        break;
+  void save() {
+    if (_depth == _written.length) {
+      _written = Uint8List(_depth * 2)..setRange(0, _depth, _written);
     }
+    _written[_depth++] = 0;
   }
 
-  final out = List<PdfRenderCommand>.filled(
-    length - removed,
-    const PdfSaveCommand(),
-    growable: false,
-  );
-  var outputIndex = 0;
-  for (var i = 0; i < length; i++) {
-    if (keep[i] == 0) continue;
-    final command = commands[i];
-    if (command
-        case PdfEndSoftMaskedCommand(
-          :final luminosity,
-          :final backdrop,
-          :final maskCommands,
-          :final backdropLuminance,
-          :final transferScale,
-          :final transferOffset,
-        )) {
-      out[outputIndex++] = PdfEndSoftMaskedCommand(
-        luminosity: luminosity,
-        backdrop: backdrop,
-        maskCommands: _compactStateScopes(maskCommands),
-        backdropLuminance: backdropLuminance,
-        transferScale: transferScale,
-        transferOffset: transferOffset,
-      );
-    } else {
-      out[outputIndex++] = command;
+  /// Whether this `restore` is written.
+  bool restore() => _depth == 0 || _written[--_depth] == 1;
+
+  /// Marks every pending scope written and returns how many `save`s to write
+  /// (all the same byte, so their order needs no bookkeeping).
+  int flush() {
+    var n = 0;
+    for (var d = _depth - 1; d >= 0 && _written[d] == 0; d--) {
+      _written[d] = 1;
+      n++;
     }
+    return n;
   }
-  return out;
 }
 
 /// Linear downscale to apply to every image so the sum of the per-image-capped
 /// target areas fits within [budgetPixels]. 1.0 when the page already fits.
 /// Walks declared image dimensions only (no decode), descending soft-mask
 /// groups, so it is a cheap pre-pass before the decoding write pass. Images
-/// that ship un-decoded (platform-codec path) are counted too, so the scale is
-/// conservative when those are mixed in - acceptable, and they are rare on the
-/// raster-tiled sheets this targets.
+/// that ship un-decoded are counted too: they still consume decoded pixels in
+/// the consumer, and excluding them would let the remaining worker images
+/// monopolize the page budget before those local decodes even begin.
 double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
     double ratio, int budgetPixels,
     {PdfRect? imageDecodeRegion}) {
@@ -291,17 +392,26 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
         if (regionPlan != null) {
           total += regionPlan.targetWidth * regionPlan.targetHeight;
         } else {
-          final size = _declaredImageSize(cos, c.request.stream);
+          final size = _declaredCompositeImageSize(cos, c.request.stream);
           if (size == null) continue;
           final t = c.request.transform;
           final wPts = math.sqrt(t.a * t.a + t.b * t.b);
           final hPts = math.sqrt(t.c * t.c + t.d * t.d);
-          final (tw, th) =
-              cappedImagePixelSize(size.$1, size.$2, wPts, hPts, ratio);
+          final (tw, th) = cappedImagePixelSize(
+            size.$1,
+            size.$2,
+            wPts,
+            hPts,
+            ratio,
+            headroom: _imageBudgetHeadroom,
+          );
           total += tw * th;
         }
       } else if (c is PdfEndSoftMaskedCommand) {
         walk(c.maskCommands);
+      } else if (c is PdfDrawTiledCellCommand) {
+        // A cell's images decode once and stamp per tile - count them once.
+        walk(c.cellCommands);
       }
     }
   }
@@ -320,13 +430,32 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
   return (w, h);
 }
 
+/// The resolution carried by an image after a separate `/SMask` or stencil
+/// `/Mask` is applied. A scanner's MRC colour plane is commonly 75 DPI while
+/// its 1-bit text mask is 300 DPI; the composited image can resolve the mask's
+/// pixels, so treating only the colour plane as native crushes text detail and
+/// also prevents the display-resolution cap from engaging.
+(int, int)? _declaredCompositeImageSize(CosDocument cos, CosStream stream) {
+  final base = _declaredImageSize(cos, stream);
+  if (base == null) return null;
+  final dict = stream.dictionary;
+  final softMask = cos.resolve(dict['SMask']);
+  final mask = softMask is CosStream ? softMask : cos.resolve(dict['Mask']);
+  if (mask is! CosStream) return base;
+  final maskSize = _declaredImageSize(cos, mask);
+  if (maskSize == null || maskSize.$1 * maskSize.$2 <= base.$1 * base.$2) {
+    return base;
+  }
+  return maskSize;
+}
+
 int? _cosInt(CosObject? o) {
   if (o is CosInteger) return o.value;
   if (o is CosReal) return o.value.round();
   return null;
 }
 
-/// Returns [decoded] resampled down to ~2× the pixels it occupies on screen
+/// Returns [decoded] resampled down to the pixels it occupies on screen
 /// (see [cappedImagePixelSize], whose ceilings match the viewer's full-page
 /// raster caps so a sheet-sized underlay stays within a GPU texture limit and
 /// the decoded-image cache), or unchanged when it already fits. [transform]
@@ -342,7 +471,13 @@ PdfDecodedPixels _capImageResolution(
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
   final capped = cappedImagePixelSize(
-      decoded.width, decoded.height, widthPts, heightPts, ratio);
+    decoded.width,
+    decoded.height,
+    widthPts,
+    heightPts,
+    ratio,
+    headroom: _imageBudgetHeadroom,
+  );
   var tw = capped.$1;
   var th = capped.$2;
   if (budgetScale < 1.0) {
@@ -357,11 +492,109 @@ PdfDecodedPixels _capImageResolution(
 List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   final sw = Stopwatch()..start();
   final r = _Reader(bytes);
-  final version = r.u8();
-  assert(version == _formatVersion, 'render command format version mismatch');
+  _checkFormatVersion(r.u8(), 'render command');
   final commands = _readCommands(r);
   deserializeCommandsMicros += sw.elapsedMicroseconds;
   return commands;
+}
+
+/// The number of top-level commands in a buffer written by
+/// [serializeCommands] - the length [deserializeCommands] would return - read
+/// from the header without decoding anything, or null when [bytes] is not a
+/// buffer this build can read.
+///
+/// A worker reply's size is what decides whether its UI-isolate decode and
+/// replay may run during a scroll; this lets a host make that call before
+/// paying for the decode (#998).
+int? serializedCommandCount(Uint8List bytes) {
+  if (bytes.length < 5 || bytes[0] != _formatVersion) return null;
+  return ByteData.sublistView(bytes).getUint32(1);
+}
+
+/// A buffer from another format version cannot be read - the layout changes
+/// between versions - so it fails here, before anything is parsed, rather than
+/// half-way through as a misread count or a plausible-looking wrong page.
+void _checkFormatVersion(int version, String codec) {
+  if (version != _formatVersion) {
+    throw FormatException(
+        '$codec buffer is format version $version, this build reads '
+        '$_formatVersion');
+  }
+}
+
+/// Serializes an extracted [PdfPageText] for the render worker → UI-isolate hop
+/// (#396: off-thread text extraction). It is plain data - the page index, the
+/// page text, and each run's geometry - so it crosses the boundary as a compact
+/// byte buffer instead of a graph copy. The search quads/rects a match needs are
+/// recomputed from the runs on the UI isolate, so they are not serialized.
+Uint8List serializePageText(PdfPageText page) {
+  final w = _Writer();
+  w.u8(_formatVersion);
+  w.u32(page.pageIndex);
+  w.str(page.text);
+  w.u32(page.runs.length);
+  for (final run in page.runs) {
+    w.str(run.text);
+    w.u32(run.startIndex);
+    w.boolean(run.mcid != null);
+    w.u32(run.mcid ?? 0);
+    _writeMatrix(w, run.transform);
+    w.f64(run.width);
+    w.f64(run.descent);
+    w.f64(run.ascent);
+    _writeRect(w, run.bounds);
+    w.boolean(run.isRightToLeft);
+    // Per-character advances (issue #647) - without them the UI isolate falls
+    // back to interpolating a highlight across the run and misses the glyphs.
+    final offsets = run.charOffsets;
+    if (offsets == null) {
+      w.u32(0);
+    } else {
+      w.f64List(offsets);
+    }
+  }
+  return w.takeBytes();
+}
+
+/// Reconstructs the [PdfPageText] written by [serializePageText].
+PdfPageText deserializePageText(Uint8List bytes) {
+  final r = _Reader(bytes);
+  _checkFormatVersion(r.u8(), 'page-text');
+  final pageIndex = r.u32();
+  final text = r.str();
+  final count = r.u32();
+  final runs = <PdfExtractedRun>[];
+  for (var i = 0; i < count; i++) {
+    final runText = r.str();
+    final startIndex = r.u32();
+    final hasMcid = r.boolean();
+    final mcid = r.u32();
+    final transform = _readMatrix(r);
+    final width = r.f64();
+    final descent = r.f64();
+    final ascent = r.f64();
+    final bounds = _readRect(r);
+    final isRightToLeft = r.boolean();
+    final offsetCount = r.u32();
+    final offsets = offsetCount == 0 ? null : r.f64s(offsetCount);
+    runs.add(PdfExtractedRun(
+      text: runText,
+      startIndex: startIndex,
+      mcid: hasMcid ? mcid : null,
+      transform: transform,
+      width: width,
+      descent: descent,
+      ascent: ascent,
+      bounds: bounds,
+      // A table of the wrong length would throw out of quadsFor; drop it and
+      // interpolate instead, like a run that never carried one.
+      charOffsets: offsets != null && offsets.length == runText.length + 1
+          ? offsets
+          : null,
+      isRightToLeft: isRightToLeft,
+    ));
+  }
+  return PdfPageText(pageIndex: pageIndex, text: text, runs: runs);
 }
 
 void _writeCommands(
@@ -371,20 +604,63 @@ void _writeCommands(
     PdfRect? imageDecodeRegion,
     double budgetScale = 1.0,
     bool imagePlaceholders = false,
-    int? commandLimit}) {
+    PdfImageDecodeCache? imageCache,
+    PdfCommandImageDecodeFilter? imageDecodeFilter,
+    int? commandLimit,
+    bool compact = false}) {
   final length = commandLimit == null
       ? commands.length
       : math.min(commands.length, math.max(0, commandLimit));
-  w.u32(length);
+  if (!compact) {
+    w.u32(length);
+    for (var i = 0; i < length; i++) {
+      _writeCommand(w, commands[i], cos,
+          decode: decode,
+          maxImageRatio: maxImageRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          budgetScale: budgetScale,
+          imagePlaceholders: imagePlaceholders,
+          imageCache: imageCache,
+          imageDecodeFilter: imageDecodeFilter);
+    }
+    return;
+  }
+  // The count is only known once the scopes are decided: reserve, then patch.
+  final countAt = w._len;
+  w.u32(0);
+  final scopes = _ScopeCompactor();
+  var written = 0;
   for (var i = 0; i < length; i++) {
     final command = commands[i];
+    switch (command) {
+      case PdfSaveCommand():
+        scopes.save();
+        continue;
+      case PdfRestoreCommand():
+        if (!scopes.restore()) continue;
+      case PdfClipPathCommand() ||
+            PdfBeginGroupCommand() ||
+            PdfBeginSoftMaskedCommand() ||
+            PdfDrawTiledCellCommand():
+        for (var n = scopes.flush(); n > 0; n--) {
+          w.u8(_tSave);
+          written++;
+        }
+      default:
+        break;
+    }
     _writeCommand(w, command, cos,
         decode: decode,
         maxImageRatio: maxImageRatio,
         imageDecodeRegion: imageDecodeRegion,
         budgetScale: budgetScale,
-        imagePlaceholders: imagePlaceholders);
+        imagePlaceholders: imagePlaceholders,
+        imageCache: imageCache,
+        imageDecodeFilter: imageDecodeFilter,
+        compact: true);
+    written++;
   }
+  w._view.setUint32(countAt, written);
 }
 
 List<PdfRenderCommand> _readCommands(_Reader r) {
@@ -404,12 +680,17 @@ List<PdfRenderCommand> _readCommands(_Reader r) {
   return out;
 }
 
+/// Writes one command. [compact] compacts the state scopes of a soft mask's
+/// nested list ([_ScopeCompactor]); a tiled cell's body is never compacted.
 void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     {bool decode = false,
     double? maxImageRatio,
     PdfRect? imageDecodeRegion,
     double budgetScale = 1.0,
-    bool imagePlaceholders = false}) {
+    bool imagePlaceholders = false,
+    PdfImageDecodeCache? imageCache,
+    PdfCommandImageDecodeFilter? imageDecodeFilter,
+    bool compact = false}) {
   switch (command) {
     case PdfSaveCommand():
       w.u8(_tSave);
@@ -423,9 +704,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       ):
       w.u8(_tFillPath);
       _writePath(w, path);
-      _writeColor(w, color);
-      w.u8(rule.index);
-      w.f64(alpha);
+      _writeFillPaint(w, color, rule, alpha);
     case PdfFillPathGradientCommand(
         :final path,
         :final rule,
@@ -449,9 +728,7 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       ):
       w.u8(_tStrokePath);
       _writePath(w, path);
-      _writeColor(w, color);
-      _writeStroke(w, stroke);
-      w.f64(alpha);
+      _writeStrokePaint(w, color, stroke, alpha);
     case PdfClipPathCommand(:final path, :final rule):
       w.u8(_tClipPath);
       _writePath(w, path);
@@ -460,39 +737,79 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.u8(_tDrawText);
       _writeTextRun(w, run);
     case PdfDrawImageCommand(:final request):
-      // Inline images can name a page-resource colour space unreachable from
-      // the stream alone; decline them. XObjects serialize as a self-contained
-      // (inline-resolved, decrypted) stream subgraph - any failure inlining or
-      // decrypting it declines too, so the page falls back to a local render
-      // rather than shipping a broken image.
-      if (request.isInline || cos == null) {
+      // A COLOUR inline image can name a page-resource colour space unreachable
+      // from the stream alone; decline it. An ImageMask (stencil) inline image
+      // has no colour space - its paint is the stencil colour on the request -
+      // so its stream is fully self-contained and serializes like any other
+      // stencil (XObject ImageMasks already take the else branch). This is what
+      // lets Type3 bitmap-glyph pages reach the worker (#554). XObjects serialize
+      // as a self-contained (inline-resolved, decrypted) stream subgraph - any
+      // failure inlining or decrypting it declines too, so the page falls back
+      // to a local render rather than shipping a broken image.
+      final declineInline = request.isInline && !request.isStencil;
+      if (declineInline || cos == null) {
         if (!imagePlaceholders) throw const _UnserializableImage();
-        _writeImageCommand(w, request, _imagePlaceholderStream, null);
+        _writeImageCommand(w, request, _imagePlaceholderStream, null, null);
       } else {
         final document = cos;
         _CommandImage? decodedImage;
-        if (decode) {
-          decodedImage = _decodeImageForCommand(
-              document, request, maxImageRatio, budgetScale, imageDecodeRegion);
+        if (decode &&
+            (request.decoded != null ||
+                imageDecodeFilter == null ||
+                imageDecodeFilter(document, request))) {
+          final imageT0 = PdfPerf.begin();
+          try {
+            decodedImage = _decodeImageForCommand(document, request,
+                maxImageRatio, budgetScale, imageDecodeRegion, imageCache);
+          } finally {
+            PdfPerf.end(PdfPerfPhase.imageDecode, imageT0);
+          }
         }
-        CosObject inlined;
-        try {
-          inlined = decodedImage?.streamForKey ??
-              _inlineCos(document, request.stream, 0);
-        } catch (_) {
-          if (!imagePlaceholders) throw const _UnserializableImage();
-          inlined = _imagePlaceholderStream;
+        CosReference? sourceReference;
+        CosObject? inlined = decodedImage?.streamForKey;
+        if (inlined == null) {
+          sourceReference =
+              request.sourceReference ?? document.referenceTo(request.stream);
+          if (sourceReference == null) {
+            try {
+              inlined = _inlineCos(document, request.stream, 0);
+            } catch (_) {
+              if (!imagePlaceholders) throw const _UnserializableImage();
+              inlined = _imagePlaceholderStream;
+            }
+          }
         }
-        _writeImageCommand(w, decodedImage?.request ?? request, inlined,
-            decodedImage?.decoded);
+        _writeImageCommand(
+          w,
+          decodedImage?.request ?? request,
+          inlined,
+          sourceReference,
+          decodedImage?.decoded,
+        );
       }
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
       w.u8(mode.index);
-    case PdfBeginGroupCommand(:final alpha, :final knockout):
+    case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
+      w.u8(_tSetOverprint);
+      w.boolean(fill);
+      w.boolean(stroke);
+      w.u8(mode);
+    case PdfBeginGroupCommand(
+        :final alpha,
+        :final knockout,
+        :final isolated,
+        :final bounds,
+        :final backdropColor
+      ):
       w.u8(_tBeginGroup);
       w.f64(alpha);
       w.boolean(knockout);
+      w.boolean(isolated);
+      w.boolean(bounds != null);
+      if (bounds != null) _writeRect(w, bounds);
+      w.boolean(backdropColor != null);
+      if (backdropColor != null) _writeColor(w, backdropColor);
     case PdfEndGroupCommand():
       w.u8(_tEndGroup);
     case PdfBeginSoftMaskedCommand():
@@ -505,20 +822,110 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
         :final transferScale,
         :final transferOffset
       ):
-      w.u8(_tEndSoftMasked);
-      w.boolean(luminosity);
-      _writeRect(w, backdrop);
-      w.f64(backdropLuminance);
-      w.f64(transferScale);
-      w.f64(transferOffset);
+      _writeEndSoftMaskedHeader(w, luminosity, backdrop, backdropLuminance,
+          transferScale, transferOffset);
       _writeCommands(w, maskCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
           imageDecodeRegion: imageDecodeRegion,
           budgetScale: budgetScale,
-          imagePlaceholders: imagePlaceholders); // nested
+          imagePlaceholders: imagePlaceholders,
+          imageCache: imageCache,
+          imageDecodeFilter: imageDecodeFilter,
+          compact: compact); // nested
+    case PdfDrawTiledCellCommand(
+        :final cellCommands,
+        :final originsX,
+        :final originsY
+      ):
+      w.u8(_tDrawTiledCell);
+      w.f64List(originsX);
+      w.f64List(originsY);
+      if (_writeTiledCellReference(w, cellCommands)) return;
+      _writeCommands(w, cellCommands, cos,
+          decode: decode,
+          maxImageRatio: maxImageRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          budgetScale: budgetScale,
+          imagePlaceholders: imagePlaceholders,
+          imageCache: imageCache,
+          imageDecodeFilter: imageDecodeFilter); // nested
   }
 }
+
+/// Everything an end-soft-masked record writes before its nested command
+/// list (shared with [PdfStreamingCommandWriter.endSoftMasked]).
+void _writeEndSoftMaskedHeader(_Writer w, bool luminosity, PdfRect backdrop,
+    double backdropLuminance, double transferScale, double transferOffset) {
+  w.u8(_tEndSoftMasked);
+  w.boolean(luminosity);
+  _writeRect(w, backdrop);
+  w.f64(backdropLuminance);
+  w.f64(transferScale);
+  w.f64(transferOffset);
+}
+
+/// Writes a tiled cell's identity tag, and returns true when that is all the
+/// cell needs: its command list was already written earlier in this record.
+///
+/// The interpreter records a Type3 glyph once and stamps it per occurrence as
+/// a single-origin [PdfDrawTiledCellCommand] that shares the one recorded
+/// list (#535). Written in full per occurrence, a page of bitmap-font text
+/// carried every glyph's commands - and its image pixels - once per letter
+/// (35,128 stamps of 156 cells over six pages of a TeX PK font document), and
+/// the reader then built a fresh list per stamp, so the canvas's picture cache
+/// keyed on that list missed on every one.
+///
+/// Tag byte: 1 = the cell's commands follow (and take the next id), 2 = a u32
+/// id of a cell already written in this record. Keyed by list identity, as
+/// the recorder shares it. A back-reference writes nothing else - the paint
+/// state ([_writeFillPaint]) does not advance through it on either side, so
+/// what follows is still a change against the last paint actually written.
+///
+/// Every occurrence of a shared cell used to serialize to the same bytes:
+/// its images carry the cell's own transform and the page-wide budget scale,
+/// and their decode is deterministic. So the back-reference is the same
+/// record, minus the repetition.
+bool _writeTiledCellReference(_Writer w, List<PdfRenderCommand> cellCommands) {
+  final existing = w._cellIds[cellCommands];
+  if (existing != null) {
+    w.u8(2);
+    w.u32(existing);
+    return true;
+  }
+  w._cellIds[cellCommands] = w._cellIds.length;
+  w.u8(1);
+  return false;
+}
+
+/// Reads the cell list a tiled-cell command draws ([_writeTiledCellReference]).
+/// A cell body's slot is reserved before the body is read, so a cell nested
+/// in it numbers after it, exactly as the writer counted them.
+List<PdfRenderCommand> _readTiledCell(_Reader r) {
+  switch (r.u8()) {
+    case 1:
+      final slot = r._cells.length;
+      r._cells.add(_pendingCell);
+      final cell = _readCommands(r);
+      r._cells[slot] = cell;
+      return cell;
+    case 2:
+      final id = r.u32();
+      if (id >= r._cells.length) {
+        throw FormatException('tiled cell id $id out of range');
+      }
+      final cell = r._cells[id];
+      if (identical(cell, _pendingCell)) {
+        throw FormatException('tiled cell $id referenced inside its own body');
+      }
+      return cell;
+    default:
+      throw const FormatException('unknown tiled cell tag');
+  }
+}
+
+/// Marks a reader cell slot whose body is still being read.
+const List<PdfRenderCommand> _pendingCell = <PdfRenderCommand>[];
 
 _CommandImage? _decodeImageForCommand(
   CosDocument document,
@@ -526,6 +933,7 @@ _CommandImage? _decodeImageForCommand(
   double? maxImageRatio,
   double budgetScale,
   PdfRect? imageDecodeRegion,
+  PdfImageDecodeCache? imageCache,
 ) {
   final predecoded = request.decoded;
   final regionPlan = imageDecodeRegion == null
@@ -533,52 +941,71 @@ _CommandImage? _decodeImageForCommand(
       : _imageRegionPlan(
           document, request, imageDecodeRegion, maxImageRatio, budgetScale);
   if (regionPlan != null) {
-    var decoded = regionPlan.outside
-        ? _transparentPixel
-        : predecoded == null
-            ? decodePdfImagePixelsRegionScaled(
-                document,
-                request.stream,
-                regionPlan.sourceX,
-                regionPlan.sourceY,
-                regionPlan.sourceWidth,
-                regionPlan.sourceHeight,
-                regionPlan.targetWidth,
-                regionPlan.targetHeight,
-              )
-            : _cropDownsampleDecodedPixels(
-                predecoded,
-                regionPlan.sourceX,
-                regionPlan.sourceY,
-                regionPlan.sourceWidth,
-                regionPlan.sourceHeight,
-                regionPlan.targetWidth,
-                regionPlan.targetHeight,
-              );
-    // The fast region decoder ([decodePdfImagePixelsRegionScaled]) only handles
-    // single-filter Flate RGB/gray/indexed streams; for any other image the
-    // general decoder handles - an Indexed 8-bit palette, an /SMask'd logo, an
-    // ICC/Lab/Separation colour space, 16-bit, a stacked filter - it returns
-    // null. Falling through from here would leave the visible slice at the
-    // full-page 2x cap, so those images stay soft under deep zoom while vector
-    // text sharpens - the exact asymmetry the detail patch exists to remove.
-    // Decode the whole image once and crop+downsample it to the visible region
-    // instead, so every decodable image type re-sharpens on zoom. (Images that
-    // need the platform JPEG codec still decode null here and ship un-decoded
-    // at native resolution, so they are already sharp.)
-    if (decoded == null && !regionPlan.outside && predecoded == null) {
-      final full = decodePdfImagePixels(document, request.stream);
-      if (full != null) {
-        decoded = _cropDownsampleDecodedPixels(
-          full,
-          regionPlan.sourceX,
-          regionPlan.sourceY,
-          regionPlan.sourceWidth,
-          regionPlan.sourceHeight,
-          regionPlan.targetWidth,
-          regionPlan.targetHeight,
-        );
-      }
+    // The façade decodes just the visible slice: the fast region decoder for
+    // single-filter Flate/CCITT streams, else a full decode cropped and
+    // downsampled to the region (so an Indexed-8/ICC/Lab/16-bit/SMask'd image
+    // re-sharpens on deep zoom instead of staying at the full-page cap).
+    // Images that need the platform JPEG codec decode null and ship
+    // un-decoded at native resolution, so they are already sharp. When we
+    // already hold decoded pixels, crop those directly.
+    final region = PdfImageRegion(regionPlan.sourceX, regionPlan.sourceY,
+        regionPlan.sourceWidth, regionPlan.sourceHeight);
+    final PdfDecodedPixels? decoded;
+    if (regionPlan.outside) {
+      decoded = _transparentPixel;
+    } else if (predecoded != null) {
+      decoded = cropDownsamplePdfDecodedPixels(
+        predecoded,
+        regionPlan.sourceX,
+        regionPlan.sourceY,
+        regionPlan.sourceWidth,
+        regionPlan.sourceHeight,
+        regionPlan.targetWidth,
+        regionPlan.targetHeight,
+      );
+    } else if (request.isLuminosityMask) {
+      // A luminosity decode ignores the region: it decodes the whole mask and
+      // crops it (decodePdfImage), so crop the retained native decode.
+      final full = _luminosityMaskPixels(document, request.stream, imageCache);
+      decoded = full == null
+          ? null
+          : cropDownsamplePdfDecodedPixels(
+              full,
+              regionPlan.sourceX,
+              regionPlan.sourceY,
+              regionPlan.sourceWidth,
+              regionPlan.sourceHeight,
+              regionPlan.targetWidth,
+              regionPlan.targetHeight,
+            );
+    } else if (imageCache != null &&
+        pdfImageDecodeIgnoresRegion(document, request.stream)) {
+      // DCT has no region/scaled entropy path: decodePdfImage(region:) already
+      // decodes the whole JPEG and then crops it. Retain that native result so
+      // adjacent deep-zoom tiles and later zoom levels crop the same pixels
+      // instead of repeating the expensive entropy/IDCT pass (notably CMYK).
+      // This is byte-identical to the generic region fallback by definition of
+      // pdfImageDecodeIgnoresRegion; formats with true region decoders never
+      // enter this branch. Reusable: every later tile and zoom level crops it.
+      final full = imageCache.decode(request.stream, null, null,
+          () => decodePdfImagePixels(document, request.stream),
+          reusable: true);
+      decoded = full == null
+          ? null
+          : cropDownsamplePdfDecodedPixels(
+              full,
+              regionPlan.sourceX,
+              regionPlan.sourceY,
+              regionPlan.sourceWidth,
+              regionPlan.sourceHeight,
+              regionPlan.targetWidth,
+              regionPlan.targetHeight,
+            );
+    } else {
+      decoded = decodePdfImage(document, request.stream,
+          region: region,
+          targetWidth: regionPlan.targetWidth,
+          targetHeight: regionPlan.targetHeight);
     }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
@@ -588,25 +1015,98 @@ _CommandImage? _decodeImageForCommand(
     }
   }
   if (predecoded != null) {
-    final decoded = maxImageRatio == null
-        ? predecoded
-        : _capImageResolution(
-            predecoded, request.transform, maxImageRatio, budgetScale);
+    // A producer may attach pixels that are already capped to this exact
+    // display/page budget (the web worker's browser-native Flate path does).
+    // Derive the final target from the source stream, not from the attached
+    // plane: treating that smaller plane as native applies [budgetScale] a
+    // second time, paying for another downsample and shipping blurry pixels.
+    final target = maxImageRatio == null
+        ? null
+        : _targetDecodedSize(
+            document,
+            request,
+            maxImageRatio,
+            budgetScale,
+          );
+    final targetWidth = target == null
+        ? predecoded.width
+        : math.min(predecoded.width, target.$1);
+    final targetHeight = target == null
+        ? predecoded.height
+        : math.min(predecoded.height, target.$2);
+    final decoded =
+        targetWidth == predecoded.width && targetHeight == predecoded.height
+            ? predecoded
+            : downsamplePdfDecodedPixels(
+                predecoded,
+                targetWidth,
+                targetHeight,
+              );
     return _CommandImage(_copyImageRequest(request, decoded: decoded), decoded);
   }
   if (maxImageRatio != null) {
     final target =
         _targetDecodedSize(document, request, maxImageRatio, budgetScale);
     if (target != null) {
-      final scaled = decodePdfImagePixelsScaled(
-          document, request.stream, target.$1, target.$2);
+      // Decode straight to the display size: the scaled fast path when the
+      // stream supports it, else a full decode downsampled to the target
+      // (equivalent to a full decode through _capImageResolution, which caps
+      // to the same cappedImagePixelSize).
+      // Reuse a retained decode where one applies (#451). A page's repeat
+      // records use *different* image pixel ratios - a full-page pass and a
+      // 128px thumbnail tile - so exact-match reuse alone almost never fires
+      // on the records that matter. For a stream whose decoder ignores the
+      // target anyway, retain the native decode and downsample it here, which
+      // is precisely what decodePdfImage(target) does internally.
+      final PdfDecodedPixels? scaled;
+      if (request.isLuminosityMask) {
+        // Every luminosity decode ignores the target, whatever its filter.
+        final full =
+            _luminosityMaskPixels(document, request.stream, imageCache);
+        scaled = full == null
+            ? null
+            : downsamplePdfDecodedPixels(full, target.$1, target.$2);
+      } else if (imageCache == null) {
+        scaled = decodePdfImage(document, request.stream,
+            targetWidth: target.$1, targetHeight: target.$2);
+      } else if (pdfImageDecodeIgnoresTarget(document, request.stream)) {
+        // Native, downsampled per record: serves every ratio (reusable).
+        final full = imageCache.decode(request.stream, null, null,
+            () => decodePdfImagePixels(document, request.stream),
+            reusable: true);
+        scaled = full == null
+            ? null
+            : downsamplePdfDecodedPixels(full, target.$1, target.$2);
+      } else {
+        // One exact target size: only a repeat of this record at this ratio
+        // hits it - the re-record after an edit or undo, which the host's
+        // record cache cannot answer (see maxTransientEntryBytes).
+        scaled = imageCache.decode(
+            request.stream,
+            target.$1,
+            target.$2,
+            () => decodePdfImage(document, request.stream,
+                targetWidth: target.$1, targetHeight: target.$2),
+            reusable: false);
+      }
       if (scaled != null) {
         return _CommandImage(
             _copyImageRequest(request, decoded: scaled), scaled);
       }
     }
   }
-  final decoded = decodePdfImagePixels(document, request.stream);
+  final decoded = request.isLuminosityMask
+      ? _luminosityMaskPixels(document, request.stream, imageCache)
+      : imageCache == null
+          ? decodePdfImagePixels(document, request.stream)
+          // No ratio, or a target at or past native size: a native decode.
+          // Reusable for every format: each record at or past native size
+          // asks for this same key (a zoom between two past-native levels, a
+          // scan revisited after the host's record cache dropped it), and DCT
+          // entries above also crop and downsample it for every other record.
+          : imageCache.decode(request.stream, null, null,
+              () => decodePdfImagePixels(document, request.stream),
+              reusable: true);
   if (decoded == null) return null;
   final capped = maxImageRatio == null
       ? decoded
@@ -615,21 +1115,50 @@ _CommandImage? _decodeImageForCommand(
   return _CommandImage(_copyImageRequest(request, decoded: capped), capped);
 }
 
+/// A luminosity mask's native-resolution pixels, retained in [cache] under
+/// its own key when there is one.
+///
+/// Luminosity masks used to skip the cache, so every record (full page,
+/// thumbnail, detail patch) repeated the full native decode of every mask -
+/// often a large gray JPEG. One entry serves them all because
+/// `decodePdfImage(luminosityMask: true)` ignores target and region for every
+/// format: it is exactly this native decode followed by
+/// [cropDownsamplePdfDecodedPixels] or [downsamplePdfDecodedPixels], which the
+/// callers apply to the retained entry. That is the #451 reuse argument, which
+/// for ordinary images holds only for DCT ([pdfImageDecodeIgnoresTarget]).
+/// The entry is keyed apart from the stream's ordinary decode: a luminosity
+/// decode reads the raw samples, not the page's managed colour.
+PdfDecodedPixels? _luminosityMaskPixels(
+    CosDocument document, CosStream stream, PdfImageDecodeCache? cache) {
+  PdfDecodedPixels? decode() =>
+      decodePdfImagePixels(document, stream, luminosityMask: true);
+  return cache == null
+      ? decode()
+      : cache.decode(
+          stream, null, null, luminosityMask: true, reusable: true, decode);
+}
+
 (int, int)? _targetDecodedSize(
   CosDocument document,
   PdfImageRequest request,
   double ratio,
   double budgetScale,
 ) {
-  final size = _declaredImageSize(document, request.stream);
+  final size = _declaredCompositeImageSize(document, request.stream);
   if (size == null) return null;
   final transform = request.transform;
   final widthPts =
       math.sqrt(transform.a * transform.a + transform.b * transform.b);
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
-  final capped =
-      cappedImagePixelSize(size.$1, size.$2, widthPts, heightPts, ratio);
+  final capped = cappedImagePixelSize(
+    size.$1,
+    size.$2,
+    widthPts,
+    heightPts,
+    ratio,
+    headroom: _imageBudgetHeadroom,
+  );
   var tw = capped.$1;
   var th = capped.$2;
   if (budgetScale < 1.0) {
@@ -686,41 +1215,59 @@ _ImageRegionPlan? _imageRegionPlan(
   final imageHeight = size.$2;
   final t = request.transform;
   const eps = 1e-9;
-  if (t.a.abs() <= eps ||
-      t.d.abs() <= eps ||
-      t.b.abs() > eps ||
-      t.c.abs() > eps) {
-    return null;
-  }
+  // Any invertible placement works, not just axis-aligned ones: drawings are
+  // routinely placed rotated 90/270 degrees (a landscape sheet on a portrait
+  // /MediaBox, a scan cut into hundreds of rotated tiles). The crop is taken
+  // in source-pixel space and the cropped transform is the crop concatenated
+  // with [t], so it lands exactly where the full image would.
+  final det = t.a * t.d - t.b * t.c;
+  if (!(det.abs() > eps) || !det.isFinite) return null;
 
-  final imageLeft = math.min(t.e, t.e + t.a);
-  final imageRight = math.max(t.e, t.e + t.a);
-  final imageBottom = math.min(t.f, t.f + t.d);
-  final imageTop = math.max(t.f, t.f + t.d);
-  final visible =
-      PdfRect(imageLeft, imageBottom, imageRight, imageTop).intersect(region);
-  if (visible.width <= eps || visible.height <= eps) {
-    return _ImageRegionPlan(
-      transform: t,
-      sourceX: 0,
-      sourceY: 0,
-      sourceWidth: 1,
-      sourceHeight: 1,
-      targetWidth: 1,
-      targetHeight: 1,
-      outside: true,
-    );
-  }
+  // The page-space bounding box of the unit square under [t].
+  final xs = [t.e, t.e + t.a, t.e + t.c, t.e + t.a + t.c];
+  final ys = [t.f, t.f + t.b, t.f + t.d, t.f + t.b + t.d];
+  final visible = PdfRect(xs.reduce(math.min), ys.reduce(math.min),
+          xs.reduce(math.max), ys.reduce(math.max))
+      .intersect(region);
+  final outsidePlan = _ImageRegionPlan(
+    transform: t,
+    sourceX: 0,
+    sourceY: 0,
+    sourceWidth: 1,
+    sourceHeight: 1,
+    targetWidth: 1,
+    targetHeight: 1,
+    outside: true,
+  );
+  if (visible.width <= eps || visible.height <= eps) return outsidePlan;
 
-  final u0 = ((visible.left - t.e) / t.a).clamp(0.0, 1.0);
-  final u1 = ((visible.right - t.e) / t.a).clamp(0.0, 1.0);
-  final v0 = ((visible.bottom - t.f) / t.d).clamp(0.0, 1.0);
-  final v1 = ((visible.top - t.f) / t.d).clamp(0.0, 1.0);
-  final uMin = math.min(u0, u1);
-  final uMax = math.max(u0, u1);
-  final vMin = math.min(v0, v1);
-  final vMax = math.max(v0, v1);
-  if (uMax <= uMin || vMax <= vMin) return null;
+  // Map the visible box back into unit image space and take its bounds. For
+  // an axis-aligned [t] that is exact; for a rotated or skewed one it is the
+  // smallest axis-aligned source crop that covers everything visible.
+  var uMin = double.infinity;
+  var uMax = double.negativeInfinity;
+  var vMin = double.infinity;
+  var vMax = double.negativeInfinity;
+  for (final (x, y) in [
+    (visible.left, visible.bottom),
+    (visible.right, visible.bottom),
+    (visible.left, visible.top),
+    (visible.right, visible.top),
+  ]) {
+    final dx = x - t.e;
+    final dy = y - t.f;
+    final u = (t.d * dx - t.c * dy) / det;
+    final v = (t.a * dy - t.b * dx) / det;
+    uMin = math.min(uMin, u);
+    uMax = math.max(uMax, u);
+    vMin = math.min(vMin, v);
+    vMax = math.max(vMax, v);
+  }
+  uMin = uMin.clamp(0.0, 1.0);
+  uMax = uMax.clamp(0.0, 1.0);
+  vMin = vMin.clamp(0.0, 1.0);
+  vMax = vMax.clamp(0.0, 1.0);
+  if (uMax <= uMin || vMax <= vMin) return outsidePlan;
 
   final sx0 = (uMin * imageWidth).floor().clamp(0, imageWidth - 1);
   final sx1 = (uMax * imageWidth).ceil().clamp(sx0 + 1, imageWidth);
@@ -745,7 +1292,13 @@ _ImageRegionPlan? _imageRegionPlan(
     final heightPts = math.sqrt(croppedTransform.c * croppedTransform.c +
         croppedTransform.d * croppedTransform.d);
     final capped = cappedImagePixelSize(
-        sourceWidth, sourceHeight, widthPts, heightPts, ratio);
+      sourceWidth,
+      sourceHeight,
+      widthPts,
+      heightPts,
+      ratio,
+      headroom: _imageBudgetHeadroom,
+    );
     targetWidth = capped.$1;
     targetHeight = capped.$2;
     if (budgetScale < 1.0) {
@@ -776,36 +1329,10 @@ PdfImageRequest _copyImageRequest(
       isStencil: request.isStencil,
       stencilColor: request.stencilColor,
       isInline: request.isInline,
+      isLuminosityMask: request.isLuminosityMask,
       decoded: decoded ?? request.decoded,
+      sourceReference: request.sourceReference,
     );
-
-PdfDecodedPixels? _cropDownsampleDecodedPixels(
-  PdfDecodedPixels decoded,
-  int sourceX,
-  int sourceY,
-  int sourceWidth,
-  int sourceHeight,
-  int targetWidth,
-  int targetHeight,
-) {
-  if (sourceX < 0 ||
-      sourceY < 0 ||
-      sourceWidth <= 0 ||
-      sourceHeight <= 0 ||
-      sourceX + sourceWidth > decoded.width ||
-      sourceY + sourceHeight > decoded.height) {
-    return null;
-  }
-  final cropped = Uint8List(sourceWidth * sourceHeight * 4);
-  for (var y = 0; y < sourceHeight; y++) {
-    final srcOffset = ((sourceY + y) * decoded.width + sourceX) * 4;
-    final dstOffset = y * sourceWidth * 4;
-    cropped.setRange(
-        dstOffset, dstOffset + sourceWidth * 4, decoded.rgba, srcOffset);
-  }
-  final pixels = PdfDecodedPixels(cropped, sourceWidth, sourceHeight);
-  return downsamplePdfDecodedPixels(pixels, targetWidth, targetHeight);
-}
 
 CosStream _regionKeyStream(
   PdfImageRequest request,
@@ -848,14 +1375,26 @@ String _streamFingerprint(CosStream stream) {
   return '${stream.dictionary}|${bytes.length}|$hash';
 }
 
-void _writeImageCommand(_Writer w, PdfImageRequest request, CosObject inlined,
-    PdfDecodedPixels? decoded) {
+void _writeImageCommand(
+  _Writer w,
+  PdfImageRequest request,
+  CosObject? inlined,
+  CosReference? sourceReference,
+  PdfDecodedPixels? decoded,
+) {
   w.u8(_tDrawImage);
   _writeMatrix(w, request.transform);
   w.f64(request.alpha);
   w.boolean(request.isStencil);
+  w.boolean(request.isLuminosityMask);
   _writeColor(w, request.stencilColor);
-  _writeCos(w, inlined);
+  w.boolean(sourceReference != null);
+  if (sourceReference != null) {
+    w.u32(sourceReference.objectNumber);
+    w.u32(sourceReference.generation);
+  } else {
+    _writeCos(w, inlined!);
+  }
   // Optional off-thread decode: the premultiplied pixels ride beside the
   // stream so the consumer skips the pure-Dart decode. The stream above is
   // still written, so the pixels cache by content like a local render.
@@ -879,10 +1418,14 @@ PdfRenderCommand _readCommand(_Reader r) {
       return const PdfRestoreCommand();
     case _tFillPath:
       final path = _readPath(r);
-      final color = _readColor(r);
-      final rule = PdfFillRule.values[r.u8()];
-      final alpha = r.f64();
-      return PdfFillPathCommand(path, color, rule, alpha);
+      final flags = _readPaintFlags(r, _fillPaintFlags);
+      final color = _readPaintColor(r, flags);
+      final alpha = _readPaintAlpha(r, flags);
+      final rule = flags >> _paintRuleShift;
+      if (rule >= PdfFillRule.values.length) {
+        throw FormatException('unknown fill rule $rule');
+      }
+      return PdfFillPathCommand(path, color, PdfFillRule.values[rule], alpha);
     case _tFillPathGradient:
       final path = _readPath(r);
       final rule = PdfFillRule.values[r.u8()];
@@ -895,9 +1438,16 @@ PdfRenderCommand _readCommand(_Reader r) {
       return PdfFillMeshCommand(mesh, alpha);
     case _tStrokePath:
       final path = _readPath(r);
-      final color = _readColor(r);
-      final stroke = _readStroke(r);
-      final alpha = r.f64();
+      final flags = _readPaintFlags(r, _strokePaintFlags);
+      final color = _readPaintColor(r, flags);
+      final PdfStroke stroke;
+      if (flags & _paintNewStroke != 0) {
+        stroke = r._paintStroke = _readStroke(r);
+      } else {
+        stroke = r._paintStroke ??
+            (throw const FormatException('stroke reused before one was sent'));
+      }
+      final alpha = _readPaintAlpha(r, flags);
       return PdfStrokePathCommand(path, color, stroke, alpha);
     case _tClipPath:
       final path = _readPath(r);
@@ -909,8 +1459,14 @@ PdfRenderCommand _readCommand(_Reader r) {
       final transform = _readMatrix(r);
       final alpha = r.f64();
       final isStencil = r.boolean();
+      final isLuminosityMask = r.boolean();
       final stencilColor = _readColor(r);
-      final stream = _readCos(r) as CosStream;
+      final hasSourceReference = r.boolean();
+      final sourceReference =
+          hasSourceReference ? CosReference(r.u32(), r.u32()) : null;
+      final stream = hasSourceReference
+          ? _imagePlaceholderStream
+          : _readCos(r) as CosStream;
       PdfDecodedPixels? decoded;
       if (r.boolean()) {
         final width = r.u32();
@@ -918,24 +1474,38 @@ PdfRenderCommand _readCommand(_Reader r) {
         decoded =
             PdfDecodedPixels(r.bytes(allowLargeView: true), width, height);
       }
-      // isInline forces value (content) cache keying on replay: the
-      // reconstructed stream is a fresh object every record, so stream-identity
-      // keying would miss the decoded-image cache and re-decode each scroll-by.
+      // An inlined stream is reconstructed fresh on every record, so it keeps
+      // value/content keying. A source reference is stable document identity
+      // and resolves to the main document's cached stream before decode.
       return PdfDrawImageCommand(PdfImageRequest(
         stream: stream,
         transform: transform,
         alpha: alpha,
         isStencil: isStencil,
+        isLuminosityMask: isLuminosityMask,
         stencilColor: stencilColor,
-        isInline: true,
+        isInline: !hasSourceReference,
         decoded: decoded,
+        sourceReference: sourceReference,
       ));
     case _tSetBlendMode:
       return PdfSetBlendModeCommand(PdfBlendMode.values[r.u8()]);
+    case _tSetOverprint:
+      final fill = r.boolean();
+      final stroke = r.boolean();
+      final mode = r.u8();
+      return PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode);
     case _tBeginGroup:
       final alpha = r.f64();
       final knockout = r.boolean();
-      return PdfBeginGroupCommand(alpha, knockout: knockout);
+      final isolated = r.boolean();
+      final bounds = r.boolean() ? _readRect(r) : null;
+      final backdropColor = r.boolean() ? _readColor(r) : null;
+      return PdfBeginGroupCommand(alpha,
+          knockout: knockout,
+          isolated: isolated,
+          bounds: bounds,
+          backdropColor: backdropColor);
     case _tEndGroup:
       return const PdfEndGroupCommand();
     case _tBeginSoftMasked:
@@ -955,6 +1525,11 @@ PdfRenderCommand _readCommand(_Reader r) {
         transferScale: transferScale,
         transferOffset: transferOffset,
       );
+    case _tDrawTiledCell:
+      final originsX = r.f64Array();
+      final originsY = r.f64Array();
+      final cellCommands = _readTiledCell(r);
+      return PdfDrawTiledCellCommand(cellCommands, originsX, originsY);
     default:
       throw StateError('unknown render command tag $tag');
   }
@@ -971,56 +1546,248 @@ PdfRenderCommand _readCommand(_Reader r) {
 // pixel-identically to shipping the original double (verified against the Ghent
 // baselines). Everything that needs full precision - transforms, colours,
 // stroke widths, text placement - stays float64.
-void _writePath(_Writer w, PdfPath path) {
-  w.u32(path.segments.length);
-  for (final s in path.segments) {
-    switch (s) {
-      case PdfMoveTo(:final x, :final y):
-        w.u8(0);
-        w.f32(x);
-        w.f32(y);
-      case PdfLineTo(:final x, :final y):
-        w.u8(1);
-        w.f32(x);
-        w.f32(y);
-      case PdfCubicTo(
-          :final x1,
-          :final y1,
-          :final x2,
-          :final y2,
-          :final x3,
-          :final y3
-        ):
-        w.u8(2);
-        w.f32(x1);
-        w.f32(y1);
-        w.f32(x2);
-        w.f32(y2);
-        w.f32(x3);
-        w.f32(y3);
-      case PdfClosePath():
-        w.u8(3);
-    }
+/// Writes one glyph placement's outline, by reference when its geometry has
+/// already been written to this record.
+///
+/// Text dominates a record's bytes, and the outline rides on every *placement*
+/// (`PdfGlyphPlacement.outline`), so a letter set 500 times used to serialize
+/// its geometry 500 times. Measured over a 62-page book at ratio 2.0, glyph
+/// outlines were 151.7 MB of 394 MB of records and 85% of that was literal
+/// repetition - more than the entire decoded-RGBA payload (83 MB). Records are
+/// held in a byte-budgeted LRU, so this is cache capacity, and capacity is what
+/// decides how often a page has to be re-recorded (#451).
+///
+/// Tag byte: 0 = no outline, 1 = geometry follows (and takes the next id),
+/// 2 = a u32 id of an outline already defined in this record.
+void _writeGlyphOutline(_Writer w, PdfPath? outline) {
+  if (outline == null) {
+    w.u8(0);
+    return;
   }
+  final existing = w._outlineIds[outline];
+  if (existing != null) {
+    w.u8(2);
+    w.u32(existing);
+    return;
+  }
+  w._outlineIds[outline] = w._outlineIds.length;
+  w.u8(1);
+  _writePath(w, outline);
+}
+
+PdfPath? _readGlyphOutline(_Reader r) {
+  switch (r.u8()) {
+    case 0:
+      return null;
+    case 1:
+      final path = _readPath(r);
+      r._outlines.add(path);
+      return path;
+    case 2:
+      final id = r.u32();
+      if (id >= r._outlines.length) {
+        throw FormatException('glyph outline id $id out of range');
+      }
+      return r._outlines[id];
+    default:
+      throw const FormatException('unknown glyph outline tag');
+  }
+}
+
+/// Writes [path] as one block: u32 verb count, the verb bytes (0=move,
+/// 1=line, 2=cubic, 3=close), zero padding to a 4-byte boundary counted from
+/// the start of the buffer, then every coordinate as a contiguous float32 run
+/// in host byte order (producer and consumer share a machine, and nothing
+/// persists a buffer).
+///
+/// Paths are most of a vector page's bytes. Interleaving each tag with its
+/// scalars (format 9) cost a capacity check and a big-endian [ByteData] call
+/// per value on both sides, and a second pass on read to size the coordinate
+/// list; the block is copied in bulk instead ([writePdfPathBlock] on this
+/// side, one whole-buffer [Float32List] view on the reader's).
+void _writePath(_Writer w, PdfPath path) {
+  final n = path.segmentCount;
+  // Worst case: every verb a cubic (6 coordinates), plus the padding.
+  w._ensure(4 + n + 3 + n * 24);
+  final at = w._len;
+  w._view.setUint32(at, n);
+  final verbAt = at + 4;
+  final coordinatesAt = (verbAt + n + 3) & ~3;
+  final buf = w._buf;
+  for (var p = verbAt + n; p < coordinatesAt; p++) {
+    buf[p] = 0;
+  }
+  final count =
+      writePdfPathBlock(path, buf, verbAt, w._floats, coordinatesAt >> 2);
+  w._len = coordinatesAt + count * 4;
 }
 
 PdfPath _readPath(_Reader r) {
   final n = r.u32();
-  final segments = List<PdfPathSegment>.filled(
-    n,
-    const PdfClosePath(),
-    growable: true,
-  );
-  for (var i = 0; i < n; i++) {
-    segments[i] = switch (r.u8()) {
-      0 => PdfMoveTo(r.f32(), r.f32()),
-      1 => PdfLineTo(r.f32(), r.f32()),
-      2 => PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()),
-      3 => const PdfClosePath(),
-      _ => throw FormatException('unknown path segment tag'),
-    };
+  final bytes = r._bytes;
+  final verbAt = r._o;
+  if (n > bytes.length - verbAt) {
+    throw const FormatException('path verbs run past the buffer');
   }
-  return PdfPath(segments);
+  // Copy the verbs, validating each tag and totalling the coordinates it
+  // takes, so the coordinate list is exact-sized and a corrupt block fails
+  // here rather than at replay.
+  final verbs = Uint8List(n);
+  var count = 0;
+  for (var i = 0; i < n; i++) {
+    final tag = verbs[i] = bytes[verbAt + i];
+    switch (tag) {
+      case 0 || 1:
+        count += 2;
+      case 2:
+        count += 6;
+      case 3:
+        break;
+      default:
+        throw FormatException('unknown path segment tag $tag');
+    }
+  }
+  final coordinatesAt = (verbAt + n + 3) & ~3;
+  if (count * 4 > bytes.length - coordinatesAt) {
+    throw const FormatException('path coordinates run past the buffer');
+  }
+  final coordinates = Float32List(count);
+  final floats = r._floats;
+  if (floats != null) {
+    final base = coordinatesAt >> 2;
+    if (count >= 64) {
+      // One memmove on the VM (one subarray + set on dart2js).
+      coordinates.setRange(0, count, floats, base);
+    } else {
+      // Most CAD strokes and glyphs are a few points: element-wise beats the
+      // typed-array view dart2js allocates for a ranged setRange.
+      for (var i = 0; i < count; i++) {
+        coordinates[i] = floats[base + i];
+      }
+    }
+  } else {
+    final data = r._data;
+    for (var i = 0; i < count; i++) {
+      coordinates[i] = data.getFloat32(coordinatesAt + i * 4, Endian.host);
+    }
+  }
+  r._o = coordinatesAt + count * 4;
+  return PdfPath.packedFloat32(verbs, coordinates, n);
+}
+
+// Paint (format 10). A fill or stroke leads its paint with one flags byte and
+// carries only what changed since the previous fill or stroke in the buffer:
+// a CAD sheet strokes hundreds of thousands of paths with a handful of pens,
+// and resending the colour (3 x f64), stroke (width, cap, join, miter, dash)
+// and alpha was 62 of a solid 2-point stroke's 85 bytes. The state runs in
+// write order, which the reader follows exactly - nested soft-mask and
+// tiled-cell lists included, since both sides walk them depth-first inline -
+// and each buffer starts from nothing. The reader hands the previous instance
+// back; [PdfColor] and [PdfStroke] are immutable, so sharing them is
+// invisible.
+const int _paintNewColor = 0x01;
+const int _paintNewStroke = 0x02;
+const int _paintNewAlpha = 0x04;
+
+/// Fill commands keep their [PdfFillRule] index in bits 4-5.
+const int _paintRuleShift = 4;
+const int _fillPaintFlags = _paintNewColor | _paintNewAlpha | 0x30;
+const int _strokePaintFlags = _paintNewColor | _paintNewStroke | _paintNewAlpha;
+
+void _writeFillPaint(
+    _Writer w, PdfColor color, PdfFillRule rule, double alpha) {
+  final newColor = !_sameColor(w._paintColor, color);
+  final newAlpha = !_sameDouble(w._paintAlpha, alpha);
+  w.u8((rule.index << _paintRuleShift) |
+      (newColor ? _paintNewColor : 0) |
+      (newAlpha ? _paintNewAlpha : 0));
+  if (newColor) {
+    _writeColor(w, color);
+    w._paintColor = color;
+  }
+  if (newAlpha) {
+    w.f64(alpha);
+    w._paintAlpha = alpha;
+  }
+}
+
+void _writeStrokePaint(
+    _Writer w, PdfColor color, PdfStroke stroke, double alpha) {
+  final newColor = !_sameColor(w._paintColor, color);
+  final newStroke = !_sameStroke(w._paintStroke, stroke);
+  final newAlpha = !_sameDouble(w._paintAlpha, alpha);
+  w.u8((newColor ? _paintNewColor : 0) |
+      (newStroke ? _paintNewStroke : 0) |
+      (newAlpha ? _paintNewAlpha : 0));
+  if (newColor) {
+    _writeColor(w, color);
+    w._paintColor = color;
+  }
+  if (newStroke) {
+    _writeStroke(w, stroke);
+    w._paintStroke = stroke;
+  }
+  if (newAlpha) {
+    w.f64(alpha);
+    w._paintAlpha = alpha;
+  }
+}
+
+int _readPaintFlags(_Reader r, int allowed) {
+  final flags = r.u8();
+  if (flags & ~allowed != 0) {
+    throw FormatException('unknown paint flags 0x${flags.toRadixString(16)}');
+  }
+  return flags;
+}
+
+PdfColor _readPaintColor(_Reader r, int flags) {
+  if (flags & _paintNewColor != 0) return r._paintColor = _readColor(r);
+  return r._paintColor ??
+      (throw const FormatException('colour reused before one was sent'));
+}
+
+double _readPaintAlpha(_Reader r, int flags) {
+  if (flags & _paintNewAlpha != 0) return r._paintAlpha = r.f64();
+  final alpha = r._paintAlpha;
+  // The writer starts from NaN, which never compares equal, so it always
+  // sends the first alpha (and any NaN one): a reuse while NaN is corrupt.
+  if (alpha.isNaN) {
+    throw const FormatException('alpha reused before one was sent');
+  }
+  return alpha;
+}
+
+/// Bit-exact double equality: `==` except that 0.0 and -0.0 differ, so
+/// deduplicated paint round-trips exactly like the values it replaced. NaN
+/// never matches and is simply resent.
+bool _sameDouble(double a, double b) =>
+    a == b && (a != 0 || a.isNegative == b.isNegative);
+
+bool _sameColor(PdfColor? last, PdfColor color) =>
+    last != null &&
+    (identical(last, color) ||
+        (_sameDouble(last.red, color.red) &&
+            _sameDouble(last.green, color.green) &&
+            _sameDouble(last.blue, color.blue)));
+
+bool _sameStroke(PdfStroke? last, PdfStroke stroke) {
+  if (last == null) return false;
+  if (identical(last, stroke)) return true;
+  if (!_sameDouble(last.width, stroke.width) ||
+      last.cap != stroke.cap ||
+      last.join != stroke.join ||
+      !_sameDouble(last.miterLimit, stroke.miterLimit) ||
+      !_sameDouble(last.dashPhase, stroke.dashPhase)) {
+    return false;
+  }
+  final a = last.dashArray, b = stroke.dashArray;
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!_sameDouble(a[i], b[i])) return false;
+  }
+  return true;
 }
 
 void _writeColor(_Writer w, PdfColor c) {
@@ -1135,6 +1902,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     _writeGradient(w, run.gradient!);
   }
   w.strOpt(run.fontName);
+  w.boolean(run.serif);
   w.f64(run.fontSize);
   // glyphs?
   final glyphs = run.glyphs;
@@ -1147,12 +1915,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
       w.f64(g.offset);
       w.f64(g.offsetY);
       w.strOpt(g.text);
-      if (g.outline == null) {
-        w.boolean(false);
-      } else {
-        w.boolean(true);
-        _writePath(w, g.outline!);
-      }
+      _writeGlyphOutline(w, g.outline);
     }
   }
   w.boolean(run.invisible);
@@ -1164,6 +1927,29 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     _writeColor(w, run.strokeColor!);
   }
   w.f64(run.strokeWidth);
+  w.f64(run.fillAlpha);
+  w.f64(run.strokeAlpha);
+  // Substitute-font spacing geometry (Tc/Tw and the visible-glyph advance): a
+  // painting consumer needs these to reproduce word/char spacing and to keep
+  // edge whitespace from stretching the visible glyphs.
+  w.f64(run.letterSpacing);
+  w.f64(run.wordSpacing);
+  w.f64(run.leadingSpace);
+  if (run.visibleWidth == null) {
+    w.boolean(false);
+  } else {
+    w.boolean(true);
+    w.f64(run.visibleWidth!);
+  }
+  // Per-character pen offsets (issue #649). Only a substituted run needs them -
+  // an embedded run's glyph list above already carries the same positions - so
+  // they never inflate the transcript of an embedded-font page.
+  final offsets = glyphs == null ? run.charOffsets : null;
+  if (offsets == null) {
+    w.u32(0);
+  } else {
+    w.f64List(offsets);
+  }
 }
 
 PdfTextRun _readTextRun(_Reader r) {
@@ -1173,6 +1959,7 @@ PdfTextRun _readTextRun(_Reader r) {
   final width = r.f64();
   final gradient = r.boolean() ? _readGradient(r) : null;
   final fontName = r.strOpt();
+  final serif = r.boolean();
   final fontSize = r.f64();
   List<PdfGlyphPlacement>? glyphs;
   if (r.boolean()) {
@@ -1186,7 +1973,7 @@ PdfTextRun _readTextRun(_Reader r) {
       final offset = r.f64();
       final offsetY = r.f64();
       final text = r.strOpt();
-      final outline = r.boolean() ? _readPath(r) : null;
+      final outline = _readGlyphOutline(r);
       glyphs[i] = PdfGlyphPlacement(
           offset: offset, offsetY: offsetY, outline: outline, text: text);
     }
@@ -1195,6 +1982,14 @@ PdfTextRun _readTextRun(_Reader r) {
   final fill = r.boolean();
   final strokeColor = r.boolean() ? _readColor(r) : null;
   final strokeWidth = r.f64();
+  final fillAlpha = r.f64();
+  final strokeAlpha = r.f64();
+  final letterSpacing = r.f64();
+  final wordSpacing = r.f64();
+  final leadingSpace = r.f64();
+  final visibleWidth = r.boolean() ? r.f64() : null;
+  final offsetCount = r.u32();
+  final offsets = offsetCount == 0 ? null : r.f64s(offsetCount);
   return PdfTextRun(
     text: text,
     transform: transform,
@@ -1202,12 +1997,23 @@ PdfTextRun _readTextRun(_Reader r) {
     width: width,
     gradient: gradient,
     fontName: fontName,
+    serif: serif,
     fontSize: fontSize,
     glyphs: glyphs,
     invisible: invisible,
     fill: fill,
     strokeColor: strokeColor,
     strokeWidth: strokeWidth,
+    fillAlpha: fillAlpha,
+    strokeAlpha: strokeAlpha,
+    letterSpacing: letterSpacing,
+    wordSpacing: wordSpacing,
+    leadingSpace: leadingSpace,
+    visibleWidth: visibleWidth,
+    // A table of the wrong length would mis-place glyphs; drop it and let the
+    // device fall back to whole-run shaping, like a run that never carried one.
+    charOffsets:
+        offsets != null && offsets.length == text.length + 1 ? offsets : null,
   );
 }
 
@@ -1350,18 +2156,270 @@ CosObject _readCos(_Reader r) {
 
 // --- low-level reader/writer ---
 
+/// A [PdfDevice] that writes each command into one wire buffer the moment the
+/// interpreter emits it, instead of building the page as [PdfRenderCommand]
+/// objects only to serialize them afterwards.
+///
+/// Its buffer is byte-identical to `serializeCommands(compactStateScopes:
+/// true, imagePlaceholders: true)` over what a [RecordingPdfDevice] would
+/// have recorded from the same walk: it shares [_Writer] and [_writeCommand]
+/// (so the paint dedup, glyph-outline ids and tiled-cell ids advance in the
+/// same order) and the online [_ScopeCompactor]. Images are written in their
+/// non-decoding form; a caller that wants decoded pixels re-serializes from
+/// the transcript (see the render worker), since an image's decoded size
+/// depends on every image of the page.
+///
+/// - [snapshot] is the buffer so far, its top-level count patched in - a
+///   progressive partial is a prefix copy, never a re-serialize. Paths are
+///   padded to 4 bytes from the start of the buffer, so a prefix keeps every
+///   block aligned.
+/// - [imageRequests] lists every image in [RecordingPdfDevice.imageRequests]
+///   order (depth-first per tiled cell, once per occurrence).
+/// - [takeTextCommands] hands back the top-level text and tiled-cell commands
+///   - all `PdfRecordedText.capture` reads - recorded until it is called.
+class PdfStreamingCommandWriter
+    implements PdfDevice, PdfTiledCellSink, PdfTransparencyGroupDevice {
+  /// [cos] resolves image references, exactly as [serializeCommands]'s `cos`.
+  PdfStreamingCommandWriter({CosDocument? cos}) : _cos = cos {
+    _w.u8(_formatVersion);
+    _frames.add(_StreamFrame(_w._len));
+    _w.u32(0);
+  }
+
+  final CosDocument? _cos;
+  final _Writer _w = _Writer();
+
+  /// The open command lists: the page, then any soft mask being drawn.
+  final List<_StreamFrame> _frames = [];
+
+  /// Every image drawn so far, in [RecordingPdfDevice.imageRequests] order.
+  final List<PdfImageRequest> imageRequests = [];
+
+  List<PdfRenderCommand>? _text = [];
+
+  /// Top-level commands written so far.
+  int get commandCount => _frames.first.count;
+
+  /// Bytes written so far.
+  int get length => _w._len;
+
+  /// The top-level text and tiled-cell commands recorded so far; recording
+  /// them stops here (the worker captures page text before annotations).
+  List<PdfRenderCommand> takeTextCommands() {
+    final text = _text ?? const <PdfRenderCommand>[];
+    _text = null;
+    return text;
+  }
+
+  /// A tight copy of the buffer so far with its top-level count patched: a
+  /// complete, replayable command buffer. Scopes still pending are simply not
+  /// in it yet. Only valid between operations: inside a soft mask the nested
+  /// list's header is half-written, so that throws rather than return a
+  /// corrupt buffer.
+  Uint8List snapshot() {
+    if (_frames.length != 1) {
+      throw StateError('snapshot inside a soft mask');
+    }
+    final out = Uint8List.fromList(Uint8List.sublistView(_w._buf, 0, _w._len));
+    // Big-endian, as [_Writer.u32].
+    ByteData.sublistView(out).setUint32(_frames.first.countAt, commandCount);
+    return out;
+  }
+
+  void _emit(PdfRenderCommand command) {
+    _writeCommand(_w, command, _cos, imagePlaceholders: true, compact: true);
+    _frames.last.count++;
+  }
+
+  void _flushScopes() {
+    final frame = _frames.last;
+    for (var n = frame.scopes.flush(); n > 0; n--) {
+      _w.u8(_tSave);
+      frame.count++;
+    }
+  }
+
+  @override
+  void save() => _frames.last.scopes.save();
+
+  @override
+  void restore() {
+    final frame = _frames.last;
+    if (!frame.scopes.restore()) return;
+    _w.u8(_tRestore);
+    frame.count++;
+  }
+
+  @override
+  void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) =>
+      _emit(PdfFillPathCommand(path, color, rule, alpha));
+
+  @override
+  void fillPathGradient(
+          PdfPath path, PdfFillRule rule, PdfGradient gradient, double alpha) =>
+      _emit(PdfFillPathGradientCommand(path, rule, gradient, alpha));
+
+  @override
+  void fillMesh(PdfMesh mesh, double alpha) =>
+      _emit(PdfFillMeshCommand(mesh, alpha));
+
+  @override
+  void strokePath(
+          PdfPath path, PdfColor color, PdfStroke stroke, double alpha) =>
+      _emit(PdfStrokePathCommand(path, color, stroke, alpha));
+
+  @override
+  void clipPath(PdfPath path, PdfFillRule rule) {
+    _flushScopes();
+    _emit(PdfClipPathCommand(path, rule));
+  }
+
+  @override
+  void drawText(PdfTextRun run) {
+    final command = PdfDrawTextCommand(run);
+    _emit(command);
+    if (_frames.length == 1) _text?.add(command);
+  }
+
+  @override
+  void drawImage(PdfImageRequest request) {
+    imageRequests.add(request);
+    _emit(PdfDrawImageCommand(request));
+  }
+
+  @override
+  void setBlendMode(PdfBlendMode mode) => _emit(PdfSetBlendModeCommand(mode));
+
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _emit(PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode));
+
+  @override
+  void beginGroup(double alpha, {bool knockout = false}) {
+    _flushScopes();
+    _emit(PdfBeginGroupCommand(alpha, knockout: knockout));
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    _flushScopes();
+    _emit(PdfBeginGroupCommand(
+      alpha,
+      knockout: knockout,
+      isolated: isolated,
+      bounds: bounds,
+      backdropColor: backdropColor,
+    ));
+  }
+
+  @override
+  void endGroup() => _emit(const PdfEndGroupCommand());
+
+  @override
+  void beginSoftMasked() {
+    _flushScopes();
+    _emit(const PdfBeginSoftMaskedCommand());
+  }
+
+  @override
+  void endSoftMasked({
+    required bool luminosity,
+    required PdfRect backdrop,
+    required void Function() drawMask,
+    double backdropLuminance = 0,
+    double transferScale = 1,
+    double transferOffset = 0,
+  }) {
+    // The record [_writeCommand] writes for a PdfEndSoftMaskedCommand, with
+    // its nested list streamed by the mask's own walk into a fresh frame and
+    // the count patched once it returns.
+    _writeEndSoftMaskedHeader(_w, luminosity, backdrop, backdropLuminance,
+        transferScale, transferOffset);
+    final frame = _StreamFrame(_w._len);
+    _w.u32(0);
+    _frames.add(frame);
+    try {
+      drawMask();
+    } finally {
+      _frames.removeLast();
+      _w._view.setUint32(frame.countAt, frame.count);
+      _frames.last.count++;
+    }
+  }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    _flushScopes();
+    // As [RecordingPdfDevice.drawTiledCell]: the cell's images, depth-first,
+    // once per occurrence.
+    void walk(List<PdfRenderCommand> commands) {
+      for (final c in commands) {
+        if (c is PdfDrawImageCommand) {
+          imageRequests.add(c.request);
+        } else if (c is PdfEndSoftMaskedCommand) {
+          walk(c.maskCommands);
+        } else if (c is PdfDrawTiledCellCommand) {
+          walk(c.cellCommands);
+        }
+      }
+    }
+
+    walk(command.cellCommands);
+    _emit(command);
+    if (_frames.length == 1) _text?.add(command);
+  }
+}
+
+/// One command list [PdfStreamingCommandWriter] is writing: where its count
+/// goes, how many commands it has, and its own scope compaction.
+final class _StreamFrame {
+  _StreamFrame(this.countAt);
+  final int countAt;
+  int count = 0;
+  final _ScopeCompactor scopes = _ScopeCompactor();
+}
+
 class _Writer {
   // A graphics-rich (CAD) page serializes to many MB of mostly path geometry -
   // millions of scalar writes. The old BytesBuilder approach allocated a fresh
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
   // scalars straight into a [ByteData] view of it at a running offset - no
-  // per-value allocation. The output bytes are unchanged (ByteData defaults to
-  // big-endian, matching the old per-scalar ByteData), so this rewrite is a
-  // pure speed-up: it emits exactly the bytes the BytesBuilder version did.
+  // per-value allocation. Scalars are big-endian (ByteData's default); path
+  // coordinates go through [_floats] instead (see [_writePath]).
   Uint8List _buf = Uint8List(1 << 16);
   late ByteData _view = ByteData.view(_buf.buffer);
+
+  /// The same backing buffer as float32 words, for path coordinate blocks.
+  /// [_buf] starts its own buffer and only ever grows by doubling from 64 KB,
+  /// so the view always covers it exactly.
+  late Float32List _floats = _buf.buffer.asFloat32List();
   int _len = 0;
+
+  /// The paint the last fill or stroke wrote ([_writeFillPaint]). The alpha
+  /// starts as NaN, which matches nothing, so the first one is always sent.
+  PdfColor? _paintColor;
+  PdfStroke? _paintStroke;
+  double _paintAlpha = double.nan;
+
+  /// Glyph outlines already written, so a repeated glyph costs an index
+  /// instead of its geometry ([_writeGlyphOutline]). Keyed by object
+  /// identity - [PdfPath] does not override `==`, and the font engine hands
+  /// the same instance back for every placement of a glyph, so identity
+  /// catches essentially all of the repetition with no hashing of geometry.
+  final Map<PdfPath, int> _outlineIds = {};
+
+  /// Tiled-cell command lists already written, by identity
+  /// ([_writeTiledCellReference]).
+  final Map<List<PdfRenderCommand>, int> _cellIds =
+      Map<List<PdfRenderCommand>, int>.identity();
 
   void _ensure(int extra) {
     final need = _len + extra;
@@ -1373,6 +2431,7 @@ class _Writer {
     final grown = Uint8List(cap)..setRange(0, _len, _buf);
     _buf = grown;
     _view = ByteData.view(grown.buffer);
+    _floats = grown.buffer.asFloat32List();
   }
 
   void u8(int v) {
@@ -1410,12 +2469,6 @@ class _Writer {
     _len += 8;
   }
 
-  void f32(double v) {
-    _ensure(4);
-    _view.setFloat32(_len, v);
-    _len += 4;
-  }
-
   void boolean(bool v) => u8(v ? 1 : 0);
 
   void str(String s) {
@@ -1438,6 +2491,16 @@ class _Writer {
   void f64List(List<double> xs) {
     u32(xs.length);
     _ensure(xs.length * 8);
+    if (xs is Float64List) {
+      // Indexed: a for-in over a typed list boxes every element it yields on
+      // the VM - and per-character offsets and tiled-cell origins arrive as
+      // Float64List.
+      for (var i = 0; i < xs.length; i++) {
+        _view.setFloat64(_len, xs[i]);
+        _len += 8;
+      }
+      return;
+    }
     for (final x in xs) {
       _view.setFloat64(_len, x);
       _len += 8;
@@ -1460,11 +2523,38 @@ class _Writer {
 }
 
 class _Reader {
-  _Reader(this._bytes) : _data = ByteData.sublistView(_bytes);
+  _Reader(this._bytes)
+      : _data = ByteData.sublistView(_bytes),
+        _floats = _bytes.offsetInBytes & 3 == 0
+            ? _bytes.buffer
+                .asFloat32List(_bytes.offsetInBytes, _bytes.lengthInBytes >> 2)
+            : null;
 
   final Uint8List _bytes;
   final ByteData _data;
+
+  /// The whole buffer as float32 words - one view per buffer, never one per
+  /// path - that path coordinate blocks copy out of ([_readPath]). Null when
+  /// the buffer does not start 4-byte aligned in its backing store (a view
+  /// into a larger buffer); coordinates then read through [_data].
+  final Float32List? _floats;
   int _o = 0;
+
+  /// The paint the last fill or stroke carried ([_readPaintColor]).
+  PdfColor? _paintColor;
+  PdfStroke? _paintStroke;
+  double _paintAlpha = double.nan;
+
+  /// Glyph outlines seen so far, indexed as the writer numbered them
+  /// ([_readGlyphOutline]). Repeated glyphs share one [PdfPath] instance -
+  /// which is also how they arrive from the font engine before serialization,
+  /// so the replayed commands hold no more copies than a local render.
+  final List<PdfPath> _outlines = [];
+
+  /// Tiled-cell command lists seen so far, indexed as the writer numbered
+  /// them ([_readTiledCell]). Every stamp of a cell shares the one list, as it
+  /// did in the recording.
+  final List<List<PdfRenderCommand>> _cells = [];
 
   int u8() => _data.getUint8(_o++);
 
@@ -1506,12 +2596,6 @@ class _Reader {
     return v;
   }
 
-  double f32() {
-    final v = _data.getFloat32(_o);
-    _o += 4;
-    return v;
-  }
-
   bool boolean() => u8() == 1;
 
   String str() {
@@ -1526,6 +2610,19 @@ class _Reader {
   List<double> f64List() {
     final n = u32();
     return <double>[for (var i = 0; i < n; i++) f64()];
+  }
+
+  /// [_Writer.f64List]'s layout read into an unboxed list.
+  Float64List f64Array() => f64s(u32());
+
+  /// [n] float64 values, unboxed - [f64List] boxes each one on the VM.
+  Float64List f64s(int n) {
+    final out = Float64List(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = _data.getFloat64(_o);
+      _o += 8;
+    }
+    return out;
   }
 
   List<int> i32List() {

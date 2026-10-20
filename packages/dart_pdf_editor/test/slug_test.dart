@@ -17,15 +17,13 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
-// ignore: implementation_imports
-import 'package:pdf_graphics/src/fonts/truetype.dart';
 import 'package:dart_pdf_editor/strips.dart';
 
 final bool _impeller = Platform.environment['SLUG_IMPELLER'] == '1';
 
 TrueTypeFont? _font;
 TrueTypeFont get font => _font ??=
-    TrueTypeFont.parse(File('assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
+    TrueTypeFont.parse(File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
 
 PdfPath outlineOf(String char) =>
     font.outlineForGlyph(font.gidForUnicode(char.codeUnitAt(0)))!;

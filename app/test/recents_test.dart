@@ -62,4 +62,65 @@ void main() {
     await store.clear();
     expect(store.isEmpty, isTrue);
   });
+
+  test('rename preserves cached identity, availability and ordering', () async {
+    final store = RecentsStore();
+    addTearDown(store.dispose);
+    await store.add(title: 'old.pdf', cachePath: 'cached', bookmark: 'access');
+    await store.add(title: 'newest.pdf', path: '/newest.pdf');
+    await store.updateCachedAvailability({'cached'}, {});
+    final openedAt = store.items.last.openedAt;
+    await store.rename('cached', 'renamed.pdf');
+
+    final restored = RecentsStore();
+    addTearDown(restored.dispose);
+    await restored.load();
+    expect(restored.items.map((entry) => entry.title),
+        ['newest.pdf', 'renamed.pdf']);
+    expect(restored.items.last.id, 'cached');
+    expect(restored.items.last.cacheAvailable, isFalse);
+    expect(restored.items.last.bookmark, 'access');
+    expect(restored.items.last.openedAt, openedAt);
+  });
+
+  test('eviction preserves identity, order and a usable original path',
+      () async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', cachePath: 'a');
+    await store.add(title: 'b.pdf', cachePath: 'b', path: '/b.pdf');
+    await store.add(title: 'new.pdf', cachePath: 'new');
+    final ids = store.items.map((entry) => entry.id).toList();
+    final times = store.items.map((entry) => entry.openedAt).toList();
+    await store.updateCachedAvailability({'a', 'b'}, {});
+    expect(store.items.map((entry) => entry.id), ids);
+    expect(store.items.map((entry) => entry.openedAt), times);
+    expect(store.items.map((entry) => entry.isReopenable), [true, true, false]);
+    await store.add(title: 'a.pdf', cachePath: 'a');
+    expect(store.items.length, 3);
+    expect(store.items.first.isReopenable, isTrue);
+  });
+
+  test('load re-anchors snapshots an app update moved', () async {
+    final before = RecentsStore();
+    await before.add(title: 'moved.pdf', cachePath: '/old/recent_pdfs/m.pdf');
+    await before.updateCachedAvailability({'/old/recent_pdfs/m.pdf'}, {});
+    await before.add(title: 'gone.pdf', cachePath: '/old/recent_pdfs/g.pdf');
+
+    final after = RecentsStore(
+        resolveCacheKey: (key) async =>
+            key.endsWith('/m.pdf') ? '/new/recent_pdfs/m.pdf' : null);
+    await after.load();
+
+    final moved = after.items.firstWhere((e) => e.title == 'moved.pdf');
+    expect(moved.cachePath, '/new/recent_pdfs/m.pdf');
+    expect(moved.isReopenable, isTrue); // previously marked missing
+    final gone = after.items.firstWhere((e) => e.title == 'gone.pdf');
+    expect(gone.cachePath, '/old/recent_pdfs/g.pdf'); // left for a re-pick
+
+    // The re-anchored path is what persists.
+    final reloaded = RecentsStore(resolveCacheKey: (_) async => null);
+    await reloaded.load();
+    expect(reloaded.items.map((e) => e.cachePath),
+        contains('/new/recent_pdfs/m.pdf'));
+  });
 }

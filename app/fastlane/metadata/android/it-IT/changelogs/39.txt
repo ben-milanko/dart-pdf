@@ -1,0 +1,9 @@
+Novità della 5.0.0
+
+- I moduli calcolano i totali, formattano i valori e controllano l'inserimento.
+- Tab per cambiare campo; più voci nelle caselle di riepilogo.
+- Le password dei moduli restano nell'archivio sicuro del dispositivo, mai nel PDF.
+- Crea pulsanti di opzione, menu a discesa, elenchi e campi firma.
+- Firma PDF protetti da password.
+- Controllo revoca delle firme; elenchi di fiducia UE e Adobe (facoltativo).
+- Il testo in Calibri dei documenti Office ora appare corretto.

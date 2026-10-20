@@ -1,0 +1,1 @@
+ocr,đánh dấu,tô sáng,ghi chú,dấu,biểu mẫu,ghép,đọc,xem,mật khẩu,so sánh,quét,trang,mực,xuất

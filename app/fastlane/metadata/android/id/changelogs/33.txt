@@ -1,0 +1,6 @@
+Baru di 4.0.0
+
+- Kontrol editor lebih ringkas dan dapat ditambatkan, dengan navigasi halaman dan file terbaru yang lebih baik.
+- Paskan teks otomatis dan ratakan anotasi terpilih; bidang formulir kosong kini diratakan dengan benar.
+- Warna, overprint, transparansi, soft mask, dan font lebih akurat pada PDF rumit.
+- Render GPU dan deep zoom lebih cepat, serta alur seret, pindai, dan buka file yang lebih baik.

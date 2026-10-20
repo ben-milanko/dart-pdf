@@ -1,0 +1,7 @@
+Neu in 3.0.0
+
+• Die App ist jetzt in 10 Sprachen verfügbar, mit vollständigem Rechts-nach-links-Layout.
+• Genaueres Rendering von Überdrucken, Mischmodi und weichen Masken.
+• Halten Sie die Umschalttaste gedrückt, um gerade Linien zu zeichnen, und legen Sie einen Standardstil für Anmerkungen fest.
+• Überarbeitete, flüssigere Dokument-Tabs.
+• Schnelleres Rendering und geringerer Speicherverbrauch bei großen Dateien.

@@ -1,0 +1,8 @@
+Nowości w wersji 4.3.0
+
+- Zmniejszaj pliki PDF dzięki nowym ustawieniom.
+- Łącz i dziel dokumenty oraz usuwaj zaznaczoną treść strony.
+- Szybko znajduj narzędzia w palecie poleceń.
+- Wybieraj nowe układy i opcje drukowania.
+- Kopiuj i wklejaj wycinki wektorowe między dokumentami.
+- Naprawiono skanowanie i ulepszono obsługę dokumentów na urządzeniach mobilnych.

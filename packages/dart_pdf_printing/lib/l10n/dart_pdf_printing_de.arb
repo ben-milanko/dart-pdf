@@ -1,0 +1,141 @@
+{
+  "@@locale": "de",
+  "cancel": "Abbrechen",
+  "printDlgPreparing": "Wird vorbereitet…",
+  "printDlgRendering": "Seite {rendered} von {total} wird gerendert…",
+  "printDlgTitle": "Wird gedruckt",
+  "printPreviewAll": "Alle",
+  "printPreviewCurrent": "Aktuell",
+  "printPreviewNextPage": "Nächste Seite",
+  "printPreviewPageOf": "Seite {page} von {total}",
+  "printPreviewPreviousPage": "Vorherige Seite",
+  "printPreviewPrint": "Drucken",
+  "printPreviewRange": "Bereich",
+  "printPreviewRangeError": "Geben Sie einen Seitenbereich zwischen 1 und {total} ein.",
+  "printPreviewSelection": "Zu druckende Seiten: {count}",
+  "printPreviewTitle": "Druckvorschau",
+  "printPreviewUnavailable": "Vorschau nicht verfügbar",
+  "printOptionsPrinter": "Drucker",
+  "printOptionsNativePrinter": "Wählen Sie im anschließenden Systemdruckdialog den Drucker, das Papierfach, Farbe, beidseitigen Druck und die Geräteeigenschaften. Lassen Sie die Skalierung bei 100 % und die Kopienanzahl bei 1, um das hier angezeigte Layout zu verwenden.",
+  "printOptionsPages": "Seiten",
+  "printOptionsSelected": "Ausgewählt",
+  "printOptionsPageRange": "Seiten (zum Beispiel 1, 3-5)",
+  "printOptionsAddFiles": "Dateien hinzufügen…",
+  "printOptionsAddFailed": "Die ausgewählten Dateien konnten nicht hinzugefügt werden.",
+  "printOptionsGetWindow": "Bereich auswählen",
+  "printOptionsClearWindow": "Bereich aufheben",
+  "printOptionsWindowHint": "Ziehen Sie auf dieser Originalseite ein Rechteck auf, um den Druckbereich auszuwählen.",
+  "printOptionsPaper": "Papier",
+  "printOptionsPaperSize": "Papierformat",
+  "printOptionsPageSize": "Seitenformat des Dokuments verwenden",
+  "printOptionsOrientation": "Ausrichtung",
+  "printOptionsAuto": "Automatisch",
+  "printOptionsPortrait": "Hochformat",
+  "printOptionsLandscape": "Querformat",
+  "printOptionsCopies": "Kopien",
+  "printOptionsCollate": "Sortieren",
+  "printOptionsReverse": "Umgekehrte Seitenreihenfolge",
+  "printOptionsLayout": "Seitenlayout",
+  "printOptionsScaling": "Seitenskalierung",
+  "printOptionsScaleNone": "Keine (tatsächliche Größe)",
+  "printOptionsFitPaper": "An Papier anpassen",
+  "printOptionsReducePaper": "Auf Papiergröße verkleinern",
+  "printOptionsFitMargins": "An Seitenränder anpassen",
+  "printOptionsReduceMargins": "Auf Seitenränder verkleinern",
+  "printOptionsCustomScale": "Benutzerdefinierte Skalierung",
+  "printOptionsMultiple": "Mehrere Seiten pro Blatt",
+  "printOptionsScalePercent": "Skalierung (%)",
+  "printOptionsMargin": "Seitenränder (pt)",
+  "printOptionsPagesPerSheet": "Seiten pro Blatt",
+  "printOptionsPageOrder": "Seitenreihenfolge",
+  "printOptionsHorizontal": "Horizontal",
+  "printOptionsHorizontalReverse": "Horizontal umgekehrt",
+  "printOptionsVertical": "Vertikal",
+  "printOptionsVerticalReverse": "Vertikal umgekehrt",
+  "printOptionsBorder": "Seitenrahmen drucken",
+  "printOptionsRotation": "Drehung (im Uhrzeigersinn)",
+  "printOptionsNoRotation": "Keine",
+  "printOptionsCenter": "Auf Papier zentrieren",
+  "printOptionsOffsetX": "Versatz nach rechts (pt)",
+  "printOptionsOffsetY": "Versatz nach unten (pt)",
+  "printOptionsContents": "Druckinhalt",
+  "printOptionsDocumentAndMarkups": "Dokument und Anmerkungen",
+  "printOptionsDocumentOnly": "Nur Dokument",
+  "printOptionsMarkupsOnly": "Nur Anmerkungen",
+  "printOptionsDimPage": "Seiteninhalt abschwächen",
+  "printOptionsDimMarkups": "Anmerkungen abschwächen",
+  "printOptionsHyperlinks": "Sichtbare Hyperlinks drucken",
+  "printOptionsDefaults": "Standardwerte",
+  "printOptionsInvalidNumber": "Geben Sie vor dem Drucken gültige Zahlen ein.",
+  "printOptionsInvalidValue": "Ungültiger Wert",
+  "printOptionsMarginGuide": "Die roten Linien zeigen die Seitenränder an und werden nicht gedruckt.",
+  "printOptionsAreaSize": "Bereich: {width} × {height} pt",
+  "@printOptionsAreaSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSourceSize": "Original: {width} × {height} pt",
+  "@printOptionsSourceSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetSize": "Blatt: {width} × {height} pt",
+  "@printOptionsSheetSize": {
+    "placeholders": {
+      "width": {
+        "type": "String"
+      },
+      "height": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsSheetOf": "Blatt {sheet} von {total}",
+  "@printOptionsSheetOf": {
+    "placeholders": {
+      "sheet": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printOptionsInvalidLayout": "Dieses Layout konnte nicht erstellt werden. Prüfen Sie Papierformat, Seitenränder und Skalierung.",
+  "printOptionsChoosePrinter": "Drucker auswählen",
+  "printOptionsNoPrinters": "Es sind keine Drucker installiert. Fügen Sie in den Windows-Einstellungen einen Drucker hinzu und versuchen Sie es erneut.",
+  "printOptionsPrinterUnavailable": "Der gespeicherte Drucker „{printer}“ ist nicht verfügbar. Wählen Sie einen Drucker aus, um fortzufahren.",
+  "@printOptionsPrinterUnavailable": {
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPrinterError": "Die Druckereinstellungen konnten nicht geladen werden. Prüfen Sie die Druckerverbindung und versuchen Sie es erneut.",
+  "printOptionsRetry": "Erneut versuchen",
+  "printOptionsColor": "Farbe",
+  "printOptionsGrayscale": "Schwarzweiß",
+  "printOptionsDuplex": "Beidseitiger Druck",
+  "printOptionsSimplex": "Einseitig",
+  "printOptionsLongEdge": "An langer Kante wenden",
+  "printOptionsShortEdge": "An kurzer Kante wenden",
+  "printOptionsTray": "Papierfach",
+  "printOptionsDefaultTray": "Druckerstandard",
+  "printOptionsProperties": "Druckereigenschaften…",
+  "printOptionsDirectPrinter": "„Drucken“ sendet diesen Auftrag direkt an den ausgewählten Drucker.",
+  "printOptionsPropertiesError": "Die Druckereigenschaften konnten nicht geöffnet werden.",
+  "printOptionsLoadingPrinters": "Drucker werden geladen…"
+}

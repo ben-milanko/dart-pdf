@@ -1,0 +1,5 @@
+3.5.1 sürümündeki yenilikler
+
+- Taranan MRC ve JBIG2 sayfaları artık metin, arka plan ve maske katmanlarını doğru biçimde koruyor.
+- Yumuşak maskeli görüntüler Impeller veya isteğe bağlı GPU işleyicisinde artık siyah bloklar olarak görünmüyor.
+- Android belge taraması sonuçları sistem içerik sağlayıcısından güvenilir şekilde okuyor ve işlem yapılabilir hatalar gösteriyor.

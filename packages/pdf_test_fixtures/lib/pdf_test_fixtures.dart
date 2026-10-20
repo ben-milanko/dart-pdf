@@ -1,11 +1,23 @@
 import 'dart:typed_data';
 
+export 'src/cad_image_strip.dart';
+export 'src/cad_strip.dart';
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
+export 'src/jbig2_encoder.dart';
+export 'src/jpx_fixture.dart';
+export 'src/list_box_form.dart';
+export 'src/ocr_accuracy.dart';
+export 'src/ocr_drawing_sheet.dart';
 export 'src/pkix_ltv.dart';
+export 'src/raster_underlay_sheet.dart';
 export 'src/rtl_text.dart';
 export 'src/signer_identity.dart';
+export 'src/tab_order_form.dart';
+export 'src/test_fulcio.dart';
+export 'src/test_revocation.dart';
 export 'src/test_tsa.dart';
+export 'src/xfa_forms.dart';
 
 Uint8List ascii(String s) => Uint8List.fromList(s.codeUnits);
 
@@ -19,6 +31,42 @@ Uint8List buildClassicPdf() {
         '/Resources << /Font << /F1 5 0 R >> >> >>',
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a minimal one-page PDF whose `/Annots` array is indirect.
+///
+/// Most fixtures store `/Annots` directly in the page dictionary. This one
+/// exercises editors that replace the array object and then read it again in
+/// the same incremental-update transaction.
+Uint8List buildIndirectAnnotsPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (Indirect annotations) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> '
+        '/Annots 6 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '[ ]',
   ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
@@ -96,7 +144,18 @@ Uint8List buildXrefStreamPdf() {
 }
 
 /// Builds a [pageCount]-page PDF; page N shows the text "Page N".
-Uint8List buildMultiPagePdf(int pageCount) {
+///
+/// [width]/[height] size the /MediaBox in points - US Letter by default.
+/// Oversize a page when the test is about what a page's dimensions cost
+/// (raster budgets, sampling rasters), not about its content.
+///
+/// [rotation] writes /Rotate on every page (0 - the default - omits it),
+/// for tests about a display-rotated page: what the viewer shows is the
+/// page turned clockwise by that many degrees.
+Uint8List buildMultiPagePdf(int pageCount,
+    {double width = 612, double height = 792, int rotation = 0}) {
+  // whole points write as integers - PDF accepts either, tests read better
+  String num(double v) => v == v.roundToDouble() ? '${v.round()}' : '$v';
   final objects = <String>[];
   final kids = [
     for (var i = 0; i < pageCount; i++) '${3 + i * 2} 0 R',
@@ -106,13 +165,166 @@ Uint8List buildMultiPagePdf(int pageCount) {
   objects.add('<< /Type /Pages /Kids [$kids] /Count $pageCount >>');
   for (var i = 0; i < pageCount; i++) {
     final content = 'BT /F1 24 Tf 72 720 Td (Page ${i + 1}) Tj ET';
-    objects.add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+    objects.add('<< /Type /Page /Parent 2 0 R '
+        '/MediaBox [0 0 ${num(width)} ${num(height)}] '
+        '${rotation == 0 ? '' : '/Rotate $rotation '}'
         '/Contents ${4 + i * 2} 0 R '
         '/Resources << /Font << /F1 $fontNumber 0 R >> >> >>');
     objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');
   }
   objects.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
 
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a [pageCount]-page "scan": each page paints one image XObject (a
+/// 1x1 gray pixel) scaled over [coverage] of its US Letter area and carries no
+/// text - the shape a scanner writes. [text] (drawn in base-14 /F1 on every
+/// page) turns it into a born-digital page with a picture, and [inlineImage]
+/// paints the pixel as `BI ... EI` instead of an XObject.
+Uint8List buildScannedPdf({
+  int pageCount = 1,
+  double coverage = 1,
+  String? text,
+  bool inlineImage = false,
+}) {
+  const width = 612.0;
+  final w = (width * coverage).toStringAsFixed(2);
+  final objects = <String>[];
+  final kids = [
+    for (var i = 0; i < pageCount; i++) '${3 + i * 2} 0 R',
+  ].join(' ');
+  final fontNumber = 3 + pageCount * 2;
+  final imageNumber = fontNumber + 1;
+  objects.add('<< /Type /Catalog /Pages 2 0 R >>');
+  objects.add('<< /Type /Pages /Kids [$kids] /Count $pageCount >>');
+  final paint =
+      inlineImage ? 'BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID 80> EI' : '/Im0 Do';
+  final content = 'q $w 0 0 792 0 0 cm $paint Q'
+      '${text == null ? '' : ' BT /F1 12 Tf 72 720 Td ($text) Tj ET'}';
+  for (var i = 0; i < pageCount; i++) {
+    objects.add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents ${4 + i * 2} 0 R /Resources << '
+        '/Font << /F1 $fontNumber 0 R >> '
+        '${inlineImage ? '' : '/XObject << /Im0 $imageNumber 0 R >> '}>> >>');
+    objects.add('<< /Length ${content.length} >>\nstream\n$content\nendstream');
+  }
+  objects.add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  objects.add('<< /Type /XObject /Subtype /Image /Width 1 /Height 1 '
+      '/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /ASCIIHexDecode '
+      '/Length 3 >>\nstream\n80>\nendstream');
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a one-page PDF drawing each of [lines] as its own text run in
+/// base-14 /F1, top-down from y=720 at 24pt intervals.
+///
+/// Handy for content-editing tests that need several runs whose text is the
+/// same or deliberately different - "does replacing this line leave the
+/// identical one alone".
+Uint8List buildTextLinesPdf(List<String> lines, {double size = 12}) {
+  final content = StringBuffer();
+  var y = 720.0;
+  for (final line in lines) {
+    content.write('BT /F1 $size Tf 36 $y Td ($line) Tj ET\n');
+    y -= 24;
+  }
+  final body = content.toString();
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a one-page PDF that draws [line] the way many generators do: one
+/// show operator per glyph, each placed by its own `Td`, with no space
+/// glyphs - a word gap is just a wider step. /F1 is Helvetica declared with
+/// a flat 500/1000 width, so at [size] every glyph advances `size / 2`.
+///
+/// The fixture for editing words a page draws a letter at a time.
+Uint8List buildGlyphRunsPdf(String line,
+    {double size = 12, double x = 36, double y = 720}) {
+  final advance = size / 2;
+  final content = StringBuffer('BT /F1 $size Tf $x $y Td\n');
+  var step = 0.0;
+  var first = true;
+  for (final char in line.split('')) {
+    if (char == ' ') {
+      step += advance;
+      continue;
+    }
+    if (!first) content.write('$step 0 Td ');
+    content.write('($char) Tj\n');
+    first = false;
+    step = advance;
+  }
+  content.write('ET\n');
+  final body = content.toString();
+  final widths = List.filled(95, '500').join(' ');
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 '
+        '/Widths [$widths] >>',
+  ];
   final buffer = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[];
   for (var i = 0; i < objects.length; i++) {
@@ -336,6 +548,60 @@ Uint8List buildAppearanceAnnotationsPdf() {
     form('[0 0 1 1]', ''),
     form('[0 0 10 10]', '1 0 1 rg 0 0 10 10 re f'),
     form('[0 0 10 10]', '1 1 0 rg 0 0 10 10 re f'),
+  ];
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
+/// Builds a minimal Bluebeam-style FreeText annotation.
+///
+/// Bluebeam stores centre alignment and 13.8pt leading in `/DS`/`/RC`, omits
+/// `/Q`, and uses a bare carriage return between the two `/Contents` lines.
+/// Its appearance also uses page-space coordinates with a translating form
+/// matrix. This combination is a compatibility fixture for inline editing and
+/// appearance regeneration.
+Uint8List buildBluebeamFreeTextPdf() {
+  const appearance = 'q BT 1 0 0 rg /Helv 12 Tf '
+      '1 0 0 1 190 632 Tm (PJ) Tj '
+      '1 0 0 1 176 618.2 Tm (202/7) Tj ET Q';
+  const ds = 'font: Helvetica 12pt; text-align:center; margin:3pt; '
+      'line-height:13.8pt; color:#FF0000';
+  const rc = '<body style="font:Helvetica 12pt; text-align:center; '
+      'margin:3pt; line-height:13.8pt; color:#FF0000">'
+      '<p style="text-align:center; line-height:13.8pt">PJ</p>'
+      '<p style="text-align:center; line-height:13.8pt">202/7</p></body>';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Annots [5 0 R] >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+    '<< /Type /Annot /Subtype /FreeText /P 3 0 R '
+        '/Rect [100 600 300 660] /F 4 /C [] '
+        '/Contents (PJ\\r202/7) /DA (1 0 0 rg /Helv 12 Tf) '
+        '/DS ($ds) /RC ($rc) /BS << /W 0 >> /AP << /N 6 0 R >> >>',
+    '<< /Type /XObject /Subtype /Form /FormType 1 '
+        '/BBox [100 600 300 660] /Matrix [1 0 0 1 -100 -600] '
+        '/Resources << /Font << /Helv 7 0 R >> >> '
+        '/Length ${appearance.length} >>\nstream\n$appearance\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding >>',
   ];
 
   final buffer = StringBuffer('%PDF-1.4\n');
@@ -723,6 +989,86 @@ Uint8List buildEmbeddedFontImagePdf() {
     ascii('<< /Type /FontDescriptor /FontName /TestFont /Flags 32 '
         '/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 '
         '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 6 0 R >>'),
+  ];
+  final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
+  final offsets = <int>[];
+  for (var i = 0; i < bodies.length; i++) {
+    offsets.add(out.length);
+    out.add(ascii('${i + 1} 0 obj\n'));
+    out.add(bodies[i]);
+    out.add(ascii('\nendobj\n'));
+  }
+  final xrefOffset = out.length;
+  final buffer = StringBuffer()
+    ..write('xref\n0 ${bodies.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  out.add(ascii(buffer.toString()));
+  return out.takeBytes();
+}
+
+/// Three pages that declare overprint (`/GS1` sets `/OP` and `/op`), so each
+/// opens a colorant buffer, and that use it three ways. Each page draws the
+/// embedded-font run "AB" ([buildTestTrueTypeFont]) at 24pt.
+///
+/// - Page 1 never reads its buffer: a knockout CMYK fill, a clip, an RGB fill
+///   and a knockout CMYK run, then under `/GS1` an RGB fill and an RGB run
+///   (overprinting paint with no colorant reading). A lazily started buffer
+///   rasterizes none of them and builds no glyph outlines.
+/// - Page 2 overprints four runs in black onto an RGB box: its reads only
+///   find cells the buffer cannot know. The box is rasterized; each run is
+///   settled by the unknown-backdrop probe without building its outlines.
+/// - Page 3 is the control: the same run overprints a cyan box, so the box
+///   and the run are rasterized and the run's outlines are built.
+Uint8List buildDeferredOverprintPdf() {
+  final font = buildTestTrueTypeFont();
+  const run = 'BT /F1 24 Tf 72 700 Td (AB) Tj ET';
+  const pages = [
+    '0 0 1 0 k 0 0 612 792 re f '
+        'q 72 72 468 648 re W n 1 0 0 rg 72 400 300 200 re f '
+        'BT /F1 24 Tf 72 500 Td 0 0 0 1 k (AB) Tj ET Q '
+        '/GS1 gs 0 0 1 rg 300 100 200 200 re f '
+        'BT /F1 24 Tf 72 300 Td 0 1 0 rg (AB) Tj ET',
+    // Four runs, so a probe that stopped settling them moves the gate's
+    // counters by more than its rounding band.
+    '1 0 0 rg 0 0 612 792 re f /GS1 gs 0 0 0 1 k BT /F1 24 Tf 72 700 Td '
+        '(AB) Tj 0 -40 Td (AB) Tj 0 -40 Td (AB) Tj 0 -40 Td (AB) Tj ET',
+    '1 0 0 0 k 0 0 612 792 re f /GS1 gs 0 0 0 1 k $run',
+  ];
+  // Objects: 1 catalog, 2 pages, 3 resources, 4 font, 5 font file,
+  // 6 descriptor, 7 ExtGState, then a page and its contents per page.
+  final bodies = <Uint8List>[
+    ascii('<< /Type /Catalog /Pages 2 0 R >>'),
+    ascii('<< /Type /Pages /Kids ['
+        '${[
+      for (var i = 0; i < pages.length; i++) '${8 + 2 * i} 0 R'
+    ].join(' ')}'
+        '] /Count ${pages.length} >>'),
+    ascii('<< /Font << /F1 4 0 R >> /ExtGState << /GS1 7 0 R >> >>'),
+    ascii('<< /Type /Font /Subtype /TrueType /BaseFont /TestFont '
+        '/FirstChar 65 /LastChar 66 /Widths [600 1000] '
+        '/Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>'),
+    (BytesBuilder()
+          ..add(ascii('<< /Length ${font.length} /Length1 ${font.length} >>'
+              '\nstream\n'))
+          ..add(font)
+          ..add(ascii('\nendstream')))
+        .takeBytes(),
+    ascii('<< /Type /FontDescriptor /FontName /TestFont /Flags 32 '
+        '/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 '
+        '/Descent -200 /CapHeight 800 /StemV 80 /FontFile2 5 0 R >>'),
+    ascii('<< /Type /ExtGState /OP true /op true >>'),
+    for (var i = 0; i < pages.length; i++) ...[
+      ascii('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+          '/Contents ${9 + 2 * i} 0 R /Resources 3 0 R >>'),
+      ascii('<< /Length ${pages[i].length} >>\nstream\n${pages[i]}'
+          '\nendstream'),
+    ],
   ];
   final out = BytesBuilder()..add(ascii('%PDF-1.4\n'));
   final offsets = <int>[];

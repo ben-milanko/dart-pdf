@@ -1,0 +1,4 @@
+Có gì mới trong 5.1.1
+
+- Nét mực viết nhanh liên tiếp không còn biến mất khỏi trang.
+- Bao gồm mọi cải tiến của 5.1.0.

@@ -1,0 +1,7 @@
+Novidades na versão 3.4.0
+
+• Copie e cole anotações entre documentos abertos.
+• Solte PDFs entre miniaturas para inserir páginas exatamente onde quiser.
+• Salve carimbos colocados na coleção e veja a cor da anotação selecionada na barra.
+• A seleção de texto e as fontes substitutas agora se alinham com mais precisão.
+• Grades de abas mais rápidas, zoom do trackpad mais suave, acesso progressivo mais seguro e prévias de impressão mais confiáveis.

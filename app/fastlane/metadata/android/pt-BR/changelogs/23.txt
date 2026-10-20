@@ -1,0 +1,5 @@
+Novidades na versão 3.2.0
+
+• Visualização mais rápida e estável com cache de páginas adaptado à memória e menos renderização duplicada.
+• Melhor compatibilidade com FreeText e balões, além de seleção mais precisa de marcações em várias linhas.
+• Corrige pausas no carregamento, atrasos ao restaurar sessões remotas e zoom com Ctrl/Cmd+roda após desenho com restrição.

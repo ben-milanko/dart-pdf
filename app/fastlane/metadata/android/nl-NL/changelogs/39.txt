@@ -1,0 +1,9 @@
+Nieuw in 5.0.0
+
+- Formulieren berekenen totalen, maken waarden op en controleren invoer.
+- Tab tussen formuliervelden; kies meerdere items in keuzelijsten.
+- Formulierwachtwoorden blijven in veilige apparaatopslag, nooit in de PDF.
+- Maak keuzerondjes, vervolgkeuzelijsten, keuzelijsten en handtekeningvelden.
+- Onderteken met een wachtwoord beveiligde PDF's.
+- Intrekkingscontrole voor handtekeningen; EU- en optionele Adobe-lijsten.
+- Calibri-tekst uit Office-documenten ziet er nu goed uit.

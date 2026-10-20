@@ -1,0 +1,7 @@
+Novidades da versão 8.0.0
+
+- Combine PDFs e intercale páginas.
+- Capture áreas poligonais e recorte capturas coladas.
+- Adicione várias setas às chamadas, mantendo os destinos fixos.
+- Altere o estilo e tamanho de vários campos de formulário juntos.
+- Decodificação de digitalizações mais rápida e prévias mais claras.

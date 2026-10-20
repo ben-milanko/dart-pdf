@@ -1,0 +1,5 @@
+Điểm mới trong 3.3.1
+
+• Đã sửa lỗi chú thích bị nhân đôi sau khi thay đổi thuộc tính.
+• Phông chữ nhúng được giữ nguyên khi đổi màu văn bản; bản xem trước đám mây và đa giác giữ đúng tỷ lệ mẫu.
+• Sắp xếp lại nhiều trang nay có phản hồi nhóm rõ ràng và đáng tin cậy hơn.

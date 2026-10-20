@@ -1,0 +1,9 @@
+Novidades da 5.0.0
+
+- Formulários calculam totais, formatam valores e verificam o que você digita.
+- Tab para mudar de campo; vários itens em caixas de listagem.
+- Senhas de formulários ficam em armazenamento seguro, nunca no PDF.
+- Crie botões de opção, menus suspensos, listas e campos de assinatura.
+- Assine PDFs protegidos por senha.
+- Revogação de assinaturas verificada; listas de confiança da UE e Adobe (opcional).
+- Texto em Calibri de documentos do Office agora aparece certo.

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -198,7 +198,9 @@ void main() {
       final editing = await pumpToolbar(
         tester,
         styledTextPrompt: (context,
-                {required initial, palette = const <Color>[], pickFont}) async =>
+                {required initial,
+                palette = const <Color>[],
+                pickFont}) async =>
             null,
       );
       editing.tool = PdfEditTool.content;
@@ -219,8 +221,8 @@ void main() {
             builder: (context) => Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  result = await showPdfStyledTextPrompt(context,
-                      initial: 'Hello');
+                  result =
+                      await showPdfStyledTextPrompt(context, initial: 'Hello');
                 },
                 child: const Text('open'),
               ),
@@ -263,8 +265,7 @@ void main() {
               child: ElevatedButton(
                 onPressed: () async {
                   captured = await showPdfStyledTextPrompt(context,
-                      initial: 'Hello',
-                      palette: const [Color(0xFFE53935)]);
+                      initial: 'Hello', palette: const [Color(0xFFE53935)]);
                 },
                 child: const Text('open'),
               ),
@@ -300,8 +301,8 @@ void main() {
             builder: (context) => Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  captured = await showPdfStyledTextPrompt(context,
-                      initial: 'Hello');
+                  captured =
+                      await showPdfStyledTextPrompt(context, initial: 'Hello');
                 },
                 child: const Text('open'),
               ),
@@ -371,8 +372,8 @@ void main() {
             builder: (context) => Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  captured = await showPdfStyledTextPrompt(context,
-                      initial: 'Hello');
+                  captured =
+                      await showPdfStyledTextPrompt(context, initial: 'Hello');
                 },
                 child: const Text('open'),
               ),
@@ -386,7 +387,7 @@ void main() {
       // open the shared swatch row's custom picker and accept its default
       await tester.tap(find.byKey(const ValueKey('pdf-styled-fill-more')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+      await tester.tap(find.byKey(const ValueKey('pdf-color-picker-ok')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-styled-ok')));
       await tester.pumpAndSettle();

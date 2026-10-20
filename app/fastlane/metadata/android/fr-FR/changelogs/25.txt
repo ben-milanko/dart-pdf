@@ -1,0 +1,5 @@
+Nouveautés de la version 3.3.1
+
+• Correction des annotations dupliquées après une modification de propriétés.
+• Les polices intégrées sont conservées lors d’un changement de couleur du texte ; les aperçus de nuages et polygones gardent l’échelle du motif.
+• La réorganisation de plusieurs pages est plus claire et plus fiable.

@@ -1,0 +1,5 @@
+Nouveautés de la version 3.2.0
+
+• Affichage plus rapide et stable grâce à un cache adapté à la mémoire et moins de rendus en double.
+• Meilleure compatibilité FreeText et bulles, avec une sélection plus précise des annotations multilignes.
+• Corrige les pauses de chargement, la restauration lente des sessions et le zoom Ctrl/Cmd+molette après un tracé contraint.

@@ -1,0 +1,5 @@
+Novedades de 3.5.1
+
+- Las páginas MRC y JBIG2 escaneadas conservan ahora sus capas de texto, fondo y máscara.
+- Las imágenes con máscara de transparencia ya no aparecen como bloques negros con Impeller ni con el renderizador GPU opcional.
+- El escáner de documentos de Android lee de forma fiable los resultados del proveedor de contenido del sistema y muestra errores útiles.

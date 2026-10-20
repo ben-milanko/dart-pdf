@@ -1,0 +1,16 @@
+New in 4.1.0
+
+SIGNATURES AND REUSABLE CONTENT
+- Save and manage multiple named handwritten signatures, with previews and quick selection.
+- Keep a searchable library of reusable annotations and place them across documents.
+- Select and remove visible digital signatures with confirmation and undo.
+
+PRECISION EDITING
+- Add horizontal and vertical cursor guides, show a page grid, and optionally snap annotations to it. Hold Alt to bypass snapping temporarily.
+- Reposition selected PDF content within a page or drag it to another page.
+- Reach every page with the colour eyedropper and open it directly from the colour dialog.
+
+PERFORMANCE AND RELIABILITY
+- Render large engineering drawings, complex blends, transparency groups, overprint, images, and fine linework faster and more accurately.
+- Import digital-signature keys and certificate chains more reliably, and show new signatures immediately after signing.
+- Fix sparse remote-PDF loading and a colour clipping error that could display a blank page.

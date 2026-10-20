@@ -1,0 +1,7 @@
+Novedades de la 3.1.0
+
+• Escanea documentos en papel directamente a un PDF o haz una foto con la cámara.
+• Los cambios sin guardar se duplican y se restauran tras un fallo.
+• Nuevas herramientas: hipervínculos, recorte de imágenes, bloqueo de anotaciones y atajos para cada herramienta.
+• Sobreimpresión fiel; visualización de páginas más rápida y progresiva.
+• Reduce el tamaño de un PDF sin pérdidas al guardarlo.

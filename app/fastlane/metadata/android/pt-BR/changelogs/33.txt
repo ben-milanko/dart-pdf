@@ -1,0 +1,6 @@
+Novidades da versão 4.0.0
+
+- Controles de edição mais compactos e encaixáveis, com melhor navegação por páginas e arquivos recentes.
+- Ajuste o texto automaticamente e achate as anotações escolhidas; campos vazios agora são achatados corretamente.
+- Cores, sobreimpressão, transparência, máscaras e fontes mais fiéis em PDFs complexos.
+- GPU e zoom profundo mais rápidos, com fluxos melhores para arrastar, digitalizar e abrir arquivos.

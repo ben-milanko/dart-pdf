@@ -1,0 +1,7 @@
+Novidades da versão 3.0.0
+
+• O app agora está disponível em 10 idiomas, com layout completo da direita para a esquerda.
+• Renderização mais precisa de sobreimpressão, modos de mesclagem e máscaras suaves.
+• Segure Shift para desenhar linhas retas e defina um estilo padrão para as marcações.
+• Abas de documento redesenhadas e mais fluidas.
+• Renderização mais rápida e menor uso de memória em arquivos grandes.

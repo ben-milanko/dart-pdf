@@ -1,0 +1,4 @@
+New in 3.5.1
+
+- Scanned MRC and JBIG2 pages now keep their text, background, and mask layers.
+- Soft-masked images no longer render as black blocks with Impeller or the optional GPU renderer.

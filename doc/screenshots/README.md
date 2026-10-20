@@ -10,6 +10,50 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 ```
 
 `<target>` is `app` or `example`; `<platform>` is `ios`, `macos`, or `android`.
+The Windows-only CI path also produces `doc/screenshots/app/windows/`.
+
+## Microsoft Store (Windows CI)
+
+Run **Marketing screenshots** with `windows_only: true` and `source_ref` set
+to the version being submitted (for example, `app-v4.5.0`). Apple and Android
+jobs are skipped. The Windows runner builds that source ref with the current
+screenshot harness, launches the real native app, and captures three scenes:
+the document, the thumbnail workspace, and dark mode.
+
+Download the `screenshots-windows` artifact and visually review all three PNGs
+before replacing the Microsoft Store listing screenshots. These are unframed
+captures of the running Windows app's render surface; do not reuse Apple/Android marketing images
+for this listing. The artifact includes source/harness commits, version,
+dimensions and checksums in `provenance.json`, plus app logs for diagnosis.
+
+`app/tool/capture_windows_screenshots.ps1` waits for a ready file from each
+settled scene, sizes the launched process's window, and requests a capture.
+The app writes the PNG before advancing, so slow runners cannot skip scenes.
+The script checks Store minimum dimensions and blank/duplicate frames. Hosted
+Windows runners have no capturable desktop monitor; the native Flutter engine
+captures its real render surface at 2x using `RenderRepaintBoundary.toImage`.
+The OS title bar is outside that surface and is not included or synthesized. The harness uses the app's native window bootstrap, localization
+delegates and bundled fonts. It changes demo data/preferences only, not the
+release's editor UI. Raw Windows images can be uploaded directly, or composed
+with the same branded headlines and ink/highlighter overlays as the other
+listings. The Microsoft Store versions in `doc/marketing/app/windows/` use
+only these Windows captures, without a synthesized OS frame:
+
+```sh
+dart packages/dart_pdf_editor/example/tool/compose_marketing.dart \
+  --in doc/screenshots/app/windows --out doc/marketing/app/windows \
+  --orientation landscape --width 2560 --height 1600 --target app
+```
+
+Locally on Windows (PowerShell 7, from the repository root):
+
+```powershell
+flutter pub get
+Push-Location app
+flutter build windows --release -t tool/screenshots_main.dart
+Pop-Location
+./app/tool/capture_windows_screenshots.ps1
+```
 
 ## How it works
 
@@ -51,6 +95,8 @@ doc/marketing/<target>/<platform>/NN-name.png     framed store shots (gradient +
 | macOS    | landscape   | 1440 × 900  | Mac App Store; matches a 1× window capture so the frame stays crisp (1280×800 / 2560×1600 / 2880×1800 also valid) |
 | iOS      | portrait    | 1320 × 2868 | App Store 6.9" display (iPhone 16/17 Pro Max) |
 | Android  | portrait    | 1320 × 2640 | Play phone screenshot (2:1, within Play's ≤2:1 limit) |
+| iPhone Duo outer | portrait | 1398 × 2034 | App Store iPhone Duo, closed (see below) |
+| iPhone Duo inner | landscape | 2853 × 2007 | App Store iPhone Duo, open (see below) |
 
 The iPhone simulator captures natively at 1320 × 2868, already a valid 6.9"
 App Store size. macOS is captured a window at a time via its CGWindowID
@@ -60,6 +106,34 @@ background. The pid is the one *we* launched (parsed from the run output), so an
 installed copy of the same-named app is never captured by mistake. The marketing
 canvas (1440 × 900) pins the macOS store dimension; pick a larger valid size only
 when capturing on a Retina display (a 1× window upscaled to 2880 would be soft).
+
+## iPhone Duo
+
+iPhone Duo has two App Store screenshot slots, one per display, and a set for
+one does not cover the other:
+
+| Token           | Display              | Pose (Device Hub) | simctl `--display` | Size        |
+|-----------------|----------------------|-------------------|--------------------|-------------|
+| `ios-duo-outer` | outer, phone closed  | Closed            | `primary`          | 1398 × 2034 |
+| `ios-duo-inner` | inner, phone open    | Open              | `primary-1`        | 2853 × 2007 |
+
+`duo` runs both. They are opt-in (not in the default platform list) because
+they need Xcode 27.1+ with the iOS 27.1 runtime, whose only device type is
+`iPhone Duo` (override with `DUO_DEVICE`). `simctl` has no pose command, so
+before each slot the script pauses for you to press Closed / Open in the
+simulator's Device Hub; `DUO_POSE_READY=1` skips the pause. Every capture is
+checked against the slot's sizes and discarded on a mismatch, so a shot of
+the wrong display or pose never lands in `doc/screenshots/app/ios-duo-*`.
+Duo screenshots can come out black for a few minutes after the simulator
+boots (an Xcode 27.2 beta note); re-run if a shot is blank.
+
+```sh
+packages/dart_pdf_editor/example/tool/screenshots.sh app duo
+```
+
+The marketing canvases are the store sizes themselves: outer portrait
+1398 × 2034, inner landscape 2853 × 2007 (Apple also accepts the turned
+sizes).
 
 ## Running locally
 
@@ -95,9 +169,33 @@ Useful env: `FLUTTER` (flutter binary; defaults to fvm then PATH),
 
 ## Editing the copy
 
-The headline + subtitle per scene live in one map, `_captions`, at the top of
-`tool/compose_marketing.dart`, keyed `<target>/<basename>`. The gradient and
-layout are in `_composeSvg` in the same file.
+The **English** headline + subtitle per scene live in one map, `_captions`, at
+the top of `tool/compose_marketing.dart`, keyed `<target>/<basename>`. Those are
+the source of truth. The gradient and layout are in `_composeSvg` in the same
+file.
+
+## Localized captions
+
+Translations live in `doc/screenshots/captions/<locale>.json` (one file per app
+locale, e.g. `de.json`, `ja.json`, `ar.json`), mirroring `en.json`'s keys. Each
+entry overrides the English `headline`/`subtitle` for that scene; any key a
+translation omits falls back to the English string, so a partial file is safe.
+
+`compose_marketing.dart --locale <locale>` overlays the matching JSON. The
+driver renders per-locale sets when `LOCALES` is set:
+
+```sh
+# English only (default) → doc/marketing/<target>/<platform>/
+tool/screenshots.sh compose app
+
+# Localized sets → English at the base path, each other locale in its own
+# <locale>/ subfolder (doc/marketing/app/ios/de/, .../ja/, …)
+LOCALES="en de ja ar zh" tool/screenshots.sh compose app
+```
+
+Same App Store Guideline 2.3.10 rule as the listings: `app/*` captions must not
+name another platform, in any language. The store copy these mirror is under
+`app/fastlane/metadata/` (see its README).
 
 The drawn-on markup flourishes live in the `_annotations` map just below
 `_captions` (same key scheme; only `app/*` entries are set). Each builder gets

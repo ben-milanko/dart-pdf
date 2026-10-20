@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -27,7 +27,7 @@ void main() {
       {required String shape, bool dashed = false}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
       ..color = const Color(0xFFFF0000)
-      ..strokeWidth = 4
+      ..preferences.strokeWidth = 4
       ..dashedStroke = dashed;
     if (shape == 'Circle') {
       editing.addEllipse(0, const PdfRect(100, 550, 300, 650));

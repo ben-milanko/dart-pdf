@@ -1,25 +1,28 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:js_interop';
-import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show pdfPageLooksScanned;
+import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
+import 'l10n/app_l10n.dart';
+import 'ocr_pages.dart';
 import 'ocr_status.dart';
-import 'ocr_tiling.dart';
+import 'ocr_web_budget.dart';
 
 export 'ocr_status.dart';
 
 /// Drives the app's browser-local OCR flow.
 ///
-/// Native builds use `pdf_ocr_ondevice` with ONNX Runtime. Web builds cannot
-/// compile that FFI stack, so this implementation calls the JavaScript OCR
-/// bridge registered by `web/index.html`. That bridge loads a Florence-2
-/// vision-language model through Transformers.js and runs recognition in the
-/// browser; page images and OCR results do not go to an app OCR server.
+/// The same PP-OCR pipeline the native apps run (`pdf_ocr_ondevice`'s
+/// [PpOcrPipeline]: resize, normalize, box extraction, CTC decoding), with
+/// its two network calls handed to the onnxruntime-web bridge registered by
+/// `web/index.html` instead of native ONNX Runtime, which can't compile here.
+/// The models come from this app's own origin; page images and OCR results
+/// never leave the browser.
 class OnDeviceOcr {
   OnDeviceOcr();
 
@@ -29,7 +32,13 @@ class OnDeviceOcr {
 
   bool _cancelled = false;
 
-  /// Web OCR is supported by the browser-local Florence-2 bridge.
+  /// Whether the user started browser OCR this session - an automatic run
+  /// then goes ahead without asking again. [_autoDeclined] is the opposite:
+  /// they turned down an automatic run, so later scans stay quiet.
+  bool _approved = false;
+  bool _autoDeclined = false;
+
+  /// Web OCR is supported by the browser-local onnxruntime-web bridge.
   static bool get isSupported => true;
 
   /// Whether a job is in flight (only one runs at a time).
@@ -44,154 +53,208 @@ class OnDeviceOcr {
   }
 
   /// Starts OCR over [bytes]. The first run confirms the model download, then
-  /// recognition runs entirely in the browser process.
+  /// recognition runs entirely in the browser process. [onComplete],
+  /// [onRecognized] and [automatic] behave as in the native implementation;
+  /// an automatic run skips the confirmation once the user has started
+  /// browser OCR this session.
   Future<void> start(
     BuildContext context, {
     required Uint8List bytes,
     required String title,
     required void Function(String message) onToast,
-    required void Function(Uint8List result) onComplete,
+    void Function(Uint8List result)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
+    bool automatic = false,
   }) async {
+    final l10n = appL10n(context);
     if (isBusy) {
-      onToast('OCR is already running - wait for it to finish or cancel it');
+      if (!automatic) onToast(l10n.ocrAlreadyRunning);
       return;
     }
     if (!_hasBridge) {
-      onToast('Browser OCR failed to initialise');
+      if (!automatic) onToast(l10n.ocrBrowserInitFailed);
       return;
     }
 
-    final approved = await showDialog<bool>(
-      context: context,
-      builder: (_) => const _WebOcrConfirmDialog(),
-    );
-    if (approved != true) return;
+    if (!automatic || !_approved) {
+      if (automatic && _autoDeclined) return;
+      final approved = await showPdfDialog<bool>(
+        context: context,
+        builder: (_) => const _WebOcrConfirmDialog(),
+      );
+      if (approved != true) {
+        if (automatic) _autoDeclined = true;
+        return;
+      }
+      _approved = true;
+    }
     _cancelled = false;
 
-    final engine = _BrowserOcrEngine();
+    OcrRunnerEngine? engine;
     try {
       status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
-      await engine.warmUp();
+      // Feed the bridge's model-download progress into the chip. The bridge
+      // counts only the weight files and reports 'preparing' once their last
+      // byte is in (cache write + session setup follow, with no progress);
+      // the fraction is still held monotonic as a guard.
+      var shownFraction = 0.0;
+      _setProgressListener((String stage, num loaded, num total) {
+        if (stage == 'preparing') {
+          status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
+          return;
+        }
+        if (total <= 0) return;
+        final fraction = (loaded / total).clamp(0.0, 1.0);
+        if (fraction > shownFraction) shownFraction = fraction;
+        status.value = OcrJobStatus(
+          phase: OcrPhase.downloading,
+          title: title,
+          downloadFraction: shownFraction,
+        );
+      });
+      try {
+        await _ocrLoad().toDart;
+      } finally {
+        _setProgressListener(null);
+      }
+      // The bridge is up, so the heap it got is known; size the work to it.
+      final pipeline = browserOcrPipeline(_BrowserOcrInference(),
+          heapBytes: _ocrHeapLimitHook == null ? 0 : _ocrHeapLimit().toDartInt);
+      engine = OcrRunnerEngine(pipeline);
+      await pipeline.load();
       if (_cancelled) {
-        onToast('OCR cancelled');
+        onToast(l10n.ocrCancelled);
         return;
       }
 
       final editor = PdfEditor(PdfDocument.open(bytes));
-      final count = editor.document.pageCount;
-      var spans = 0;
-      for (var i = 0; i < count; i++) {
-        if (_cancelled) break;
-        status.value = OcrJobStatus(
-          phase: OcrPhase.recognising,
-          title: title,
-          page: i + 1,
-          pageCount: count,
-        );
-        spans += await editor.applyOcr(i, engine, pixelRatio: 2);
-        await Future<void>.delayed(Duration.zero);
+      void onPage(int i, int count) {
+        void report([double? pageFraction]) => status.value = OcrJobStatus(
+              phase: OcrPhase.recognising,
+              title: title,
+              page: i + 1,
+              pageCount: count,
+              pageFraction: pageFraction,
+            );
+        report();
+        pipeline.onProgress = report;
       }
+
+      if (onRecognized != null) {
+        final recognized = await recognizeAllPages(
+          editor,
+          engine,
+          isCancelled: () => _cancelled,
+          onPage: onPage,
+          includePage:
+              automatic ? (i) => pdfPageLooksScanned(editor.document, i) : null,
+        );
+        if (_cancelled) {
+          onToast(l10n.ocrCancelled);
+          return;
+        }
+        onRecognized(recognized);
+        return;
+      }
+      final spans = await ocrAllPages(
+        editor,
+        engine,
+        isCancelled: () => _cancelled,
+        onPage: onPage,
+      );
       if (_cancelled) {
-        onToast('OCR cancelled after $spans text spans');
+        onToast(l10n.ocrCancelledAfterSpans(spans));
         return;
       }
       status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
       final result = editor.save();
-      onToast(spans == 0
-          ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans - the page text is now selectable');
-      onComplete(result);
+      onToast(l10n.ocrResult(spans));
+      onComplete?.call(result);
     } catch (e) {
-      onToast('OCR failed: $e');
+      onToast(l10n.ocrFailed(e.toString()));
     } finally {
+      await engine?.dispose();
       status.value = null;
     }
   }
 
   static bool get _hasBridge => _ocrBridge != null;
+
+  /// Registers (or with null, clears) the bridge's model-load progress
+  /// listener. A no-op against an older cached `index.html` without the hook.
+  static void _setProgressListener(
+    void Function(String stage, num loaded, num total)? listener,
+  ) {
+    if (_ocrProgressHook == null) return;
+    _registerOcrProgress(
+      listener == null
+          ? null
+          : ((JSString stage, JSNumber loaded, JSNumber total) => listener(
+                stage.toDart,
+                loaded.toDartDouble,
+                total.toDartDouble,
+              )).toJS,
+    );
+  }
 }
 
-@JS('__dartPdfOcrRecognize')
+@JS('__dartPdfOcrOnProgress')
+external JSAny? get _ocrProgressHook;
+
+@JS('__dartPdfOcrOnProgress')
+external void _registerOcrProgress(JSFunction? listener);
+
+@JS('__dartPdfOcrRun')
 external JSAny? get _ocrBridge;
 
-@JS('__dartPdfOcrRecognize')
-external JSPromise<JSString> _recognizeWithBrowserOcr(String imageDataUrl);
+/// The OCR wasm heap's maximum when the bridge had to cap it, else 0. Null
+/// against an older cached `index.html` without the hook.
+@JS('__dartPdfOcrHeapLimit')
+external JSAny? get _ocrHeapLimitHook;
 
-class _BrowserOcrEngine implements PdfOcrEngine {
-  Future<void> warmUp() async {
-    await _recognizeDataUrl(
-      'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
-    );
-  }
+@JS('__dartPdfOcrHeapLimit')
+external JSNumber _ocrHeapLimit();
+
+@JS('__dartPdfOcrLoad')
+external JSPromise<JSString> _ocrLoad();
+
+@JS('__dartPdfOcrRun')
+external JSPromise<_OcrRunResult> _ocrRun(
+    String name, JSFloat32Array data, JSArray<JSNumber> dims);
+
+extension type _OcrRunResult(JSObject _) implements JSObject {
+  external JSFloat32Array get data;
+  external JSArray<JSNumber> get dims;
+}
+
+/// [PpOcrInference] over the onnxruntime-web bridge in `web/index.html`.
+class _BrowserOcrInference implements PpOcrInference {
+  @override
+  Future<String> load() async => (await _ocrLoad().toDart).toDart;
 
   @override
-  Future<List<PdfOcrSpan>> recognize(PdfOcrPageImage page) async {
-    // Florence-2 resizes whatever image it is handed to 768x768, so feeding it
-    // the whole page crushes small print to a few unreadable pixels and it
-    // hallucinates. Recognize the page in overlapping tiles small enough to
-    // survive that resize, lift each tile's boxes back into page-pixel space,
-    // then drop the duplicates the overlaps produce.
-    final image = page.image;
-    final tiles = ocrTiles(image.width, image.height);
-    final raw = <OcrRawSpan>[];
-    for (final tile in tiles) {
-      final png = await _encodeTilePng(image, tile);
-      final result = await _recognizeDataUrl(
-        'data:image/png;base64,${base64Encode(png)}',
-      );
-      final spans = parseFlorenceSpans(
-        result,
-        fallbackWidth: tile.width.round(),
-        fallbackHeight: tile.height.round(),
-      );
-      for (final span in spans) {
-        raw.add(span.shifted(tile.left, tile.top));
-      }
-    }
-    return [
-      for (final span in mergeOcrSpans(raw))
-        PdfOcrSpan(
-          text: span.text,
-          bounds: page.userSpaceRect(span.box),
-          confidence: span.confidence,
-        ),
-    ];
-  }
+  Future<OcrTensor> detect(Float32List input, int width, int height) =>
+      _run('det', input, [1, 3, height, width]);
 
-  /// Encodes the sub-rectangle [src] of [image] to PNG, the form the JS bridge
-  /// accepts. Cropping happens on the raster thread (draw the source rect into
-  /// a tile-sized image) so only the tile's pixels cross to JavaScript.
-  static Future<Uint8List> _encodeTilePng(ui.Image image, Rect src) async {
-    final w = src.width.round();
-    final h = src.height.round();
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.drawImageRect(
-      image,
-      src,
-      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
-      ui.Paint(),
+  @override
+  Future<OcrTensor> recognize(
+          Float32List input, int batch, int height, int width) =>
+      _run('rec', input, [batch, 3, height, width]);
+
+  static Future<OcrTensor> _run(
+      String name, Float32List input, List<int> dims) async {
+    final result =
+        await _ocrRun(name, input.toJS, [for (final d in dims) d.toJS].toJS)
+            .toDart;
+    return (
+      data: result.data.toDart,
+      shape: [for (final d in result.dims.toDart) d.toDartInt],
     );
-    final picture = recorder.endRecording();
-    final ui.Image tile;
-    try {
-      tile = await picture.toImage(w, h);
-    } finally {
-      picture.dispose();
-    }
-    try {
-      final data = await tile.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) throw StateError('could not encode OCR tile to PNG');
-      return data.buffer.asUint8List();
-    } finally {
-      tile.dispose();
-    }
   }
 
-  static Future<Object?> _recognizeDataUrl(String dataUrl) async {
-    final result = await _recognizeWithBrowserOcr(dataUrl).toDart;
-    return jsonDecode(result.toDart);
-  }
+  // The sessions live for the page; a later job reuses them.
+  @override
+  Future<void> dispose() async {}
 }
 
 class _WebOcrConfirmDialog extends StatelessWidget {
@@ -201,25 +264,23 @@ class _WebOcrConfirmDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return AlertDialog(
       key: const ValueKey('ocr-web-settings'),
-      title: const Text('Run AI OCR in this browser?'),
+      title: Text(appL10n(context).ocrWebPromptTitle),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
-        child: Text(
-          'Web OCR downloads a Florence-2 vision-language model and runs it '
-          'locally with WebGPU/WASM through Transformers.js. The PDF pages stay '
-          'in this browser; only model files are fetched on first use.',
-        ),
+        child: Text(appL10n(context).ocrWebPromptBody),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(appL10n(context).cancel),
         ),
-        FilledButton(
-          key: const ValueKey('ocr-web-start'),
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Start OCR'),
-        ),
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(true),
+            child: FilledButton(
+              key: const ValueKey('ocr-web-start'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(appL10n(context).ocrWebStart),
+            )),
       ],
     );
   }

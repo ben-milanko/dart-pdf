@@ -1,0 +1,6 @@
+Novità di 7.0.0
+
+- OCR più preciso e veloce per caratteri piccoli e disegni, con avanzamento più chiaro.
+- Apri i link e tieni premuto per selezionare il testo in modalità Selezione.
+- I risultati di ricerca restano visibili con lo zoom.
+- L’anteprima dell’inchiostro mantiene l’opacità scelta; le esportazioni vettoriali includono le annotazioni.

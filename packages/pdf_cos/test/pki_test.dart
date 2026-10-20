@@ -87,6 +87,22 @@ void main() {
       expect(rsaVerify(key.publicKey, DigestOid.sha256, digest, signature),
           isFalse);
     });
+
+    test('pemEncode round-trips through pemBytes with 64-column wrapping', () {
+      // 100 bytes -> a base64 body longer than one 64-char line, so the
+      // wrapping loop runs more than once.
+      final der = Uint8List.fromList(List.generate(100, (i) => i));
+      final pem = pemEncode('PUBLIC KEY', der);
+      expect(pem, startsWith('-----BEGIN PUBLIC KEY-----\n'));
+      expect(pem, endsWith('-----END PUBLIC KEY-----\n'));
+      final bodyLines = pem
+          .split('\n')
+          .where((l) => l.isNotEmpty && !l.contains('-----'))
+          .toList();
+      expect(bodyLines.length, greaterThan(1));
+      expect(bodyLines.first.length, 64);
+      expect(pemBytes(pem), der);
+    });
   });
 
   group('RSASSA-PSS', () {

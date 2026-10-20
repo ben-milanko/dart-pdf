@@ -1,0 +1,4 @@
+New in 3.1.1
+
+• Smoother scrolling on large and visually dense PDFs, with fewer frame drops.
+• Page previews stay visible during fast scrolling and settle cleanly into full-detail renders.

@@ -1,0 +1,4 @@
+New in 5.1.1
+
+- Ink written in quick succession no longer disappears from the page.
+- Includes all the improvements from 5.1.0.

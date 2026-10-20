@@ -1,0 +1,14 @@
+New in 4.2.0
+
+SMOOTHER READING
+- Keep nearby pages sharp while scrolling slowly by using spare graphics capacity, and warm pages ahead of the direction you are scrolling. Fast scrolling still prioritises responsiveness.
+- Render with the accelerated graphics route by default, falling back automatically for scenes it cannot draw exactly.
+- Zoom around the pointer with Ctrl or Cmd and the mouse wheel, so the point under the cursor stays put.
+
+PRECISION EDITING
+- Add annotation alignment guides and page rulers for precise placement.
+- Fix selecting, resizing, and editing annotations on rotated pages, where a square annotation could behave as though it were turned a quarter turn.
+
+FIXES
+- Select multi-line highlights by their actual shape rather than their bounding box, and keep the text under them sharp.
+- Pan between lines of text instead of starting a text selection.

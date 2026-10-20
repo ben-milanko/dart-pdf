@@ -1,0 +1,6 @@
+Nowości w wersji 3.5.0
+
+- Duże i szczegółowe pliki PDF działają płynnie podczas przewijania, przesuwania i powiększania, a widoczny obszar wyostrza się jako pierwszy.
+- Podglądy stron stopniowo zyskują szczegóły podczas szybkiej nawigacji.
+- Strony pozostają ostre i widoczne przy krawędziach widoku.
+- Szybsze wczytywanie zdalnych dokumentów i bardziej przewidywalne użycie pamięci.

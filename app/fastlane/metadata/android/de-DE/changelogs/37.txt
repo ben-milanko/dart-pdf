@@ -1,0 +1,8 @@
+Neu in 4.4.0
+
+- Unter Windows direkt drucken und Druckeinstellungen zwischen Aufträgen behalten.
+- Bis 10000% zoomen, mit Vorgaben für die nächsten Ansichten.
+- Dichte Vektorzeichnungen schneller öffnen und scrollen.
+- Text auf umfangreichen Seiten früher auswählen und durchsuchen.
+- Vertikale Ausrichtung für Textfelder in Formularen festlegen.
+- Die gespeicherte Datei nach „Speichern unter“ im Explorer anzeigen.

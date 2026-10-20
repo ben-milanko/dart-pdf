@@ -1,10 +1,33 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// An unsigned OIDC token carrying [claims] - enough for the keyless flow to
+/// read the identity from (Fulcio, not the client, verifies the signature).
+String _jwt(Map<String, Object?> claims) {
+  String seg(Object o) =>
+      base64Url.encode(utf8.encode(json.encode(o))).replaceAll('=', '');
+  return '${seg({'alg': 'RS256'})}.${seg(claims)}.';
+}
+
+/// Waits for [PdfEditingController.validationFor] to land a verdict for the
+/// current revision's signature named [field].
+Future<PdfSignatureValidation> _validated(
+    PdfEditingController editing, String field) async {
+  for (var i = 0; i < 2000; i++) {
+    final signature = editing.signatureByFieldName[field]!;
+    final validation = editing.validationFor(signature);
+    if (validation != null) return validation;
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+  throw StateError('no validation for $field');
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -32,13 +55,56 @@ void main() {
         ],
       ),
       throwsA(
-        isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('does not match'),
-        ),
+        isA<PdfSignatureIdentityException>()
+            .having((e) => e.message, 'message', contains('does not match'))
+            .having((e) => e.code, 'code',
+                PdfSignatureIdentityError.keyCertificateMismatch),
       ),
     );
+  });
+
+  test('identity file errors carry a machine-readable code for localization',
+      () {
+    final key = Uint8List.fromList(testSignerKeyPem.codeUnits);
+    final cert = Uint8List.fromList(testSignerCertPem.codeUnits);
+
+    void expectCode(
+      PdfSignatureIdentityError code, {
+      required Uint8List privateKey,
+      required List<Uint8List> certificates,
+      int? certificateIndex,
+    }) {
+      var matcher = isA<PdfSignatureIdentityException>()
+          .having((e) => e, 'is a FormatException', isA<FormatException>())
+          .having((e) => e.code, 'code', code);
+      if (certificateIndex != null) {
+        matcher = matcher.having(
+            (e) => e.certificateIndex, 'certificateIndex', certificateIndex);
+      }
+      expect(
+        () => PdfDigitalSignatureIdentity.fromFiles(
+            privateKey: privateKey, certificates: certificates),
+        throwsA(matcher),
+      );
+    }
+
+    // No certificate chosen at all.
+    expectCode(PdfSignatureIdentityError.noCertificateSelected,
+        privateKey: key, certificates: const []);
+    // A chosen certificate file that isn't valid X.509 (1-based index).
+    expectCode(PdfSignatureIdentityError.invalidCertificate,
+        privateKey: key,
+        certificates: [
+          Uint8List.fromList(const [1, 2, 3, 4])
+        ],
+        certificateIndex: 1);
+    // An encrypted PEM private key (unsupported).
+    expectCode(PdfSignatureIdentityError.encryptedKeyUnsupported,
+        privateKey:
+            Uint8List.fromList('-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n'
+                    '-----END ENCRYPTED PRIVATE KEY-----\n'
+                .codeUnits),
+        certificates: [cert]);
   });
 
   test('controller adds a valid PAdES signature as an undoable revision',
@@ -75,5 +141,351 @@ void main() {
     signatures = PdfSignature.of(editing.document);
     expect(signatures, hasLength(1));
     expect(signatures.single.validate().intact, isTrue);
+  });
+
+  test('a placed appearance signs into a visible box (rect + /AP)', () async {
+    final editing = PdfEditingController(buildClassicPdf());
+    addTearDown(editing.dispose);
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        reason: 'Approved',
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+        ),
+      ),
+      isTrue,
+    );
+
+    final signature = PdfSignature.of(editing.document).single;
+    expect(signature.validate().intact, isTrue);
+
+    // the widget carries the placed /Rect and a rendered appearance stream
+    final widget = signature.field.widgets.first;
+    final rect = pdfRectFrom(editing.document.cos, widget['Rect'])!;
+    expect(rect.left, closeTo(72, 0.5));
+    expect(rect.top, closeTo(720, 0.5));
+    // a rendered appearance stream was installed (visible box)
+    expect(widget['AP'], isNotNull);
+  });
+
+  test('a placed appearance invalidates every page that displays it', () async {
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final before = [
+      for (var page = 0; page < 3; page++) editing.pageRenderStamp(page),
+    ];
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [2],
+        ),
+      ),
+      isTrue,
+    );
+
+    expect(editing.lastRevisionImpact!.visualPages, {0, 2});
+    expect(editing.lastRevisionImpact!.contentPages, isEmpty);
+    expect(editing.lastRevisionImpact!.annotationPages, {0, 2});
+    expect(editing.pageRenderStamp(0), greaterThan(before[0]));
+    expect(editing.pageRenderStamp(1), before[1]);
+    expect(editing.pageRenderStamp(2), greaterThan(before[2]));
+  });
+
+  test('removeSignature drops the field and its apply-to-pages copies',
+      () async {
+    final editing = PdfEditingController(buildMultiPagePdf(3));
+    addTearDown(editing.dispose);
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+
+    expect(
+      await editing.addDigitalSignature(
+        identity(),
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [1, 2],
+        ),
+      ),
+      isTrue,
+    );
+    expect(editing.signatures, hasLength(1));
+    List<PdfAnnotation> stamps(int page) => editing.document
+        .page(page)
+        .annotations
+        .where((a) => a.subtype == 'Stamp')
+        .toList();
+    expect(stamps(1), hasLength(1));
+    expect(stamps(2), hasLength(1));
+
+    // removing the signature drops the field and both appearance copies
+    expect(editing.removeSignature(editing.signatures.single), isTrue);
+    expect(editing.signatures, isEmpty);
+    expect(stamps(1), isEmpty);
+    expect(stamps(2), isEmpty);
+
+    // and it's undoable
+    editing.undo();
+    expect(editing.signatures, hasLength(1));
+    expect(stamps(1), hasLength(1));
+  });
+
+  test('controller adds a timestamped keyless (B-T) signature', () async {
+    final signedAt = DateTime.utc(2026, 7, 13, 4, 30);
+    final ca = TestFulcioCa.generate(notBefore: DateTime.utc(2026));
+
+    // Mint a keyless identity through the in-process Fulcio, exactly as the
+    // app's keylessSigningIdentity would but with the fake transport.
+    final keyless = await fulcioSigningIdentity(
+      oidcToken: _jwt({'email': 'dev@example.com'}),
+      transport: (request) async =>
+          buildTestFulcioResponse(request, ca: ca, notBefore: signedAt),
+    );
+
+    final editing = PdfEditingController(buildClassicPdf());
+    addTearDown(editing.dispose);
+    final original = Uint8List.fromList(editing.bytes);
+
+    expect(
+      await editing.addKeylessSignature(
+        keyless,
+        timestampClient: (request) async =>
+            buildTestTimeStampToken(request, genTime: signedAt),
+        reason: 'Approved',
+        signingTime: signedAt,
+      ),
+      isTrue,
+    );
+
+    expect(editing.bytes.sublist(0, original.length), original);
+    final signature = PdfSignature.of(editing.document).single;
+    expect(signature.signerName, 'dev@example.com');
+    expect(signature.subFilter, 'ETSI.CAdES.detached');
+
+    // intact + trusted against the Sigstore CA, with a signature timestamp.
+    final result = signature.validate(
+        trustStore: PdfTrustStore.trusting([ca.certificate]));
+    expect(result.intact, isTrue, reason: result.problems.join('; '));
+    expect(result.coversWholeDocument, isTrue);
+    expect(result.timestamp, isNotNull);
+    expect(result.chainTrusted, isTrue,
+        reason: result.chainProblems.join('; '));
+
+    // still an undoable revision
+    expect(editing.canUndo, isTrue);
+    editing.undo();
+    expect(PdfSignature.of(editing.document), isEmpty);
+  });
+
+  group('signature crypto reuse', () {
+    test('an edit reuses the signed-bytes crypto; a redaction burn does not',
+        () async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(
+        await editing.addSelfSignedSignature(
+            PdfSigningIdentity.generate(name: 'Ada Lovelace')),
+        isTrue,
+      );
+      final field = editing.signatures.single.field.name;
+      // the validation that vetted the new revision left its core behind
+      expect(editing.debugSignatureCoreCount, 1);
+      PdfSignature.debugHashedBytes = 0;
+      expect((await _validated(editing, field)).intact, isTrue);
+      expect(PdfSignature.debugHashedBytes, 0);
+
+      editing.addRectangle(0, const PdfRect(100, 100, 200, 150));
+      final edited = await _validated(editing, field);
+      expect(edited.intact, isTrue);
+      expect(edited.coversWholeDocument, isFalse);
+      expect(PdfSignature.debugHashedBytes, 0);
+
+      // a burn rewrites every byte: nothing cached may vouch for it
+      editing.addRedaction(0, const PdfRect(40, 40, 300, 300));
+      expect(editing.applyRedactions(), isTrue);
+      expect(editing.debugSignatureCoreCount, 0);
+      final burned = await _validated(editing, field);
+      final fresh =
+          PdfSignature.of(PdfDocument.open(editing.bytes)).single.validate();
+      expect(burned.intact, isFalse);
+      expect(burned.problems, fresh.problems);
+    });
+
+    test('undo below a signature, edit, and re-sign gives a fresh verdict',
+        () async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await editing.addSelfSignedSignature(
+          PdfSigningIdentity.generate(name: 'Ada Lovelace'));
+      final field = editing.signatures.single.field.name;
+      expect((await _validated(editing, field)).intact, isTrue);
+
+      editing.undo();
+      expect(editing.signatures, isEmpty);
+      // the signed revision is now history the next edit overwrites
+      expect(editing.debugSignatureCoreCount, 0);
+      editing.addRectangle(0, const PdfRect(100, 100, 200, 150));
+      await editing.addSelfSignedSignature(
+          PdfSigningIdentity.generate(name: 'Grace Hopper'));
+      expect(editing.signatures.single.field.name, field);
+
+      final result = await _validated(editing, field);
+      final fresh =
+          PdfSignature.of(PdfDocument.open(editing.bytes)).single.validate();
+      expect(result.intact, isTrue);
+      expect(result.coversWholeDocument, isTrue);
+      expect(result.signerCertificate!.subjectCommonName, 'Grace Hopper');
+      expect(result.signerCertificate!.der, fresh.signerCertificate!.der);
+    });
+
+    test('a large document hashes its signed bytes on a helper isolate',
+        () async {
+      final threshold = PdfEditingController.signatureCoreOffloadBytes;
+      PdfEditingController.signatureCoreOffloadBytes = 0;
+      addTearDown(
+          () => PdfEditingController.signatureCoreOffloadBytes = threshold);
+      final identity = PdfSigningIdentity.generate(name: 'Ada Lovelace');
+      final signed = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)))
+          .saveSelfSigned(identity: identity);
+      final expected =
+          PdfSignature.of(PdfDocument.open(signed)).single.validate();
+
+      final editing = PdfEditingController(signed);
+      addTearDown(editing.dispose);
+      final field = editing.signatures.single.field.name;
+      PdfSignature.debugHashedBytes = 0;
+      final result = await _validated(editing, field);
+      // the digest ran on the helper isolate, never on this one
+      expect(PdfSignature.debugHashedBytes, 0);
+      expect(editing.debugSignatureCoreCount, 1);
+      expect(result.intact, isTrue);
+      expect(result.coversWholeDocument, isTrue);
+      expect(result.problems, expected.problems);
+      expect(result.signerCertificate!.der, expected.signerCertificate!.der);
+      expect(result.signedAt, expected.signedAt);
+
+      // a trust store arriving re-validates without hashing either
+      editing.trustStore = PdfTrustStore.trusting([identity.certificate]);
+      final trusted = await _validated(editing, field);
+      expect(trusted.chainTrusted, isTrue);
+      expect(PdfSignature.debugHashedBytes, 0);
+    });
+
+    test(
+        'a signature merged in from another file starts no helper job: one '
+        'job for the first panel pass, none per edit', () async {
+      final threshold = PdfEditingController.signatureCoreOffloadBytes;
+      PdfEditingController.signatureCoreOffloadBytes = 0;
+      addTearDown(
+          () => PdfEditingController.signatureCoreOffloadBytes = threshold);
+      // Merging a signed file's pages carries its signature field over, with
+      // /ByteRange offsets into that file: nothing in this one to hash.
+      final source = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)))
+          .saveSelfSigned(
+              identity: PdfSigningIdentity.generate(name: 'Source Signer'),
+              fieldName: 'SourceSig');
+      var bytes = (PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+            ..appendPagesFrom(PdfDocument.open(source)))
+          .save();
+      for (final name in ['Ada Lovelace', 'Grace Hopper']) {
+        bytes = PdfEditor(PdfDocument.open(bytes))
+            .saveSelfSigned(identity: PdfSigningIdentity.generate(name: name));
+      }
+
+      final editing = PdfEditingController(bytes);
+      addTearDown(editing.dispose);
+      final fields = editing.signatureByFieldName.keys.toList();
+      expect(fields, hasLength(3));
+      expect(editing.signatureByFieldName['SourceSig']!.hasSignableByteRange,
+          isFalse);
+
+      // every row of the panel asks at once, as the sidebar does
+      Future<Map<String, PdfSignatureValidation>> panelPass() async => {
+            for (final (i, v) in (await Future.wait(
+                    [for (final field in fields) _validated(editing, field)]))
+                .indexed)
+              fields[i]: v,
+          };
+
+      PdfSignature.debugHashedBytes = 0;
+      final opened = await panelPass();
+      expect(editing.debugSignatureCoreJobCount, 1);
+      expect(editing.debugSignatureCoreCount, 2);
+      expect(PdfSignature.debugHashedBytes, 0);
+      final fresh = {
+        for (final s in PdfSignature.of(PdfDocument.open(editing.bytes)))
+          s.field.name: s.validate(),
+      };
+      for (final field in fields) {
+        expect(opened[field]!.intact, fresh[field]!.intact, reason: field);
+        expect(opened[field]!.problems, fresh[field]!.problems, reason: field);
+      }
+      expect(opened['SourceSig']!.intact, isFalse);
+      expect(opened['SourceSig']!.problems, isNotEmpty);
+
+      PdfSignature.debugHashedBytes = 0;
+      for (var edit = 0; edit < 3; edit++) {
+        editing.addRectangle(0, PdfRect(100, 100 + 10.0 * edit, 200, 150));
+        final after = await panelPass();
+        expect(after['SourceSig']!.intact, isFalse);
+        expect([for (final f in fields) after[f]!.intact].where((v) => v),
+            hasLength(2));
+      }
+      expect(editing.debugSignatureCoreJobCount, 1);
+      expect(PdfSignature.debugHashedBytes, 0);
+    });
+
+    test('a signature whose core cannot be computed is sent to a helper once',
+        () async {
+      final threshold = PdfEditingController.signatureCoreOffloadBytes;
+      PdfEditingController.signatureCoreOffloadBytes = 0;
+      addTearDown(
+          () => PdfEditingController.signatureCoreOffloadBytes = threshold);
+      var bytes = buildMultiPagePdf(1);
+      for (final name in ['Ada Lovelace', 'Grace Hopper']) {
+        bytes = PdfEditor(PdfDocument.open(bytes))
+            .saveSelfSigned(identity: PdfSigningIdentity.generate(name: name));
+      }
+      // A later revision turns the first signature into an adbe.x509.rsa_sha1
+      // one with an unparseable /Cert: its ranges still hold, but computing
+      // its core throws - on the helper isolate and inline alike.
+      final document = PdfDocument.open(bytes);
+      final broken = PdfSignature.of(document).first;
+      final brokenField = broken.field.name;
+      broken.dict['SubFilter'] = const CosName('adbe.x509.rsa_sha1');
+      broken.dict['Cert'] = CosString(Uint8List.fromList([0x30, 0x80, 0xFF]));
+      bytes = (CosIncrementalUpdater(document.cos)..markChanged(broken.dict))
+          .save();
+      final reopened = PdfSignature.of(PdfDocument.open(bytes));
+      expect(reopened.first.hasSignableByteRange, isTrue);
+      expect(() => reopened.first.cryptoCore(), throwsA(anything));
+
+      final editing = PdfEditingController(bytes);
+      addTearDown(editing.dispose);
+      final good = editing.signatureByFieldName.keys
+          .singleWhere((name) => name != brokenField);
+      Future<void> panelPass() async {
+        editing.validationFor(editing.signatureByFieldName[brokenField]!);
+        expect((await _validated(editing, good)).intact, isTrue);
+      }
+
+      await panelPass();
+      expect(editing.debugSignatureCoreJobCount, 1);
+      expect(editing.debugSignatureCoreCount, 1);
+      for (var edit = 0; edit < 3; edit++) {
+        editing.addRectangle(0, PdfRect(100, 100 + 10.0 * edit, 200, 150));
+        await panelPass();
+      }
+      expect(editing.debugSignatureCoreJobCount, 1);
+    });
   });
 }

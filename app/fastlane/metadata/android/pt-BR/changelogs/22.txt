@@ -1,0 +1,4 @@
+Novidades da 3.1.1
+
+• Rolagem mais suave em PDFs grandes ou visualmente densos, com menos perda de quadros.
+• As prévias das páginas continuam visíveis durante a rolagem rápida e depois voltam com todos os detalhes.

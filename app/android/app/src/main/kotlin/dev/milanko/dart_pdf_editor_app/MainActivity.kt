@@ -1,28 +1,72 @@
 package dev.milanko.dart_pdf_editor_app
 
+import android.app.Activity
+import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileNotFoundException
+import java.io.FileOutputStream
+import java.util.concurrent.Executors
 
 /// Forwards PDFs the OS opens in the app - a Files "open", a download tap, or a
 /// share - to the Dart `IncomingFileService` over a single method channel.
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private val channelName = "dev.milanko.dartpdf/incoming"
     private val imageClipboardChannelName = "dev.milanko.dartpdf/image_clipboard"
+    private val mobileFileChannelName = "dev.milanko.dartpdf/mobile_file"
+    private val memoryChannelName = "dev.milanko.dartpdf/memory"
     private var channel: MethodChannel? = null
+    private var keyboardChannel: MethodChannel? = null
+    private var keyboardInputManager: InputManager? = null
+    private var trackpadSignature: TrackpadSignatureCapture? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
     private var pending: Map<String, Any>? = null
 
+    /// Serializes the (potentially large) ranged FD reads off the platform
+    /// thread so a multi-MB read can't ANR the UI.
+    private val fileIoExecutor = Executors.newSingleThreadExecutor()
+
+    /// The in-flight `pickDocuments` reply, held while the system document
+    /// picker is up (its result arrives asynchronously in `onActivityResult`).
+    private var pendingPick: MethodChannel.Result? = null
+    private val openDocumentRequestCode = 0x0D_0C
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        keyboardChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, "dev.milanko.dartpdf/keyboard"
+        ).also { keyboard ->
+            keyboard.setMethodCallHandler { call, result ->
+                if (call.method == "isConnected") {
+                    result.success(hasPhysicalKeyboard())
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
+        keyboardInputManager = (getSystemService(Context.INPUT_SERVICE) as InputManager)
+            .also { it.registerInputDeviceListener(this, Handler(Looper.getMainLooper())) }
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         ch.setMethodCallHandler { call, result ->
             if (call.method == "getInitialFile") {
@@ -51,8 +95,303 @@ class MainActivity : FlutterActivity() {
                     result.error("clipboard_error", e.message, null)
                 }
             }
+        // Reference-based open (#364): a custom picker that keeps the original
+        // content Uri instead of copying the whole file into the sandbox, plus
+        // ranged reads over that Uri so a cloud pick can first-paint from a few
+        // MB. See MobileFileByteSource on the Dart side.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mobileFileChannelName)
+            .setMethodCallHandler { call, result -> handleMobileFile(call, result) }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, memoryChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "snapshot") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val info = ActivityManager.MemoryInfo()
+                manager.getMemoryInfo(info)
+                result.success(
+                    mapOf(
+                        "physicalBytes" to info.totalMem,
+                        "availableBytes" to info.availMem,
+                        "processLimitBytes" to
+                            manager.memoryClass.toLong() * 1024L * 1024L,
+                        "lowMemory" to info.lowMemory,
+                    )
+                )
+            }
+
+        // Preview-style trackpad signatures (TrackpadSignatureCapture.kt).
+        val trackpad = TrackpadSignatureCapture(this).also { trackpadSignature = it }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dev.milanko.dartpdf/trackpad_signature",
+        ).setStreamHandler(trackpad)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dev.milanko.dartpdf/trackpad_signature_support",
+        ).setMethodCallHandler { call, result ->
+            if (call.method == "isAvailable") {
+                result.success(TrackpadSignatureCapture.isAvailable(this))
+            } else {
+                result.notImplemented()
+            }
+        }
+
         channel = ch
         handleIntent(intent, initial = true)
+    }
+
+    private fun hasPhysicalKeyboard(): Boolean = InputDevice.getDeviceIds().any { id ->
+        val device = InputDevice.getDevice(id)
+        // Volume buttons, remotes, and the virtual keyboard are not typing keyboards.
+        device != null && !device.isVirtual &&
+            (Build.VERSION.SDK_INT < 27 || device.isEnabled) &&
+            device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+    }
+
+    private fun notifyKeyboardChanged() {
+        keyboardChannel?.invokeMethod("changed", hasPhysicalKeyboard())
+    }
+
+    override fun onInputDeviceAdded(deviceId: Int) = notifyKeyboardChanged()
+    override fun onInputDeviceRemoved(deviceId: Int) = notifyKeyboardChanged()
+    override fun onInputDeviceChanged(deviceId: Int) = notifyKeyboardChanged()
+
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        trackpadSignature?.onPointerCaptureChanged(hasCapture)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        trackpadSignature?.stop()
+        trackpadSignature = null
+        keyboardInputManager?.unregisterInputDeviceListener(this)
+        keyboardInputManager = null
+        keyboardChannel?.setMethodCallHandler(null)
+        keyboardChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun handleMobileFile(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        when (call.method) {
+            "pickDocuments" -> launchOpenDocument(result)
+            "probeSeekable" -> {
+                val token = call.argument<String>("token")
+                if (token == null) {
+                    result.error("bad_args", "probeSeekable expects a token", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    val seekable = probeSeekable(Uri.parse(token))
+                    runOnUiThread { result.success(seekable) }
+                }
+            }
+            "fileLength" -> {
+                val token = call.argument<String>("token")
+                if (token == null) {
+                    result.error("bad_args", "fileLength expects a token", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    val len = fileLength(Uri.parse(token))
+                    runOnUiThread { result.success(len) }
+                }
+            }
+            "readRange" -> {
+                val token = call.argument<String>("token")
+                val offset = (call.argument<Number>("offset"))?.toLong()
+                val length = call.argument<Int>("length")
+                if (token == null || offset == null || length == null) {
+                    result.error("bad_args", "readRange expects token/offset/length", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    try {
+                        val bytes = readRange(Uri.parse(token), offset, length)
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error("read_failed", e.message, null)
+                        }
+                    }
+                }
+            }
+            "readUri" -> {
+                val token = call.argument<String>("token")
+                if (token == null) {
+                    result.error("bad_args", "readUri expects a token", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    try {
+                        val bytes = readWhole(Uri.parse(token))
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error("read_failed", e.message, null)
+                        }
+                    }
+                }
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    /// Launches ACTION_OPEN_DOCUMENT so the returned Uri is a durable reference
+    /// to the original file (persistable read permission) rather than a copy.
+    private fun launchOpenDocument(result: MethodChannel.Result) {
+        // Only one picker at a time; reject a second request rather than losing
+        // the first reply.
+        if (pendingPick != null) {
+            result.error("busy", "A document picker is already open", null)
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            // Keep cloud providers (OneDrive/Drive/iCloud) in the list - the
+            // whole point of #364 - so don't set EXTRA_LOCAL_ONLY.
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        pendingPick = result
+        try {
+            startActivityForResult(intent, openDocumentRequestCode)
+        } catch (e: Exception) {
+            pendingPick = null
+            result.error("no_picker", e.message, null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != openDocumentRequestCode) return
+        val reply = pendingPick ?: return
+        pendingPick = null
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            // Cancelled: an empty list means "user backed out", distinct from an
+            // error.
+            reply.success(emptyList<Map<String, Any?>>())
+            return
+        }
+        val uris = ArrayList<Uri>()
+        val clip = data.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) }
+        } else {
+            data.data?.let { uris.add(it) }
+        }
+        fileIoExecutor.execute {
+            val entries = uris.mapNotNull { describeOpenedDocument(it, data.flags) }
+            runOnUiThread { reply.success(entries) }
+        }
+    }
+
+    /// Persists read access to [uri], then builds the Dart-side descriptor
+    /// (token/name/length/seekable). Returns null if access can't be persisted.
+    private fun describeOpenedDocument(uri: Uri, intentFlags: Int): Map<String, Any?>? {
+        return try {
+            val persistable = intentFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (persistable != 0) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: SecurityException) {
+                    // Provider doesn't grant persistable permission - the Uri is
+                    // still usable for this session, which is all the first pick
+                    // needs.
+                }
+            }
+            mapOf(
+                "token" to uri.toString(),
+                "name" to (displayName(uri) ?: "document.pdf"),
+                "length" to fileLength(uri),
+                // The authority identifies the DocumentsProvider without
+                // exposing the picked URI/path or its persisted access token.
+                "provider" to (uri.authority ?: "android-documents-provider"),
+                "seekable" to probeSeekable(uri),
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /// True only when [uri] backs a real seekable file. Many cloud providers
+    /// serve SAF a non-seekable pipe (statSize -1, lseek throws ESPIPE), where
+    /// random access is impossible and the caller must stream whole instead.
+    private fun probeSeekable(uri: Uri): Boolean {
+        return try {
+            contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                if (pfd.statSize < 0) return false
+                val fd = pfd.fileDescriptor
+                // Confirm random access end-to-end: seek forward and back.
+                val probe = if (pfd.statSize > 1) 1L else 0L
+                Os.lseek(fd, probe, OsConstants.SEEK_SET)
+                Os.lseek(fd, 0, OsConstants.SEEK_SET)
+                true
+            } ?: false
+        } catch (e: ErrnoException) {
+            false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /// The file's length, or -1 when the provider doesn't report one (the Dart
+    /// side treats -1 as "unknown" and falls back to a sequential read).
+    private fun fileLength(uri: Uri): Long {
+        try {
+            contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                if (pfd.statSize >= 0) return pfd.statSize
+            }
+        } catch (_: Exception) {
+        }
+        return try {
+            contentResolver.query(
+                uri, arrayOf(OpenableColumns.SIZE), null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
+            } ?: -1L
+        } catch (_: Exception) {
+            -1L
+        }
+    }
+
+    /// Reads `[offset, offset+length)` from [uri] through a seekable FD. Only
+    /// called after [probeSeekable] passed, so the FD supports lseek.
+    private fun readRange(uri: Uri, offset: Long, length: Int): ByteArray {
+        contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+            val fd = pfd.fileDescriptor
+            Os.lseek(fd, offset, OsConstants.SEEK_SET)
+            // Do not close this stream - it wraps the pfd's fd, which `use`
+            // closes; closing here would double-close the descriptor.
+            val input = FileInputStream(fd)
+            val buffer = ByteArray(length)
+            var read = 0
+            while (read < length) {
+                val n = input.read(buffer, read, length - read)
+                if (n < 0) break // short read at EOF
+                read += n
+            }
+            return if (read == length) buffer else buffer.copyOf(read)
+        }
+        return ByteArray(0)
+    }
+
+    /// Reads [uri] whole through the ContentResolver, which resolves `content://`
+    /// and `file://` alike. This is the read the document scanner needs: ML Kit
+    /// hands back a Uri into its own scratch space, and which scheme it carries
+    /// depends on the Play Services build, so the Dart side can't open it by
+    /// path. Throws when the Uri can't be opened, so the caller sees the reason
+    /// instead of an empty result.
+    private fun readWhole(uri: Uri): ByteArray {
+        return contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw FileNotFoundException("Cannot open $uri")
     }
 
     override fun onNewIntent(intent: Intent) {

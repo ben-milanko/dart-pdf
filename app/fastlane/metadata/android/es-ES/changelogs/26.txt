@@ -1,0 +1,7 @@
+Novedades de 3.4.0
+
+• Copia y pega anotaciones entre documentos abiertos.
+• Suelta archivos PDF entre miniaturas para insertar páginas exactamente donde quieras.
+• Guarda sellos colocados en tu colección y consulta el color de la anotación seleccionada en la barra.
+• La selección de texto y las fuentes sustitutas se alinean con mayor precisión.
+• Cuadrículas de pestañas más rápidas, zoom táctil más fluido, acceso progresivo más seguro y vistas de impresión más fiables.

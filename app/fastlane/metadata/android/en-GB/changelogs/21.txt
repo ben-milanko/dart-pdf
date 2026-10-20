@@ -1,0 +1,7 @@
+New in 3.1.0
+
+• Scan paper documents straight into a PDF, or snap a photo with the camera.
+• Unsaved changes are mirrored and restored after a crash.
+• New tools: hyperlinks, image cropping, annotation locking, and shortcuts for every tool.
+• Faithful overprint rendering; faster, progressive page display.
+• Shrink a PDF's file size losslessly when saving.

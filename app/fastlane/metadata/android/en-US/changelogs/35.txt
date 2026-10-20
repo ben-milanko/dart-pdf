@@ -1,0 +1,7 @@
+New in 4.2.0
+
+- Keep nearby pages sharp while scrolling slowly, using spare graphics capacity.
+- Place annotations precisely with new alignment guides and page rulers.
+- Zoom around the pointer with Ctrl or Cmd and the mouse wheel.
+- Fix annotation editing on rotated pages and selecting multi-line highlights.
+- Pan between lines of text instead of starting a selection.

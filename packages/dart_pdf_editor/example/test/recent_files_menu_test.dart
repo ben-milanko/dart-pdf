@@ -36,8 +36,9 @@ void main() {
     await seed.record('beta.pdf', doc(2));
 
     await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pump();
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app (and its post-frame demo open) builds.
+    await tester.pumpAndSettle();
 
     await openAppMenu(tester);
     // the parent menu only shows the "Open Recent" row; the files
@@ -60,8 +61,9 @@ void main() {
     await seed.record('alpha.pdf', doc(1));
 
     await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pump();
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app (and its post-frame demo open) builds.
+    await tester.pumpAndSettle();
 
     await openAppMenu(tester);
     expect(find.text(shortcut('S')), findsOneWidget);
@@ -72,7 +74,9 @@ void main() {
   testWidgets('app menu includes a feedback link', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(ViewerApp(cacheStore: PdfMemoryCacheStore()));
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app builds before opening the menu.
+    await tester.pumpAndSettle();
 
     await openAppMenu(tester);
     expect(find.text('Supply feedback…'), findsOneWidget);
@@ -88,8 +92,9 @@ void main() {
     await seed.record('alpha.pdf', doc(2));
 
     await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pump();
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app (and its post-frame demo open) builds.
+    await tester.pumpAndSettle();
 
     // the demo title shows once, in the tab strip
     expect(find.text('Feature showcase'), findsOneWidget);
@@ -109,8 +114,9 @@ void main() {
     await seed.record('alpha.pdf', doc(1));
 
     await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pump();
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app (and its post-frame demo open) builds.
+    await tester.pumpAndSettle();
 
     await openRecentsSubmenu(tester);
     await tester.tap(find.text('Clear recent files'));
@@ -126,7 +132,9 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(ViewerApp(cacheStore: PdfMemoryCacheStore()));
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app builds before opening the menu.
+    await tester.pumpAndSettle();
 
     await openAppMenu(tester);
     expect(find.text('Open Recent'), findsOneWidget);

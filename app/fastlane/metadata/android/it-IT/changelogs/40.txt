@@ -1,0 +1,9 @@
+Novità della 5.1.0
+
+- Disegna la firma con il dito sul trackpad.
+- Gli elenchi delle annotazioni mostrano ogni segno come appare sulla pagina.
+- Sui touchscreen le azioni di riga sono in un menu ⋮.
+- I timbri spostati non lasciano più un riquadro bianco.
+- Le modifiche alle pagine non perdono più pagine in alcuni PDF.
+- Le firme digitali P-521 ora vengono convalidate.
+- Più veloce: file crittografati, firme, JPEG 2000 e disegni grandi.

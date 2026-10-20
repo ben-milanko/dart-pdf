@@ -1,0 +1,6 @@
+Novedades de 7.0.0
+
+- OCR más preciso y rápido para letra pequeña y planos, con un progreso más claro.
+- Abre enlaces y mantén pulsado para seleccionar texto en el modo Selección.
+- Los resultados de búsqueda siguen visibles al ampliar.
+- La vista previa de tinta conserva la opacidad elegida; las exportaciones vectoriales incluyen anotaciones.

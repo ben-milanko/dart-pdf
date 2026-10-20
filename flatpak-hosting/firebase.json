@@ -1,0 +1,39 @@
+{
+  "hosting": {
+    "site": "dartpdf-flatpak",
+    "public": "public",
+    "ignore": ["firebase.json", ".firebaserc", "README.md", "templates/**"],
+    "headers": [
+      {
+        "source": "repo/objects/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      },
+      {
+        "source": "repo/deltas/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      },
+      {
+        "source": "repo/summary*",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      },
+      {
+        "source": "**/*.flatpakref",
+        "headers": [
+          { "key": "Content-Type", "value": "application/vnd.flatpak.ref" },
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
+        "source": "**/*.flatpakrepo",
+        "headers": [
+          { "key": "Content-Type", "value": "application/vnd.flatpak.repo" },
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
+        "source": "version.json",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      }
+    ]
+  }
+}

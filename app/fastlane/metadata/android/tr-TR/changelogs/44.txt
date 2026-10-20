@@ -1,0 +1,7 @@
+8.0.0 sürümündeki yenilikler
+
+- PDF'leri birleştirin ve sayfaları dönüşümlü ekleyin.
+- Çokgen alanları yakalayın ve yapıştırılan görüntüleri kırpın.
+- Açıklamalara hedefleri sabit kalan birden fazla ok ekleyin.
+- Birden fazla form alanının stilini ve boyutunu birlikte düzenleyin.
+- Daha hızlı tarama çözümleme ve daha net önizlemeler.

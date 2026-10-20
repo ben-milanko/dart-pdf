@@ -1,0 +1,7 @@
+Mới trong 3.1.0
+
+• Quét tài liệu giấy thẳng thành PDF hoặc chụp ảnh bằng máy ảnh.
+• Các thay đổi chưa lưu được sao lưu và khôi phục sau khi gặp sự cố.
+• Công cụ mới: siêu liên kết, cắt ảnh, khóa chú thích và phím tắt cho mọi công cụ.
+• Hiển thị overprint trung thực; tải trang nhanh hơn, dần dần.
+• Giảm kích thước tệp PDF không mất dữ liệu khi lưu.

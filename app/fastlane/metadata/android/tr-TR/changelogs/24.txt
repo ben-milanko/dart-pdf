@@ -1,0 +1,5 @@
+3.3.0 sürümündeki yenilikler
+
+• Yeniden ziyaret edilen sayfalar, isteğe bağlı arka plan hazırlığı ve kalıcı tam çözünürlüklü önbellekle anında açılır.
+• Taranmış ve görüntü tabanlı PDF’lerde daha keskin derin yakınlaştırma.
+• Daha iyi dokunmatik kaydırma, dikdörtgen köşe yarıçapı denetimleri ve eklenen sayfalarda daha akıcı gezinme.

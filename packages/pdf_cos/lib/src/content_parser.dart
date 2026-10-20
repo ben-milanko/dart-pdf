@@ -3,12 +3,35 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
+import 'perf/perf.dart';
+
 /// One content-stream instruction: operands followed by an operator.
 class ContentOperation {
-  ContentOperation(this.operator, this.operands);
+  ContentOperation(this.operator, List<CosObject> operands)
+      : _operands = operands,
+        numberOperands = null;
+
+  ContentOperation._numbers(this.operator, this.numberOperands)
+      : _operands = null;
 
   final String operator;
-  final List<CosObject> operands;
+
+  List<CosObject>? _operands;
+
+  /// Primitive numeric operands supplied by the incremental parser.
+  ///
+  /// Content streams are overwhelmingly numeric. Keeping a number-dense
+  /// instruction in `num` form lets the graphics interpreter consume CAD path
+  /// coordinates without allocating a [CosInteger]/[CosReal] wrapper for every
+  /// token. General COS consumers keep using [operands], which materializes the
+  /// exact object types lazily when required (serialization and editing retain
+  /// their established behavior).
+  final List<num>? numberOperands;
+
+  List<CosObject> get operands => _operands ??= <CosObject>[
+        for (final value in numberOperands!)
+          ContentStreamParser._numberObject(value),
+      ];
 
   @override
   String toString() =>
@@ -89,6 +112,20 @@ class ContentStreamParser {
   static CosObject _intObject(int value) =>
       (value >= -1 && value <= 256) ? _smallInts[value + 1] : CosInteger(value);
 
+  /// The COS object a number operand of a content operation materializes as:
+  /// an int becomes a (shared) [CosInteger], anything else a [CosReal].
+  ///
+  /// On the web an integral double *is* an int, so there `12.0` materializes
+  /// as `CosInteger(12)` and `-0.0` as the shared `CosInteger(0)`; on the VM
+  /// a real token stays a [CosReal]. Every path that materializes an
+  /// operation's own operands - [ContentOperation.operands] and the cursor,
+  /// whether the number comes before or after a non-number operand - goes
+  /// through this one rule, so a token serializes the same (`12` or `12.0`)
+  /// wherever it sits. Array and dictionary elements are parsed as COS objects
+  /// and keep their token's type.
+  static CosObject _numberObject(num value) =>
+      value is int ? _intObject(value) : CosReal(value.toDouble());
+
   /// Opens [content] as an incremental operation cursor.
   ///
   /// Unlike [parse], the cursor does not retain operations after the caller
@@ -108,12 +145,14 @@ class ContentStreamParser {
     // dominate. Pulling tokens straight from the lexer and handing each
     // finished operation its own operand list (no copy, no clear) roughly
     // halves the parse.
+    final t0 = PdfPerf.begin();
     final operations = <ContentOperation>[];
     final reader = cursor(content, operationLimit: operationLimit);
     ContentOperation? operation;
     while ((operation = reader.nextOperation()) != null) {
       operations.add(operation!);
     }
+    PdfPerf.end(PdfPerfPhase.contentTokenize, t0);
     return operations;
   }
 
@@ -317,18 +356,58 @@ class ContentStreamParser {
 /// list. Once the caller drops the returned operation, no page-sized parsed
 /// representation remains live. Obtain a cursor with
 /// [ContentStreamParser.cursor].
+///
+/// [nextOperation] is [nextOperator] followed by [takeOperation]. A one-pass
+/// interpreter can call the two halves itself and, when [pendingIsNumeric],
+/// read a number-only operator straight from [numbers] by its
+/// [operatorCode] - no [ContentOperation], no operand list and no boxed
+/// double per operand. That is most of a vector-dense page: a CAD stream is
+/// overwhelmingly `m`/`l`/`c`/`re` with number operands.
 class ContentOperationCursor {
   ContentOperationCursor._(Uint8List content, {this.operationLimit})
       : _lexer = CosLexer(content),
+        _contentLength = content.length,
         _finished = operationLimit != null && operationLimit <= 0;
 
   /// Maximum operations this cursor will emit, or null for the whole stream.
   final int? operationLimit;
 
   final CosLexer _lexer;
-  var _operands = <CosObject>[];
+  final CosTokenBuffer _tokenBuffer = CosTokenBuffer();
+  final int _contentLength;
+
+  // The pending operator's number operands, unboxed. [_kinds] records how
+  // each one materializes so [takeOperation] stays exact: a real, an int
+  // that a double holds exactly, or an int beyond 2^53 held in [_bigInts].
+  Float64List _numbers = Float64List(8);
+  Uint8List _kinds = Uint8List(8);
+  int _numberCount = 0;
+  Map<int, int>? _bigInts;
+  static const int _real = 0, _exactInt = 1, _bigInt = 2;
+  static const int _maxExactInt = 9007199254740992; // 2^53
+
+  // Set once an operand that is not a number arrives; from then on every
+  // operand of the pending operator is a COS object.
+  List<CosObject>? _objectOperands;
+  // A pending inline image, already fully parsed.
+  ContentOperation? _pendingInlineImage;
+  String _pendingOperator = '';
+  int _pendingCode = -1;
+  bool _taken = false; // debug builds only: one takeOperation per operator
   var _operationCount = 0;
   bool _finished;
+  bool _perfReported = false;
+
+  /// Flushes the ops/bytes this cursor tokenized into PdfPerf, once. The
+  /// cursor is the ONE tokenizer both parse() and the interpreter drive, and
+  /// [_operationCount] already exists for [operationLimit] - so the hot loop
+  /// pays nothing new; only stream end reaches this.
+  void _reportPerf() {
+    if (_perfReported || !PdfPerf.enabled) return;
+    _perfReported = true;
+    PdfPerf.add(PdfPerfCount.contentOps, _operationCount);
+    PdfPerf.add(PdfPerfCount.contentBytes, _contentLength);
+  }
 
   /// Number of operations emitted so far.
   int get operationCount => _operationCount;
@@ -336,53 +415,176 @@ class ContentOperationCursor {
   /// Whether EOF or [operationLimit] has been reached.
   bool get isFinished => _finished;
 
+  /// The pending operator's operands when [pendingIsNumeric]: entries
+  /// `[0, numberCount)`, as doubles.
+  ///
+  /// A borrowed view, valid only until the next [nextOperator] or
+  /// [nextOperation] call.
+  Float64List get numbers => _numbers;
+
+  /// How many entries of [numbers] belong to the pending operator.
+  int get numberCount => _numberCount;
+
+  /// Whether every operand of the pending operator is a number (there may be
+  /// none), so [numbers] holds them all.
+  bool get pendingIsNumeric =>
+      _objectOperands == null && _pendingInlineImage == null;
+
+  /// The pending operator's [CosTokenBuffer.keywordCode]: its bytes packed
+  /// little-endian for an operator of at most three bytes, else -1.
+  int get operatorCode => _pendingCode;
+
   /// Parses and returns the next operation, or null at the end of the stream.
-  ContentOperation? nextOperation() {
+  ContentOperation? nextOperation() =>
+      nextOperator() == null ? null : takeOperation();
+
+  /// Scans to the next operator and returns it, or null at the end of the
+  /// stream, leaving its operands pending: read them from [numbers] when
+  /// [pendingIsNumeric], or call [takeOperation] (at most once) for the
+  /// operation. Counts toward [operationLimit] like [nextOperation].
+  String? nextOperator() {
     if (_finished) return null;
+    _numberCount = 0;
+    _objectOperands = null;
+    _pendingInlineImage = null;
+    if (_bigInts != null) _bigInts = null;
+    assert(() {
+      _taken = false;
+      return true;
+    }());
+    final buffer = _tokenBuffer;
     while (true) {
-      final token = _lexer.nextToken();
-      switch (token.type) {
+      _lexer.nextToken(buffer);
+      switch (buffer.type) {
         case CosTokenType.eof:
           _finished = true;
+          _reportPerf();
           return null;
         case CosTokenType.integer:
-          _operands.add(ContentStreamParser._intObject(token.intValue));
+          _addInt(buffer.intValue);
         case CosTokenType.real:
-          _operands.add(CosReal(token.realValue));
+          _addReal(buffer.realValue);
         case CosTokenType.keyword:
-          final keyword = token.textValue;
+          final keyword = buffer.textValue;
+          final code = buffer.keywordCode;
+          // Every keyword of at most three bytes except BI is an operator
+          // (true/false/null are longer): skip the string switch for them.
+          if (code != -1 && code != 0x4942) return _pend(keyword, code);
           switch (keyword) {
             case 'true':
-              _operands.add(const CosBoolean(true));
+              _addObject(const CosBoolean(true));
               continue;
             case 'false':
-              _operands.add(const CosBoolean(false));
+              _addObject(const CosBoolean(false));
               continue;
             case 'null':
-              _operands.add(CosNull.instance);
+              _addObject(CosNull.instance);
               continue;
             case 'BI':
               final operation = ContentStreamParser._parseInlineImage(_lexer);
               // Match the materialized parser's lenient boundary behavior:
               // junk operands before BI do not leak into the following op.
-              _operands = <CosObject>[];
-              return _emit(operation);
+              _numberCount = 0;
+              _objectOperands = null;
+              _pendingInlineImage = operation;
+              return _pend(keyword, code);
             default:
-              final operation = ContentOperation(keyword, _operands);
-              _operands = <CosObject>[];
-              return _emit(operation);
+              return _pend(keyword, code);
           }
         default:
-          _operands.add(ContentStreamParser._parseObject(_lexer, token));
+          _addObject(ContentStreamParser._parseObject(_lexer, buffer));
       }
     }
   }
 
-  ContentOperation _emit(ContentOperation operation) {
+  /// Materializes the operation [nextOperator] left pending.
+  ContentOperation takeOperation() {
+    assert(() {
+      if (_taken) {
+        throw StateError('takeOperation called twice for one operator');
+      }
+      _taken = true;
+      return true;
+    }());
+    final inlineImage = _pendingInlineImage;
+    if (inlineImage != null) return inlineImage;
+    final objects = _objectOperands;
+    if (objects != null) return ContentOperation(_pendingOperator, objects);
+    final count = _numberCount;
+    if (count == 0) {
+      return ContentOperation(_pendingOperator, const <CosObject>[]);
+    }
+    return ContentOperation._numbers(
+        _pendingOperator, <num>[for (var i = 0; i < count; i++) _numberAt(i)]);
+  }
+
+  String _pend(String operator, int code) {
+    _pendingOperator = operator;
+    _pendingCode = code;
     _operationCount++;
     if (operationLimit != null && _operationCount >= operationLimit!) {
       _finished = true;
+      _reportPerf();
     }
-    return operation;
+    return operator;
+  }
+
+  num _numberAt(int i) => switch (_kinds[i]) {
+        _real => _numbers[i],
+        // On the web an int already is a double, and handing the stored value
+        // back as-is keeps a `-0` operand's sign exactly as the lexer made it.
+        _exactInt => _isWeb ? _numbers[i] : _numbers[i].toInt(),
+        _ => _bigInts![i]!,
+      };
+
+  static const bool _isWeb = identical(0, 0.0);
+
+  void _addInt(int value) {
+    final objects = _objectOperands;
+    if (objects != null) {
+      objects.add(ContentStreamParser._intObject(value));
+      return;
+    }
+    if (_numberCount == _numbers.length) _grow();
+    final i = _numberCount++;
+    _numbers[i] = value.toDouble();
+    if (value > _maxExactInt || value < -_maxExactInt) {
+      (_bigInts ??= <int, int>{})[i] = value;
+      _kinds[i] = _bigInt;
+    } else {
+      _kinds[i] = _exactInt;
+    }
+  }
+
+  void _addReal(double value) {
+    final objects = _objectOperands;
+    if (objects != null) {
+      // Not `CosReal(value)`: on the web an integral real is an int and
+      // materializes as a CosInteger (see [ContentStreamParser._numberObject]).
+      objects.add(ContentStreamParser._numberObject(value));
+      return;
+    }
+    if (_numberCount == _numbers.length) _grow();
+    final i = _numberCount++;
+    _numbers[i] = value;
+    _kinds[i] = _real;
+  }
+
+  void _addObject(CosObject value) {
+    var objects = _objectOperands;
+    if (objects == null) {
+      objects = _objectOperands = <CosObject>[
+        for (var i = 0; i < _numberCount; i++)
+          ContentStreamParser._numberObject(_numberAt(i)),
+      ];
+      _numberCount = 0;
+    }
+    objects.add(value);
+  }
+
+  void _grow() {
+    final length = _numbers.length * 2;
+    _numbers = Float64List(length)..setRange(0, _numberCount, _numbers);
+    _kinds = Uint8List(length)..setRange(0, _numberCount, _kinds);
   }
 }

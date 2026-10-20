@@ -1,0 +1,6 @@
+3.8.0 sürümündeki yenilikler
+
+- Son PDF'lere aranabilir sayfa önizlemeleriyle göz atın.
+- Sayfa dışındaki ek açıklamaları düzenleyin, karma seçimleri biçimlendirin, imza rengi ve kalınlığını seçin.
+- Göndermeden önce yazdırma işlerini önizleyin.
+- Büyük çizimlerde daha akıcı kaydırma ve yakınlaştırma; imleç, açılır pencere ve çökme düzeltmeleri.

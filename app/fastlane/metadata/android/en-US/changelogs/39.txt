@@ -1,0 +1,9 @@
+New in 5.0.0
+
+- Forms calculate totals, format values and check what you type.
+- Tab between form fields; pick several items in list boxes.
+- Form passwords stay in secure device storage, never in the PDF.
+- Create radio buttons, drop-downs, list boxes and signature fields.
+- Sign password-protected PDFs.
+- Revocation checks for signatures; EU and optional Adobe trust lists.
+- Calibri text from Office documents now looks right.

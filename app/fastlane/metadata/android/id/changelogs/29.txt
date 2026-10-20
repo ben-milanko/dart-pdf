@@ -1,0 +1,6 @@
+Yang baru di 3.6.0
+
+- Panel anotasi lebih mudah dijelajahi, mempertahankan pilihan setelah pengeditan, dan menjaga opasitas kotak teks.
+- Kotak teks Bluebeam mempertahankan perataan, spasi, dan posisi kursor.
+- Tab dokumen kini dapat diseret di antara beberapa jendela.
+- Teks pengganti memiliki spasi yang lebih alami, disertai perbaikan halaman lama dan tindakan folder cloud.

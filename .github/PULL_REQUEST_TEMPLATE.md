@@ -41,6 +41,16 @@
 
 If any relevant check was not run, explain why:
 
+## User experience
+
+<!-- For user-facing changes. Leave unchecked when not applicable and explain material omissions. -->
+
+- [ ] The affected user journey and expected outcome are described above.
+- [ ] Completion, cancellation, disabled, loading, and error states were considered.
+- [ ] Relevant keyboard, mouse, trackpad, touch, stylus, focus, and accessibility paths were checked.
+- [ ] Preview, commit, undo/redo, save, and reopen behavior agree where applicable.
+- [ ] Any journey-level latency, frame-time, or memory impact was measured or ruled out.
+
 ## PDF fixtures and screenshots
 
 <!--

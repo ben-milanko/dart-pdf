@@ -1,0 +1,207 @@
+# Pages popping in and out at the screen edge (#657)
+
+Reported against a 63-page, 36 MB CAD/scan correlation pack on Windows:
+scrolling around, the pages above and below the one being read visibly
+**pop in and out** as they sit near the screen edge. The attached devtools
+export showed the decoded-image cache thrashing (11 entries / 130 MB held,
+210 misses against 146 evictions) and the render-record cache at 67 MB of
+100 MB with 201 evictions - a working set churning, not a working set
+fitting.
+
+## Root cause: focus is one page index, visibility is a range
+
+Three separate prefetch economies keyed off `PdfPageView.focusDistance`,
+which is `|index - controller.currentPage|`, and `currentPage` is
+`_updateCurrentPage`'s answer to "which page is the viewport **centre**
+on". On any document whose pages are taller than the viewport - every CAD
+sheet, every A3 scan - there is always a *second* page filling a large
+part of the screen at distance 1. All three treated it as an off-screen
+prefetch neighbour:
+
+1. `_imageRatioTarget()` decoded its embedded images at
+   `prefetchImagePixelRatioFactor` (0.5x, #451). On a scan the image *is*
+   the page, so half the screen rendered soft.
+2. `PdfLiveRasterBudget.rebalance()` evicted farthest-distance-first and
+   protected only distance 0, so the visible neighbour was the budget's
+   first casualty when the on-screen pair alone exceeded the desktop
+   384 MB ceiling - two large-format base rasters plus their retained
+   scenes get there easily. `evictLiveRaster()` drops the base raster, the
+   detail patch and the scene, leaving the soft preview: **the pop-out.**
+3. The pressure path `evictReclaimable()` shed *every* non-focused page,
+   visible ones included, on each platform low-memory signal (the export's
+   log has these firing every 30-75 s).
+
+And the flip is symmetric, so it oscillates: cross the midpoint and the
+page that just lost focus is demoted while the page that gained it drops
+its reduced-resolution buffer (`droppedForFocus` in `didUpdateWidget`) and
+re-interprets at full ratio. Because `PdfImageCache` keys by content *and
+decoded size* (`PdfSizedImageKey`), the 0.5x and 1.0x decodes of the same
+scan are two entries - so the flip is a guaranteed miss, a fresh decode of
+tens of MB, and an eviction of whatever the other page was holding. That
+is the 146-evictions-for-210-misses signature in the export.
+
+## The fix: `onScreen` as a first-class input
+
+`PdfPageView.onScreen` (defaulting to true, so a directly-embedded page
+view is unaffected) now says whether *any part* of the page overlaps the
+viewport, and it - not `focusDistance` - gates the prefetch economies:
+
+- `_imageRatioTarget()` returns the full ratio for any on-screen page.
+  `focusDistance` still governs the reduction for genuinely off-screen
+  cache-window neighbours, which is what #451 was actually about.
+- `PdfLiveRasterHolder` gained `liveRasterOnScreen`, and `rebalance()`
+  runs two passes over the same farthest-first order: every off-screen
+  page first, and only if the total is *still* over budget does it reach
+  the visible ones (zoomed far enough out, the visible set alone can
+  exceed the ceiling - the valve has to stay open, it just isn't the
+  first move any more).
+- `evictReclaimable()` skips on-screen pages entirely. An on-screen page
+  re-rasterizes the instant it is dropped, so evicting it under pressure
+  buys a flicker and a *higher* peak - the same feedback loop
+  `adaptive_memory.dart`'s `registryMaterialityPercent` comment documents
+  from the 2026-07-29 trace.
+- `didUpdateWidget`'s `droppedForFocus` also fires on
+  `!oldWidget.onScreen && widget.onScreen`, so a page that scrolls in
+  upgrades its reduced buffer on arrival instead of waiting to become the
+  centre page.
+
+## Where `onScreen` comes from
+
+`_updateCurrentPage` already unprojected the viewport centre through the
+zoom window and walked the page offsets; it now computes the viewport's
+main-axis *span* in the same pass and records the first/last overlapping
+index (`_setOnScreenRange`). One loop, same cost, and `currentPage` keeps
+its exact old rule (the spacing after a page counts as that page) so page
+numbering and render focus are untouched.
+
+Two things worth knowing:
+
+- **The page views learn it when it changes, not at the next settle.**
+  Previously they only picked up their new `focusDistance` at the 200 ms
+  transform settle or the 500 ms scroll settle, so a page crossing the edge
+  kept its stale prefetch treatment for the whole gesture and then
+  re-rendered in a batch at the settle - part of why the pop was so
+  visible.
+
+  This first landed as a `setState` on the viewer, which measured badly
+  enough to be worth its own section - see "Measuring it, and the rebuild
+  that cost" below. The span ended up a `Listenable` each page subscribes
+  to instead.
+- **Scroll listeners can fire during layout**, so a mid-frame span change
+  defers to a post-frame callback before notifying (a listening page's
+  `setState` would be illegal there) - the same hazard
+  `PdfViewerController._notifySafely` guards.
+
+## Testing notes
+
+`test/page_on_screen_test.dart` covers the viewer half. Gotcha: the
+prefetch band is *offstage* - pages inside the list's 250 px cache extent
+but past the viewport edge are laid out and not painted, so
+`find.byType(PdfPageView)` misses them. Pass `skipOffstage: false` or the
+"off-screen but mounted" case looks like "not mounted at all". At the
+800x600 test surface with the 612x792pt fixture at fit-width each page is
+1035.3 px tall and the band is narrow: scroll offset 440 has page 1
+mounted and off-screen, 460 has it visible.
+
+One test pins `onScreen` to `PdfViewerController.visiblePageRegion`
+across a sweep of offsets, so the flag and the thumbnail strip's viewport
+indicator can never drift apart about what "visible" means.
+
+Budget ordering is unit-tested against fakes in
+`test/live_raster_budget_test.dart` (the fake defaults to "only the
+focused page is visible", the shape the pre-existing ordering tests
+assume; the new cases pass `onScreen` explicitly).
+
+## Follow-up: initialising the span
+
+A document that opens and is never scrolled or zoomed calls neither
+`_onScroll` nor `_onTransformChanged`, so the span stayed at `(-1, -1)` and
+`_onScreenPage` fell through to its pre-layout "everything is visible"
+answer - safe (it never blanks a page) but it skipped the prefetch
+reduction on the pages behind the fold for the whole session. The build's
+initial-fit block now takes the measurement in a post-frame callback, once
+the extents that layout creates exist.
+
+Testing that needs a viewport where a *third* page lands in the cache
+window at rest, which the full-width fixture cannot produce (at 800px wide
+each page is 1035px tall and page 1 is not built until it approaches). A
+300px-wide viewer makes each page 388px tall: pages 0 and 1 share the
+screen and page 2 sits below the fold, built and off-screen.
+
+## Measuring it, and the rebuild that cost
+
+`tool/perf.sh webdiff <base> scroll-scan` (12p A3 scanned grayscale - the
+scenario built to stress image decode and the image cache) on the first
+version of this fix, 3 interleaved runs:
+
+```
+buildMax      48.74 -> 73.94   +51.7%   ✗
+buildP95       3.73 ->  4.36   +16.8%   ✗
+buildP50       2.12 ->  2.18    +3.0%   ·
+```
+
+`openPageCountMs` also tripped the 1.1x threshold (468 -> 538, +15%), but
+per-iteration it is 459/538/468 against 473/538/664 - overlapping ranges,
+and nothing in this change runs before the page-tree walk. Noise.
+
+The build numbers were not noise. p50 flat with p95 and max moving is the
+signature of *occasional* expensive frames, and the cause was
+`_setOnScreenRange` calling the viewer's own `setState`. The span changes a
+couple of times per page crossing - far more often than the settle the page
+views used to rebuild on - and the viewer's `build` is enormous (the list,
+every mounted page's whole subtree, gesture recognizers, scrollbar,
+chrome). Rebuilding all of it to hand a bool to the two or three pages
+whose flag actually flipped is most of a frame on a dense sheet.
+
+So the span is a `Listenable` (`_PdfOnScreenSpan`), not viewer state: each
+`_PdfViewerPage` subscribes, recomputes its own answer, and setStates only
+when that answer flips. Same house pattern as `viewportChanges`, which
+exists for the same reason (the controller stays quiet during scrolling so
+the thumbnail strip's indicator does not spam every listener).
+
+One consequence worth stating, because a test asserted it before and no
+longer can: `focusDistance` still only reaches the page views on a viewer
+rebuild, so it stays *stale mid-scroll* - as it always has. That is fine,
+and is rather the point. Stale focus now costs nothing that matters:
+`onScreen` (delivered promptly) decides the image ratio and shields both
+visible pages from reclaim, and focus is left doing what it is actually
+good for - ordering evictions among the pages nobody is looking at.
+
+### The result, at enough iterations to mean something
+
+Re-run after moving the span onto a `Listenable`, 7 interleaved runs
+(3 was not enough - `buildMax`'s run-to-run spread on the *baseline* alone
+was 40-83 ms, wider than the effect being measured):
+
+```
+buildP50       2.19 ->  2.23   +1.8%   ·
+buildP95       3.77 ->  3.85   +2.0%   ·      (was +16.8%)
+openPageCountMs 482 ->   497   +3.0%   ·      (was +15.1% - noise, as suspected)
+buildMax      54.18 -> 74.73  +37.9%   ✗
+```
+
+The rebuild fix recovered p95 and p50 entirely. **`buildMax` is a real
+regression and stays one.** At 7 samples it separates: current
+63.6/65.4/69.6/74.7/77.6/81.1/87.5 against base
+47.1/48.5/49.4/54.2/58.1/66.6/73.7 - the baseline's *worst* run is below
+the current median.
+
+It is also exactly one frame. The over-budget counts are unchanged run for
+run (1-2 frames >16 ms, exactly 1 >32 ms, 0-1 >50 ms, in both), so nothing
+new crosses a threshold; the single worst build frame got ~20 ms worse.
+
+That frame is the intended cost. It is where a newly-visible page's
+full-resolution scene lands, and on this scenario a page *is* one big A3
+scan - four times the pixels the 0.5x prefetch buffer used to replay. Note
+the work did not appear from nowhere: the old scheme rendered that page
+twice (soft on approach, full on becoming focused), so total work is
+*lower* now - the peak simply moved earlier, into the scroll rather than
+after the settle that followed the focus flip. The soft neighbour was
+cheap per-frame because it was wrong.
+
+Left as-is deliberately rather than tuned away: an intermediate ratio for
+visible-but-not-focused pages would reinstate a smaller version of the
+softening this fix exists to remove. If the spike ever needs flattening,
+the lever is the existing motion render hold (let a page that just crossed
+the edge paint its preview and take the full-resolution render at the
+settle), not the resolution it eventually renders at.

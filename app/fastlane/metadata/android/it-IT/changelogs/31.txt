@@ -1,0 +1,6 @@
+Novità della versione 3.7.0
+
+- Le pagine vengono elaborate mentre scorri anziché comparire quando ti fermi, e quelle già lette tornano all'istante.
+- Trova e sostituisci nel pannello di ricerca: sostituisci una corrispondenza o tutte in un solo passaggio.
+- Corretto il testo illeggibile e le modifiche errate nello strumento contenuto con caratteri incorporati parzialmente.
+- Corretto un arresto anomalo all'apertura o al salvataggio di un file.

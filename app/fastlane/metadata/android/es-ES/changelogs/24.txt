@@ -1,0 +1,5 @@
+Novedades de 3.3.0
+
+• Las páginas que vuelves a visitar se abren al instante, con preparación opcional en segundo plano y caché persistente a resolución completa.
+• Zoom profundo más nítido en PDF escaneados o basados en imágenes.
+• Mejor desplazamiento táctil, controles de radio de esquina y navegación más fluida por páginas insertadas.

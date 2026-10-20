@@ -1,44 +1,45 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'cached_documents_settings.dart';
+import 'l10n/app_l10n.dart';
+import 'l10n/app_localizations.dart';
+import 'language_names.dart';
+import 'ocr.dart';
+import 'ocr_auto.dart';
+import 'pdf_cache.dart';
 import 'recents.dart';
+import 'signature_trust.dart';
 import 'update.dart';
+import 'update_install_flow.dart';
+import 'update_installer.dart';
+import 'whats_new.dart';
 
-String get _defaultAppSubtitle {
-  if (kIsWeb) return 'Install the web app, then choose it for PDF files.';
+// The platform-specific default-app help lives in the ARB as one ICU `select`
+// key each (branches: web/windows/macos/linux/android/ios/other), resolved from
+// this selector. Both consumers below have a BuildContext, so no literal needs
+// to live at the no-context data site any more.
+String get _defaultAppPlatform {
+  if (kIsWeb) return 'web';
   return switch (defaultTargetPlatform) {
-    TargetPlatform.windows => 'Open Windows default apps settings for PDFs.',
-    TargetPlatform.macOS => 'Follow Finder’s “Always Open With” steps.',
-    TargetPlatform.linux => 'Use your desktop’s default applications settings.',
-    TargetPlatform.android =>
-      'Choose DartPDF when opening a PDF, then tap Always.',
-    TargetPlatform.iOS => 'Use Share or Open In from Files to send PDFs here.',
-    TargetPlatform.fuchsia => 'Configure your system’s PDF file handler.',
+    TargetPlatform.windows => 'windows',
+    TargetPlatform.macOS => 'macos',
+    TargetPlatform.linux => 'linux',
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    TargetPlatform.fuchsia => 'fuchsia',
   };
 }
 
-String get _defaultAppInstructions {
-  if (kIsWeb) {
-    return 'Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.';
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.windows =>
-      'Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.',
-    TargetPlatform.macOS =>
-      'In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.',
-    TargetPlatform.linux =>
-      'Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.',
-    TargetPlatform.android =>
-      'Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.',
-    TargetPlatform.iOS =>
-      'iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.',
-    TargetPlatform.fuchsia =>
-      'Use the system settings for file handlers to associate PDF documents with DartPDF.',
-  };
-}
+String _defaultAppSubtitle(BuildContext context) =>
+    appL10n(context).settingsDefaultAppSubtitle(_defaultAppPlatform);
+
+String _defaultAppInstructions(BuildContext context) =>
+    appL10n(context).settingsDefaultAppInstructions(_defaultAppPlatform);
 
 bool get _canOpenDefaultAppsSettings =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -47,35 +48,64 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
   final uri = Uri.parse('ms-settings:defaultapps');
   final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!opened && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Could not open system settings'),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(appL10n(context).settingsCouldNotOpenSystemSettings),
     ));
   }
 }
 
+/// Opens a feedback email in the user's mail client. With no mail client
+/// (common on web and bare desktops) the address goes to the clipboard
+/// instead, so the user can still reach it from whatever mail they use.
+Future<void> _emailFeedback(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final copied = appL10n(context).editorCopiedToClipboard;
+  var opened = false;
+  try {
+    opened = await launchUrl(AppInfo.feedbackMailto(),
+        mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // No handler for mailto: - fall through to the clipboard.
+  }
+  if (opened) return;
+  await Clipboard.setData(const ClipboardData(text: AppInfo.feedbackEmail));
+  messenger.showSnackBar(
+      SnackBar(content: Text('$copied: ${AppInfo.feedbackEmail}')));
+}
+
 Future<void> _showDefaultAppSetup(BuildContext context) {
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Set up as default application'),
-      content: Text(_defaultAppInstructions),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-        if (_canOpenDefaultAppsSettings)
-          FilledButton.icon(
-            key: const ValueKey('default-app-open-settings'),
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Open Settings'),
-            onPressed: () {
-              Navigator.of(context).pop();
-              _openDefaultAppsSettings(context);
-            },
+    builder: (context) {
+      void close() => Navigator.of(context).pop();
+      void openSettings() {
+        Navigator.of(context).pop();
+        _openDefaultAppsSettings(context);
+      }
+
+      final closeButton = TextButton(
+        onPressed: close,
+        child: Text(appL10n(context).close),
+      );
+      return AlertDialog(
+        title: Text(appL10n(context).settingsSetUpAsDefault),
+        content: Text(_defaultAppInstructions(context)),
+        actions: [
+          if (_canOpenDefaultAppsSettings) closeButton,
+          PdfDialogSubmit.action(
+            onSubmit: _canOpenDefaultAppsSettings ? openSettings : close,
+            child: _canOpenDefaultAppsSettings
+                ? FilledButton.icon(
+                    key: const ValueKey('default-app-open-settings'),
+                    icon: const Icon(Icons.open_in_new),
+                    label: Text(appL10n(context).settingsOpenSettings),
+                    onPressed: openSettings,
+                  )
+                : closeButton,
           ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 }
 
@@ -88,12 +118,73 @@ Future<void> showAppSettings(
   required PdfEditingPreferences prefs,
   required RecentsStore recents,
   UpdateService? updates,
+  UpdateInstaller? updateInstaller,
+  VoidCallback? onOpenDevTools,
+  AutoOcrSetting? autoOcr,
 }) {
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
-    builder: (context) =>
-        _SettingsDialog(prefs: prefs, recents: recents, updates: updates),
+    builder: (context) => _SettingsDialog(
+      prefs: prefs,
+      recents: recents,
+      updates: updates,
+      updateInstaller: updateInstaller,
+      onOpenDevTools: onOpenDevTools,
+      autoOcr: autoOcr ?? AutoOcrSetting.instance,
+    ),
   );
+}
+
+/// The Settings UI-language dropdown: "System default" plus every locale the
+/// app ships translations for, each shown by its native name. Writes the
+/// choice to [PdfEditingPreferences.locale] (null = follow the platform),
+/// which `app.dart` feeds to `MaterialApp.locale`.
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker({required this.prefs});
+
+  final PdfEditingPreferences prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    // Sort supported locales by native name so the list reads naturally; the
+    // "System default" entry (value null) always leads.
+    final locales = AppLocalizations.supportedLocales.toList()
+      ..sort((a, b) => languageDisplayName(a)
+          .toLowerCase()
+          .compareTo(languageDisplayName(b).toLowerCase()));
+    // Match the stored preference to a supported locale by value; an
+    // unsupported stored tag falls back to showing "System default" without
+    // discarding the preference.
+    Locale? selected;
+    for (final locale in locales) {
+      if (locale == prefs.locale) {
+        selected = locale;
+        break;
+      }
+    }
+    return DropdownButtonFormField<Locale?>(
+      key: const ValueKey('settings-language'),
+      initialValue: selected,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+        prefixIcon: Icon(Icons.language),
+      ),
+      items: [
+        DropdownMenuItem<Locale?>(
+          value: null,
+          child: Text(appL10n(context).settingsLanguageSystem),
+        ),
+        for (final locale in locales)
+          DropdownMenuItem<Locale?>(
+            value: locale,
+            child: Text(languageDisplayName(locale)),
+          ),
+      ],
+      onChanged: (value) => prefs.locale = value,
+    );
+  }
 }
 
 class _SettingsDialog extends StatefulWidget {
@@ -101,11 +192,20 @@ class _SettingsDialog extends StatefulWidget {
     required this.prefs,
     required this.recents,
     this.updates,
+    this.updateInstaller,
+    this.onOpenDevTools,
+    required this.autoOcr,
   });
 
   final PdfEditingPreferences prefs;
   final RecentsStore recents;
   final UpdateService? updates;
+  final UpdateInstaller? updateInstaller;
+  final AutoOcrSetting autoOcr;
+
+  /// Non-null in debug/profile builds: closes the dialog and opens the
+  /// developer tools panel (same as F12).
+  final VoidCallback? onOpenDevTools;
 
   @override
   State<_SettingsDialog> createState() => _SettingsDialogState();
@@ -116,7 +216,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Settings'),
+      title: Text(appL10n(context).settingsTitle),
       content: SizedBox(
         width: 360,
         child: SingleChildScrollView(
@@ -126,75 +226,152 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Appearance', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAppearance,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
+                SegmentedButton<PdfThemePreference>(
+                  segments: [
                     ButtonSegment(
-                        value: ThemeMode.system,
-                        icon: Icon(Icons.brightness_auto),
-                        label: Text('System')),
+                        value: PdfThemePreference.system,
+                        icon: const Icon(Icons.brightness_auto),
+                        label: Text(appL10n(context).settingsThemeSystem)),
                     ButtonSegment(
-                        value: ThemeMode.light,
-                        icon: Icon(Icons.light_mode),
-                        label: Text('Light')),
+                        value: PdfThemePreference.light,
+                        icon: const Icon(Icons.light_mode),
+                        label: Text(appL10n(context).settingsThemeLight)),
                     ButtonSegment(
-                        value: ThemeMode.dark,
-                        icon: Icon(Icons.dark_mode),
-                        label: Text('Dark')),
+                        value: PdfThemePreference.dark,
+                        icon: const Icon(Icons.dark_mode),
+                        label: Text(appL10n(context).settingsThemeDark)),
                   ],
-                  selected: {widget.prefs.themeMode},
-                  onSelectionChanged: (s) => widget.prefs.themeMode = s.first,
+                  selected: {widget.prefs.themePreference},
+                  onSelectionChanged: (s) =>
+                      widget.prefs.themePreference = s.first,
                 ),
+                const SizedBox(height: 16),
+                Text(appL10n(context).settingsLanguage,
+                    style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                _LanguagePicker(prefs: widget.prefs),
                 const Divider(height: 32),
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Recent files',
+                      child: Text(appL10n(context).settingsRecentFiles,
                           style: theme.textTheme.titleSmall),
                     ),
                     TextButton(
                       onPressed: widget.recents.isEmpty
                           ? null
                           : () => widget.recents.clear(),
-                      child: const Text('Clear'),
+                      child: Text(appL10n(context).clear),
                     ),
                   ],
                 ),
                 Text(
-                  widget.recents.isEmpty
-                      ? 'No recent files'
-                      : '${widget.recents.items.length} remembered',
+                  appL10n(context)
+                      .settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
+                if (canManageCachedPdfs) ...[
+                  const Divider(height: 32),
+                  CachedDocumentsSettings(recents: widget.recents),
+                ],
+                if (SignatureTrust.platformDefault case final trust?
+                    when trust.aatl != null) ...[
+                  const Divider(height: 32),
+                  _SignatureTrustSection(trust: trust, setting: trust.aatl!),
+                ],
+                if (OnDeviceOcr.isSupported) ...[
+                  const Divider(height: 32),
+                  _TextRecognitionSection(setting: widget.autoOcr),
+                ],
                 const Divider(height: 32),
-                Text('System', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsSystem,
+                    style: theme.textTheme.titleSmall),
                 ListTile(
                   key: const ValueKey('settings-default-app'),
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.assignment_turned_in_outlined),
-                  title: const Text('Set up as default application'),
-                  subtitle: Text(_defaultAppSubtitle),
+                  title: Text(appL10n(context).settingsSetUpAsDefault),
+                  subtitle: Text(_defaultAppSubtitle(context)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
                 ),
-                if (widget.updates != null && UpdateService.supported) ...[
+                if (widget.onOpenDevTools != null)
+                  ListTile(
+                    key: const ValueKey('settings-devtools'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.build_outlined),
+                    title: Text(appL10n(context).settingsDeveloperTools),
+                    subtitle:
+                        Text(appL10n(context).settingsDeveloperToolsSubtitle),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.onOpenDevTools!();
+                    },
+                  ),
+                if (widget.updates != null && widget.updates!.supported) ...[
                   const Divider(height: 32),
-                  _UpdateSection(updates: widget.updates!),
+                  _UpdateSection(
+                    updates: widget.updates!,
+                    installer: widget.updateInstaller,
+                  ),
                 ],
                 const Divider(height: 32),
-                Text('About', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAbout,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
-                Text('${AppInfo.name} ${AppInfo.version}',
+                Text('${AppInfo.displayName} ${AppInfo.displayVersion}',
                     style: theme.textTheme.bodyMedium),
                 Text(AppInfo.tagline, style: theme.textTheme.bodySmall),
                 const SizedBox(height: 4),
                 TextButton.icon(
                   style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   icon: const Icon(Icons.code, size: 18),
-                  label: const Text('View source on GitHub'),
+                  label: Text(appL10n(context).settingsViewSource),
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-report-issue'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: Text(appL10n(context).settingsReportIssue),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => launchUrl(Uri.parse(AppInfo.feedbackIssueUrl),
+                      mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-email-feedback'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.mail_outline),
+                  title: Text(appL10n(context).settingsEmailFeedback),
+                  subtitle: const Text(AppInfo.feedbackEmail),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => _emailFeedback(context),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-whats-new'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.new_releases_outlined),
+                  title: Text(appL10n(context).whatsNew),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showWhatsNew(context),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-licenses'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.article_outlined),
+                  title: Text(MaterialLocalizations.of(context)
+                      .viewLicensesButtonLabel),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showLicensePage(
+                    context: context,
+                    applicationName: AppInfo.displayName,
+                    applicationVersion: AppInfo.displayVersion,
+                  ),
                 ),
               ],
             ),
@@ -202,10 +379,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
+        PdfDialogSubmit.action(
+            onSubmit: () => Navigator.of(context).pop(),
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(appL10n(context).close),
+            )),
       ],
     );
   }
@@ -216,23 +395,18 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 /// button (opening the platform artifact or release page) when a newer build
 /// is available.
 class _UpdateSection extends StatelessWidget {
-  const _UpdateSection({required this.updates});
+  const _UpdateSection({required this.updates, this.installer});
 
   final UpdateService updates;
 
-  Future<void> _openDownload(BuildContext context) async {
-    final url = updates.downloadUrl;
-    if (url == null) return;
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not open the download'),
-      ));
-    }
-  }
+  /// The in-app updater; null defaults to a real one (tests inject a fake).
+  final UpdateInstaller? installer;
+
+  Future<void> _install(BuildContext context) => startUpdateInstall(
+        context,
+        updates: updates,
+        installer: installer ?? UpdateInstaller(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -247,7 +421,8 @@ class _UpdateSection extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('Updates', style: theme.textTheme.titleSmall),
+                  child: Text(appL10n(context).settingsUpdates,
+                      style: theme.textTheme.titleSmall),
                 ),
                 TextButton(
                   key: const ValueKey('settings-check-updates'),
@@ -260,20 +435,35 @@ class _UpdateSection extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Check now'),
+                      : Text(appL10n(context).settingsCheckNow),
                 ),
               ],
             ),
+            if (updates.nightlySupported)
+              SwitchListTile(
+                key: const ValueKey('settings-nightly-updates'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(appL10n(context).settingsNightlyUpdates),
+                subtitle: Text(appL10n(context).settingsNightlyUpdatesSubtitle),
+                value: updates.nightlyUpdates,
+                onChanged: checking
+                    ? null
+                    : (value) async {
+                        await updates.setNightlyUpdates(value);
+                        await updates.checkForUpdates(force: true);
+                      },
+              ),
             _statusLine(context, theme),
             if (updates.updateAvailable) ...[
               const SizedBox(height: 8),
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),
-                  label: Text('Download ${updates.latest!.version}'),
-                  onPressed: () => _openDownload(context),
+                  label: Text(appL10n(context)
+                      .settingsDownloadVersion(updates.latest!.displayVersion)),
+                  onPressed: () => _install(context),
                 ),
               ),
             ],
@@ -287,27 +477,108 @@ class _UpdateSection extends StatelessWidget {
     final scheme = theme.colorScheme;
     final style = theme.textTheme.bodySmall;
     return switch (updates.status) {
-      UpdateStatus.checking => Text('Checking for updates…', style: style),
+      UpdateStatus.checking =>
+        Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
-          'Version ${updates.latest!.version} is available '
-          '(you have ${AppInfo.version}).',
+          appL10n(context).settingsUpdateAvailable(
+              updates.latest!.displayVersion, AppInfo.displayVersion),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),
       UpdateStatus.upToDate => Text(
-          'You’re on the latest version (${AppInfo.version}).',
+          appL10n(context).settingsUpToDate(AppInfo.displayVersion),
           key: const ValueKey('settings-up-to-date'),
           style: style,
         ),
       UpdateStatus.failed => Text(
-          'Couldn’t check for updates. Try again later.',
+          appL10n(context).settingsUpdateFailed,
           key: const ValueKey('settings-update-failed'),
           style: style?.copyWith(color: scheme.error),
         ),
       UpdateStatus.idle => Text(
-          'You have ${AppInfo.name} ${AppInfo.version}.',
+          appL10n(context)
+              .settingsUpdateIdle(AppInfo.displayName, AppInfo.displayVersion),
           style: style,
         ),
     };
+  }
+}
+
+/// The Settings "Text recognition" block: the "Automatically OCR scans"
+/// switch (on by default), shown wherever on-device OCR runs.
+class _TextRecognitionSection extends StatefulWidget {
+  const _TextRecognitionSection({required this.setting});
+
+  final AutoOcrSetting setting;
+
+  @override
+  State<_TextRecognitionSection> createState() =>
+      _TextRecognitionSectionState();
+}
+
+class _TextRecognitionSectionState extends State<_TextRecognitionSection> {
+  @override
+  void initState() {
+    super.initState();
+    // The switch must show the stored choice, not the default, even when
+    // Settings opens before the editor has read it.
+    widget.setting.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.settingsTextRecognition,
+            style: Theme.of(context).textTheme.titleSmall),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.setting,
+          builder: (context, enabled, _) => SwitchListTile(
+            key: const ValueKey('settings-auto-ocr'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.document_scanner_outlined),
+            title: Text(l10n.settingsAutoOcrTitle),
+            subtitle: Text(l10n.settingsAutoOcrSubtitle),
+            value: enabled,
+            onChanged: (value) => widget.setting.save(value),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The Settings "Signatures" block: the opt-in Adobe Approved Trust List
+/// switch (off-web only - the web can't reach Adobe).
+class _SignatureTrustSection extends StatelessWidget {
+  const _SignatureTrustSection({required this.trust, required this.setting});
+
+  final SignatureTrust trust;
+  final AatlTrustSetting setting;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.settingsSignatures,
+            style: Theme.of(context).textTheme.titleSmall),
+        ValueListenableBuilder<bool>(
+          valueListenable: setting,
+          builder: (context, enabled, _) => SwitchListTile(
+            key: const ValueKey('settings-aatl'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.verified_user_outlined),
+            title: Text(l10n.settingsAatlTitle),
+            subtitle: Text(l10n.settingsAatlSubtitle),
+            value: enabled,
+            onChanged: (value) => trust.setAatlEnabled(value),
+          ),
+        ),
+      ],
+    );
   }
 }

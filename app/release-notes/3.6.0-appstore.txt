@@ -1,0 +1,8 @@
+New in 3.6.0
+
+- Annotation panels are easier to navigate, keep selections visible after edits, and preserve text-box opacity while editing and rendering.
+- Bluebeam text boxes retain their alignment, line spacing, character spacing, underline, and caret position.
+- Multiple document windows are more reliable and now support dragging tabs between them.
+- Supported desktop installs include a DartPDF command-line and MCP sidecar for inspecting documents, extracting bounded text, and listing forms or annotations.
+- Substituted text keeps more natural glyph proportions and spacing.
+- Fixes stale pages after edits and cloud-folder reveal actions.

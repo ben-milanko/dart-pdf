@@ -1,0 +1,1 @@
+ocr,işaretleme,vurgula,not,damga,form,birleştir,okuyucu,şifre,karşılaştır,tara,sayfa,dışa aktar

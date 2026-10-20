@@ -1,0 +1,5 @@
+New in 3.2.0
+
+• Faster, steadier viewing with memory-aware page caching and less duplicate rendering.
+• Better FreeText and callout compatibility, plus more precise selection of multi-line markups.
+• Fixes loading pauses, remote-session restore delays, and Ctrl/Cmd-wheel zoom after constrained drawing.

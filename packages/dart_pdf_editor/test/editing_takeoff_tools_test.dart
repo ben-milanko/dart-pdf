@@ -1,6 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -14,7 +14,7 @@ void main() {
   Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..measurementScale = PdfMeasurementScale(
+      ..preferences.measurementScale = PdfMeasurementScale(
           unitsPerPoint: 20 / 72, unitLabel: 'ft', precision: 1);
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -86,7 +86,7 @@ void main() {
   testWidgets('arc tool measures the swept length after three clicks',
       (tester) async {
     final editing = await pumpEditor(tester);
-    editing.measurementScale = PdfMeasurementScale(
+    editing.preferences.measurementScale = PdfMeasurementScale(
         unitsPerPoint: 1 / 72, unitLabel: 'ft', precision: 100);
     editing.tool = PdfEditTool.measureArc;
     await tester.pump();
@@ -122,8 +122,7 @@ void main() {
 
     // the depth dialog appears; enter 2 ft.
     expect(find.byKey(const ValueKey('pdf-depth-value')), findsOneWidget);
-    await tester.enterText(
-        find.byKey(const ValueKey('pdf-depth-value')), '2');
+    await tester.enterText(find.byKey(const ValueKey('pdf-depth-value')), '2');
     await tester.tap(find.byKey(const ValueKey('pdf-depth-apply')));
     await tester.pumpAndSettle();
 

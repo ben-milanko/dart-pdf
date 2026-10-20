@@ -12,8 +12,8 @@ final signerCert = pemBytes(testSignerCertPem);
 final signedAt = DateTime.utc(2026, 6, 15, 10, 0, 0);
 
 /// A TSA that mints real RFC 3161 tokens in-process.
-PdfTimestampClient testTsa({DateTime? at}) =>
-    (request) async => buildTestTimeStampToken(request, genTime: at ?? signedAt);
+PdfTimestampClient testTsa({DateTime? at}) => (request) async =>
+    buildTestTimeStampToken(request, genTime: at ?? signedAt);
 
 PdfEditor freshEditor() => PdfEditor(PdfDocument.open(buildMultiPagePdf(2)));
 
@@ -53,8 +53,8 @@ void main() {
         ),
       );
       final doc = PdfDocument.open(bytes);
-      final signature = PdfSignature.of(doc)
-          .firstWhere((s) => !s.isDocumentTimeStamp);
+      final signature =
+          PdfSignature.of(doc).firstWhere((s) => !s.isDocumentTimeStamp);
       final result = signature.validate();
       expect(result.intact, isTrue);
       expect(result.padesLevel, PdfPadesLevel.bLTA);
@@ -133,9 +133,8 @@ void main() {
 
     test('consumes the embedded OCSP to confirm the signer is not revoked',
         () async {
-      final result = PdfSignature.of(PdfDocument.open(await signBLT()))
-          .single
-          .validate();
+      final result =
+          PdfSignature.of(PdfDocument.open(await signBLT())).single.validate();
       expect(result.embeddedRevocation, PdfRevocationStatus.good);
     });
   });
@@ -168,6 +167,65 @@ void main() {
           signatures.firstWhere((s) => !s.isDocumentTimeStamp).validate();
       expect(approval.intact, isTrue);
       expect(approval.padesLevel, PdfPadesLevel.bLTA);
+    });
+  });
+
+  group('validation reuse', () {
+    final leafKey = RsaPrivateKey.fromDer(pkixLeafKey);
+    Future<PdfRevocationMaterial> material(List<X509Certificate> _) async =>
+        PdfRevocationMaterial(
+          ocspResponses: [pkixOcspGood],
+          crls: [pkixCrl],
+          certificates: [pkixCaCert],
+        );
+
+    test('a document timestamp applied in place lifts B-LT to B-LTA', () async {
+      final doc = PdfDocument.open(await freshEditor().saveSignedPades(
+        privateKey: leafKey,
+        certificates: [pkixLeafCert, pkixCaCert],
+        level: PdfPadesLevel.bLT,
+        timestampClient: testTsa(),
+        signingTime: signedAt,
+        revocationClient: material,
+      ));
+      final before = PdfSignature.of(doc).single;
+      expect(before.validate().padesLevel, PdfPadesLevel.bLT);
+
+      // the same COS layer takes the timestamp revision, as the editor does
+      final stamped = await PdfEditor(doc).addDocumentTimestamp(testTsa());
+      final updated = doc.withIncrementalUpdate(stamped);
+      final signatures = PdfSignature.of(updated);
+      final approval = signatures.firstWhere((s) => !s.isDocumentTimeStamp);
+      expect(identical(approval.dict, before.dict), isTrue);
+      final result = approval.validate();
+      expect(result.intact, isTrue);
+      expect(result.padesLevel, PdfPadesLevel.bLTA);
+      expect(result.coversWholeDocument, isFalse);
+    });
+
+    test('a B-LTA document timestamp is hashed once for both rows', () async {
+      final bytes = await freshEditor().saveSignedPades(
+        privateKey: leafKey,
+        certificates: [pkixLeafCert, pkixCaCert],
+        level: PdfPadesLevel.bLTA,
+        timestampClient: testTsa(),
+        signingTime: signedAt,
+        revocationClient: material,
+      );
+      final signatures = PdfSignature.of(PdfDocument.open(bytes));
+      final approval = signatures.firstWhere((s) => !s.isDocumentTimeStamp);
+      final timestamp = signatures.firstWhere((s) => s.isDocumentTimeStamp);
+      int covered(PdfSignature s) => s.byteRange[1] + s.byteRange[3];
+
+      PdfSignature.debugHashedBytes = 0;
+      expect(approval.validate().padesLevel, PdfPadesLevel.bLTA);
+      // its own bytes, and the document timestamp's for the level
+      expect(PdfSignature.debugHashedBytes,
+          covered(approval) + covered(timestamp));
+      PdfSignature.debugHashedBytes = 0;
+      final stamp = timestamp.validate();
+      expect(stamp.signatureValid, isTrue);
+      expect(PdfSignature.debugHashedBytes, 0);
     });
   });
 
@@ -216,8 +274,8 @@ void main() {
 
       final reference = doc.cos.resolve(signature.dict['Reference']);
       expect(reference, isA<CosArray>());
-      final sigRef = doc.cos.resolve((reference as CosArray).items.first)
-          as CosDictionary;
+      final sigRef =
+          doc.cos.resolve((reference as CosArray).items.first) as CosDictionary;
       expect((doc.cos.resolve(sigRef['TransformMethod']) as CosName).value,
           'DocMDP');
       final params =

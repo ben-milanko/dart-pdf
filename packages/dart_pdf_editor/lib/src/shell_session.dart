@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import 'editing/editing_controller.dart';
@@ -7,6 +8,7 @@ import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'pdf_viewer.dart';
 import 'render_worker.dart';
+import 'render_worker_host.dart';
 import 'shell_chrome.dart';
 
 typedef PdfShellPrepareSession = void Function(PdfEditingController session);
@@ -37,6 +39,7 @@ class PdfShellSessionLifecycle {
     required PdfViewerController? viewerController,
     required PdfPerformanceController? performance,
     required String? documentId,
+    bool renderWorkerEnabled = true,
     PdfShellPrepareSession? prepareSession,
     PdfShellSessionChanged? onSessionChanged,
   })  : _bytes = bytes,
@@ -45,6 +48,7 @@ class PdfShellSessionLifecycle {
         _externalViewer = viewerController,
         _externalPerformance = performance,
         _documentId = documentId,
+        _renderWorkerEnabled = renderWorkerEnabled,
         _prepareSession = prepareSession,
         _onSessionChanged = onSessionChanged {
     _openSession();
@@ -57,6 +61,7 @@ class PdfShellSessionLifecycle {
   PdfViewerController? _externalViewer;
   PdfPerformanceController? _externalPerformance;
   String? _documentId;
+  bool _renderWorkerEnabled;
   PdfShellPrepareSession? _prepareSession;
   PdfShellSessionChanged? _onSessionChanged;
 
@@ -65,9 +70,10 @@ class PdfShellSessionLifecycle {
   PdfViewerController? _ownedViewer;
   PdfPerformanceController? _ownedPerformance;
   PdfViewportMemory? _viewportMemory;
-  PdfRenderWorker? _worker;
-  Object? _workerDocument;
-  int _workerGenerations = 0;
+  late final PdfRenderWorkerHost _workerHost = PdfRenderWorkerHost(
+    workerCount: performance.beginWorkerGeneration,
+    onGeneration: () => PdfPerfLog.log(performance.diagnostics.toString()),
+  );
 
   final TextEditingController searchController = TextEditingController();
   final FocusNode searchFocus = FocusNode();
@@ -83,13 +89,13 @@ class PdfShellSessionLifecycle {
       _externalPerformance ??
       (_ownedPerformance ??= PdfPerformanceController());
 
-  PdfRenderWorker? get worker => _worker;
+  PdfRenderWorker? get worker => _workerHost.worker;
 
   String? get documentKey =>
       _documentId ?? (_bytes == null ? null : pdfDocumentKey(_bytes!));
 
   /// Number of actual worker generations started by this lifecycle.
-  int get debugWorkerGenerations => _workerGenerations;
+  int get debugWorkerGenerations => _workerHost.generations;
   bool get debugOwnsSession => _ownedSession != null;
   bool get debugOwnsPreferences => _ownedPreferences != null;
   bool get debugOwnsViewer => _ownedViewer != null;
@@ -117,9 +123,7 @@ class PdfShellSessionLifecycle {
 
   void _closeSession() {
     session.removeListener(_handleSessionChanged);
-    _worker?.dispose();
-    _worker = null;
-    _workerDocument = null;
+    _workerHost.dispose();
     _ownedSession?.dispose();
     _ownedSession = null;
   }
@@ -130,14 +134,26 @@ class PdfShellSessionLifecycle {
   }
 
   void _syncWorker() {
-    if (identical(session.document, _workerDocument)) return;
-    _worker?.dispose();
-    final workerCount = performance.beginWorkerGeneration();
-    _worker = startPdfRenderWorker(session.bytes,
-        pageCount: session.document.pageCount, workerCount: workerCount);
-    _workerDocument = session.document;
-    _workerGenerations++;
-    PdfPerfLog.log(performance.diagnostics.toString());
+    if (!_renderWorkerEnabled) {
+      _workerHost.dispose();
+      return;
+    }
+    // The worker state machine (incremental revision update vs a fresh
+    // generation, per issue #308) lives in [PdfRenderWorkerHost] so the bare
+    // [PdfViewer] default worker drives the identical logic - see #396.
+    final delta = session.lastRevisionDelta;
+    _workerHost.sync(
+      document: session.document,
+      bytes: session.bytes,
+      pageCount: session.document.pageCount,
+      revision: delta == null
+          ? null
+          : (
+              baseLength: delta.baseLength,
+              newLength: delta.newLength,
+              changedPages: delta.changedPages,
+            ),
+    );
   }
 
   void _bindViewportMemory({required bool recreate}) {
@@ -173,6 +189,7 @@ class PdfShellSessionLifecycle {
     required PdfViewerController? viewerController,
     required PdfPerformanceController? performanceController,
     required String? documentId,
+    bool? renderWorkerEnabled,
     PdfShellPrepareSession? prepareSession,
     PdfShellSessionChanged? onSessionChanged,
   }) {
@@ -187,6 +204,8 @@ class PdfShellSessionLifecycle {
     final viewerChanged = !identical(viewerController, _externalViewer);
     final performanceChanged =
         !identical(performanceController, _externalPerformance);
+    final workerPolicyChanged = renderWorkerEnabled != null &&
+        renderWorkerEnabled != _renderWorkerEnabled;
 
     if (sessionChanged) _closeSession();
     if (sessionChanged &&
@@ -200,11 +219,11 @@ class PdfShellSessionLifecycle {
     if (viewerChanged && _externalViewer == null) {
       _viewportMemory?.dispose();
       _viewportMemory = null;
-      _ownedViewer?.dispose();
+      _retire(_ownedViewer?.dispose);
       _ownedViewer = null;
     }
     if (performanceChanged && _externalPerformance == null) {
-      _ownedPerformance?.dispose();
+      _retire(_ownedPerformance?.dispose);
       _ownedPerformance = null;
     }
 
@@ -214,6 +233,9 @@ class PdfShellSessionLifecycle {
     _externalViewer = viewerController;
     _externalPerformance = performanceController;
     _documentId = documentId;
+    if (renderWorkerEnabled != null) {
+      _renderWorkerEnabled = renderWorkerEnabled;
+    }
     _prepareSession = prepareSession;
     _onSessionChanged = onSessionChanged;
 
@@ -228,6 +250,7 @@ class PdfShellSessionLifecycle {
           documentBytes: session.bytes.length,
         );
       }
+      if (workerPolicyChanged) _syncWorker();
     }
 
     final keyChanged = oldKey != documentKey;
@@ -247,6 +270,18 @@ class PdfShellSessionLifecycle {
       viewerChanged: viewerChanged,
       documentKeyChanged: keyChanged,
     );
+  }
+
+  /// Disposes an owned controller the host just replaced with its own - at
+  /// the end of this frame, not now. [update] runs in the shell's
+  /// didUpdateWidget, while the viewer, the panels and the header below it
+  /// still hold the old controller: they let go of it (detach, remove their
+  /// listeners, clear its forwarding listenables) only as they rebuild later
+  /// in the same frame, and doing that on a disposed notifier asserts.
+  void _retire(VoidCallback? dispose) {
+    if (dispose == null) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) => dispose());
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   void focusSearch() {

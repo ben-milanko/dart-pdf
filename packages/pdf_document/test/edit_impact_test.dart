@@ -47,14 +47,37 @@ void main() {
       expect(editor.impact.annotationPages, {0, 2});
     });
 
-    test('page-tree edits report document-wide structural impact', () {
+    test('page reorder reports identity-preserving structural impact', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)))
         ..movePage(0, 2);
+
+      expect(editor.impact.visualPages, isEmpty);
+      expect(editor.impact.contentPages, isEmpty);
+      expect(editor.impact.annotationPages, isEmpty);
+      expect(editor.impact.pageStructureChanged, isTrue);
+      expect(editor.impact.pageOrderOnly, isTrue);
+    });
+
+    test('page insertion keeps conservative document-wide impact', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)))
+        ..insertBlankPage(at: 1);
 
       expect(editor.impact.visualPages, isNull);
       expect(editor.impact.contentPages, isNull);
       expect(editor.impact.annotationPages, isNull);
       expect(editor.impact.pageStructureChanged, isTrue);
+      expect(editor.impact.pageOrderOnly, isFalse);
+    });
+
+    test('a reorder combined with page editing retains the dirty lane', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)))
+        ..movePage(0, 2)
+        ..addSquare(0, const PdfRect(20, 20, 80, 80));
+
+      expect(editor.impact.pageStructureChanged, isTrue);
+      expect(editor.impact.pageOrderOnly, isTrue);
+      expect(editor.impact.visualPages, {0});
+      expect(editor.impact.annotationPages, {0});
     });
 
     test('form filling reports widget repaint without content invalidation',
@@ -66,6 +89,15 @@ void main() {
       expect(editor.impact.visualPages, {0});
       expect(editor.impact.contentPages, isEmpty);
       expect(editor.impact.annotationPages, isEmpty);
+    });
+
+    test('form removal reports widget-list invalidation', () {
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      editor.removeField(editor.acroForm!.fieldNamed('name')!);
+
+      expect(editor.impact.visualPages, {0});
+      expect(editor.impact.contentPages, isEmpty);
+      expect(editor.impact.annotationPages, {0});
     });
 
     test('outline edits report metadata-only impact', () {

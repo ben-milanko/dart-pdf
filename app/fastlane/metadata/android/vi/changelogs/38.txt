@@ -1,0 +1,9 @@
+Có gì mới trong 4.5.0
+
+- Xem điểm mới của mỗi phiên bản trong Cài đặt > Giới thiệu.
+- Chữ và nét vẽ PDF sắc nét hơn trên Linux.
+- Các trang đã xuất mở trong một thẻ mới.
+- Chuyển giữa trang, văn bản dàn lại và lưới trang bằng một nút điều khiển.
+- Khoảng cách chữ chính xác cho văn bản dùng phông chuẩn không được nhúng.
+- Chọn văn bản tốt hơn qua nhiều cột và trong tiếng Trung, Nhật, Hàn.
+- Chữ viền nay hiển thị rõ nét.

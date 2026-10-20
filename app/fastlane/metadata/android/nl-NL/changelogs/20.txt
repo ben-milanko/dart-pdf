@@ -1,0 +1,7 @@
+Nieuw in 3.0.0
+
+• De app is nu beschikbaar in 10 talen, met volledige rechts-naar-links lay-out.
+• Nauwkeurigere weergave van overprint, overvloeimodi en zachte maskers.
+• Houd Shift ingedrukt om rechte lijnen te tekenen en stel een standaardstijl voor annotaties in.
+• Vernieuwde, soepelere documenttabbladen.
+• Snellere weergave en lager geheugengebruik bij grote bestanden.

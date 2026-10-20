@@ -1,0 +1,5 @@
+Nieuw in 3.5.1
+
+- Gescande MRC- en JBIG2-pagina’s behouden nu hun tekst-, achtergrond- en maskerlagen.
+- Afbeeldingen met een transparantiemasker verschijnen niet langer als zwarte vlakken met Impeller of de optionele GPU-renderer.
+- Android-documentscans lezen resultaten betrouwbaar via de systeeminhoudsprovider en tonen bruikbare foutmeldingen.

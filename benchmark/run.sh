@@ -3,15 +3,21 @@
 #
 #   benchmark/run.sh [CORPUS_DIR] [SCALE] [MAX_PAGES]
 #
-# Defaults: corpus test_corpora/pdfjs, scale 2, 10 pages/file. Requires
-# pypdfium2 (pip install pypdfium2) and fvm Flutter. Writes JSON to
-# benchmark/out/ and prints the table to stdout.
+# Defaults: corpus test_corpora/pdfjs, scale 2, 10 pages/file, best of 3
+# passes. Set BENCHMARK_REPEAT to override the pass count. Requires pypdfium2
+# (pip install pypdfium2) and fvm Flutter. Writes JSON to benchmark/out/ and
+# prints the table to stdout.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORPUS="${1:-$ROOT/test_corpora/pdfjs}"
 SCALE="${2:-2}"
 MAX_PAGES="${3:-10}"
+REPEAT="${BENCHMARK_REPEAT:-3}"
+if ! [[ "$REPEAT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BENCHMARK_REPEAT must be a positive integer (got: $REPEAT)" >&2
+  exit 2
+fi
 # Per-file wall-clock budget for PDFium (seconds). The pdfjs corpus has
 # deliberately-malformed PDFs that send PDFium into a multi-minute native spin;
 # without this the sweep hangs on them. dart-pdf has its own per-page timeout.
@@ -22,22 +28,25 @@ mkdir -p "$OUT"
 DART="${DART:-fvm dart}"
 FLUTTER="${FLUTTER:-fvm flutter}"
 
-echo "== Corpus: $CORPUS  (scale $SCALE, $MAX_PAGES pages/file) =="
+echo "== Corpus: $CORPUS  (scale $SCALE, $MAX_PAGES pages/file, best of $REPEAT) =="
 
-echo "== 1/3  PDFium (pypdfium2) =="
+echo "== 1/3  PDFium raster (pypdfium2; document open excluded) =="
 python3 "$ROOT/benchmark/pdfium_benchmark.py" "$CORPUS" \
-  --scale "$SCALE" --max-pages "$MAX_PAGES" --timeout "$PDFIUM_TIMEOUT" \
+  --scale "$SCALE" --max-pages "$MAX_PAGES" --repeat "$REPEAT" \
+  --timeout "$PDFIUM_TIMEOUT" \
   --out "$OUT/pdfium.json"
 
 echo "== 2/3  dart-pdf interpret (pure Dart, no raster) =="
 ( cd "$ROOT/packages/pdf_graphics" && \
   $DART run tool/benchmark_interpret.dart "$CORPUS" \
-    --max-pages "$MAX_PAGES" --scale "$SCALE" --out "$OUT/dart-interpret.json" )
+    --max-pages "$MAX_PAGES" --repeat "$REPEAT" --scale "$SCALE" \
+    --out "$OUT/dart-interpret.json" )
 
 echo "== 3/3  dart-pdf render (Flutter rasterization) =="
 ( cd "$ROOT/packages/dart_pdf_editor" && \
   PDF_BENCHMARK_DIR="$CORPUS" PDF_BENCHMARK_SCALE="$SCALE" \
   PDF_BENCHMARK_MAX_PAGES="$MAX_PAGES" \
+  PDF_BENCHMARK_REPEAT="$REPEAT" \
   PDF_BENCHMARK_OUT="$OUT/dart-render.json" \
     $FLUTTER test test/benchmark_render_test.dart )
 
@@ -46,6 +55,7 @@ if [[ "${RUN_STRIPS:-0}" == "1" ]]; then
   ( cd "$ROOT/packages/dart_pdf_editor" && \
     PDF_BENCHMARK_DIR="$CORPUS" PDF_BENCHMARK_SCALE="$SCALE" \
     PDF_BENCHMARK_MAX_PAGES="$MAX_PAGES" \
+    PDF_BENCHMARK_REPEAT="$REPEAT" \
     PDF_BENCHMARK_OUT="$OUT/dart-strips.json" \
       $FLUTTER test test/benchmark_strip_render_test.dart )
 fi

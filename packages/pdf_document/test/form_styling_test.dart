@@ -37,8 +37,9 @@ void main() {
       final da = reread.defaultAppearance!;
       expect(da, contains('/TimesBold 18 Tf'));
       // the chosen base-14 face is registered in /DR
-      final drFonts = out.cos
-          .resolve(PdfAcroForm.of(out)!.defaultResources!['Font']) as CosDictionary;
+      final drFonts =
+          out.cos.resolve(PdfAcroForm.of(out)!.defaultResources!['Font'])
+              as CosDictionary;
       final tb = out.cos.resolve(drFonts['TimesBold']) as CosDictionary;
       expect((out.cos.resolve(tb['BaseFont']) as CosName).value, 'Times-Bold');
       // the appearance shows the value (simple-font byte string)
@@ -83,7 +84,8 @@ void main() {
       // the appearance carries its own embedded font resource
       final ap = out.cos.resolve(reread.widgets[0]['AP']) as CosDictionary;
       final apForm = out.cos.resolve(ap['N']) as CosStream;
-      final res = out.cos.resolve(apForm.dictionary['Resources']) as CosDictionary;
+      final res =
+          out.cos.resolve(apForm.dictionary['Resources']) as CosDictionary;
       final apFonts = out.cos.resolve(res['Font']) as CosDictionary;
       expect(apFonts.containsKey(name), isTrue);
     });
@@ -105,6 +107,69 @@ void main() {
       expect(reread.value, 'Filled later');
       final content = appearanceContent(out, reread);
       expect(content, contains('> Tj'));
+    });
+  });
+
+  group('setChoiceFieldStyle', () {
+    const options = [('au', 'Australia'), ('nz', 'New Zealand')];
+
+    test('restyles a dropdown with a base-14 face', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addComboBoxField(
+          0, 'country', const PdfRect(50, 600, 250, 622), options);
+      editor.setChoiceValue(field, 'au');
+      editor.setChoiceFieldStyle(editor.acroForm!.fieldNamed('country')!,
+          font: PdfStandardFont.courierBold,
+          fontSize: 11,
+          color: 0x0000CC,
+          align: PdfTextAlign.right);
+
+      final out = PdfDocument.open(editor.save());
+      final reread = PdfAcroForm.of(out)!.fieldNamed('country')!;
+      expect(reread.defaultAppearance, contains('/CourBold 11 Tf'));
+      expect(reread.appearanceColor, 0x0000CC);
+      expect(reread.quadding, 2);
+      expect(reread.value, 'au', reason: 'the selection survives');
+      final content = appearanceContent(out, reread);
+      expect(content, contains('/CourBold 11 Tf'));
+      expect(content, contains('(Australia) Tj'));
+    });
+
+    test('embeds a Type0 face for a dropdown and draws glyph ids', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addComboBoxField(
+          0, 'country', const PdfRect(50, 600, 250, 622), options);
+      editor.setChoiceValue(field, 'nz');
+      editor.setChoiceFieldStyle(editor.acroForm!.fieldNamed('country')!,
+          font: PdfEmbeddedFont.parse(fontBytes), autoSize: true);
+
+      final out = PdfDocument.open(editor.save());
+      final reread = PdfAcroForm.of(out)!.fieldNamed('country')!;
+      expect(reread.appearanceFontSize, 0);
+      final content = appearanceContent(out, reread);
+      expect(content, contains('> Tj'));
+      expect(content, isNot(contains('(New Zealand)')));
+    });
+
+    test('restyles a list box and keeps its rows', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addListBoxField(
+          0, 'l', const PdfRect(50, 400, 250, 480), options);
+      editor.setChoiceFieldStyle(field, font: PdfStandardFont.times);
+      final out = PdfDocument.open(editor.save());
+      final reread = PdfAcroForm.of(out)!.fieldNamed('l')!;
+      final content = appearanceContent(out, reread);
+      expect(content, contains('/TiRo 12 Tf'));
+      expect(content, contains('(Australia) Tj'));
+      expect(content, contains('(New Zealand) Tj'));
+    });
+
+    test('refuses a text field', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field =
+          editor.addTextField(0, 't', const PdfRect(50, 600, 250, 622));
+      expect(() => editor.setChoiceFieldStyle(field, fontSize: 9),
+          throwsArgumentError);
     });
   });
 }

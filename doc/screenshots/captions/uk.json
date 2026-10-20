@@ -1,0 +1,38 @@
+{
+  "locale": "uk",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Приватне редагування PDF",
+      "subtitle": "Без акаунта. Без завантажень. Файли лишаються на вашому пристрої."
+    },
+    "app/02-editor": {
+      "headline": "Розмітка, підпис, редагування",
+      "subtitle": "Заповнюйте форми, додавайте нотатки та переміщуйте сторінки."
+    },
+    "app/03-dark": {
+      "headline": "Створено для справжніх документів",
+      "subtitle": "Шукайте текст, запускайте OCR, порівнюйте версії\nта відкривайте захищені файли."
+    },
+    "example/01-document": {
+      "headline": "Відкрийте будь-який PDF",
+      "subtitle": "Рендеринг чистою мовою Dart, на кожній платформі"
+    },
+    "example/02-graphics": {
+      "headline": "Графіка",
+      "subtitle": "Градієнти, розтяжки та прозорість"
+    },
+    "example/03-annotations": {
+      "headline": "Анотації",
+      "subtitle": "Виділення, малюнки, нотатки, штампи та форми"
+    },
+    "example/04-markup": {
+      "headline": "Інструменти розмітки",
+      "subtitle": "Малюйте, додавайте фігури та підписуйте на сторінці"
+    },
+    "example/05-reader": {
+      "headline": "Режим читання",
+      "subtitle": "Переформатовує текст під розмір екрана"
+    }
+  }
+}

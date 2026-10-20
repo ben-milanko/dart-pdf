@@ -15,12 +15,21 @@ abstract class PdfCalibratedColorSpace {
 
   PdfColor toSrgb(List<double> values);
 
+  /// Converts the calibrated components to the ICC profile-connection space,
+  /// normalized as XYZ D50. This lets PDF/X route CIE-based page colors
+  /// through its OutputIntent instead of treating sRGB as the final device.
+  List<double> toPcs(List<double> values);
+
   /// Maps raw 8-bit samples (0–255), as stored in image data or an Indexed
   /// palette entry, to sRGB through the space's default component decode
   /// (§8.6.5). The default decode is [0, 1] per component; Lab overrides it
   /// with its L*/a*/b* ranges.
   PdfColor toSrgbFromSamples(List<int> samples) =>
       toSrgb([for (final s in samples) s / 255]);
+
+  /// [toPcs] with the color space's default 8-bit image decode.
+  List<double> toPcsFromSamples(List<int> samples) =>
+      toPcs([for (final s in samples) s / 255]);
 
   static PdfCalibratedColorSpace? parse(CosDocument cos, CosObject? object) {
     final resolved = cos.resolve(object);
@@ -61,6 +70,20 @@ class _CalGrayColorSpace extends PdfCalibratedColorSpace {
     final l = whitePoint[1] * math.pow(a, gamma);
     final v = math.max(295.8 * math.pow(l, 1 / 3) - 40.8, 0) / 255;
     return PdfColor.gray(v.clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
+  List<double> toPcs(List<double> values) {
+    final a = values.isEmpty ? 0.0 : values[0].clamp(0.0, 1.0).toDouble();
+    final scale = math.pow(a, gamma).toDouble();
+    return _CalRgbColorSpace._normalizeWhitePointToD50(
+      whitePoint,
+      [
+        whitePoint[0] * scale,
+        whitePoint[1] * scale,
+        whitePoint[2] * scale,
+      ],
+    );
   }
 }
 
@@ -161,6 +184,24 @@ class _CalRgbColorSpace extends PdfCalibratedColorSpace {
     );
   }
 
+  @override
+  List<double> toPcs(List<double> values) {
+    final a = _component(values, 0);
+    final b = _component(values, 1);
+    final c = _component(values, 2);
+    final agr = a == 1 ? 1.0 : math.pow(a, gamma[0]).toDouble();
+    final bgg = b == 1 ? 1.0 : math.pow(b, gamma[1]).toDouble();
+    final cgb = c == 1 ? 1.0 : math.pow(c, gamma[2]).toDouble();
+    final xyz = [
+      matrix[0] * agr + matrix[3] * bgg + matrix[6] * cgb,
+      matrix[1] * agr + matrix[4] * bgg + matrix[7] * cgb,
+      matrix[2] * agr + matrix[5] * bgg + matrix[8] * cgb,
+    ];
+    final xyzFlat = _normalizeWhitePointToFlat(whitePoint, xyz);
+    final xyzBlack = _compensateBlackPoint(blackPoint, xyzFlat);
+    return _normalizeWhitePointToD50(_flatWhitePoint, xyzBlack);
+  }
+
   static double _component(List<double> values, int index) =>
       (index < values.length ? values[index] : 0.0).clamp(0.0, 1.0).toDouble();
 
@@ -183,6 +224,13 @@ class _CalRgbColorSpace extends PdfCalibratedColorSpace {
         lms[0] * 0.95047 / sourceWhitePoint[0],
         lms[1] / sourceWhitePoint[1],
         lms[2] * 1.08883 / sourceWhitePoint[2],
+      ];
+
+  static List<double> _toD50(List<double> sourceWhitePoint, List<double> lms) =>
+      [
+        lms[0] * 0.9642 / sourceWhitePoint[0],
+        lms[1] / sourceWhitePoint[1],
+        lms[2] * 0.8249 / sourceWhitePoint[2],
       ];
 
   static double _srgbTransfer(double color) {
@@ -235,6 +283,15 @@ class _CalRgbColorSpace extends PdfCalibratedColorSpace {
     final lmsD65 = _toD65(sourceWhitePoint, lms);
     return _matrixProduct(_bradfordInverse, lmsD65);
   }
+
+  static List<double> _normalizeWhitePointToD50(
+    List<double> sourceWhitePoint,
+    List<double> xyz,
+  ) {
+    final lms = _matrixProduct(_bradford, xyz);
+    final lmsD50 = _toD50(sourceWhitePoint, lms);
+    return _matrixProduct(_bradfordInverse, lmsD50);
+  }
 }
 
 class _LabColorSpace extends PdfCalibratedColorSpace {
@@ -286,15 +343,47 @@ class _LabColorSpace extends PdfCalibratedColorSpace {
   }
 
   @override
+  List<double> toPcs(List<double> values) {
+    final l = (values.isNotEmpty ? values[0] : 0.0).clamp(0.0, 100.0);
+    final a = (values.length > 1 ? values[1] : 0.0)
+        .clamp(range[0], range[1])
+        .toDouble();
+    final b = (values.length > 2 ? values[2] : 0.0)
+        .clamp(range[2], range[3])
+        .toDouble();
+    final fy = (l + 16) / 116;
+    final fx = fy + a / 500;
+    final fz = fy - b / 200;
+    return _CalRgbColorSpace._normalizeWhitePointToD50(
+      whitePoint,
+      [
+        whitePoint[0] * _labInverse(fx),
+        whitePoint[1] * _labInverse(fy),
+        whitePoint[2] * _labInverse(fz),
+      ],
+    );
+  }
+
+  @override
   PdfColor toSrgbFromSamples(List<int> samples) {
     // §8.6.5.4 default decode for Lab samples: L* spans [0, 100], a*/b* span
     // the /Range. Each raw byte 0–255 maps linearly onto its component range.
     final l = (samples.isNotEmpty ? samples[0] : 0) / 255 * 100;
-    final a =
-        range[0] + (samples.length > 1 ? samples[1] : 0) / 255 * (range[1] - range[0]);
-    final b =
-        range[2] + (samples.length > 2 ? samples[2] : 0) / 255 * (range[3] - range[2]);
+    final a = range[0] +
+        (samples.length > 1 ? samples[1] : 0) / 255 * (range[1] - range[0]);
+    final b = range[2] +
+        (samples.length > 2 ? samples[2] : 0) / 255 * (range[3] - range[2]);
     return toSrgb([l, a, b]);
+  }
+
+  @override
+  List<double> toPcsFromSamples(List<int> samples) {
+    final l = (samples.isNotEmpty ? samples[0] : 0) / 255 * 100;
+    final a = range[0] +
+        (samples.length > 1 ? samples[1] : 0) / 255 * (range[1] - range[0]);
+    final b = range[2] +
+        (samples.length > 2 ? samples[2] : 0) / 255 * (range[3] - range[2]);
+    return toPcs([l, a, b]);
   }
 
   static double _labInverse(double v) {

@@ -1,5 +1,147 @@
 # Changelog
 
+## 10.0.0
+
+- Update dependency constraints for the 10.0.0 suite; no public API changes in this package.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Align dependency constraints with the dart-pdf 8.0.0 suite.
+
+
+## 7.0.0
+
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
+
+## 6.0.0
+
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
+  matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
+  (`ReorderableListView.onReorderItem`), so this strands nobody.
+
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
+## 5.1.0
+
+- Version bump to track the 5.1.0 suite.
+
+## 5.0.0
+
+- Version bump to track the 5.0.0 suite.
+
+## 4.5.0
+
+- Align dependency constraints with the dart-pdf 4.5.0 package suite.
+
+## 4.4.0
+
+- Align dependency constraints with the dart-pdf 4.4.0 package suite.
+
+## 4.3.0
+
+- Align dependency constraints with the dart-pdf 4.3.0 package suite.
+
+## 4.2.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.2.0. No public VLM
+  OCR API changes since 4.1.0.
+
+## 4.1.0
+
+- Lockstep minor release aligned with `dart_pdf_editor` 4.1.0. No public VLM
+  OCR API changes since 4.0.0.
+
+## 4.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 4.0.0. No public VLM
+  OCR API changes since 3.8.0.
+
+## 3.8.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.8.0. No public VLM
+  OCR API changes since 3.7.0.
+
+## 3.7.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.7.0. No public VLM
+  OCR API changes since 3.6.0.
+
+## 3.6.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.6.0. No public VLM
+  OCR API changes since 3.5.1.
+
+## 3.5.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.5.1. No public VLM
+  OCR API changes since 3.5.0.
+
+## 3.5.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.5.0. No public VLM
+  OCR API changes since 3.4.0.
+
+## 3.4.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.4.0. No public VLM
+  OCR API changes since 3.3.1.
+
+## 3.3.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.3.1. No public VLM
+  OCR API changes since 3.3.0.
+
+## 3.3.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.3.0. No public VLM
+  OCR API changes since 3.2.0.
+
+## 3.2.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.2.0. No public VLM
+  OCR API changes since 3.1.1.
+
+## 3.1.1
+
+- Lockstep patch release to align with `dart_pdf_editor` 3.1.1. No public VLM
+  OCR API changes since 3.1.0.
+
+## 3.1.0
+
+- Lockstep release to align with `dart_pdf_editor` 3.1.0. No public VLM OCR
+  API changes since 3.0.0.
+
+## 3.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 3.0.0. No public VLM
+  OCR API changes since 2.1.0.
+
+## 2.1.0
+
+- Version bump to align with `dart_pdf_editor` 2.1.0. No public VLM OCR API
+  changes since 2.0.0.
+
+## 2.0.0
+
+- Version bump to align with `dart_pdf_editor` 2.0.0. No public VLM OCR API
+  changes since 1.4.7.
+
+## 1.4.7
+
+- Version bump to align with `dart_pdf_editor` 1.4.7. No public VLM OCR API
+  changes since 1.4.6.
+
 ## 1.4.6
 
 - Version bump to align with `dart_pdf_editor` 1.4.6. No public VLM OCR API

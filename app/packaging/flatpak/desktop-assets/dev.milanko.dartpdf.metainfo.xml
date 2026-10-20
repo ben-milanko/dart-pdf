@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keep this file in sync with app/store-listing.md and app/release-notes/.
+     Project rule: never name competitor products; use neutral wording such as
+     "proprietary incumbents". -->
+<component type="desktop-application">
+  <id>dev.milanko.dartpdf</id>
+
+  <name>DartPDF</name>
+  <summary>Edit, annotate, sign, and fill in PDFs</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+
+  <developer id="dev.milanko">
+    <name>Ben Milanko</name>
+  </developer>
+
+  <launchable type="desktop-id">dev.milanko.dartpdf.desktop</launchable>
+
+  <description>
+    <p>DartPDF is a PDF editor that runs entirely on your device.</p>
+    <p>Open any PDF to mark it up, fill in forms, sign it, redact content, rearrange pages, or edit the text and images on the page. Changes save back to the original file.</p>
+    <p>Nothing is uploaded. There's no account, no sync, and no ads.</p>
+    <p>Features:</p>
+    <ul>
+      <li>Highlight, underline, strikethrough, and freehand ink</li>
+      <li>Shapes, arrows, text boxes, notes, and stamps</li>
+      <li>Edit existing text and add images</li>
+      <li>Redaction that removes the covered text and images from the file, not just from view</li>
+      <li>Fill form fields (text, checkboxes, radio buttons, dropdowns), or add your own</li>
+      <li>Drawn signatures placed anywhere, plus certificate-backed PAdES digital signatures</li>
+      <li>OCR scanned PDFs so text can be selected and searched</li>
+      <li>Reorder, delete, and export pages to a new file</li>
+      <li>Full-text search, text selection, and links</li>
+      <li>Compare two versions side by side</li>
+      <li>Open password-protected files</li>
+    </ul>
+    <p>Runs on Linux. Opens PDFs from your file manager, via drag-and-drop, or as a launch argument. Light and dark themes.</p>
+  </description>
+
+  <categories>
+    <category>Office</category>
+    <category>Graphics</category>
+  </categories>
+
+  <keywords>
+    <keyword>PDF</keyword>
+    <keyword>editor</keyword>
+    <keyword>annotate</keyword>
+    <keyword>sign</keyword>
+    <keyword>form</keyword>
+    <keyword>redact</keyword>
+    <keyword>OCR</keyword>
+  </keywords>
+
+  <url type="homepage">https://dart-pdf.com</url>
+  <url type="bugtracker">https://github.com/ben-milanko/dart-pdf/issues</url>
+  <url type="vcs-browser">https://github.com/ben-milanko/dart-pdf</url>
+
+  <provides>
+    <mediatype>application/pdf</mediatype>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <screenshots>
+    <!-- English marketing screenshots committed under doc/marketing/app/macos/
+         on the main branch; served over HTTPS via raw.githubusercontent.com. -->
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/marketing/app/macos/01-welcome.png</image>
+      <caption>Open a recent document or start a new one</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/marketing/app/macos/02-editor.png</image>
+      <caption>Annotate, edit, and fill in a PDF</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/marketing/app/macos/03-dark.png</image>
+      <caption>Light and dark themes</caption>
+    </screenshot>
+    <screenshot>
+      <video container="webm" codec="av1" width="1920" height="1080">https://dart-pdf.com/assets/promo-app.webm</video>
+      <caption>Edit, arrange, and sign PDFs on your device</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="10.0.0" date="2026-10-18">
+      <description><p>Type custom measurement values, edit whole words, find links more easily, and improve image cropping and annotation visibility. Reading controls avoid display folds and hide on phones. Choose whether to keep automatic OCR after its first run.</p></description>
+    </release>
+    <release version="9.0.0" date="2026-10-15">
+      <description><p>Group annotations, automatically OCR scanned documents, optionally save the page colour into PDFs, and draw serif fonts and rotated images more faithfully.</p></description>
+    </release>
+    <release version="8.1.0" date="2026-10-10">
+      <description><p>Style dropdown form fields, edit text more reliably, and improve mobile menus and Linux compatibility.</p></description>
+    </release>
+    <release version="8.0.0" date="2026-10-09">
+      <description>
+        <p>Combine and interleave documents, capture polygon snapshots, add multiple callout arrows and bulk-edit form fields. Faster scan decoding and clearer tab previews.</p>
+      </description>
+    </release>
+    <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
+         app/release-notes/. Newest first; keep the top entry in sync with the
+         version the Flatpak/AUR packages pin. -->
+    <release version="7.0.0" date="2026-10-05">
+      <description>
+        <ul>
+          <li>More accurate, faster OCR for small print and drawings, with clearer progress.</li>
+          <li>Follow links and long-press to select text in Select mode.</li>
+          <li>Search matches stay visible when zoomed in.</li>
+          <li>Ink previews keep your chosen opacity; vector exports include annotations.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="6.0.0" date="2026-10-03">
+      <description>
+        <ul>
+          <li>Select page text with the Select tool; double-click a word in Hand mode.</li>
+          <li>Reader controls share one header.</li>
+          <li>Faster page rendering with lower memory use.</li>
+          <li>Fix missing detail after zooming quickly.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="5.1.1" date="2026-09-29">
+      <description>
+        <ul>
+          <li>Ink written in quick succession no longer disappears from the page.</li>
+          <li>Includes all the improvements from 5.1.0.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="5.1.0" date="2026-09-28">
+      <description>
+        <ul>
+          <li>Draw your signature with a finger on the trackpad.</li>
+          <li>Annotation lists show each mark as it looks on the page.</li>
+          <li>On touch screens, row actions move into a ⋮ menu.</li>
+          <li>Moved stamps no longer leave a white box on the page.</li>
+          <li>Fixes page edits that could drop a page in some PDFs.</li>
+          <li>P-521 digital signatures now validate.</li>
+          <li>Faster encrypted files, signature checks, JPEG 2000 and large drawings.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="5.0.0" date="2026-09-25">
+      <description>
+        <ul>
+          <li>Forms calculate totals, format values and check what you type.</li>
+          <li>Tab between form fields; pick several items in list boxes.</li>
+          <li>Form passwords stay in secure device storage, never in the PDF.</li>
+          <li>Create radio buttons, drop-downs, list boxes and signature fields.</li>
+          <li>Sign password-protected PDFs.</li>
+          <li>Revocation checks for signatures; EU and optional Adobe trust lists.</li>
+          <li>Calibri text from Office documents now looks right.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.5.0" date="2026-09-16">
+      <description>
+        <ul>
+          <li>See what's new in each release under Settings &gt; About.</li>
+          <li>Sharper PDF text and line art on Linux.</li>
+          <li>Exported pages open in a new tab.</li>
+          <li>Switch between pages, reflowed text and the page grid from one control.</li>
+          <li>Correct letter spacing for text in unembedded standard fonts.</li>
+          <li>Better text selection across columns and in Chinese, Japanese and Korean.</li>
+          <li>Outlined text now draws clearly.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.4.0" date="2026-09-09">
+      <description>
+        <ul>
+          <li>Print directly on Windows, and keep your print settings between jobs.</li>
+          <li>Zoom in to 10000%, with presets for the closest views.</li>
+          <li>Open and scroll dense vector drawings faster.</li>
+          <li>Select and search text sooner on heavy pages.</li>
+          <li>Set vertical alignment for text form fields.</li>
+          <li>Show the saved file in File Explorer after a Save As.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.3.0" date="2026-09-06">
+      <description>
+        <ul>
+          <li>Reduce PDF file size with new optimization presets.</li>
+          <li>Merge and split documents, and erase selected page content.</li>
+          <li>Find tools quickly with the command palette.</li>
+          <li>Choose more print layouts and page options.</li>
+          <li>Copy and paste vector snapshots between documents.</li>
+          <li>Fix scanning and improve mobile document controls.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.2.0" date="2026-09-05">
+      <description>
+        <ul>
+          <li>Keep nearby pages sharp while scrolling slowly, using spare GPU capacity.</li>
+          <li>Render with the Flutter GPU route by default, falling back to Canvas when needed.</li>
+          <li>Place annotations precisely with alignment guides and page rulers.</li>
+          <li>Zoom around the pointer with Ctrl or Cmd and the mouse wheel.</li>
+          <li>Fix annotation editing on rotated pages, multi-line highlight selection, and panning between lines of text.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.1.0" date="2026-09-02">
+      <description>
+        <ul>
+          <li>Save named handwritten signatures and reuse saved annotations across documents.</li>
+          <li>Place edits precisely with cursor guides, a visible grid, and optional snapping.</li>
+          <li>Move selected PDF content within a page or drag it to another page.</li>
+          <li>Improve digital-signature reliability and colour picking.</li>
+          <li>Render large drawings, complex blends, transparency, images, and remote PDFs faster and more accurately.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="4.0.0" date="2026-08-25">
+      <description>
+        <ul>
+          <li>Add dockable, slimmer editor controls and improve page and recent-file navigation.</li>
+          <li>Auto-fit text boxes, flatten selected annotations, and reliably flatten empty form fields.</li>
+          <li>Improve colour, overprint, transparency, soft-mask, high-bit-depth image, and font rendering in demanding PDFs.</li>
+          <li>Accelerate blends, transparency groups, images, hairlines, and exact text through the optional GPU renderer.</li>
+          <li>Improve drag-and-drop, document scanning, file-opening errors, and thumbnail persistence.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.8.0" date="2026-08-23">
+      <description>
+        <ul>
+          <li>Browse recent PDFs with searchable page previews.</li>
+          <li>Place and edit annotations beyond the page edge, restyle mixed selections, and choose any signature colour and pen thickness.</li>
+          <li>Preview print jobs before sending them.</li>
+          <li>Enjoy smoother scrolling and deep zoom on large drawings, plus fixes for text caret alignment, popup placement, and rendering crashes.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.7.0" date="2026-08-19">
+      <description>
+        <ul>
+          <li>Pages render as you scroll instead of arriving after you stop, and pages you have already read come back instantly.</li>
+          <li>Find and replace in the search panel: replace one match or all of them in a single undo step.</li>
+          <li>Fix scrambled text and wrong edits in the content tool on documents with subsetted fonts.</li>
+          <li>Fix a crash when opening or saving a file.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.6.1" date="2026-08-16">
+      <description>
+        <ul>
+          <li>Fix the Linux app exiting at launch by disabling the experimental multi-window bootstrap on Linux only.</li>
+          <li>Fix the Snap package failing to start under strict confinement.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.6.0" date="2026-08-15">
+      <description>
+        <ul>
+          <li>Annotation panels are easier to navigate, keep selections visible after edits, and preserve text-box opacity.</li>
+          <li>Bluebeam text boxes retain their alignment, spacing, and caret position.</li>
+          <li>Multiple document windows now support dragging tabs between them.</li>
+          <li>Substituted text has more natural spacing, with fixes for stale pages and cloud-folder reveal actions.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.5.1" date="2026-08-14">
+      <description>
+        <ul>
+          <li>Scanned MRC and JBIG2 pages now keep their text, background, and mask layers.</li>
+          <li>Soft-masked images no longer render as black blocks with Impeller or the optional GPU renderer.</li>
+          <li>Android document scans reliably read results returned through the system content provider.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.5.0" date="2026-08-13">
+      <description>
+        <ul>
+          <li>Large and highly detailed PDFs remain responsive and sharpen the visible area first.</li>
+          <li>Page previews progress through clearer detail levels during fast navigation.</li>
+          <li>Pages stay sharp and visible as they cross viewport edges.</li>
+          <li>Remote and web documents load faster with more predictable memory use.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.4.0" date="2026-08-09">
+      <description>
+        <ul>
+          <li>Copy and paste annotations between open documents and save placed stamps back to the stamp collection.</li>
+          <li>Drop PDFs between page thumbnails to insert pages at an exact position.</li>
+          <li>Text selection and substituted-font rendering align more precisely.</li>
+          <li>Tab grids, trackpad zooming, progressive file access, and print previews are more reliable.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.3.1" date="2026-08-02">
+      <description>
+        <ul>
+          <li>Annotation property changes no longer duplicate annotations in some PDFs.</li>
+          <li>Text colour changes preserve embedded fonts, and cloud/polygon previews keep their pattern scale.</li>
+          <li>Multi-page reordering has clearer group feedback and moves selected pages reliably.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.3.0" date="2026-08-02">
+      <description>
+        <ul>
+          <li>Pages you revisit open instantly with full-resolution caching and optional idle warming.</li>
+          <li>Deep zoom is sharper on scanned and image-based PDFs.</li>
+          <li>Touch panning, rectangle corner-radius controls, and inserted-page navigation are improved.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.2.0" date="2026-07-29">
+      <description>
+        <ul>
+          <li>Faster, steadier viewing with memory-aware page caching and less duplicate rendering.</li>
+          <li>Better FreeText and callout compatibility, plus more precise selection of multi-line markups.</li>
+          <li>Fixes loading pauses, remote-session restore delays, and Ctrl/Cmd-wheel zoom after constrained drawing.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.1.1" date="2026-07-26">
+      <description>
+        <ul>
+          <li>Smoother scrolling in large and visually dense PDFs, with fewer frame drops.</li>
+          <li>Page previews stay visible during fast scrolling and settle cleanly into full-detail renders.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.1.0" date="2026-07-26">
+      <description>
+        <ul>
+          <li>Scan paper documents straight into a PDF or capture a photo with the camera.</li>
+          <li>Unsaved changes are mirrored and restored after a crash.</li>
+          <li>New tools for hyperlinks, image cropping, annotation locking, and lossless PDF compaction.</li>
+          <li>Faithful overprint rendering and faster progressive page display.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.0.0" date="2026-07-23">
+      <description>
+        <ul>
+          <li>Now available in 10 languages, with full right-to-left layout.</li>
+          <li>More accurate overprint, blend-mode, and soft-mask rendering.</li>
+          <li>Hold Shift to draw straight lines, and set a default style for annotations.</li>
+          <li>Redesigned, smoother document tabs.</li>
+          <li>Faster rendering and lower memory use on large files.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.1.0" date="2026-07-22">
+      <description>
+        <ul>
+          <li>Reflow reading view: read a document as flowing text, with lazy scrolling, a saved position, and a figure viewer.</li>
+          <li>Faster opening and rendering, especially on large or image-heavy files, and lower memory use on very wide drawings.</li>
+          <li>Crisper hairlines, so fine linework stays legible when zoomed out.</li>
+          <li>Better colour on gradients and on indexed images.</li>
+          <li>Symbol and ZapfDingbats characters render instead of boxes.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -3,6 +3,10 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'document.dart';
 import 'rect.dart';
 
+// /DA parsing patterns, compiled once (these getters run per field/tile).
+final RegExp _daFontSizeRe = RegExp(r'/[^\s/]+\s+(\d+(?:\.\d+)?)\s+Tf');
+final RegExp _whitespaceRe = RegExp(r'\s+');
+
 /// What kind of input a form field accepts, derived from /FT plus the
 /// discriminating /Ff bits (§12.7.4).
 enum PdfFieldType {
@@ -16,16 +20,46 @@ enum PdfFieldType {
   unknown,
 }
 
+/// Vertical placement of a text field's complete wrapped block.
+///
+/// This is a dart-pdf appearance preference, not a standard AcroForm entry.
+/// It is independent of horizontal quadding and the multiline flag.
+enum PdfFormTextVerticalAlignment {
+  /// Remove the saved preference and restore the multiline-dependent default.
+  /// This command is never stored; [PdfFormField.textVerticalAlignment] then
+  /// returns null.
+  legacy,
+
+  /// Place the first line at the top padding.
+  top,
+
+  /// Centre the complete block within the padded widget.
+  center,
+
+  /// Place the bottom of the complete block at the bottom padding.
+  bottom,
+}
+
 /// The document's interactive form (§12.7.2): the catalog's /AcroForm
 /// dictionary plus the field tree hanging off /Fields.
 class PdfAcroForm {
-  PdfAcroForm._(this.document, this.dict);
+  PdfAcroForm._(this.document, this.dict, this._onFields);
 
   /// The document's form, or null if it has none.
-  static PdfAcroForm? of(PdfDocument document) {
+  ///
+  /// [onFields], when given, is called once with [fields] the first time
+  /// anything reads them - for a caller that only needs to look at the fields
+  /// once something walks them anyway, and should ride on that walk rather
+  /// than pay for one of its own.
+  static PdfAcroForm? of(PdfDocument document,
+      {void Function(List<PdfFormField> fields)? onFields}) {
     final dict = document.cos.resolve(document.catalog['AcroForm']);
-    return dict is CosDictionary ? PdfAcroForm._(document, dict) : null;
+    return dict is CosDictionary
+        ? PdfAcroForm._(document, dict, onFields)
+        : null;
   }
+
+  void Function(List<PdfFormField> fields)? _onFields;
 
   final PdfDocument document;
 
@@ -50,6 +84,34 @@ class PdfAcroForm {
     return flag is CosBoolean && flag.value;
   }
 
+  /// Whether the form carries an XFA (XML Forms Architecture) description:
+  /// an /XFA entry holding the XDP packet stream or its array of named
+  /// packet streams (§12.7.8). XFA is not rendered or filled here - only
+  /// the AcroForm half of a form is.
+  bool get hasXfa {
+    final xfa = document.cos.resolve(dict['XFA']);
+    if (xfa is CosStream) return true;
+    if (xfa is CosArray) return xfa.items.isNotEmpty;
+    return false;
+  }
+
+  /// The catalog's /NeedsRendering flag: the file asks the viewer to build
+  /// the pages from the XFA description rather than show the stored page
+  /// content (the page content is typically a "please wait" placeholder).
+  bool get xfaNeedsRendering {
+    final flag = document.cos.resolve(document.catalog['NeedsRendering']);
+    return flag is CosBoolean && flag.value;
+  }
+
+  /// Whether this is a dynamic (XFA-only) form that can't be filled here:
+  /// XFA is present and either the file asks for XFA rendering
+  /// ([xfaNeedsRendering]) or there are no AcroForm [fields] to fill.
+  ///
+  /// A hybrid ("static") XFA form - XFA plus a matching AcroForm field tree -
+  /// is not dynamic: its AcroForm fields fill normally, and filling drops the
+  /// stale XFA copy (see `PdfFormFilling.removeXfa`).
+  bool get isDynamicXfa => hasXfa && (xfaNeedsRendering || fields.isEmpty);
+
   List<PdfFormField>? _fields;
 
   /// All terminal (fillable) fields, depth-first across the field tree.
@@ -58,20 +120,26 @@ class PdfAcroForm {
   /// annotations that a broken producer left out of /Fields (see
   /// [_reconcileOrphanWidgets]), so the list reflects what actually shows
   /// on the page rather than the registered-but-invisible copies.
-  List<PdfFormField> get fields => _fields ??= () {
-        final out = <PdfFormField>[];
-        final roots = document.cos.resolve(dict['Fields']);
-        if (roots is CosArray) {
-          for (final item in roots.items) {
-            final node = document.cos.resolve(item);
-            if (node is CosDictionary) {
-              _collect(node, '', out, <CosDictionary>{});
-            }
-          }
+  List<PdfFormField> get fields => _fields ?? _collectFields();
+
+  List<PdfFormField> _collectFields() {
+    final out = <PdfFormField>[];
+    final roots = document.cos.resolve(dict['Fields']);
+    if (roots is CosArray) {
+      for (final item in roots.items) {
+        final node = document.cos.resolve(item);
+        if (node is CosDictionary) {
+          _collect(node, '', out, <CosDictionary>{});
         }
-        _reconcileOrphanWidgets(out);
-        return out;
-      }();
+      }
+    }
+    _reconcileOrphanWidgets(out);
+    _fields = out;
+    final onFields = _onFields;
+    _onFields = null;
+    onFields?.call(out);
+    return out;
+  }
 
   /// Looks up a field by its fully qualified name.
   PdfFormField? fieldNamed(String name) {
@@ -99,27 +167,46 @@ class PdfAcroForm {
 
   /// Page dictionaries by index, resolved once per form instance.
   List<CosDictionary> get _pages => _pageDicts ??= [
-        for (var i = 0; i < document.pageCount; i++) document.page(i).dict,
+        for (final page in document.pages) page.dict,
       ];
+
+  /// Widget dictionary → the first page whose /Annots lists it, built by one
+  /// walk of every page's /Annots instead of one walk per widget.
+  ///
+  /// Batch form work resolves a page for every widget of every field, so the
+  /// old per-widget scan was O(fields x widgets x pages x annots) for a single
+  /// operation (#406). Resolved objects are cached by reference, so keying on
+  /// the dictionary is identity-keyed as intended.
+  Map<CosDictionary, int>? _widgetPageCache;
+
+  Map<CosDictionary, int> get _widgetPages => _widgetPageCache ??= () {
+        final cos = document.cos;
+        final out = <CosDictionary, int>{};
+        for (var i = 0; i < _pages.length; i++) {
+          final annots = cos.resolve(_pages[i]['Annots']);
+          if (annots is! CosArray) continue;
+          for (final item in annots.items) {
+            final annot = cos.resolve(item);
+            // putIfAbsent keeps "the FIRST page whose /Annots lists it",
+            // matching the scan this replaces.
+            if (annot is CosDictionary) out.putIfAbsent(annot, () => i);
+          }
+        }
+        return out;
+      }();
 
   /// The page index of [widget]: its /P entry when present, otherwise
   /// the first page whose /Annots lists it. −1 when no page claims it.
   int _pageIndexOf(CosDictionary widget) {
-    final cos = document.cos;
-    final p = cos.resolve(widget['P']);
+    final p = document.cos.resolve(widget['P']);
     if (p is CosDictionary) {
-      for (var i = 0; i < _pages.length; i++) {
-        if (identical(_pages[i], p)) return i;
-      }
+      // pageIndexOf is an identity map lookup (#397/#417) and returns -1 for
+      // a /P that is not a leaf of this tree, which falls through exactly as
+      // the old linear scan over _pages did.
+      final byP = document.pageIndexOf(p);
+      if (byP >= 0) return byP;
     }
-    for (var i = 0; i < _pages.length; i++) {
-      final annots = cos.resolve(_pages[i]['Annots']);
-      if (annots is! CosArray) continue;
-      for (final item in annots.items) {
-        if (identical(cos.resolve(item), widget)) return i;
-      }
-    }
-    return -1;
+    return _widgetPages[widget] ?? -1;
   }
 
   /// A node with /T-carrying kids is an internal node; a node whose kids
@@ -300,7 +387,18 @@ class PdfFormField {
   /// [PdfAcroForm._reconcileOrphanWidgets], or null for a normally
   /// structured field. When set, [widgets] returns these (they are what
   /// the page actually shows) and [value]/[isChecked] consult them first.
-  List<CosDictionary>? _reconciled;
+  ///
+  /// Assigned after construction, so it must drop [_widgets]: a field whose
+  /// widgets were read before reconciliation would otherwise keep serving the
+  /// pre-adoption list for the rest of its life.
+  List<CosDictionary>? get _reconciled => _reconciledValue;
+
+  set _reconciled(List<CosDictionary>? value) {
+    _reconciledValue = value;
+    _widgets = null;
+  }
+
+  List<CosDictionary>? _reconciledValue;
 
   /// The widgets this field adopted from outside /Fields during
   /// reconciliation (empty for well-formed fields). The field dictionary
@@ -337,9 +435,8 @@ class PdfFormField {
 
   PdfFieldType get type => switch (fieldTypeName) {
         'Tx' => PdfFieldType.text,
-        'Ch' => flags & comboFlag != 0
-            ? PdfFieldType.comboBox
-            : PdfFieldType.listBox,
+        'Ch' =>
+          flags & comboFlag != 0 ? PdfFieldType.comboBox : PdfFieldType.listBox,
         'Btn' => flags & pushButtonFlag != 0
             ? PdfFieldType.pushButton
             : flags & radioFlag != 0
@@ -353,15 +450,73 @@ class PdfFormField {
   static const requiredFlag = 2; // bit 2
   static const multilineFlag = 1 << 12; // bit 13
   static const passwordFlag = 1 << 13; // bit 14
+  static const noToggleToOffFlag = 1 << 14; // bit 15
   static const radioFlag = 1 << 15; // bit 16
   static const pushButtonFlag = 1 << 16; // bit 17
   static const comboFlag = 1 << 17; // bit 18
   static const editFlag = 1 << 18; // bit 19
+  static const fileSelectFlag = 1 << 20; // bit 21
+  static const multiSelectFlag = 1 << 21; // bit 22
+  static const combFlag = 1 << 24; // bit 25
 
   bool get isReadOnly => flags & readOnlyFlag != 0;
   bool get isRequired => flags & requiredFlag != 0;
   bool get isMultiline => flags & multilineFlag != 0;
   bool get isPassword => flags & passwordFlag != 0;
+
+  /// Whether a list box accepts several selected options at once (/Ff bit
+  /// 22, MultiSelect, §12.7.5.4). Only list boxes can: a combo box that
+  /// carries the bit (Combo flag set) still holds one value, and bit 22
+  /// means something else on non-choice fields, so both read false. This
+  /// is the one gate every multi-value path (filling, menus, exports)
+  /// checks.
+  bool get isMultiSelect =>
+      type == PdfFieldType.listBox && flags & multiSelectFlag != 0;
+
+  /// The /MaxLen text-length limit in characters (inheritable, §12.7.4.3),
+  /// or null when the field has none. Non-positive or non-integer entries
+  /// read as no limit.
+  int? get maxLength {
+    if (type != PdfFieldType.text) return null;
+    final raw = inherited('MaxLen');
+    final value = raw is CosInteger
+        ? raw.value
+        : raw is CosReal
+            ? raw.value.truncate()
+            : null;
+    return value != null && value > 0 ? value : null;
+  }
+
+  /// Whether this is a comb field (/Ff bit 25): the widget width splits
+  /// into [maxLength] equal cells, one character each. Per §12.7.4.3 the
+  /// flag is meaningful only when /MaxLen is set and the multiline,
+  /// password and file-select flags are clear, so it reads false otherwise.
+  bool get isComb {
+    final f = flags;
+    return f & combFlag != 0 &&
+        maxLength != null &&
+        f & (multilineFlag | passwordFlag | fileSelectFlag) == 0;
+  }
+
+  /// The saved dart-pdf vertical alignment, or null for legacy placement
+  /// (top for multiline fields, ascent-centred for single-line fields).
+  ///
+  /// Stored as a text string in the private /DartPdfTextVerticalAlignment
+  /// entry on this terminal field, applying to all its widgets. It is not
+  /// inherited from parent fields. Unknown values and malformed entries are
+  /// ignored. Other editors may ignore or remove this private preference
+  /// when they regenerate appearances; /Q remains horizontal alignment.
+  PdfFormTextVerticalAlignment? get textVerticalAlignment {
+    if (type != PdfFieldType.text) return null;
+    final raw = _cos.resolve(dict['DartPdfTextVerticalAlignment']);
+    if (raw is! CosString) return null;
+    return switch (raw.text) {
+      'top' => PdfFormTextVerticalAlignment.top,
+      'center' => PdfFormTextVerticalAlignment.center,
+      'bottom' => PdfFormTextVerticalAlignment.bottom,
+      _ => null,
+    };
+  }
 
   /// /Q quadding: 0 left (default), 1 centered, 2 right.
   int get quadding {
@@ -378,8 +533,7 @@ class PdfFormField {
   /// The /DA font size in points; 0 means auto-size (the appearance fits
   /// the text to the box). Parsed from the `/Font size Tf` operator.
   double get appearanceFontSize {
-    final m = RegExp(r'/[^\s/]+\s+(\d+(?:\.\d+)?)\s+Tf')
-        .firstMatch(defaultAppearance ?? '');
+    final m = _daFontSizeRe.firstMatch(defaultAppearance ?? '');
     return double.tryParse(m?.group(1) ?? '') ?? 0;
   }
 
@@ -388,7 +542,7 @@ class PdfFormField {
   /// colour-setting operator and its operands (§12.7.3.3).
   int? get appearanceColor {
     final tokens = (defaultAppearance ?? '')
-        .split(RegExp(r'\s+'))
+        .split(_whitespaceRe)
         .where((t) => t.isNotEmpty)
         .toList();
     int byte(double v) => (v.clamp(0.0, 1.0) * 255).round();
@@ -418,7 +572,7 @@ class PdfFormField {
 
   /// The current value as text: /V strings come back verbatim, button
   /// state names without the slash, multi-select arrays as their first
-  /// string. Null when the field is empty.
+  /// string (see [values] for all of them). Null when the field is empty.
   ///
   /// For a reconciled field the visible page widget's /V wins when set -
   /// the producer split the form's data across both copies, and the page
@@ -431,6 +585,75 @@ class PdfFormField {
       }
     }
     return _valueText(inherited('V'));
+  }
+
+  /// Every value the field holds: a multi-select list box's /V array in
+  /// file order, or the single [value] as a one-element list. Empty when
+  /// the field is unset. Non-string array entries are skipped.
+  ///
+  /// Reconciled fields follow the same precedence as [value]: a visible
+  /// page widget's non-empty /V wins over the field's own.
+  List<String> get values {
+    if (_reconciled != null) {
+      for (final widget in _reconciled!) {
+        final v = _valueList(_cos.resolve(widget['V']));
+        if (v.any((s) => s.isNotEmpty)) return v;
+      }
+    }
+    return _valueList(inherited('V'));
+  }
+
+  List<String> _valueList(CosObject? v) {
+    if (v is CosArray) {
+      return [
+        for (final item in v.items)
+          if (_cos.resolve(item) case CosString(:final text)) text,
+      ];
+    }
+    final single = _valueText(v);
+    return single == null ? const [] : [single];
+  }
+
+  /// The /I selected-option indices of a choice field (§12.7.5.4), sorted
+  /// ascending and filtered to valid [options] positions. /I is optional
+  /// and disambiguates options sharing an export value; when it is absent
+  /// or disagrees with [values] (another tool changed /V without it) the
+  /// indices are derived from [values] instead - the first option whose
+  /// export value matches each entry.
+  List<int> get selectedIndices {
+    final options = this.options;
+    final current = values;
+    final raw = inherited('I');
+    if (raw is CosArray) {
+      final fromI = <int>{
+        for (final item in raw.items)
+          if (_cos.resolve(item) case CosInteger(:final value)
+              when value >= 0 && value < options.length)
+            value,
+      }.toList()
+        ..sort();
+      final exports = {for (final i in fromI) options[i].$1};
+      if (fromI.length == current.length && current.every(exports.contains)) {
+        return fromI;
+      }
+    }
+    final out = <int>{};
+    for (final v in current) {
+      for (var i = 0; i < options.length; i++) {
+        if (options[i].$1 == v && !out.contains(i)) {
+          out.add(i);
+          break;
+        }
+      }
+    }
+    return out.toList()..sort();
+  }
+
+  /// A list box's /TI top index: the option shown in the first visible row
+  /// (§12.7.5.4). 0 when absent or malformed.
+  int get topIndex {
+    final ti = inherited('TI');
+    return ti is CosInteger && ti.value > 0 ? ti.value : 0;
   }
 
   String? _valueText(CosObject? v) {
@@ -460,7 +683,14 @@ class PdfFormField {
   /// The widget annotations displaying this field: the on-page copies
   /// adopted by reconciliation when present, otherwise its /Kids without a
   /// /T of their own, or the field dictionary itself when merged.
-  List<CosDictionary> get widgets {
+  List<CosDictionary> get widgets => _widgets ??= _resolveWidgets();
+
+  /// Resolved once per field instance: [widgets] is read repeatedly per fill
+  /// (appearance regeneration, rect lookups, page resolution) and re-walked
+  /// /Kids every time.
+  List<CosDictionary>? _widgets;
+
+  List<CosDictionary> _resolveWidgets() {
     if (_reconciled != null) return _reconciled!;
     final kids = _cos.resolve(dict['Kids']);
     if (kids is CosArray) {

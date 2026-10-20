@@ -1,5 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -10,7 +10,7 @@ void main() {
 
   PdfEditingController scaled() {
     final c = PdfEditingController(buildMultiPagePdf(1));
-    c.measurementScale = PdfMeasurementScale(
+    c.preferences.measurementScale = PdfMeasurementScale(
         unitsPerPoint: 20 / 72, unitLabel: 'ft', precision: 1);
     return c;
   }
@@ -100,7 +100,7 @@ void main() {
       addTearDown(reopened.dispose);
       expect(reopened.hasMeasurementScale, isFalse);
       expect(reopened.adoptDocumentScale(), isTrue);
-      expect(reopened.measurementScale!.unitLabel, 'ft');
+      expect(reopened.preferences.measurementScale!.unitLabel, 'ft');
       expect(reopened.measuredDistance((100, 100), (316, 100)), '60 ft');
     });
   });

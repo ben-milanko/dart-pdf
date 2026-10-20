@@ -3,10 +3,11 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
-import 'content_writer.dart';
 import 'document.dart';
+import 'matrix_geometry.dart';
 import 'rect.dart';
-import 'type0_metrics.dart';
+import 'simple_font.dart';
+import 'type0_font.dart';
 
 /// What a content element draws.
 enum PdfElementKind {
@@ -29,6 +30,63 @@ enum PdfElementKind {
   shading,
 }
 
+/// Where a [PdfElementKind.text] run sits in the content stream's own text
+/// space, captured at the moment it draws.
+///
+/// This is what [PdfContentEditing.moveElements] needs to reposition a run
+/// without disturbing the rest of its text object: the matrices to restore
+/// afterwards, and the advance to replay so whatever follows on the line
+/// still starts where it did.
+class PdfTextPlacement {
+  const PdfTextPlacement({
+    required this.matrix,
+    required this.lineMatrix,
+    required this.entryLineMatrix,
+    required this.fontSize,
+    required this.advance,
+    this.horizontalScale = 1,
+  });
+
+  /// The text matrix the glyphs draw under - after any line move the
+  /// operator performs itself (`'` and `\"` begin with a `T*`).
+  final PdfMatrix matrix;
+
+  /// The line matrix in effect for the run: the origin a following
+  /// `Td`/`TD`/`T*`/`'`/`\"` moves relative to.
+  final PdfMatrix lineMatrix;
+
+  /// The line matrix *before* the operator's own line move. Equal to
+  /// [lineMatrix] for `Tj` and `TJ`.
+  final PdfMatrix entryLineMatrix;
+
+  /// The font size (`Tf`) in effect.
+  final double fontSize;
+
+  /// How far the run advances the text matrix, in text space: the sum of
+  /// the glyph widths and `TJ` kerns, already scaled by [fontSize].
+  final double advance;
+
+  /// The horizontal text scale (`Tz` / 100), already included in [advance].
+  final double horizontalScale;
+}
+
+/// One encoded glyph in a content text operation. Unicode mappings may expand
+/// one glyph into several characters; region editing works in encoded glyphs.
+class PdfContentGlyph {
+  const PdfContentGlyph(this.center, this.advance, this.byteLength);
+
+  /// Approximate glyph centre in page space (font height is estimated).
+  final (double, double) center;
+
+  /// Advance in thousandths of an em, including character/word spacing.
+  /// Replacing the glyph with the negative of this `TJ` adjustment keeps
+  /// every subsequent glyph at its original position.
+  final double advance;
+
+  /// Number of bytes representing this glyph in its original string.
+  final int byteLength;
+}
+
 /// One deletable drawing on a page: a contiguous run of content-stream
 /// operations together with what they paint and roughly where.
 class PdfContentElement {
@@ -37,11 +95,14 @@ class PdfContentElement {
     required this.kind,
     required this.start,
     required this.end,
+    required this.ctm,
     this.text,
     this.resourceName,
     this.bounds,
     this.imageWidth,
     this.imageHeight,
+    this.textPlacement,
+    this.textGlyphs = const [],
   });
 
   /// Stable handle for [PdfContentEditing.deleteElements].
@@ -53,8 +114,11 @@ class PdfContentElement {
   final int start;
   final int end;
 
-  /// The shown characters, Latin-1-decoded, for [PdfElementKind.text].
-  /// Multi-byte and symbolic encodings come out garbled but unique.
+  /// The text this run shows, for [PdfElementKind.text], decoded through the
+  /// font's own encoding: `/ToUnicode` and `/Encoding` `/Differences` for a
+  /// simple font ([SimpleFont]), `/ToUnicode` for a composite one
+  /// ([Type0Font]). A subsetted font that renumbered its codes therefore
+  /// reads as the text on the page, not as its raw bytes.
   final String? text;
 
   /// The active /Font resource name for [PdfElementKind.text], or the
@@ -63,9 +127,10 @@ class PdfContentElement {
   final String? resourceName;
 
   /// Approximate user-space bounding box: exact anchor points for paths
-  /// and placed images, estimated extents for text (Helvetica metrics
-  /// stand in for the real font). Null when no geometry is tracked
-  /// (shading fills, degenerate transforms).
+  /// and placed images, estimated extents for text (advances come from the
+  /// font's own `/Widths` or `/W`, the vertical extent is still a guess).
+  /// Null when no geometry is tracked (shading fills, degenerate
+  /// transforms).
   final PdfRect? bounds;
 
   /// Pixel width for image-like elements when declared by the content stream
@@ -75,6 +140,20 @@ class PdfContentElement {
   /// Pixel height for image-like elements when declared by the content stream
   /// or image XObject dictionary.
   final int? imageHeight;
+
+  /// The transformation matrix in effect when the element paints, mapping
+  /// the space its operators speak in onto page (user) space. Repositioning
+  /// works through it: a page-space shift becomes
+  /// `ctm × translation × ctm⁻¹` (see [translationUnder]).
+  final PdfMatrix ctm;
+
+  /// Text-space placement, for [PdfElementKind.text] elements only.
+  final PdfTextPlacement? textPlacement;
+
+  /// Encoded glyphs in string order, independent of `TJ` kerning entries.
+  /// Empty when safe region slicing is unavailable (clipping text, malformed
+  /// composite strings, or composite encodings other than Identity-H).
+  final List<PdfContentGlyph> textGlyphs;
 
   @override
   String toString() => 'PdfContentElement#$id($kind'
@@ -108,8 +187,8 @@ class PdfPageElements {
     final resources = page.resources;
 
     final elements = <PdfContentElement>[];
-    var ctm = _identity;
-    final stack = <_Matrix>[];
+    var ctm = PdfMatrix.identity;
+    final stack = <(PdfMatrix, _TextState)>[];
     var text = _TextState();
     var pathStart = -1;
     var pathPoints = <(double, double)>[];
@@ -119,26 +198,43 @@ class PdfPageElements {
         String? resource,
         PdfRect? bounds,
         int? imageWidth,
-        int? imageHeight}) {
+        int? imageHeight,
+        PdfTextPlacement? placement,
+        List<PdfContentGlyph> glyphs = const []}) {
       elements.add(PdfContentElement._(
         id: elements.length,
         kind: kind,
         start: start,
         end: end,
+        ctm: ctm,
         text: shown,
         resourceName: resource,
         bounds: bounds,
         imageWidth: imageWidth,
         imageHeight: imageHeight,
+        textPlacement: placement,
+        textGlyphs: glyphs,
       ));
     }
+
+    // simple fonts draw one byte per glyph, but the byte is not the
+    // character: /Differences and subset renumbering remap it freely, so
+    // resolve each named font once to a code -> text table.
+    final simpleFonts = <String?, SimpleFont>{};
+    SimpleFont simpleFor(String? name) => simpleFonts.putIfAbsent(name, () {
+          final fonts = cos.resolve(resources['Font']);
+          final f = name == null || fonts is! CosDictionary
+              ? null
+              : cos.resolve(fonts[name]);
+          return SimpleFont.decode(cos, f is CosDictionary ? f : null);
+        });
 
     // composite (/Type0) fonts draw 2-byte codes: resolve each named font
     // once to a decoder that turns codes into real text (via /ToUnicode) and
     // advance widths (via the descendant /W), so text elements read and
     // measure correctly instead of as Latin-1 byte pairs.
-    final type0Decoders = <String, _Type0Decode?>{};
-    _Type0Decode? type0For(String? name) {
+    final type0Decoders = <String, Type0Font?>{};
+    Type0Font? type0For(String? name) {
       if (name == null) return null;
       return type0Decoders.putIfAbsent(name, () {
         final fonts = cos.resolve(resources['Font']);
@@ -147,21 +243,7 @@ class PdfPageElements {
         if (f is! CosDictionary) return null;
         final sub = cos.resolve(f['Subtype']);
         if (sub is! CosName || sub.value != 'Type0') return null;
-        final toUni = cos.resolve(f['ToUnicode']);
-        final text = toUni is CosStream
-            ? parseToUnicodeCmap(cos.decodeStreamData(toUni))
-            : <int, String>{};
-        var widths = <int, double>{};
-        var dw = 1000.0;
-        final desc = cos.resolve(f['DescendantFonts']);
-        if (desc is CosArray && desc.items.isNotEmpty) {
-          final cid = cos.resolve(desc.items.first);
-          if (cid is CosDictionary) {
-            widths = parseCidWidths(cos, cid);
-            dw = cidDefaultWidth(cos, cid);
-          }
-        }
-        return _Type0Decode(text, widths, dw);
+        return Type0Font.decode(cos, f);
       });
     }
 
@@ -185,19 +267,26 @@ class PdfPageElements {
       final operands = op.operands;
       switch (op.operator) {
         case 'q':
-          stack.add(ctm);
+          stack.add((ctm, text.copyParameters()));
         case 'Q':
-          if (stack.isNotEmpty) ctm = stack.removeLast();
+          if (stack.isNotEmpty) {
+            final saved = stack.removeLast();
+            ctm = saved.$1;
+            // Text matrices are not part of the saved graphics state.
+            text = saved.$2
+              ..matrix = text.matrix
+              ..lineMatrix = text.lineMatrix;
+          }
         case 'cm':
           if (operands.length >= 6) {
-            ctm = _multiply((
+            ctm = PdfMatrix(
               number(operands[0]),
               number(operands[1]),
               number(operands[2]),
               number(operands[3]),
               number(operands[4]),
               number(operands[5]),
-            ), ctm);
+            ).concat(ctm);
           }
 
         // path construction
@@ -233,8 +322,8 @@ class PdfPageElements {
         case 'S' || 's' || 'f' || 'F' || 'f*' || 'B' || 'B*' || 'b' || 'b*':
           if (pathStart >= 0) {
             addElement(PdfElementKind.path, pathStart, i + 1,
-                bounds: _hull([
-                  for (final (x, y) in pathPoints) _apply(ctm, x, y),
+                bounds: boundsOfPoints([
+                  for (final (x, y) in pathPoints) ctm.apply(x, y),
                 ]));
           }
           pathStart = -1;
@@ -247,13 +336,27 @@ class PdfPageElements {
 
         // text
         case 'BT':
-          text = _TextState();
+          text.setMatrix(PdfMatrix.identity);
         case 'Tf':
           if (operands.length >= 2) {
             text.size = number(operands[1]);
             text.fontName =
                 operands[0] is CosName ? (operands[0] as CosName).value : null;
           }
+        case 'Tc':
+          if (operands.isNotEmpty) text.charSpacing = number(operands[0]);
+        case 'Tw':
+          if (operands.isNotEmpty) text.wordSpacing = number(operands[0]);
+        case 'Tz':
+          if (operands.isNotEmpty) {
+            text.horizontalScale = number(operands[0]) / 100;
+          }
+        case 'Tr':
+          if (operands.isNotEmpty) {
+            text.renderMode = number(operands[0]).toInt();
+          }
+        case 'Ts':
+          if (operands.isNotEmpty) text.rise = number(operands[0]);
         case 'TL':
           if (operands.isNotEmpty) text.leading = number(operands[0]);
         case 'Td':
@@ -267,7 +370,7 @@ class PdfPageElements {
           }
         case 'Tm':
           if (operands.length >= 6) {
-            text.setMatrix((
+            text.setMatrix(PdfMatrix(
               number(operands[0]),
               number(operands[1]),
               number(operands[2]),
@@ -279,22 +382,58 @@ class PdfPageElements {
         case 'T*':
           text.newline(0, -text.leading);
         case 'Tj' || "'" || '"' || 'TJ':
+          // captured before the operator's own line move: repositioning the
+          // run has to seed the text matrix *ahead* of that move
+          final entryLine = text.lineMatrix;
           if (op.operator == "'") text.newline(0, -text.leading);
-          if (op.operator == '"') text.newline(0, -text.leading);
+          if (op.operator == '"') {
+            if (operands.length >= 3) {
+              text.wordSpacing = number(operands[0]);
+              text.charSpacing = number(operands[1]);
+            }
+            text.newline(0, -text.leading);
+          }
           final decoder = type0For(text.fontName);
+          final simple = decoder == null ? simpleFor(text.fontName) : null;
           final shown = StringBuffer();
-          var advanceEm = 0.0; // thousandths of an em, for /Type0 measurement
+          final glyphs = <PdfContentGlyph>[];
+          var canSlice = text.size != 0 &&
+              text.size.isFinite &&
+              text.horizontalScale != 0 &&
+              text.horizontalScale.isFinite &&
+              text.renderMode < 4 &&
+              (decoder == null ||
+                  cos.resolve(decoder.fontDict['Encoding']) ==
+                      const CosName('Identity-H'));
+          final m = text.matrix.concat(ctm);
+          var advanceEm = 0.0; // thousandths of an em, for measurement
+          var showedString = false;
           void show(CosObject o) {
             if (o is! CosString) return;
-            if (decoder == null) {
-              shown.write(latin1.decode(o.bytes));
-              return;
-            }
+            showedString = true;
             final b = o.bytes;
-            for (var k = 0; k + 1 < b.length; k += 2) {
-              final code = (b[k] << 8) | b[k + 1];
-              shown.write(decoder.text[code] ?? '');
-              advanceEm += decoder.widthOf(code);
+            final stride = decoder == null ? 1 : 2;
+            if (b.length % stride != 0) canSlice = false;
+            for (var k = 0; k + stride <= b.length; k += stride) {
+              final code = stride == 1 ? b[k] : (b[k] << 8) | b[k + 1];
+              final width = simple?.widthOf(code) ?? decoder!.widthOf(code);
+              shown.write(
+                  simple?.textFor(code) ?? decoder!.codeToText[code] ?? '');
+              final spacing = text.charSpacing +
+                  (stride == 1 && code == 32 ? text.wordSpacing : 0);
+              final advance =
+                  width + (text.size == 0 ? 0 : spacing * 1000 / text.size);
+              glyphs.add(PdfContentGlyph(
+                m.apply(
+                    (advanceEm + width / 2) /
+                        1000 *
+                        text.size *
+                        text.horizontalScale,
+                    text.rise + 0.4 * text.size),
+                advance,
+                stride,
+              ));
+              advanceEm += advance;
             }
           }
 
@@ -304,8 +443,7 @@ class PdfPageElements {
               for (final item in array.items) {
                 if (item is CosString) {
                   show(item);
-                } else if (decoder != null &&
-                    (item is CosInteger || item is CosReal)) {
+                } else if (item is CosInteger || item is CosReal) {
                   advanceEm -= number(item); // kern, in thousandths of an em
                 }
               }
@@ -316,19 +454,34 @@ class PdfPageElements {
             show(operands[0]);
           }
           final string = shown.toString();
-          final width = decoder != null
-              ? advanceEm / 1000 * text.size
-              : measureHelvetica(string, text.size);
-          final m = _multiply(text.matrix, ctm);
-          addElement(PdfElementKind.text, i, i + 1,
-              shown: string,
-              resource: text.fontName,
-              bounds: _hull([
-                _apply(m, 0, -0.2 * text.size),
-                _apply(m, width, -0.2 * text.size),
-                _apply(m, 0, text.size),
-                _apply(m, width, text.size),
-              ]));
+          // both paths accumulate the run's advance from the font's own
+          // metrics now, so the estimate no longer assumes Helvetica.
+          final width = advanceEm / 1000 * text.size * text.horizontalScale;
+          // A `TJ` array of pure kerns shows nothing - it only advances the
+          // text matrix. It is not a drawing, so it is not an element; and
+          // keeping it out is what lets [PdfContentEditing.moveElements]
+          // splice its advance compensation in without renumbering the
+          // elements after it.
+          if (showedString) {
+            addElement(PdfElementKind.text, i, i + 1,
+                shown: string,
+                resource: text.fontName,
+                bounds: boundsOfPoints([
+                  m.apply(0, text.rise - 0.2 * text.size),
+                  m.apply(width, text.rise - 0.2 * text.size),
+                  m.apply(0, text.rise + text.size),
+                  m.apply(width, text.rise + text.size),
+                ]),
+                glyphs: canSlice ? glyphs : const [],
+                placement: PdfTextPlacement(
+                  matrix: text.matrix,
+                  lineMatrix: text.lineMatrix,
+                  entryLineMatrix: entryLine,
+                  fontSize: text.size,
+                  advance: width,
+                  horizontalScale: text.horizontalScale,
+                ));
+          }
           text.advance(width);
 
         // XObjects, inline images, shading
@@ -350,12 +503,7 @@ class PdfPageElements {
                 ? pdfRectFrom(cos, xobject.dictionary['BBox'])
                 : null;
             if (bbox != null) {
-              bounds = _hull([
-                _apply(ctm, bbox.left, bbox.bottom),
-                _apply(ctm, bbox.right, bbox.bottom),
-                _apply(ctm, bbox.left, bbox.top),
-                _apply(ctm, bbox.right, bbox.top),
-              ]);
+              bounds = boundsUnderMatrix(ctm, bbox);
             }
             addElement(PdfElementKind.form, i, i + 1,
                 resource: name, bounds: bounds);
@@ -392,93 +540,144 @@ class PdfPageElements {
           if (element.bounds?.contains(x, y) ?? false) element,
       ];
 
+  /// The page's operations with only the elements [keep] accepts still
+  /// drawing.
+  ///
+  /// A dropped text run is replaced by the advance it would have made - a
+  /// kern-only `TJ`, preceded by the line move `'` and `"` perform
+  /// themselves - so every run after it in the same text object stays
+  /// exactly where it was. Other kinds simply disappear; nothing downstream
+  /// depends on a path or an image having been painted.
+  ///
+  /// Two useful lists come out of one parse: "the page without this
+  /// element" (`(e) => e.id != id`) and "this element by itself"
+  /// (`(e) => e.id == id`). The editor renders both to float a dragged
+  /// drawing - the first fills the hole it leaves, the second is the
+  /// artwork that travels, free of whatever else shares its bounding box.
+  List<ContentOperation> operationsRetaining(
+      bool Function(PdfContentElement element) keep) {
+    final dropped = <int, PdfContentElement>{};
+    for (final element in elements) {
+      if (keep(element)) continue;
+      for (var i = element.start; i < element.end; i++) {
+        dropped[i] = element;
+      }
+    }
+    if (dropped.isEmpty) return operations;
+    final out = <ContentOperation>[];
+    for (var i = 0; i < operations.length; i++) {
+      final element = dropped[i];
+      if (element == null) {
+        out.add(operations[i]);
+      } else if (i == element.start) {
+        out.addAll(_standIn(element, operations[i]));
+      }
+    }
+    return out;
+  }
+
+  /// What a dropped element leaves behind: nothing at all, unless it is text,
+  /// which owes the rest of its text object the advance it would have made.
+  static List<ContentOperation> _standIn(
+      PdfContentElement element, ContentOperation op) {
+    if (element.kind != PdfElementKind.text) return const [];
+    final out = <ContentOperation>[];
+    if (op.operator == '"' && op.operands.length >= 3) {
+      out
+        ..add(ContentOperation('Tw', [op.operands[0]]))
+        ..add(ContentOperation('Tc', [op.operands[1]]));
+    }
+    if (op.operator == "'" || op.operator == '"') {
+      out.add(ContentOperation('T*', const []));
+    }
+    final placement = element.textPlacement;
+    if (placement != null &&
+        placement.fontSize > 0 &&
+        placement.horizontalScale != 0 &&
+        placement.advance.abs() > 1e-9) {
+      out.add(ContentOperation('TJ', [
+        CosArray([
+          CosReal(-1000 *
+              placement.advance /
+              placement.fontSize /
+              placement.horizontalScale)
+        ]),
+      ]));
+    }
+    return out;
+  }
+
   /// Serializes [operations] back into content-stream bytes, skipping the
   /// operation indexes in [drop] and writing [replacements] instead where
   /// provided (used to keep the side effects of `'` and `"`).
+  ///
+  /// [before] and [after] splice raw operator text around an operation
+  /// without disturbing its index - how
+  /// [PdfContentEditing.moveElements] brackets a drawing with a
+  /// `q`/`cm`…`Q` or a pair of `Tm`s.
   Uint8List serialize({
     Set<int> drop = const {},
     Map<int, String> replacements = const {},
+    Map<int, String> before = const {},
+    Map<int, String> after = const {},
   }) {
     final out = BytesBuilder();
     for (var i = 0; i < operations.length; i++) {
+      final prefix = before[i];
+      if (prefix != null) out.add(latin1.encode('$prefix\n'));
       if (drop.contains(i)) {
         final replacement = replacements[i];
         if (replacement != null) out.add(latin1.encode('$replacement\n'));
-        continue;
+      } else {
+        ContentStreamSerializer.writeOperation(operations[i], out);
       }
-      ContentStreamSerializer.writeOperation(operations[i], out);
+      final suffix = after[i];
+      if (suffix != null) out.add(latin1.encode('$suffix\n'));
     }
     return out.takeBytes();
   }
 }
 
 class _TextState {
-  _Matrix matrix = _identity;
-  _Matrix lineMatrix = _identity;
+  PdfMatrix matrix = PdfMatrix.identity;
+  PdfMatrix lineMatrix = PdfMatrix.identity;
   double size = 0;
   double leading = 0;
   String? fontName;
+  double charSpacing = 0;
+  double wordSpacing = 0;
+  double horizontalScale = 1;
+  double rise = 0;
+  int renderMode = 0;
 
-  void setMatrix(_Matrix m) {
+  _TextState copyParameters() => _TextState()
+    ..size = size
+    ..leading = leading
+    ..fontName = fontName
+    ..charSpacing = charSpacing
+    ..wordSpacing = wordSpacing
+    ..horizontalScale = horizontalScale
+    ..rise = rise
+    ..renderMode = renderMode;
+
+  void setMatrix(PdfMatrix m) {
     matrix = m;
     lineMatrix = m;
   }
 
   void newline(double tx, double ty) {
-    lineMatrix = _multiply((1, 0, 0, 1, tx, ty), lineMatrix);
+    lineMatrix = PdfMatrix.translation(tx, ty).concat(lineMatrix);
     matrix = lineMatrix;
   }
 
   void advance(double width) {
-    matrix = _multiply((1, 0, 0, 1, width, 0), matrix);
+    matrix = PdfMatrix.translation(width, 0).concat(matrix);
   }
 }
 
-/// A composite (/Type0) font's text + width lookup for one page: code →
-/// Unicode (from `/ToUnicode`) and code → advance (from the descendant `/W`,
-/// falling back to `/DW`).
-class _Type0Decode {
-  _Type0Decode(this.text, this._widths, this._dw);
-
-  final Map<int, String> text;
-  final Map<int, double> _widths;
-  final double _dw;
-
-  double widthOf(int code) => _widths[code] ?? _dw;
-}
-
-typedef _Matrix = (double, double, double, double, double, double);
-
-const _Matrix _identity = (1, 0, 0, 1, 0, 0);
-
-_Matrix _multiply(_Matrix m, _Matrix n) => (
-      m.$1 * n.$1 + m.$2 * n.$3,
-      m.$1 * n.$2 + m.$2 * n.$4,
-      m.$3 * n.$1 + m.$4 * n.$3,
-      m.$3 * n.$2 + m.$4 * n.$4,
-      m.$5 * n.$1 + m.$6 * n.$3 + n.$5,
-      m.$5 * n.$2 + m.$6 * n.$4 + n.$6,
-    );
-
-(double, double) _apply(_Matrix m, double x, double y) =>
-    (m.$1 * x + m.$3 * y + m.$5, m.$2 * x + m.$4 * y + m.$6);
-
-PdfRect? _hull(List<(double, double)> points) {
-  if (points.isEmpty) return null;
-  var minX = points.first.$1, maxX = points.first.$1;
-  var minY = points.first.$2, maxY = points.first.$2;
-  for (final (x, y) in points) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  return PdfRect(minX, minY, maxX, maxY);
-}
-
-PdfRect? _unitSquare(_Matrix ctm) => _hull([
-      _apply(ctm, 0, 0),
-      _apply(ctm, 1, 0),
-      _apply(ctm, 0, 1),
-      _apply(ctm, 1, 1),
+PdfRect? _unitSquare(PdfMatrix ctm) => boundsOfPoints([
+      ctm.apply(0, 0),
+      ctm.apply(1, 0),
+      ctm.apply(0, 1),
+      ctm.apply(1, 1),
     ]);

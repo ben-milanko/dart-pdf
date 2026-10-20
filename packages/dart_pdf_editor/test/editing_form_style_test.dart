@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -206,6 +206,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-form-style-multiline')),
           findsOneWidget);
+
+      // the popup's multiline switch reaches the text field
+      await tester.tap(find.byKey(const ValueKey('pdf-form-style-multiline')));
+      await tester.pumpAndSettle();
+      expect(editing.acroForm!.fieldNamed('name')!.isMultiline, isTrue);
     });
 
     testWidgets('selected toolbar changes the selected field type',

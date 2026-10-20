@@ -1,0 +1,9 @@
+Nieuw in 4.5.0
+
+- Bekijk wat er nieuw is in elke versie via Instellingen > Over.
+- Scherpere PDF-tekst en lijnen op Linux.
+- Geëxporteerde pagina's openen in een nieuw tabblad.
+- Wissel met één knop tussen pagina's, herschikte tekst en paginaraster.
+- Juiste letterafstand voor tekst in niet-ingesloten standaardlettertypen.
+- Betere tekstselectie over kolommen heen en in het Chinees, Japans en Koreaans.
+- Tekst met omtrek wordt nu duidelijk weergegeven.

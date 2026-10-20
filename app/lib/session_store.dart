@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+import 'pdf_cache.dart';
+
 /// One file-backed document that was open in the previous session, captured so
 /// the editor can re-open it on the next launch.
 @immutable
@@ -55,12 +58,18 @@ class SessionDocument {
 /// editor can re-open them the next time it launches ("restore last session").
 ///
 /// Documents are tracked by a reusable read source - the on-disk path on
-/// desktop, or the app-private byte snapshot on mobile (see pdf_cache.dart).
-/// Web picks have neither, so the session there is always empty and restore is
-/// a no-op. Backed by `shared_preferences`; when storage is
-/// unavailable (widget tests) it degrades to the in-memory list, mirroring how
-/// [RecentsStore] and [PdfEditingPreferences] handle the same case.
+/// desktop, or the app-private byte snapshot on mobile (private file) and web
+/// (IndexedDB), see pdf_cache.dart. A derived tab (comparison, or a pick whose
+/// snapshot failed) has neither and is skipped. Backed by `shared_preferences`;
+/// when storage is unavailable (widget tests) it degrades to the in-memory
+/// list, mirroring how [RecentsStore] and [PdfEditingPreferences] handle the
+/// same case.
 class SessionStore {
+  SessionStore({CachedPdfKeyResolver? resolveCacheKey})
+      : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
+
+  final CachedPdfKeyResolver _resolveCacheKey;
+
   static const _key = 'dart_pdf_editor_app.session';
 
   List<SessionDocument> _documents = const [];
@@ -77,15 +86,30 @@ class SessionStore {
       if (raw == null) return _documents;
       final decoded = jsonDecode(raw);
       if (decoded is! List) return _documents;
-      _documents = decoded
-          .whereType<Map>()
-          .map((m) => SessionDocument.fromJson(m.cast<String, dynamic>()))
-          .where((d) => d.readPath != null)
-          .toList();
-    } catch (_) {
+      _documents = [
+        for (final m in decoded.whereType<Map>())
+          await _rebase(SessionDocument.fromJson(m.cast<String, dynamic>())),
+      ].where((d) => d.readPath != null).toList();
+    } catch (e) {
       // No storage (tests) - keep whatever is already in memory.
+      AppDevTools.instance
+          .addLog('session restore failed: $e', level: DevLogLevel.error);
     }
     return _documents;
+  }
+
+  /// Points [doc]'s snapshot at the live store, which an app update can move
+  /// (see `resolveCachedPdfKey`).
+  Future<SessionDocument> _rebase(SessionDocument doc) async {
+    final cachePath = doc.cachePath;
+    if (cachePath == null) return doc;
+    final live = await _resolveCacheKey(cachePath);
+    if (live == null || live == cachePath) return doc;
+    return SessionDocument(
+        title: doc.title,
+        path: doc.path,
+        cachePath: live,
+        bookmark: doc.bookmark);
   }
 
   /// Replaces the persisted open-document list with [documents] (tab order).
@@ -95,8 +119,10 @@ class SessionStore {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode(_documents.map((d) => d.toJson()).toList()));
-    } catch (_) {
+    } catch (e) {
       // No storage - nothing to persist.
+      AppDevTools.instance
+          .addLog('session persist failed: $e', level: DevLogLevel.error);
     }
   }
 }

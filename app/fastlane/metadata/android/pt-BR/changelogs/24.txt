@@ -1,0 +1,5 @@
+Novidades na versão 3.3.0
+
+• As páginas revisitadas abrem na hora, com preparação opcional em segundo plano e cache persistente em resolução total.
+• Zoom profundo mais nítido em PDFs digitalizados e baseados em imagens.
+• Melhor navegação por toque, controle do raio dos cantos e transição mais suave para páginas inseridas.

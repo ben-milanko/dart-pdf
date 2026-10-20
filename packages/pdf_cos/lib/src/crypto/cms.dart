@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'asn1.dart';
 import 'ecdsa.dart';
 import 'rsa.dart';
+import 'x509_builder.dart';
 
 abstract final class _Oid {
   static const signedData = '1.2.840.113549.1.7.2';
@@ -52,7 +53,9 @@ abstract final class _Oid {
 
 /// Maps a digest OID (or a combined signature OID) to its hash.
 crypto.Hash? _hashFor(String oid) => switch (oid) {
-      DigestOid.sha1 || '1.2.840.113549.1.1.5' || '1.2.840.10045.4.1' =>
+      DigestOid.sha1 ||
+      '1.2.840.113549.1.1.5' ||
+      '1.2.840.10045.4.1' =>
         crypto.sha1,
       DigestOid.sha256 ||
       '1.2.840.113549.1.1.11' ||
@@ -105,7 +108,7 @@ class X509Certificate {
     final keyBits = spki[1].asBitString;
     cert.subjectPublicKeyBytes = keyBits;
     switch (cert.publicKeyAlgorithmOid) {
-      case _Oid.rsaEncryption:
+      case _Oid.rsaEncryption || _Oid.rsassaPss: // id-RSASSA-PSS keys too
         cert.publicKey = RsaPublicKey.fromPkcs1(keyBits);
       case _Oid.ecPublicKey when algorithm.length > 1:
         final curve = EcCurve.byOid(algorithm[1].asOid);
@@ -145,6 +148,21 @@ class X509Certificate {
         for (final dp in points.children) {
           _collectGeneralNameUris(dp, crlDistributionUrls);
         }
+      } else if (oid == '2.5.29.37') {
+        // extKeyUsage: SEQUENCE OF KeyPurposeId
+        for (final purpose in DerObject.parse(value.content).children) {
+          if (purpose.tag == DerTag.oid) extendedKeyUsages.add(purpose.asOid);
+        }
+      } else if (oid == '2.5.29.19') {
+        // basicConstraints: SEQUENCE { cA BOOLEAN DEFAULT FALSE, ... }
+        final fields = DerObject.parse(value.content).children;
+        isCa = fields.isNotEmpty &&
+            fields.first.tag == 0x01 &&
+            fields.first.content.isNotEmpty &&
+            fields.first.content.first != 0;
+      } else if (oid == '1.3.6.1.5.5.7.48.1.5') {
+        // id-pkix-ocsp-nocheck (RFC 6960 §4.2.2.2.1)
+        hasOcspNoCheck = true;
       }
     }
   }
@@ -231,6 +249,21 @@ class X509Certificate {
   /// HTTP CRL distribution-point URLs from the CRL Distribution Points
   /// extension.
   final List<String> crlDistributionUrls = [];
+
+  /// Extended key usage purpose OIDs (e.g. `1.3.6.1.5.5.7.3.9`,
+  /// id-kp-OCSPSigning), empty when the extension is absent.
+  final List<String> extendedKeyUsages = [];
+
+  /// basicConstraints cA - true for a certificate authority.
+  bool isCa = false;
+
+  /// The id-pkix-ocsp-nocheck extension: a delegated OCSP responder whose own
+  /// revocation status is not to be checked (RFC 6960 §4.2.2.2.1).
+  bool hasOcspNoCheck = false;
+
+  /// Whether this certificate is valid at [time] (inclusive window).
+  bool isValidAt(DateTime time) =>
+      !time.isBefore(notBefore) && !time.isAfter(notAfter);
 
   Map<String, String> get subject => _nameOf(subjectDer);
   Map<String, String> get issuer => _nameOf(issuerDer);
@@ -423,8 +456,8 @@ CmsVerification cmsVerify(
   if (signer.signedAttrsDer != null) {
     final embedded = signer.messageDigest;
     digestMatches = embedded != null &&
-        CmsSignedData._bytesEqual(Uint8List.fromList(contentDigest),
-            Uint8List.fromList(embedded));
+        CmsSignedData._bytesEqual(
+            Uint8List.fromList(contentDigest), Uint8List.fromList(embedded));
     signedBytes = signer.signedAttrsDer!;
   } else {
     signedBytes = content;
@@ -453,17 +486,14 @@ CmsVerification cmsVerify(
 
   // the signature algorithm may name the digest itself (sha256WithRSA);
   // otherwise the separate digest algorithm applies
-  final signatureHash =
-      _hashFor(signer.signatureAlgorithmOid) ?? hash;
+  final signatureHash = _hashFor(signer.signatureAlgorithmOid) ?? hash;
   final digestOid = _digestOidFor(signatureHash)!;
   final signedDigest = signatureHash.convert(signedBytes).bytes;
 
   switch (cert.publicKey) {
     case final RsaPublicKey key:
-      return CmsVerification(
-          digestMatches,
-          rsaVerify(key, digestOid, signedDigest, signer.signature),
-          null);
+      return CmsVerification(digestMatches,
+          rsaVerify(key, digestOid, signedDigest, signer.signature), null);
     case final EcPublicKey key:
       return CmsVerification(digestMatches,
           ecdsaVerify(key, signedDigest, signer.signature), null);
@@ -557,6 +587,7 @@ Uint8List cmsAssembleSignedData({
   List<Uint8List> unsignedAttributes = const [],
   String eContentType = _Oid.data,
   Uint8List? eContent,
+  Uint8List? signatureAlgorithm,
 }) {
   if (certificates.isEmpty) {
     throw ArgumentError('at least the signer certificate is required');
@@ -573,7 +604,9 @@ Uint8List cmsAssembleSignedData({
     digestAlgorithm,
     // re-tag the SET of signed attributes as IMPLICIT [0]
     Uint8List.fromList(signedAttributes)..[0] = DerTag.context(0),
-    derSequence([derOid(_Oid.rsaEncryption), derNull()]),
+    // the signature AlgorithmIdentifier: rsaEncryption by default, or the
+    // ecdsa-with-SHAx identifier an EC signer passes in
+    signatureAlgorithm ?? derSequence([derOid(_Oid.rsaEncryption), derNull()]),
     derOctetString(signature),
     if (unsignedAttributes.isNotEmpty)
       derContext(1, [for (final a in unsignedAttributes) ...a]),
@@ -670,6 +703,35 @@ Uint8List cmsSignDetached({
   );
 }
 
+/// Like [cmsSignDetached] but signs the attributes with ECDSA - the path a
+/// self-signed P-256 identity takes. The SignerInfo carries the
+/// ecdsa-with-SHAx signature algorithm and the DER `SEQUENCE { r, s }`
+/// signature value.
+Uint8List cmsSignDetachedEcdsa({
+  required List<int> contentDigest,
+  required EcPrivateKey privateKey,
+  required List<Uint8List> certificates,
+  DateTime? signingTime,
+  X509Certificate? essCertificate,
+  crypto.Hash hash = crypto.sha256,
+}) {
+  final signedAttrs = cmsSignedAttributes(
+    contentDigest: contentDigest,
+    signingTime: signingTime,
+    essCertificate: essCertificate,
+    hash: hash,
+  );
+  final signature =
+      ecdsaSign(privateKey, hash.convert(signedAttrs).bytes, hash: hash);
+  return cmsAssembleSignedData(
+    signedAttributes: signedAttrs,
+    signature: signature,
+    certificates: certificates,
+    hash: hash,
+    signatureAlgorithm: ecdsaSignatureAlgorithm(hash),
+  );
+}
+
 /// The outcome of X.509 path building and verification.
 ///
 /// Scope: signature verification up the chain, issuer/subject matching,
@@ -701,18 +763,21 @@ bool _sameDer(Uint8List a, Uint8List b) {
   return true;
 }
 
-X509Certificate? _findIssuer(
+/// The issuer of [of] among [candidates], and whether its signature on [of]
+/// verified: the first name match whose signature verifies, else the first
+/// name match alone (unverified), so the problem reported is "bad signature"
+/// rather than "issuer not found". The caller reads the flag rather than
+/// verifying the pair a second time.
+(X509Certificate, bool verified)? _findIssuer(
     X509Certificate of, List<X509Certificate> candidates) {
   for (final candidate in candidates) {
     if (_sameDer(candidate.subjectDer, of.issuerDer) &&
         of.isSignedBy(candidate)) {
-      return candidate;
+      return (candidate, true);
     }
   }
-  // fall back to name match alone so the problem reported is "bad
-  // signature" rather than "issuer not found"
   for (final candidate in candidates) {
-    if (_sameDer(candidate.subjectDer, of.issuerDer)) return candidate;
+    if (_sameDer(candidate.subjectDer, of.issuerDer)) return (candidate, false);
   }
   return null;
 }
@@ -745,9 +810,8 @@ CertificateChainResult verifyCertificateChain({
       problems.add('certificate chain is longer than 10 links');
       break;
     }
-    final issuer =
-        _findIssuer(current, [...trustAnchors, ...intermediates]);
-    if (issuer == null) {
+    final found = _findIssuer(current, [...trustAnchors, ...intermediates]);
+    if (found == null) {
       final selfSigned = _sameDer(current.subjectDer, current.issuerDer);
       problems.add(selfSigned
           ? 'self-signed certificate "${nameOf(current)}" is not a '
@@ -755,7 +819,8 @@ CertificateChainResult verifyCertificateChain({
           : 'no certificate found for issuer of "${nameOf(current)}"');
       break;
     }
-    if (!current.isSignedBy(issuer)) {
+    final (issuer, verified) = found;
+    if (!verified) {
       problems.add('signature on "${nameOf(current)}" does not verify '
           'against its issuer "${nameOf(issuer)}"');
       break;

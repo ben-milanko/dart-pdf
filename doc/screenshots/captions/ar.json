@@ -1,0 +1,38 @@
+{
+  "locale": "ar",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "تحرير PDF بخصوصية",
+      "subtitle": "بلا حساب. بلا رفع. تبقى ملفاتك على جهازك."
+    },
+    "app/02-editor": {
+      "headline": "علّق ووقّع ونقّح",
+      "subtitle": "املأ النماذج، وأضف ملاحظات، وحرّك الصفحات."
+    },
+    "app/03-dark": {
+      "headline": "مصمّم للمستندات الحقيقية",
+      "subtitle": "ابحث في النص، وشغّل OCR، وقارن النسخ،\nوافتح الملفات المحمية."
+    },
+    "example/01-document": {
+      "headline": "افتح أي ملف PDF",
+      "subtitle": "معروض بلغة Dart خالصة، على كل المنصات"
+    },
+    "example/02-graphics": {
+      "headline": "الرسوميات",
+      "subtitle": "التدرجات والتظليل والشفافية"
+    },
+    "example/03-annotations": {
+      "headline": "التعليقات التوضيحية",
+      "subtitle": "تمييزات، وحبر، وملاحظات، وأختام، ونماذج"
+    },
+    "example/04-markup": {
+      "headline": "أدوات التعليق",
+      "subtitle": "ارسم، وأضف أشكالاً، ووقّع على الصفحة"
+    },
+    "example/05-reader": {
+      "headline": "عرض القراءة",
+      "subtitle": "يعيد تدفّق النص ليلائم الشاشة"
+    }
+  }
+}

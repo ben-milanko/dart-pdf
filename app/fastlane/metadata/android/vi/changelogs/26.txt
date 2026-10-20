@@ -1,0 +1,7 @@
+Điểm mới trong 3.4.0
+
+• Sao chép và dán chú thích giữa các tài liệu đang mở.
+• Thả PDF giữa các hình thu nhỏ để chèn trang đúng vị trí mong muốn.
+• Lưu con dấu đã đặt vào bộ sưu tập và xem màu chú thích được chọn trên thanh công cụ.
+• Vùng chọn văn bản và phông chữ thay thế giờ căn chỉnh chính xác hơn.
+• Lưới tab nhanh hơn, thu phóng bàn di mượt hơn, truy cập tệp lũy tiến an toàn hơn và xem trước khi in đáng tin cậy hơn.

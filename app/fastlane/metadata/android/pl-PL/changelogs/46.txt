@@ -1,0 +1,8 @@
+Nowości w wersji 9.0.0
+
+- Grupuj adnotacje, aby razem je przesuwać, skalować i obracać.
+- Automatyczne OCR zeskanowanych dokumentów, by można je było przeszukiwać.
+- Opcjonalny zapis koloru strony w plikach PDF.
+- Skróty formatowania tekstu i osobne style strzałek objaśnień.
+- Łatwiejsze rysowanie linii łamanych i zmiana kolejności stron.
+- Lepsze czcionki szeryfowe, ostrzejsze obrócone obrazy i płynniejsze przewijanie.

@@ -1,0 +1,9 @@
+Neu in 5.0.0
+
+- Formulare berechnen Summen, formatieren Werte und prüfen Eingaben.
+- Mit Tab zwischen Formularfeldern wechseln; mehrere Einträge in Listenfeldern wählen.
+- Formularpasswörter bleiben im sicheren Gerätespeicher, nie im PDF.
+- Optionsfelder, Dropdowns, Listen- und Signaturfelder erstellen.
+- Passwortgeschützte PDFs signieren.
+- Widerrufsprüfung für Signaturen; EU- und optionale Adobe-Vertrauenslisten.
+- Calibri-Text aus Office-Dokumenten sieht jetzt richtig aus.

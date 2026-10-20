@@ -1,0 +1,470 @@
+import 'dart:convert';
+import 'dart:io';
+
+// This regression must inspect the same experimental internal feature gate
+// that MaterialApp/showDialog read.
+// ignore_for_file: implementation_imports, invalid_use_of_internal_member
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:dart_pdf_editor_app/document_tab.dart';
+import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/incoming_file.dart';
+import 'package:dart_pdf_editor_app/window_support.dart';
+
+import 'test_finders.dart';
+
+// flutter_test cannot create real desktop windows. These tests pin the public
+// app-side seam instead: feature visibility, shortcuts, lossless handoff,
+// failure safety, process-service isolation, and the native close handshake.
+void main() {
+  late PdfEditingPreferences prefs;
+
+  test('desktop startup enables windowing by default before binding', () {
+    final original = isWindowingEnabled;
+    final originalPlatform = debugDefaultTargetPlatformOverride;
+    try {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      isWindowingEnabled = false;
+      expect(multiWindowSupported, isFalse);
+
+      enableDartPdfWindowing();
+      expect(multiWindowSupported, isTrue);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      isWindowingEnabled = false;
+      enableDartPdfWindowing();
+      expect(isWindowingEnabled, isFalse);
+    } finally {
+      isWindowingEnabled = original;
+      debugDefaultTargetPlatformOverride = originalPlatform;
+    }
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    prefs = PdfEditingPreferences();
+  });
+
+  tearDown(() => prefs.dispose());
+
+  Future<void> openAppMenu(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('dartpdf-app-menu')));
+    await tester.pumpAndSettle();
+  }
+
+  Finder tabTitle(String name) => find.descendant(
+        of: find.byKey(const ValueKey('tab-strip')),
+        matching: findMiddleEllipsisText(name),
+      );
+
+  // The view modes are one SegmentedButton in the view-options popup, so the
+  // mode is addressed by its drawn label rather than a per-item key.
+  Future<void> tapPageGrid(WidgetTester tester) async {
+    await tester.tap(
+        find.descendant(
+            of: find.byKey(const ValueKey('pdf-shell-view-mode')),
+            matching: find.byWidgetPredicate((widget) =>
+                widget is Text &&
+                widget.data == 'Page grid' &&
+                widget.maxLines == 1)),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> rightClickTab(WidgetTester tester, String name) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(tabTitle(name)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pumpWithDocument(
+    WidgetTester tester, {
+    bool Function(BuildContext, {DocumentHandoff? document})? onNewWindow,
+    String title = 'doc.pdf',
+  }) async {
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        onNewWindow: onNewWindow,
+        initialDocument: (bytes: buildClassicPdf(), title: title),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  testWidgets('window commands stay hidden without a native opener',
+      (tester) async {
+    await pumpWithDocument(tester);
+
+    await openAppMenu(tester);
+    expect(find.byKey(const ValueKey('menu-new-window')), findsNothing);
+    await tester.tapAt(const Offset(700, 500));
+    await tester.pumpAndSettle();
+
+    await rightClickTab(tester, 'doc.pdf');
+    expect(find.byKey(const ValueKey('tab-menu-move-window')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+  });
+
+  testWidgets('New window menu and shortcut invoke the native opener',
+      (tester) async {
+    var opened = 0;
+    await pumpWithDocument(
+      tester,
+      onNewWindow: (_, {document}) {
+        expect(document, isNull);
+        opened++;
+        return true;
+      },
+    );
+
+    await openAppMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('menu-new-window')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    expect(opened, 2);
+  });
+
+  testWidgets('a recent entry opens in a new window from its context menu',
+      (tester) async {
+    // Synchronous file work only: awaiting real I/O from the test body would
+    // hang inside the binding's fake-async zone.
+    final dir = Directory.systemTemp.createTempSync('dartpdf-recents');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final source = File('${dir.path}/alpha.pdf')
+      ..writeAsBytesSync(buildClassicPdf());
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.recents': jsonEncode([
+        {'t': 'alpha.pdf', 'p': source.path, 'o': 2000},
+      ]),
+    });
+
+    // Reading the entry back is real file I/O, which only progresses under
+    // runAsync - so every step here pumps real frames (as session_restore's
+    // path-backed opens do).
+    Future<void> pumpFrames() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    DocumentHandoff? handed;
+    await tester.runAsync(() async {
+      await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          onNewWindow: (_, {document}) {
+            handed = document;
+            return true;
+          },
+        ),
+      ));
+      // No document: the welcome screen's recents are the surface under test,
+      // and the default 800x600 surface is wide enough for its grid.
+      await pumpFrames();
+    });
+
+    final tile = find.byKey(ValueKey('recent-tile-${source.path}'));
+    expect(tile, findsOneWidget);
+
+    await tester.runAsync(() async {
+      final gesture = await tester.startGesture(
+        tester.getCenter(tile),
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryButton,
+      );
+      await tester.pump();
+      await gesture.up();
+      await pumpFrames();
+    });
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('recent-menu-new-window')));
+      await pumpFrames();
+    });
+    await tester.pump();
+
+    expect(handed, isNotNull);
+    expect(handed!.title, 'alpha.pdf');
+    expect(handed!.originPath, source.path);
+    expect(handed!.bytes, buildClassicPdf());
+    // Read, not edited: the receiving window starts clean.
+    expect(handed!.isDirty, isFalse);
+    // The document opened elsewhere, so this window keeps showing the welcome
+    // screen rather than a tab of its own.
+    expect(find.byType(PdfEditorView), findsNothing);
+  });
+
+  testWidgets('failed window creation keeps the source tab', (tester) async {
+    await pumpWithDocument(
+      tester,
+      onNewWindow: (_, {document}) => false,
+    );
+
+    await rightClickTab(tester, 'doc.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-move-window')));
+    await tester.pumpAndSettle();
+
+    expect(tabTitle('doc.pdf'), findsOneWidget);
+    expect(find.text('Couldn’t open a new window'), findsOneWidget);
+  });
+
+  testWidgets('move hands off exact bytes, baseline and file origin',
+      (tester) async {
+    DocumentHandoff? moved;
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        onNewWindow: (_, {document}) {
+          moved = document;
+          return true;
+        },
+      ),
+    ));
+    await tester.pump();
+
+    const codec = StandardMethodCodec();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      IncomingFileService.channelName,
+      codec.encodeMethodCall(MethodCall('openFile', {
+        'name': 'origin.pdf',
+        'bytes': buildClassicPdf(),
+        'path': '/docs/origin.pdf',
+        'bookmark': 'bookmark-data',
+      })),
+      (_) {},
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final controller =
+        tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
+    final savedLength = controller.bytes.length;
+    controller.addFreeText(0, const PdfRect(72, 650, 240, 700), 'edit');
+    await tester.pump();
+
+    await rightClickTab(tester, 'origin.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-move-window')));
+    await tester.pumpAndSettle();
+
+    expect(moved, isNotNull);
+    expect(moved!.title, 'origin.pdf');
+    expect(moved!.savedLength, savedLength);
+    expect(moved!.bytes.length, greaterThan(savedLength));
+    expect(moved!.isDirty, isTrue);
+    expect(moved!.originPath, '/docs/origin.pdf');
+    expect(moved!.originBookmark, 'bookmark-data');
+    expect(tabTitle('origin.pdf'), findsNothing);
+  });
+
+  testWidgets('initial handoff preserves dirty state in its new window',
+      (tester) async {
+    final original = buildClassicPdf();
+    final edited = PdfEditingController(original);
+    edited.addFreeText(0, const PdfRect(72, 650, 240, 700), 'edit');
+    final bytes = Uint8List.fromList(edited.bytes);
+    edited.dispose();
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        initialHandoff: DocumentHandoff(
+          bytes: bytes,
+          title: 'moved.pdf',
+          savedLength: original.length,
+          originPath: '/docs/moved.pdf',
+        ),
+        ownsApplicationSession: false,
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tabTitle('moved.pdf'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('tab-strip')),
+        matching: find.byIcon(Icons.circle),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the page grid is one window\'s view, not every window\'s',
+      (tester) async {
+    tester.view.physicalSize = const Size(2400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // Two windows over the one process-wide preferences object, which is how
+    // the app builds them (see DartPdfEditorApp._prefs).
+    Widget window(Key key, {required bool primary}) => Expanded(
+          child: KeyedSubtree(
+            key: key,
+            child: MaterialApp(
+              home: EditorScreen(
+                prefs: prefs,
+                ownsApplicationSession: primary,
+                initialDocument: (bytes: buildClassicPdf(), title: 'doc.pdf'),
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(children: [
+        window(const ValueKey('window-1'), primary: true),
+        window(const ValueKey('window-2'), primary: false),
+      ]),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    Finder inWindow(Key key, Finder matching) =>
+        find.descendant(of: find.byKey(key), matching: matching);
+
+    await tester.tap(
+        inWindow(const ValueKey('window-1'),
+            find.byKey(const ValueKey('pdf-shell-view-options'))),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    await tapPageGrid(tester);
+
+    expect(inWindow(const ValueKey('window-1'), find.byType(PdfThumbnailView)),
+        findsOneWidget);
+    // the regression: both windows read the shared preference, so switching
+    // one to the page grid switched the other with it
+    expect(inWindow(const ValueKey('window-2'), find.byType(PdfThumbnailView)),
+        findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('the page grid follows the window across its tabs',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpWithDocument(tester);
+
+    await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    await tapPageGrid(tester);
+    expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+    // another window picks a different mode: it is persisted, so it is what a
+    // shell seeded from the preferences would come up in
+    prefs.viewMode = PdfViewMode.pages;
+    await tester.pump();
+    expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+    // a second tab in the SAME window still opens into THIS window's mode,
+    // and going back to the first one stays there - the mode is the
+    // window's, not the tab's and not the process's
+    const codec = StandardMethodCodec();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      IncomingFileService.channelName,
+      codec.encodeMethodCall(MethodCall(
+          'openFile', {'name': 'second.pdf', 'bytes': buildClassicPdf()})),
+      (_) {},
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tabTitle('second.pdf'), findsOneWidget);
+    expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+    await tester.tap(tabTitle('doc.pdf'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(PdfThumbnailView), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('secondary window does not replace the persisted app session',
+      (tester) async {
+    const sessionKey = 'dart_pdf_editor_app.session';
+    final seed = jsonEncode([
+      {'t': 'seed.pdf', 'p': '/seeded/seed.pdf'}
+    ]);
+    SharedPreferences.setMockInitialValues({sessionKey: seed});
+    final store = await SharedPreferences.getInstance();
+    final bytes = buildClassicPdf();
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        initialHandoff: DocumentHandoff(
+          bytes: bytes,
+          title: 'secondary.pdf',
+          savedLength: bytes.length,
+        ),
+        ownsApplicationSession: false,
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(tabTitle('secondary.pdf'), findsOneWidget);
+    expect(store.getString(sessionKey), seed);
+  });
+
+  testWidgets('native close waits for unsaved-changes confirmation',
+      (tester) async {
+    final coordinator = DartPdfWindowCloseCoordinator();
+    final bytes = buildClassicPdf();
+    await tester.pumpWidget(DartPdfWindowCloseScope(
+      coordinator: coordinator,
+      child: MaterialApp(
+        home: EditorScreen(
+          prefs: prefs,
+          initialHandoff: DocumentHandoff(
+            bytes: bytes,
+            title: 'dirty.pdf',
+            savedLength: bytes.length - 1,
+          ),
+          ownsApplicationSession: false,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final cancelled = coordinator.requestClose();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await cancelled, isFalse);
+
+    final approved = coordinator.requestClose();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(await approved, isTrue);
+  });
+}

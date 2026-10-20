@@ -1,0 +1,7 @@
+Mới trong 2.1.0
+
+• Chế độ đọc sắp xếp lại văn bản: đọc tài liệu dưới dạng văn bản trôi chảy, với cuộn lười, ghi nhớ vị trí và trình xem hình.
+• Mở và hiển thị nhanh hơn, nhất là trên tệp lớn hoặc nhiều hình ảnh, và dùng ít bộ nhớ hơn trên các bản vẽ rất rộng.
+• Nét mảnh sắc hơn, giúp nét mảnh vẫn dễ đọc khi thu nhỏ.
+• Màu tốt hơn trên dải màu chuyển và hình ảnh dạng chỉ mục.
+• Ký tự Symbol và ZapfDingbats hiển thị thay vì ô trống.

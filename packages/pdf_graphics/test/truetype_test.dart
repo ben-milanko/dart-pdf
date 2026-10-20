@@ -1,7 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
-import 'package:pdf_graphics/src/fonts/truetype.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
@@ -51,6 +52,22 @@ void main() {
       expect(TrueTypeFont.parse(bytes), isNull);
     });
 
+    test('selects the requested face from a TrueType collection', () {
+      final collection = _buildTestTrueTypeCollection();
+      final first = TrueTypeFont.parse(collection);
+      final second = TrueTypeFont.parse(collection, collectionIndex: 1);
+
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(first!.advanceForGlyph(1), closeTo(0.6, 1e-9));
+      expect(second!.advanceForGlyph(1), closeTo(0.7, 1e-9));
+      expect(TrueTypeFont.parse(collection, collectionIndex: 2), isNull);
+      expect(
+        TrueTypeFont.parse(buildTestTrueTypeFont(), collectionIndex: 1),
+        isNull,
+      );
+    });
+
     test('post 2.0 names resolve glyph ids without a cmap', () {
       // A cmap-less subset reaches its glyphs only by name through the post
       // table (TrueType_without_cmap.pdf - codes index empty/.notdef glyphs
@@ -96,6 +113,52 @@ void main() {
   });
 }
 
+Uint8List _buildTestTrueTypeCollection() {
+  final first = buildTestTrueTypeFont();
+  final second = buildTestTrueTypeFont();
+  _setGlyphOneAdvance(second, 700);
+
+  const headerLength = 20;
+  final secondOffset = (headerLength + first.length + 3) & ~3;
+  final bytes = Uint8List(secondOffset + second.length);
+  ByteData.sublistView(bytes)
+    ..setUint32(0, 0x74746366) // ttcf
+    ..setUint32(4, 0x00010000)
+    ..setUint32(8, 2)
+    ..setUint32(12, headerLength)
+    ..setUint32(16, secondOffset);
+  _copyCollectionFace(bytes, headerLength, first);
+  _copyCollectionFace(bytes, secondOffset, second);
+  return bytes;
+}
+
+void _copyCollectionFace(Uint8List collection, int offset, Uint8List face) {
+  collection.setRange(offset, offset + face.length, face);
+  final view = ByteData.sublistView(collection, offset, offset + face.length);
+  final tableCount = view.getUint16(4);
+  for (var i = 0; i < tableCount; i++) {
+    final tableOffsetPosition = 12 + i * 16 + 8;
+    view.setUint32(
+      tableOffsetPosition,
+      view.getUint32(tableOffsetPosition) + offset,
+    );
+  }
+}
+
+void _setGlyphOneAdvance(Uint8List face, int advance) {
+  final data = ByteData.sublistView(face);
+  final tableCount = data.getUint16(4);
+  for (var i = 0; i < tableCount; i++) {
+    final record = 12 + i * 16;
+    final tag = String.fromCharCodes(face.sublist(record, record + 4));
+    if (tag != 'hmtx') continue;
+    final hmtxOffset = data.getUint32(record + 8);
+    data.setUint16(hmtxOffset + 4, advance);
+    return;
+  }
+  throw StateError('test font has no hmtx table');
+}
+
 class _TextRecorder implements PdfDevice {
   final runs = <PdfTextRun>[];
 
@@ -123,6 +186,9 @@ class _TextRecorder implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
   @override
   void beginGroup(double alpha, {bool knockout = false}) {}
   @override

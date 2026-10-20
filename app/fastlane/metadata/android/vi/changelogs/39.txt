@@ -1,0 +1,9 @@
+Có gì mới trong 5.0.0
+
+- Biểu mẫu tự tính tổng, định dạng giá trị và kiểm tra nội dung nhập.
+- Nhấn Tab để chuyển trường; chọn nhiều mục trong hộp danh sách.
+- Mật khẩu biểu mẫu nằm trong bộ nhớ an toàn của thiết bị, không nằm trong PDF.
+- Tạo nút chọn, danh sách thả xuống, hộp danh sách và trường chữ ký.
+- Ký PDF được bảo vệ bằng mật khẩu.
+- Kiểm tra thu hồi chữ ký; danh sách tin cậy của EU và Adobe (tùy chọn).
+- Chữ Calibri từ tài liệu Office nay hiển thị đúng.

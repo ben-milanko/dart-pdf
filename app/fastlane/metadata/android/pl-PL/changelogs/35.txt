@@ -1,0 +1,7 @@
+Nowości w wersji 4.2.0
+
+- Sąsiednie strony pozostają ostre podczas powolnego przewijania, dzięki wolnej mocy graficznej.
+- Precyzyjnie umieszczaj adnotacje dzięki nowym prowadnicom wyrównania i linijkom strony.
+- Powiększaj wokół wskaźnika za pomocą Ctrl lub Cmd i kółka myszy.
+- Poprawiono edycję adnotacji na obróconych stronach i zaznaczanie wielowierszowych wyróżnień.
+- Przesuwaj widok między wierszami tekstu zamiast rozpoczynać zaznaczanie.

@@ -1,0 +1,6 @@
+Baru di 3.8.0
+
+- Jelajahi PDF terbaru dengan pratinjau halaman yang dapat dicari.
+- Edit anotasi melewati tepi halaman, ubah gaya pilihan campuran, serta pilih warna dan ketebalan tanda tangan.
+- Pratinjau pekerjaan cetak sebelum dikirim.
+- Gulir dan zoom lebih mulus pada gambar besar, ditambah perbaikan kursor, menu pop-up, dan kerusakan.

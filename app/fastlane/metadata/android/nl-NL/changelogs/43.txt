@@ -1,0 +1,6 @@
+Nieuw in 7.0.0
+
+- Nauwkeurigere, snellere OCR voor kleine letters en tekeningen, met duidelijkere voortgang.
+- Open links en houd ingedrukt om tekst te selecteren in de selectiemodus.
+- Zoekresultaten blijven zichtbaar bij inzoomen.
+- Het inktvoorbeeld behoudt de gekozen dekking; vectorexport bevat annotaties.

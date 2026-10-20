@@ -3,13 +3,39 @@
 // and lifting shows drag handles plus a Copy/Select-All chip.
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+Uint8List _buildSplitRunTextPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (signs) Tj ET '
+      'BT /F1 24 Tf 150 720 Td (and) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
+}
 
 void main() {
   setUp(() {
@@ -23,7 +49,7 @@ void main() {
   Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
 
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
-      {int pages = 3, Uint8List? bytes}) async {
+      {int pages = 3, Uint8List? bytes, bool contextMenuEnabled = true}) async {
     final controller = PdfViewerController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -32,6 +58,7 @@ void main() {
           initialFit: PdfViewerFit.width,
           document: PdfDocument.open(bytes ?? buildMultiPagePdf(pages)),
           controller: controller,
+          contextMenuEnabled: contextMenuEnabled,
         ),
       ),
     ));
@@ -121,6 +148,69 @@ void main() {
     });
   });
 
+  testWidgets('touch word-drag wash is continuous across split text runs',
+      (tester) async {
+    final controller = await pumpViewer(
+      tester,
+      pages: 1,
+      bytes: _buildSplitRunTextPdf(),
+    );
+    final gesture = await tester.startGesture(view(90, 720));
+    await tester.pump(const Duration(milliseconds: 600));
+    await gesture.moveTo(view(170, 720));
+    await tester.pump();
+
+    expect(controller.selectedText, contains('signs'));
+    expect(controller.selectedText, contains('and'));
+    expect(controller.selectionRectsOn(0), hasLength(1));
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  group('armed text markup', () {
+    testWidgets('mouse drag applies markup and leaves the tool armed',
+        (tester) async {
+      final state = await pumpEditor(tester);
+      state.editing.markupTool = PdfMarkupKind.highlight;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(158, 720),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(-20, 0));
+      await tester.pump();
+      await gesture.moveTo(view(50, 720));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(state.viewer.hasSelection, isFalse);
+      expect(state.editing.markupTool, PdfMarkupKind.highlight);
+      final annotations = state.editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.subtype, 'Highlight');
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('touch long-press applies the armed markup on lift',
+        (tester) async {
+      final state = await pumpEditor(tester);
+      state.editing.markupTool = PdfMarkupKind.underline;
+      await tester.pump();
+
+      await longPressSelect(tester, view(100, 720));
+
+      expect(state.viewer.hasSelection, isFalse);
+      expect(state.editing.markupTool, PdfMarkupKind.underline);
+      final annotations = state.editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.subtype, 'Underline');
+      expect(
+          find.byKey(const ValueKey('pdf-text-selection-chip')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+  });
+
   group('long-press selection', () {
     testWidgets('RTL selection starts on the right edge', (tester) async {
       final controller = await pumpViewer(tester, bytes: buildRtlTextPdf());
@@ -182,6 +272,27 @@ void main() {
           findsNothing);
       expect(find.byKey(const ValueKey('pdf-text-selection-chip-markup')),
           findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets(
+        'contextMenuEnabled: false hides the chip but keeps the selection, '
+        'its handles and word-drag extension', (tester) async {
+      final controller = await pumpViewer(tester, contextMenuEnabled: false);
+      final gesture = await tester.startGesture(view(100, 720));
+      await tester.pump(const Duration(milliseconds: 600));
+      // the press still extends by word while it drags
+      await gesture.moveTo(view(138, 720));
+      await tester.pump();
+      expect(controller.selectedText, 'Page 1');
+      await gesture.up();
+      await tester.pump();
+
+      expect(
+          find.byKey(const ValueKey('pdf-text-selection-chip')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-handle-start')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-text-handle-end')), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 400));
     });
 
@@ -267,6 +378,48 @@ void main() {
       expect(viewer.hasSelection, isFalse);
       await gesture.up();
       await tester.pump(const Duration(milliseconds: 400));
+      expect(viewer.hasSelection, isFalse);
+    });
+  });
+
+  group('long-press selection in Select mode', () {
+    testWidgets('a long press over text selects the word', (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await longPressSelect(tester, view(100, 728));
+      expect(viewer.selectedText, 'Page');
+      expect(editing.tool, PdfEditTool.select);
+    });
+
+    testWidgets('dragging during the long press extends by whole words',
+        (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 728));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(view(140, 728));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(viewer.selectedText, 'Page 1');
+    });
+
+    testWidgets('a long press on an annotation leaves the text alone',
+        (tester) async {
+      final (:viewer, :editing) = await pumpEditor(tester);
+      editing.addRectangle(0, const PdfRect(60, 700, 160, 760));
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 728));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(viewer.hasSelection, isFalse);
+      await gesture.up();
+      await tester.pumpAndSettle();
       expect(viewer.hasSelection, isFalse);
     });
   });

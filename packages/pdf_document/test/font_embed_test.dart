@@ -196,6 +196,34 @@ void main() {
       expect(font.glyphForRune(0x00E9), greaterThan(0));
       expect(font.glyphForRune(0x03A9), greaterThan(0));
     });
+
+    test('restyleAnnotation changes colour without losing embedded font', () {
+      final font = PdfEmbeddedFont.parse(fontBytes);
+      final original = roundTrip((e) => e.addFreeText(
+            0,
+            const PdfRect(72, 600, 320, 680),
+            'Custom face',
+            font: font,
+          ));
+      final editor = PdfEditor(original);
+
+      expect(
+        editor.restyleAnnotation(
+          0,
+          original.page(0).annotations.single,
+          color: 0x1E88E5,
+        ),
+        isTrue,
+      );
+
+      final restyled = PdfDocument.open(editor.save());
+      final annotation = restyled.page(0).annotations.single;
+      expect(annotation.freeTextStyle?.color, 0x1E88E5);
+      expect(PdfEmbeddedFont.fromFreeText(annotation), isNotNull);
+      expect(isType0(restyled, annotation), isTrue);
+      expect(appearanceText(restyled, annotation),
+          contains('0.118 0.533 0.898 rg'));
+    });
   });
 
   group('rich FreeText', () {

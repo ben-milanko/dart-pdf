@@ -1,0 +1,6 @@
+Điểm mới trong 3.6.0
+
+- Bảng chú thích dễ điều hướng hơn, giữ vùng chọn sau khi sửa và bảo toàn độ mờ của hộp văn bản.
+- Hộp văn bản Bluebeam giữ nguyên căn chỉnh, khoảng cách và vị trí con trỏ.
+- Giờ đây có thể kéo thẻ tài liệu giữa nhiều cửa sổ.
+- Văn bản thay thế có khoảng cách tự nhiên hơn; đã sửa trang cũ và thao tác hiển thị thư mục đám mây.

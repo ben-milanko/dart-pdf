@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Device RAM in GB - unavailable on the Dart VM.
 ///
 /// `dart:io` exposes the process's own footprint ([ProcessInfo.currentRss],
@@ -7,3 +9,8 @@
 /// platform tier instead (a phone and a desktop want different budgets far
 /// more than two desktops do).
 double? get detectedPdfDeviceMemoryGb => null;
+
+/// The process's current resident set size in bytes ([ProcessInfo.currentRss]),
+/// for diagnostic logging - the number that climbs toward the OS's per-process
+/// high-water limit. Null where `dart:io` is unavailable (web).
+int? get currentProcessRssBytes => ProcessInfo.currentRss;

@@ -7,17 +7,23 @@ import 'objects.dart';
 /// This is the building block for the document writer (full rewrites and
 /// incremental updates), which will sit on top of it.
 class CosSerializer {
-  CosSerializer(this._out);
+  CosSerializer(this._out, {this.preserveRealPrecision = false});
 
   final BytesBuilder _out;
+
+  /// Keep every parsed double's precision during lossless graph rewrites.
+  /// Ordinary authored content retains the historical six-decimal output.
+  final bool preserveRealPrecision;
 
   static const _delimiters = {
     0x28, 0x29, 0x3C, 0x3E, 0x5B, 0x5D, 0x7B, 0x7D, 0x2F, 0x25, // delims
   };
 
-  static Uint8List serialize(CosObject object) {
+  static Uint8List serialize(CosObject object,
+      {bool preserveRealPrecision = false}) {
     final out = BytesBuilder();
-    CosSerializer(out).writeObject(object);
+    CosSerializer(out, preserveRealPrecision: preserveRealPrecision)
+        .writeObject(object);
     return out.takeBytes();
   }
 
@@ -30,7 +36,8 @@ class CosSerializer {
       case CosInteger(:final value):
         _writeText('$value');
       case CosReal(:final value):
-        _writeText(formatReal(value));
+        _writeText(
+            preserveRealPrecision ? formatRealExact(value) : formatReal(value));
       case CosString string:
         _writeString(string);
       case CosName(:final value):
@@ -78,6 +85,29 @@ class CosSerializer {
     }
     if (s.endsWith('.')) s = s.substring(0, s.length - 1);
     return s;
+  }
+
+  /// Round-tripping decimal representation without PDF-illegal exponents.
+  /// Small font matrices in particular can carry meaningful digits beyond
+  /// six decimal places; rounding those changes every transformed outline.
+  static String formatRealExact(double value) {
+    if (!value.isFinite) {
+      throw ArgumentError.value(value, 'value', 'must be finite');
+    }
+    final text = value.toString();
+    final e = text.indexOf('e');
+    if (e < 0) return text;
+    final sign = text.startsWith('-') ? '-' : '';
+    final mantissa = text.substring(sign.length, e);
+    final dot = mantissa.indexOf('.');
+    final digits = mantissa.replaceAll('.', '');
+    final decimal =
+        (dot < 0 ? mantissa.length : dot) + int.parse(text.substring(e + 1));
+    if (decimal <= 0) return '${sign}0.${'0' * -decimal}$digits';
+    if (decimal >= digits.length) {
+      return '$sign$digits${'0' * (decimal - digits.length)}.0';
+    }
+    return '$sign${digits.substring(0, decimal)}.${digits.substring(decimal)}';
   }
 
   void _writeText(String text) => _out.add(text.codeUnits);

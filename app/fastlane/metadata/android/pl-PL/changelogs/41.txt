@@ -1,0 +1,4 @@
+Nowości w 5.1.1
+
+- Pismo odręczne pisane szybko raz za razem nie znika już ze strony.
+- Zawiera wszystkie ulepszenia z wersji 5.1.0.

@@ -1,0 +1,6 @@
+Nieuw in 3.6.0
+
+- Annotatiepanelen zijn eenvoudiger te navigeren, houden selecties zichtbaar en bewaren de dekking van tekstvakken.
+- Bluebeam-tekstvakken behouden uitlijning, spatiëring en cursorpositie.
+- Documenttabs kunnen nu tussen meerdere vensters worden gesleept.
+- Vervangende tekst heeft natuurlijkere spatiëring; verouderde pagina’s en cloudmapacties zijn ook hersteld.

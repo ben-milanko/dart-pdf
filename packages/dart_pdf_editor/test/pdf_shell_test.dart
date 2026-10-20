@@ -1,7 +1,8 @@
 import 'dart:typed_data';
+import 'dart:ui' show SemanticsFlag;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -40,6 +41,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // The view modes are one SegmentedButton in the view-options popup, so a
+  // mode is addressed by its label rather than by a per-item key. Each segment
+  // repeats its label as a tooltip (for the locales where it ellipsizes), so
+  // match the drawn label - the single-line one - not the tooltip's copy.
+  Finder viewModeSegment(String label) => find.descendant(
+      of: find.byKey(const ValueKey('pdf-shell-view-mode')),
+      matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Text && widget.data == label && widget.maxLines == 1,
+          description: 'segment labelled "$label"'));
+
+  Future<void> tapViewMode(WidgetTester tester, String label) async {
+    await tester.tap(viewModeSegment(label), kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+  }
+
   Visibility actionVisibility(WidgetTester tester, Finder action) =>
       tester.widget<Visibility>(
         find.ancestor(of: action, matching: find.byType(Visibility)).first,
@@ -56,6 +73,37 @@ void main() {
   }
 
   group('PdfReader', () {
+    testWidgets("the reader follows the host's view-mode controller",
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final viewMode = PdfViewModeController(preferences: prefs);
+      addTearDown(viewMode.dispose);
+      await pump(
+          tester,
+          PdfReader(
+              bytes: buildClassicPdf(),
+              preferences: prefs,
+              viewMode: viewMode));
+      expect(find.byType(PdfReflowView), findsNothing);
+
+      // the window switches mode out from under the reader (its own View menu
+      // elsewhere, or the host's): the reader is bound to the controller, so
+      // it follows without the preferences being what it reads
+      viewMode.viewMode = PdfViewMode.reflow;
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfReflowView), findsOneWidget);
+
+      // and the reader's own control writes back to the same controller
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Pages');
+      expect(viewMode.viewMode, PdfViewMode.pages);
+      expect(find.byType(PdfReflowView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('stock chrome: search, page number, view options, thumbnails',
         (tester) async {
       await pump(tester, PdfReader(bytes: buildMultiPagePdf(3)));
@@ -74,6 +122,31 @@ void main() {
       // view-only: no editing toolbar anywhere
       expect(find.byType(PdfEditingToolbar), findsNothing);
       expect(find.byType(PdfViewer), findsOneWidget);
+    });
+
+    testWidgets('forwards page preview and raster cache policies',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      const lodPolicy = PdfPagePreviewLodPolicy(
+        intermediateLongestSides: [360, 720],
+      );
+      await pump(
+        tester,
+        PdfReader(
+          bytes: buildMultiPagePdf(2),
+          controller: viewer,
+          pagePreviewLodPolicy: lodPolicy,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+      expect(viewer.pagePreviewCache!.intermediateLongestSides,
+          lodPolicy.intermediateLongestSides);
     });
 
     testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
@@ -100,6 +173,24 @@ void main() {
       expect(find.text('100%'), findsOneWidget);
     });
 
+    testWidgets('zoom menu reaches 10000% for detailed drawing inspection',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(1), controller: viewer));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-zoom-menu')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      final target = find.byKey(const ValueKey('pdf-shell-zoom-10000'));
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target, kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(viewer.zoom, closeTo(100, 0.01));
+      expect(find.text('10000%'), findsOneWidget);
+    });
+
     testWidgets('PdfReaderFeatures.none leaves just the pages', (tester) async {
       await pump(
         tester,
@@ -109,9 +200,11 @@ void main() {
         ),
       );
       expect(find.byType(PdfViewer), findsOneWidget);
-      expect(find.byType(TextField), findsNothing);
+      // widgets-layer probes (no input field, no button of any kind), so
+      // they keep meaning something whichever Material library draws them
+      expect(find.byType(EditableText), findsNothing);
       expect(find.byType(PdfThumbnailSidebar), findsNothing);
-      expect(find.byType(IconButton), findsNothing);
+      expect(find.semantics.byFlag(SemanticsFlag.isButton), findsNothing);
     });
 
     testWidgets('thumbnails are read-only: no delete button, no reorder drag',
@@ -206,7 +299,7 @@ void main() {
       expect(viewer.pageCount, 3);
     });
 
-    testWidgets('view options menu toggles annotation visibility',
+    testWidgets('view options menu toggles persisted display settings',
         (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
@@ -220,6 +313,21 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       expect(prefs.showAnnotations, isFalse);
+
+      expect(prefs.showScrollbarChapters, isFalse);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-show-scrollbar-chapters')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.showScrollbarChapters, isTrue);
+      expect(
+          tester
+              .widget<PdfViewer>(find.byType(PdfViewer))
+              .showScrollbarChapters,
+          isTrue);
     });
 
     testWidgets('view options can switch to reflow text', (tester) async {
@@ -233,13 +341,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-view')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Reflow text');
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
-      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      // The Pages strip stays available in reflow - it drives the reading view
+      // (page taps scroll it) - while the canvas-bound search and page-number
+      // controls, which have no page to act on, drop away.
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.byType(PdfReflowView), findsOneWidget);
@@ -263,6 +372,25 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-page-color')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-bake-page-color')),
+          findsNothing);
+    });
+
+    testWidgets('view options toggle saving the page color into the file',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(1), preferences: prefs));
+      expect(prefs.bakePageColor, isFalse);
+      for (final expected in [true, false]) {
+        await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Save page color into file'));
+        await tester.pumpAndSettle();
+        expect(prefs.bakePageColor, expected);
+      }
     });
   });
 
@@ -293,8 +421,32 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-shell-author')), findsOneWidget);
-      expect(
-          find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
+    });
+
+    testWidgets('forwards page preview and raster cache policies',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      const lodPolicy = PdfPagePreviewLodPolicy(
+        intermediateLongestSides: [360, 720],
+      );
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(2),
+          viewerController: viewer,
+          pagePreviewLodPolicy: lodPolicy,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+      expect(viewer.pagePreviewCache!.intermediateLongestSides,
+          lodPolicy.intermediateLongestSides);
     });
 
     testWidgets('customStamps are supplied to the owned editor session',
@@ -347,10 +499,19 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // Filters the (now full) tool list down to a single tool so its tile is
+    // on-screen and tappable regardless of list length.
+    Future<void> filterShortcuts(WidgetTester tester, String query) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), query);
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('rebinding a shortcut updates the label and persists on Done',
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       // Capture a new key for the rectangle tool.
       await tester
@@ -369,6 +530,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
       await tester.pumpAndSettle();
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
       expect(find.text('B'), findsOneWidget);
     });
 
@@ -376,6 +538,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -394,6 +557,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -404,6 +568,84 @@ void main() {
 
       expect(find.text('Press a key'), findsNothing);
       expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('shortcuts are grouped under tool-category headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The Shapes header sits above the rectangle tool it groups.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      final headerY = tester
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')))
+          .dy;
+      final rectY = tester
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
+          .dy;
+      expect(headerY, lessThan(rectY));
+
+      // A group lower down builds once scrolled into view.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsOneWidget);
+    });
+
+    testWidgets('searching filters the shortcut list and its group headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'rect');
+      await tester.pumpAndSettle();
+
+      // Only the rectangle tool (and its Shapes header) survives the filter.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-ellipse')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsNothing);
+    });
+
+    testWidgets('searching by key label matches, and a miss shows a message',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The rectangle tool is bound to "R" - searching the key finds it.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'r');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+
+      // A query no tool matches shows the empty-state message instead.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'zzzz');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-no-matches')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsNothing);
     });
 
     testWidgets('view options can switch the editor to reflow text',
@@ -419,9 +661,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-view')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Reflow text');
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
@@ -430,6 +670,50 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.text('Hello, world!'), findsOneWidget);
+    });
+
+    testWidgets('the view-mode control clears Flutter\'s 280pt menu cap',
+        (tester) async {
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: null));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      // a popup stops at 5 * 56 by default, which squeezes three labelled
+      // segments; PdfShellViewOptionsButton raises the cap when it carries
+      // them, so all three labels stay readable
+      final width = tester
+          .getSize(find.byKey(const ValueKey('pdf-shell-view-mode')))
+          .width;
+      expect(width, greaterThan(280 - 24));
+      expect(viewModeSegment('Pages'), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
+      expect(viewModeSegment('Page grid'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a verbose locale ellipsizes the segments instead of'
+        ' overflowing', (tester) async {
+      // Ukrainian has the longest set of the shipped locales; every segment is
+      // as wide as the widest, so this is the case that would overflow.
+      await tester.pumpWidget(MaterialApp(
+        locale: const Locale('uk'),
+        localizationsDelegates: PdfEditorLocalizations.delegates,
+        supportedLocales: PdfEditorLocalizations.supportedLocales,
+        home: Scaffold(body: PdfEditorView(bytes: buildMultiPagePdf(2))),
+      ));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      // reaching here without a RenderFlex overflow is the assertion
+      expect(find.byKey(const ValueKey('pdf-shell-view-mode')), findsOneWidget);
+      expect(
+          tester
+              .getSize(find.byKey(const ValueKey('pdf-shell-view-mode')))
+              .width,
+          lessThanOrEqualTo(6 * 56));
     });
 
     testWidgets('View options can swap in the full-area page grid',
@@ -445,9 +729,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
 
       expect(prefs.showThumbnailView, isTrue);
       expect(find.byType(PdfThumbnailView), findsOneWidget);
@@ -470,6 +752,128 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    testWidgets('an owned view mode survives a preferences swap',
+        (tester) async {
+      // No host controller here, so the shell owns one - and the object it
+      // persists into can still be swapped under it.
+      final first = PdfEditingPreferences();
+      addTearDown(first.dispose);
+      final second = PdfEditingPreferences();
+      addTearDown(second.dispose);
+      final bytes = buildMultiPagePdf(3);
+      await pump(tester, PdfEditorView(bytes: bytes, preferences: first));
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+      expect(first.viewMode, PdfViewMode.pageGrid);
+
+      await pump(tester, PdfEditorView(bytes: bytes, preferences: second));
+      await tester.pumpAndSettle();
+      // the mode is the window's and outlives the swap; only where it
+      // persists changes - the fresh preferences say "pages" and lose
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Pages');
+      expect(second.viewMode, PdfViewMode.pages);
+      expect(first.viewMode, PdfViewMode.pageGrid,
+          reason: 'the old preferences are no longer written');
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('each window keeps its own view mode', (tester) async {
+      tester.view.physicalSize = const Size(2400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // one process-wide preferences object, as a multi-window host has, and
+      // one view-mode controller per window
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final first = PdfViewModeController(preferences: prefs);
+      addTearDown(first.dispose);
+      final second = PdfViewModeController(preferences: prefs);
+      addTearDown(second.dispose);
+      Widget window(Key key, PdfViewModeController viewMode) => Expanded(
+            child: KeyedSubtree(
+              key: key,
+              child: PdfEditorView(
+                bytes: buildMultiPagePdf(3),
+                preferences: prefs,
+                viewMode: viewMode,
+              ),
+            ),
+          );
+      await pump(
+          tester,
+          Row(children: [
+            window(const ValueKey('window-1'), first),
+            window(const ValueKey('window-2'), second),
+          ]));
+      await tester.pumpAndSettle();
+
+      Finder inWindow(Key key, Finder matching) =>
+          find.descendant(of: find.byKey(key), matching: matching);
+      await tester.tap(
+          inWindow(const ValueKey('window-1'),
+              find.byKey(const ValueKey('pdf-shell-view-options'))),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+
+      expect(
+          inWindow(const ValueKey('window-1'), find.byType(PdfThumbnailView)),
+          findsOneWidget);
+      // the regression: the second window read the same process-wide
+      // preference the first one wrote, so it switched to the grid too
+      expect(second.viewMode, PdfViewMode.pages);
+      expect(
+          inWindow(const ValueKey('window-2'), find.byType(PdfThumbnailView)),
+          findsNothing);
+
+      // the choice is still persisted - as the mode the next window opens in
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a page grid double-click lands the viewer on that page',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      await pump(
+          tester,
+          PdfEditorView(
+              bytes: buildMultiPagePdf(8),
+              preferences: prefs,
+              viewerController: viewer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
+
+      await tester.tap(find.text('Page 6'));
+      await tester.pump();
+      await tester.tap(find.text('Page 6'));
+      await tester.pumpAndSettle();
+
+      // the grid closes onto the page that was double-clicked. Regression:
+      // hiding the editing toolbar used to drop PdfToolbarDragScope out of
+      // the tree, which rebuilt the viewer's State (and so its scroll
+      // position) from scratch - the reader landed back on page 1.
+      expect(prefs.showThumbnailView, isFalse);
+      expect(viewer.currentPage, 5);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
     testWidgets('opening the page grid clears reflow', (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
@@ -481,9 +885,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid')),
-          kind: PointerDeviceKind.mouse);
-      await tester.pumpAndSettle();
+      await tapViewMode(tester, 'Page grid');
 
       expect(prefs.showReflowView, isFalse);
       expect(prefs.showThumbnailView, isTrue);
@@ -502,7 +904,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('pdf-shell-page-grid')), findsNothing);
+      expect(viewModeSegment('Page grid'), findsNothing);
+      // reflow is still offered, so the control stays - as a pair
+      expect(viewModeSegment('Pages'), findsOneWidget);
+      expect(viewModeSegment('Reflow text'), findsOneWidget);
     });
 
     testWidgets('reflowView: false hides editor reflow option', (tester) async {
@@ -519,7 +924,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
           findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-shell-reflow-view')), findsNothing);
+      expect(viewModeSegment('Reflow text'), findsNothing);
     });
 
     testWidgets('compact layout honors an explicit thumbnail preference',
@@ -580,26 +985,37 @@ void main() {
           find.byKey(const ValueKey('pdf-bookmark-title')), 'Chapter 1');
       await tester.enterText(
           find.byKey(const ValueKey('pdf-bookmark-page')), '2');
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
-          kind: PointerDeviceKind.mouse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       expect(editing.outline.items.single.title, 'Chapter 1');
       expect(editing.outline.items.single.destination?.pageIndex, 1);
 
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-edit-0')),
-          kind: PointerDeviceKind.mouse);
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-edit-0')));
       await tester.pumpAndSettle();
       await tester.enterText(
           find.byKey(const ValueKey('pdf-bookmark-title')), 'Renamed');
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-save')),
-          kind: PointerDeviceKind.mouse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       expect(editing.outline.items.single.title, 'Renamed');
 
-      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')),
-          kind: PointerDeviceKind.mouse);
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-add-child-0')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-bookmark-title')), 'Section 1.1');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(editing.outline.items.single.children.single.title, 'Section 1.1');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-more-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-bookmark-delete-0')));
       await tester.pump();
       expect(editing.outline.items, isEmpty);
     });
@@ -684,7 +1100,7 @@ void main() {
       );
       expect(find.byType(PdfViewer), findsOneWidget);
       expect(find.byType(PdfEditingToolbar), findsNothing);
-      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(EditableText), findsNothing);
       expect(find.byType(PdfThumbnailSidebar), findsNothing);
     });
 
@@ -713,6 +1129,57 @@ void main() {
       expect(find.byIcon(Icons.undo), findsNothing);
       expect(find.byIcon(Icons.layers), findsNothing);
       expect(find.byIcon(Icons.palette), findsNothing);
+    });
+
+    testWidgets('digital signature is hidden without a signing handler',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
+
+      final insert = find.byKey(const ValueKey('pdf-group-insert'));
+      final dock = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .last;
+      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
+      await tester.tap(insert);
+      await tester.pump();
+
+      expect(find.byIcon(Icons.draw_outlined), findsNothing);
+    });
+
+    testWidgets('digital signature is enabled by a signing handler',
+        (tester) async {
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          onPlaceSignature: (context,
+              {required pageIndex, required pageRect}) async {},
+        ),
+      );
+
+      final insert = find.byKey(const ValueKey('pdf-group-insert'));
+      final dock = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .last;
+      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
+      await tester.tap(insert);
+      await tester.pump();
+
+      final signature = find.byIcon(Icons.draw_outlined);
+      final strip = find
+          .descendant(
+            of: find.byType(PdfEditingToolbar),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(signature, 100, scrollable: strip);
+      expect(signature, findsOneWidget);
     });
 
     testWidgets('toolGroups hides whole tool types', (tester) async {
@@ -770,7 +1237,8 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-text-fill-none')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-text-border-none')), findsNothing);
       // but the sliders survive
-      expect(find.byType(Slider), findsWidgets);
+      expect(find.byKey(const ValueKey('pdf-tune-opacity-slider')),
+          findsOneWidget);
     });
 
     testWidgets('colorControls locks the freehand highlight color',
@@ -792,12 +1260,12 @@ void main() {
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFF123456));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
     });
 
     testWidgets('color controls are present by default', (tester) async {
@@ -823,12 +1291,13 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shape-fill-none')), findsOneWidget);
     });
 
-    testWidgets('compact markup tools explain that text must be selected',
-        (tester) async {
+    testWidgets('compact tool sheet tabs arm their first tool', (tester) async {
       tester.view.physicalSize = const Size(560, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await pump(tester, PdfEditorView(bytes: buildClassicPdf()));
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-tools-handle')),
           kind: PointerDeviceKind.mouse);
@@ -836,19 +1305,56 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-group-tab-markup')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      expect(editing.markupTool, PdfMarkupKind.highlight);
+      expect(find.text('Choose a markup, then select text'), findsNothing,
+          reason: 'the armed highlight button communicates the state');
 
-      expect(find.text('Select text to use markup'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-draw')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.markupTool, isNull);
+      expect(editing.tool, PdfEditTool.ink);
+      // tapping the tile the tab switch armed keeps it armed
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-ink')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.ink);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-shapes')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.rectangle);
+
+      // measure's first tool needs a scale: switching never prompts
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-group-tab-measure')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-group-tab-measure')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.rectangle);
+      expect(find.byType(Dialog), findsNothing);
     });
 
-    testWidgets('desktop markup tools explain that text must be selected',
+    testWidgets('desktop markup tools explain the arm-first workflow',
         (tester) async {
-      await pump(tester, PdfEditorView(bytes: buildClassicPdf()));
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
           kind: PointerDeviceKind.mouse);
       await tester.pump();
 
-      expect(find.text('Select text to use markup'), findsOneWidget);
+      expect(find.text('Choose a markup, then select text'), findsOneWidget);
+      final highlight = find.byKey(const ValueKey('pdf-markup-highlight'));
+      expect(tester.getSemantics(highlight), isSemantics(isEnabled: true));
+
+      await tester.tap(highlight, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(editing.markupTool, PdfMarkupKind.highlight);
+      expect(find.text('Choose a markup, then select text'), findsNothing,
+          reason: 'the selected button now communicates the armed state');
     });
 
     testWidgets('toolbar buttons drive the owned session', (tester) async {
@@ -856,11 +1362,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.draw), kind: PointerDeviceKind.mouse);
       await tester.pump();
       // the draw button reads back as armed from the internal session
-      final button = tester.widget<IconButton>(find.ancestor(
-        of: find.byIcon(Icons.draw),
-        matching: find.byType(IconButton),
-      ));
-      expect(button.isSelected, isTrue);
+      expect(tester.getSemantics(find.byKey(const ValueKey('pdf-tool-ink'))),
+          isSemantics(isSelected: true));
     });
 
     testWidgets('custom toolbar widgets can drive the owned session',
@@ -1141,6 +1644,180 @@ void main() {
       expect(viewer.pageColor, const Color(0xFFEEF7EE));
     });
 
+    testWidgets('floating toolbar can be dragged to another edge',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      expect(prefs.toolbarDock, PdfPanelDock.bottom);
+      final handle = find.byKey(const ValueKey('pdf-toolbar-move'));
+      expect(handle, findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(handle),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(12, 0));
+      await tester.pump();
+
+      final top = find.byKey(const ValueKey('pdf-shell-dropzone-top'));
+      expect(top, findsOneWidget);
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      final leftTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-left')),
+      );
+      final rightTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-right')),
+      );
+      expect(viewerRect.left, greaterThan(100));
+      expect(leftTarget.left, greaterThanOrEqualTo(viewerRect.left));
+      expect(rightTarget.right, lessThanOrEqualTo(viewerRect.right));
+      expect(tester.getRect(top).top, greaterThanOrEqualTo(viewerRect.top));
+      await gesture.moveTo(tester.getCenter(top));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(prefs.toolbarDock, PdfPanelDock.top);
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(tester.getTopLeft(card).dy, lessThan(140));
+    });
+
+    testWidgets('left toolbar is a vertical rail inside docked panels',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      prefs.toolbarDock = PdfPanelDock.left;
+
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      final pages = find.byType(PdfThumbnailSidebar);
+      expect(card, findsOneWidget);
+      expect(pages, findsOneWidget);
+      expect(
+        tester.getRect(card).left,
+        greaterThanOrEqualTo(tester.getRect(pages).right - 0.5),
+      );
+
+      final markup =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-markup')));
+      final draw =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-draw')));
+      expect((markup.dx - draw.dx).abs(), lessThan(0.5));
+      expect(draw.dy, greaterThan(markup.dy));
+      final markupIcon = tester.getCenter(find.descendant(
+        of: find.byKey(const ValueKey('pdf-group-markup')),
+        matching: find.byIcon(Icons.edit_note),
+      ));
+      expect(markupIcon.dx, closeTo(markup.dx, 0.1));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      final openCards = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(openCards, findsNWidgets(2));
+      final openRects = [
+        for (final element in openCards.evaluate())
+          tester.getRect(find.byElementPredicate((e) => identical(e, element))),
+      ]..sort((a, b) => a.left.compareTo(b.left));
+      expect(openRects.last.left, greaterThan(openRects.first.right));
+      expect(openRects.first.width, lessThan(openRects.last.width));
+
+      // The contextual (second) toolbar follows the rail instead of opening
+      // as the old horizontal row beside it.
+      final highlight =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-highlight')));
+      final underline =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-underline')));
+      expect(highlight.dx, closeTo(underline.dx, 0.5));
+      expect(underline.dy, greaterThan(highlight.dy));
+      final contextualScroll = tester.widget<SingleChildScrollView>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('pdf-markup-highlight')),
+              matching: find.byType(SingleChildScrollView),
+            )
+            .first,
+      );
+      expect(contextualScroll.scrollDirection, Axis.vertical);
+    });
+
+    testWidgets('right toolbar is a vertical rail inside docked panels',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      prefs.showThumbnailSidebar = false;
+      prefs.showAnnotationSidebar = true;
+      prefs.toolbarDock = PdfPanelDock.right;
+
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      final annotations = find.byType(PdfAnnotationSidebar);
+      expect(card, findsOneWidget);
+      expect(annotations, findsOneWidget);
+      expect(
+        tester.getRect(card).right,
+        lessThanOrEqualTo(tester.getRect(annotations).left + 0.5),
+      );
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      expect(
+        viewerRect.right - tester.getRect(card).right,
+        greaterThanOrEqualTo(PdfScrollbar.hitExtent - 0.5),
+      );
+
+      final markup =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-markup')));
+      final draw =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-draw')));
+      expect((markup.dx - draw.dx).abs(), lessThan(0.5));
+      expect(draw.dy, greaterThan(markup.dy));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      final openCards = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(openCards, findsNWidgets(2));
+      final openRects = [
+        for (final element in openCards.evaluate())
+          tester.getRect(find.byElementPredicate((e) => identical(e, element))),
+      ]..sort((a, b) => a.left.compareTo(b.left));
+      expect(openRects.first.right, lessThan(openRects.last.left));
+      expect(openRects.last.width, lessThan(openRects.first.width));
+    });
+
     testWidgets('view options show page color hex and current author',
         (tester) async {
       final prefs = PdfEditingPreferences();
@@ -1149,7 +1826,7 @@ void main() {
       final editing =
           PdfEditingController(buildMultiPagePdf(1), preferences: prefs);
       addTearDown(editing.dispose);
-      editing.author = 'A. Reviewer';
+      editing.preferences.author = 'A. Reviewer';
 
       await pump(
         tester,
@@ -1193,6 +1870,44 @@ void main() {
       await tester.pumpAndSettle();
       // current page is 0, so the 3 pages land at index 1
       expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
+    });
+
+    testWidgets(
+        'with a multi-file picker, Insert PDF… opens the insert-pages dialog',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          viewerController: viewer,
+          onPickPdfFilesToInsert: () async => [
+            PdfInsertFile('a.pdf', buildMultiPagePdf(1)),
+            PdfInsertFile('b.pdf', buildMultiPagePdf(2)),
+          ],
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-page-actions')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-insert-pdf')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-insert-pages-dialog')),
+          findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-insert-pages-confirm')));
+      await tester.pumpAndSettle();
+      // both files land, in order, after the current page as one undo step
+      expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
+      editing.undo();
+      expect(editing.document.pageCount, 2);
     });
 
     testWidgets('Export pages… hands the host the chosen range',
@@ -1274,8 +1989,8 @@ void main() {
   group('floating toast margin', () {
     testWidgets('lifts the toast above the dock and the safe-area inset',
         (tester) async {
-      late EdgeInsets withoutInset;
-      late EdgeInsets withInset;
+      late EdgeInsetsGeometry withoutInset;
+      late EdgeInsetsGeometry withInset;
       await tester.pumpWidget(MaterialApp(
         home: MediaQuery(
           data: const MediaQueryData(size: Size(800, 600)),
@@ -1297,10 +2012,12 @@ void main() {
           }),
         ),
       ));
+      final withoutInsetLtr = withoutInset.resolve(TextDirection.ltr);
+      final withInsetLtr = withInset.resolve(TextDirection.ltr);
       // clears the floating editing toolbar dock…
-      expect(withoutInset.bottom, greaterThanOrEqualTo(84));
+      expect(withoutInsetLtr.bottom, greaterThanOrEqualTo(84));
       // …and adds the device's bottom safe-area inset on top
-      expect(withInset.bottom, withoutInset.bottom + 34);
+      expect(withInsetLtr.bottom, withoutInsetLtr.bottom + 34);
     });
   });
 
@@ -1329,6 +2046,59 @@ void main() {
           findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-shell-properties-toggle')),
           findsOneWidget);
+    });
+
+    testWidgets('compact: the Controls sheet owns the view modes, one tap deep',
+        (tester) async {
+      compactScreen(tester);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
+      await openShellControls(tester);
+
+      // all three modes are tiles in the sheet's View section. Page grid used
+      // to be reachable only by opening Settings from here and scrolling to a
+      // checkbox, while Reflow already had a tile of its own.
+      expect(find.byKey(const ValueKey('pdf-shell-view-mode-pages')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-reflow-toggle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-page-grid-toggle')),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-page-grid-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.viewMode, PdfViewMode.pageGrid);
+      expect(find.byType(PdfThumbnailView), findsOneWidget);
+
+      // and picking another mode leaves the first one behind
+      await openShellControls(tester);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-reflow-toggle')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.viewMode, PdfViewMode.reflow);
+      expect(prefs.showThumbnailView, isFalse);
+      expect(find.byType(PdfThumbnailView), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('compact: the Settings sheet no longer holds the view modes',
+        (tester) async {
+      compactScreen(tester);
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShellControls(tester);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Settings'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-show-annotations')),
+          findsOneWidget);
+      // they live one level up, in Controls
+      expect(find.text('Reflow text'), findsNothing);
+      expect(find.text('Page grid'), findsNothing);
     });
 
     testWidgets('compact: a toggled panel floats up as a bottom sheet',
@@ -1612,13 +2382,12 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-thumbnails-sheet-close')),
           findsOneWidget);
       // the editable delete buttons are present...
-      expect(
-          find.widgetWithIcon(IconButton, Icons.delete_outline), findsWidgets);
+      expect(find.byIcon(Icons.delete_outline), findsWidgets);
       // ...but carry no Tooltip (no OverlayPortal in the reorderable items)
       expect(
           find.descendant(
-            of: find.byType(ReorderableListView),
-            matching: find.byType(Tooltip),
+            of: find.byType(SliverReorderableList),
+            matching: find.byType(OverlayPortal),
           ),
           findsNothing);
       expect(tester.takeException(), isNull);
@@ -1641,6 +2410,8 @@ void main() {
       final viewerBottom = tester.getRect(find.byType(PdfViewer)).bottom;
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 0);
     });
 
     testWidgets('wide: the editing toolbar floats over the viewer',
@@ -1655,6 +2426,9 @@ void main() {
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, lessThan(viewerBottom),
           reason: 'the floating toolbar overlaps the viewer');
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 144,
+          reason: 'the document must scroll clear of the floating toolbar');
     });
   });
 
@@ -1679,6 +2453,33 @@ void main() {
         expect(iconColorOf(tester, find.byKey(ValueKey(key))), expected,
             reason: '$key icon colour should match the others');
       }
+    });
+
+    testWidgets(
+        'the overflow scroller never drag-scrolls, so its controls '
+        'stay tappable (macOS trackpad)', (tester) async {
+      await pump(
+          tester, PdfEditorView(bytes: buildMultiPagePdf(2), onSave: (_) {}));
+
+      // The header wraps its controls in a horizontal scroll view for narrow
+      // windows. If that scroller accepts pointer *drags* (Flutter's default
+      // dragDevices include the trackpad), a trackpad click - which carries a
+      // little motion - is claimed by the drag recognizer and the tap on the
+      // control underneath is swallowed, leaving the whole bar hover-only on
+      // macOS while every other bar works. It must scroll only on the wheel /
+      // trackpad scroll signal, i.e. with no drag devices at all.
+      final scroller = find
+          .ancestor(
+            of: find.byKey(const ValueKey('pdf-shell-panels')),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first;
+      final config = tester.widget<ScrollConfiguration>(
+        find
+            .ancestor(of: scroller, matching: find.byType(ScrollConfiguration))
+            .first,
+      );
+      expect(config.behavior.dragDevices, isEmpty);
     });
   });
 }

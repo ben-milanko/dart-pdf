@@ -1,0 +1,152 @@
+# Changelog
+
+## 10.0.0
+
+- Regenerate the bundled web render worker for the 10.0.0 suite.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
+## 8.1.0
+
+- Align dependency constraints with the dart-pdf 8.1.0 suite.
+
+## 8.0.0
+
+- Align with dart_pdf_editor 8.0.0 and regenerate the bundled render worker with annotation subtype filtering.
+
+
+## 7.0.0
+
+- Raise the Flutter floor to `flutter: '>=3.47.0'`, matching
+  `dart_pdf_editor` 7.0.0 (material_ui 1.4's floor).
+
+## 6.0.0
+
+- Declare the real Flutter floor: `flutter: '>=3.44.0'` (was `>=3.24.0`),
+  matching `dart_pdf_editor`. 5.0.0 already needed Flutter 3.44
+  (`ReorderableListView.onReorderItem`), so this strands nobody.
+
+## 5.1.1
+
+- Version bump to track the 5.1.1 suite.
+
+## 5.1.0
+
+- Version bump to track the 5.1.0 suite.
+
+## 5.0.0
+
+- Bundle Carlito, the metric-compatible Calibri clone, in regular, bold,
+  italic and bold-italic. Office and its print drivers emit Calibri
+  unembedded constantly; until now those pages were drawn in TeX Gyre Heros,
+  whose Helvetica advances are far too wide for Calibri's pen offsets (`C`
+  722 against 529), so every glyph crowded the next. Adds 2.6 MB of files,
+  0.86 MB over the wire: the OFL reserves the name, so the faces ship
+  unmodified rather than subset.
+- Check the four Carlito faces against Calibri's own advances in
+  `test/substitute_metrics_test.dart`, alongside the AFM checks.
+
+## 4.5.0
+
+- Bundle the metric-compatible TeX Gyre faces the renderer substitutes into
+  unembedded standard-14 text: Heros (Helvetica/Arial), Termes (Times) and
+  Cursor (Courier), in regular, bold, italic and bold-italic, joining the
+  Adventor faces already shipped for Century Gothic / Avant Garde. They carry
+  the same advances as the AFM tables a standard-14 page is typeset against, so
+  such a page is spaced as it was written on every platform instead of picking
+  up whatever the host has installed.
+- Check every bundled substitute file against those AFM tables in
+  `test/substitute_metrics_test.dart`, run by CI.
+
+## 4.4.0
+
+- Regenerate the bundled web render worker for dart_pdf_editor 4.4.0 and align the optional assets with the package suite.
+
+## 4.3.0
+
+- Regenerate the bundled web render worker for dart_pdf_editor 4.3.0 and align the optional assets with the package suite.
+
+## 4.2.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.2.0 and
+  align the optional assets package with the lockstep minor release.
+
+## 4.1.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.1.0 and
+  align the optional assets package with the lockstep minor release.
+
+## 4.0.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 4.0.0 and
+  align the optional assets package with the lockstep major release.
+
+## 3.8.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.8.0.
+
+## 3.7.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.7.0.
+
+## 3.6.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.6.0.
+- Bundle TeX Gyre Adventor regular and bold as metric-compatible fallbacks for
+  unembedded Century Gothic and Avant Garde text.
+
+## 3.5.1
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.1 and
+  align the optional asset package with the lockstep patch release.
+
+## 3.5.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.0 and
+  align the optional asset package with the lockstep release.
+
+## 3.4.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.4.0.
+
+## 3.3.1
+
+- Lockstep patch release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.1.
+
+## 3.3.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.0.
+
+## 3.2.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.2.0.
+
+## 3.1.1
+
+- Lockstep patch release to align the optional bundled assets with
+  `dart_pdf_editor` 3.1.1.
+
+## 3.1.0
+
+- The bundled web render worker is now generated at build time by
+  `dart_pdf_editor`'s `build_web_worker` tool instead of being committed as a
+  prebuilt file, so the asset always matches the editor sources (#582). The
+  worker gained the streaming-partial-record and off-thread text-extraction
+  protocols (see `dart_pdf_editor` 3.1.0) (#564, #396).
+- The bundled editor fonts defer off app cold start: they register their byte
+  loaders without reading font data until first use (#569).
+
+## 3.0.0
+
+- Initial release. Holds the optional `dart_pdf_editor` bundled assets - the six
+  editor fonts and the prebuilt web render worker - split out of
+  `dart_pdf_editor` so viewer-only apps do not bundle them. Call
+  `registerBundledEditorAssets()` at startup to restore the full-featured
+  editor defaults.

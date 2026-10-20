@@ -1,5 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+
+import 'design/material_host.dart';
+import 'dialog.dart';
+import 'l10n/pdf_l10n.dart';
+import 'design/editor_presenter.dart';
 
 /// Asks the user for an inclusive page range, returning it 0-based as
 /// `(start, end)` - or null when cancelled. [pageCount] bounds the input
@@ -8,22 +13,24 @@ import 'package:flutter/services.dart';
 ///
 /// Used by the editor shell's "Export pages…" action; exposed for hosts
 /// building their own chrome around [PdfEditingController.exportPageRange].
+/// [title] and [confirmLabel] default to the localized "Export pages" and
+/// "Export".
 Future<({int start, int end})?> showPdfPageRangeDialog(
   BuildContext context, {
   required int pageCount,
   int? initialStart,
   int? initialEnd,
-  String title = 'Export pages',
-  String confirmLabel = 'Export',
+  String? title,
+  String? confirmLabel,
 }) {
-  return showDialog<({int start, int end})>(
-    context: context,
+  return pdfPresentDialog<({int start, int end})>(
+    context,
     builder: (context) => _PdfPageRangeDialog(
       pageCount: pageCount,
       initialStart: (initialStart ?? 0).clamp(0, pageCount - 1),
       initialEnd: (initialEnd ?? pageCount - 1).clamp(0, pageCount - 1),
-      title: title,
-      confirmLabel: confirmLabel,
+      title: title ?? pdfL10n(context).pageRangeExportTitle,
+      confirmLabel: confirmLabel ?? pdfL10n(context).pageRangeExportConfirm,
     ),
   );
 }
@@ -73,11 +80,12 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
     final start = _parse(_from);
     final end = _parse(_to);
     if (start == null || end == null) {
-      setState(() => _error = 'Enter pages between 1 and ${widget.pageCount}.');
+      setState(() =>
+          _error = pdfL10n(context).pageRangeErrorBounds(widget.pageCount));
       return;
     }
     if (end < start) {
-      setState(() => _error = 'The last page must not be before the first.');
+      setState(() => _error = pdfL10n(context).pageRangeErrorOrder);
       return;
     }
     Navigator.of(context).pop((start: start, end: end));
@@ -95,6 +103,7 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
             textInputAction: TextInputAction.next,
             onSubmitted: (_) => _submit(),
             decoration: InputDecoration(labelText: label, isDense: true),
+            contextMenuBuilder: pdfTextContextMenu,
           ),
         );
 
@@ -105,13 +114,15 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${widget.pageCount} pages',
+          Text(pdfL10n(context).pageRangePageCount(widget.pageCount),
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 12),
           Row(children: [
-            field('From', _from, const ValueKey('pdf-page-range-from')),
+            field(pdfL10n(context).pageRangeFrom, _from,
+                const ValueKey('pdf-page-range-from')),
             const SizedBox(width: 16),
-            field('To', _to, const ValueKey('pdf-page-range-to')),
+            field(pdfL10n(context).pageRangeTo, _to,
+                const ValueKey('pdf-page-range-to')),
           ]),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -124,13 +135,15 @@ class _PdfPageRangeDialogState extends State<_PdfPageRangeDialog> {
         TextButton(
           key: const ValueKey('pdf-page-range-cancel'),
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
-        FilledButton(
-          key: const ValueKey('pdf-page-range-confirm'),
-          onPressed: _submit,
-          child: Text(widget.confirmLabel),
-        ),
+        PdfDialogSubmit.action(
+            onSubmit: _submit,
+            child: FilledButton(
+              key: const ValueKey('pdf-page-range-confirm'),
+              onPressed: _submit,
+              child: Text(widget.confirmLabel),
+            )),
       ],
     );
   }

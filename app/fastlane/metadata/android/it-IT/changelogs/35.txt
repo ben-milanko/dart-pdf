@@ -1,0 +1,7 @@
+Novità della versione 4.2.0
+
+- Le pagine vicine restano nitide durante lo scorrimento lento, sfruttando la capacità grafica disponibile.
+- Posiziona le annotazioni con precisione grazie alle nuove guide di allineamento e ai righelli di pagina.
+- Ingrandisci attorno al puntatore con Ctrl o Cmd e la rotellina del mouse.
+- Corretta la modifica delle annotazioni su pagine ruotate e la selezione delle evidenziazioni su più righe.
+- Sposta la vista tra le righe di testo senza avviare una selezione.

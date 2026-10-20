@@ -1,0 +1,9 @@
+Novedades de la 5.0.0
+
+- Los formularios calculan totales, formatean valores y revisan lo que escribes.
+- Usa Tab entre campos; elige varios elementos en cuadros de lista.
+- Contraseñas de formularios en almacenamiento seguro, nunca en el PDF.
+- Crea botones de opción, desplegables, listas y campos de firma.
+- Firma PDF protegidos con contraseña.
+- Revocación de firmas comprobada; listas de confianza UE y Adobe (opcional).
+- El texto en Calibri de documentos Office ya se ve bien.

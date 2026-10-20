@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -103,7 +103,9 @@ void main() {
       expect(editing.document.page(0).annotations, hasLength(2));
     });
 
-    test('resize, rotate, and text editing demand a single selection', () {
+    test(
+        'rotation supports multiple selections; resize and text editing need one',
+        () {
       final editing = twoShapes();
       editing.selectAnnotationAt(0, 140, 675);
       expect(editing.canResizeSelected, isTrue);
@@ -111,7 +113,7 @@ void main() {
 
       editing.selectAnnotationAt(0, 290, 675, toggle: true);
       expect(editing.canResizeSelected, isFalse);
-      expect(editing.canRotateSelected, isFalse);
+      expect(editing.canRotateSelected, isTrue);
       expect(editing.canEditSelectedText, isFalse);
       expect(editing.canRestyleSelectedText, isFalse);
     });
@@ -123,6 +125,36 @@ void main() {
       // the circle slid into slot 0 and stayed selected
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
       expect(editing.selectedAnnotation!.subtype, 'Circle');
+    });
+
+    test(
+        'text-markup clicks must land on a /QuadPoints quad, '
+        'not just the annotation /Rect', () {
+      // One highlight with two quads on the same page: the first
+      // quad sits on the upper line, the second on the lower line,
+      // and the /Rect is the union of both (a single tall box that
+      // covers the gap between the lines as well). Without the
+      // quad-only hit test, a click anywhere inside that gap or
+      // outside the colored runs would still hit the highlight.
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addMarkup(PdfMarkupKind.highlight, {
+          0: const [
+            PdfRect(100, 700, 300, 712), // upper line quad
+            PdfRect(100, 685, 200, 697), // lower line quad
+          ],
+        });
+      // inside the upper quad → hit
+      expect(editing.selectableAnnotationAt(0, 150, 706), isNotNull);
+      // inside the lower quad → hit
+      expect(editing.selectableAnnotationAt(0, 150, 691), isNotNull);
+      // in the gap between the two lines - inside the /Rect, but
+      // outside every /QuadPoints quad → miss
+      expect(editing.selectableAnnotationAt(0, 150, 698), isNull);
+      // inside the /Rect but past the right edge of the lower quad →
+      // still misses, even though /Rect.contains is true
+      expect(editing.selectableAnnotationAt(0, 250, 691), isNull);
+      // well outside the highlight → miss
+      expect(editing.selectableAnnotationAt(0, 500, 500), isNull);
     });
   });
 
@@ -136,8 +168,9 @@ void main() {
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
         WidgetTester tester,
-        {int pages = 2}) async {
-      final editing = PdfEditingController(buildMultiPagePdf(pages));
+        {int pages = 2,
+        Uint8List? bytes}) async {
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -174,6 +207,53 @@ void main() {
       editing.tool = PdfEditTool.select;
       await tester.pump();
 
+      // below the shapes and clear of the 'Page 1' line - a drag that
+      // starts on text selects the text instead
+      final gesture = await tester.startGesture(view(80, 630),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(200, 680));
+      await tester.pump();
+      await gesture.moveTo(view(340, 705));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      await settle(tester);
+    });
+
+    testWidgets('a select-tool mouse drag over page text selects the text',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // 'Page 1' at 24pt from (72, 720)
+      final gesture = await tester.startGesture(view(74, 726),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(110, 726));
+      await tester.pump();
+      await gesture.moveTo(view(150, 726));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(viewer.selectedText, 'Page 1');
+      expect(editing.hasAnnotationSelection, isFalse);
+      expect(editing.tool, PdfEditTool.select);
+      await settle(tester);
+    });
+
+    testWidgets('cmd+drag over page text rubber-bands with the select tool',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
       final gesture = await tester.startGesture(view(80, 730),
           kind: PointerDeviceKind.mouse);
       await gesture.moveTo(view(200, 690));
@@ -182,8 +262,49 @@ void main() {
       await tester.pump();
       await gesture.up();
       await tester.pump();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
 
       expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      expect(viewer.selectedText, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('a select-tool click on the page clears the text selection',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(74, 726),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveTo(view(110, 726));
+      await tester.pump();
+      await gesture.moveTo(view(150, 726));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(viewer.selectedText, 'Page 1');
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(view(450, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(viewer.selectedText, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets('a select-tool double-click selects the word under it',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tester.tapAt(view(100, 726), kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tapAt(view(100, 726), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      expect(viewer.selectedText, 'Page');
       await settle(tester);
     });
 
@@ -238,10 +359,38 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
     });
 
+    Future<void> pressSelectAll(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+    }
+
     testWidgets(
-        'cmd+A selects every annotation on the current page '
-        'while the select tool is armed', (tester) async {
-      final (editing, _) = await pumpEditor(tester);
+        'cmd+A widens an annotation selection to every annotation '
+        'on the current page', (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      // focus the viewer by selecting one of the shapes
+      await tester.tapAt(view(140, 675), kind: PointerDeviceKind.mouse);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(editing.selectedAnnotationSlots, [(0, 0)]);
+
+      await pressSelectAll(tester);
+
+      expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      expect(viewer.selectedText, isEmpty);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'cmd+A in Select mode with nothing selected selects the page text',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
       await addShapes(tester, editing);
       editing.tool = PdfEditTool.select;
       await tester.pump();
@@ -250,13 +399,43 @@ void main() {
       await tester.tapAt(view(450, 400));
       await tester.pump(const Duration(milliseconds: 400));
 
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyA);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyA);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, contains('Page 1'));
+      expect(editing.hasAnnotationSelection, isFalse);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'cmd+A in Select mode on a page without text selects '
+        'its annotations', (tester) async {
+      final (editing, viewer) =
+          await pumpEditor(tester, bytes: buildTextLinesPdf(const []));
+      await addShapes(tester, editing);
+      editing.tool = PdfEditTool.select;
       await tester.pump();
 
+      await tester.tapAt(view(450, 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, isEmpty);
       expect(editing.selectedAnnotationSlots, [(0, 0), (0, 1)]);
+      await settle(tester);
+    });
+
+    testWidgets('cmd+A in Hand mode selects the page text', (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      editing.activateHandMode();
+      await tester.pump();
+
+      await tester.tapAt(view(450, 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await pressSelectAll(tester);
+
+      expect(viewer.selectedText, contains('Page 1'));
       await settle(tester);
     });
 

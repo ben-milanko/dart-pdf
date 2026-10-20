@@ -2,7 +2,7 @@
 // search extraction is written through to (and, on a cold reopen, read
 // from) the on-disk PdfPageTextCache - but an active edit session never
 // serves text from the content-keyed persistent cache.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';

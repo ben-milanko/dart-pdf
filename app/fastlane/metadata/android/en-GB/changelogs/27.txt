@@ -1,0 +1,6 @@
+New in 3.5.0
+
+- Large and highly detailed PDFs stay responsive while scrolling, panning, and zooming, and sharpen the visible area first.
+- Page previews progress through clearer detail levels during fast navigation.
+- Pages stay sharp and visible near viewport edges.
+- Faster remote document loading with more predictable memory use.

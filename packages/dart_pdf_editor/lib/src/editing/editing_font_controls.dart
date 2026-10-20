@@ -1,7 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_color_picker.dart';
+import '../l10n/pdf_l10n.dart';
+import '../design/editor_presenter.dart';
 
 /// A Bold / Italic toggle pair that picks the matching base-14 variant of
 /// [font]'s current family (Sans/Serif/Mono). Reports the new font - same
@@ -70,8 +72,8 @@ class FontStyleToggles extends StatelessWidget {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       toggle(
         key: ValueKey('$keyPrefix-bold'),
-        label: 'B',
-        tooltip: 'Bold',
+        label: pdfL10n(context).propBoldLetter,
+        tooltip: pdfL10n(context).propBold,
         selected: font.isBold,
         weight: FontWeight.bold,
         style: FontStyle.normal,
@@ -80,13 +82,52 @@ class FontStyleToggles extends StatelessWidget {
       const SizedBox(width: 8),
       toggle(
         key: ValueKey('$keyPrefix-italic'),
-        label: 'I',
-        tooltip: 'Italic',
+        label: pdfL10n(context).propItalicLetter,
+        tooltip: pdfL10n(context).propItalic,
         selected: font.isItalic,
         weight: FontWeight.normal,
         style: FontStyle.italic,
         onTap: () => onChanged(font.withItalic(!font.isItalic)),
       ),
+    ]);
+  }
+}
+
+/// Vertical placement controls shared by the text popup and properties panel.
+class TextVerticalAlignToggles extends StatelessWidget {
+  const TextVerticalAlignToggles({
+    super.key,
+    required this.align,
+    required this.onChanged,
+    this.keyPrefix = 'pdf-text-vertical-align',
+  });
+
+  final PdfTextVerticalAlign? align;
+  final ValueChanged<PdfTextVerticalAlign> onChanged;
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = pdfL10n(context);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final value in PdfTextVerticalAlign.values)
+        IconButton(
+          key: ValueKey('$keyPrefix-${value.name}'),
+          tooltip: switch (value) {
+            PdfTextVerticalAlign.top => labels.textAlignTop,
+            PdfTextVerticalAlign.center => labels.textAlignMiddle,
+            PdfTextVerticalAlign.bottom => labels.textAlignBottom,
+          },
+          isSelected: align == value,
+          onPressed: () => onChanged(value),
+          icon: Icon(
+              switch (value) {
+                PdfTextVerticalAlign.top => Icons.vertical_align_top,
+                PdfTextVerticalAlign.center => Icons.vertical_align_center,
+                PdfTextVerticalAlign.bottom => Icons.vertical_align_bottom,
+              },
+              size: 18),
+        ),
     ]);
   }
 }
@@ -136,8 +177,8 @@ class TextAlignToggles extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: selected ? scheme.primary : Colors.transparent,
-              border: Border.all(
-                  color: selected ? scheme.primary : scheme.outline),
+              border:
+                  Border.all(color: selected ? scheme.primary : scheme.outline),
             ),
             child: Icon(
               icon,
@@ -153,19 +194,19 @@ class TextAlignToggles extends StatelessWidget {
       toggle(
         value: PdfTextAlign.left,
         icon: Icons.format_align_left,
-        tooltip: 'Align left',
+        tooltip: pdfL10n(context).propAlignLeft,
       ),
       const SizedBox(width: 8),
       toggle(
         value: PdfTextAlign.center,
         icon: Icons.format_align_center,
-        tooltip: 'Align center',
+        tooltip: pdfL10n(context).propAlignCenter,
       ),
       const SizedBox(width: 8),
       toggle(
         value: PdfTextAlign.right,
         icon: Icons.format_align_right,
-        tooltip: 'Align right',
+        tooltip: pdfL10n(context).propAlignRight,
       ),
     ]);
   }
@@ -188,6 +229,7 @@ class PdfColorSwatchRow extends StatelessWidget {
     required this.onChanged,
     this.labelWidth = 86,
     this.allowNone = true,
+    this.pickColor,
   });
 
   /// The row label (e.g. "Text fill").
@@ -211,6 +253,12 @@ class PdfColorSwatchRow extends StatelessWidget {
   /// Whether to include the leading "none" swatch. Background and border
   /// rows allow no colour; foreground text always needs one.
   final bool allowNone;
+
+  /// Opens the full colour picker for the "More colours…" button, given
+  /// the current colour, and returns the chosen colour (or null when
+  /// dismissed). Defaults to a plain [showPdfColorPicker]; pass
+  /// `pickEditingColor` to add the recents and document-colour grids.
+  final Future<Color?> Function(BuildContext context, Color initial)? pickColor;
 
   @override
   Widget build(BuildContext context) {
@@ -268,11 +316,14 @@ class PdfColorSwatchRow extends StatelessWidget {
         IconButton(
           key: ValueKey('$keyPrefix-more'),
           icon: const Icon(Icons.palette_outlined, size: 18),
-          tooltip: 'More colors…',
+          tooltip: pdfL10n(context).propMoreColors,
           visualDensity: VisualDensity.compact,
           onPressed: () async {
-            final picked = await showPdfColorPicker(context,
-                initial: value ?? const Color(0xFFFFFFFF));
+            final initial = value ?? const Color(0xFFFFFFFF);
+            final picked = pickColor != null
+                ? await pickColor!(context, initial)
+                : await pdfPresentColor(
+                    context, PdfColorRequest(initial: initial));
             if (picked != null) onChanged(picked);
           },
         ),

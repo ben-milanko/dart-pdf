@@ -308,7 +308,8 @@ class PdfSyncSession {
         final name = annotation.name;
         if (name == null) continue;
         final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
-            keepName: true);
+            keepName: true,
+            sourcePageRotation: _document.page(pageIndex).rotation);
         if (snapshot == null) continue;
         changes.add(PdfAnnotationChange(
           kind: PdfAnnotationChangeKind.created,

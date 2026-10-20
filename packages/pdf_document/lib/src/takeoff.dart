@@ -13,13 +13,15 @@ import 'measure.dart';
 /// round-trips through a save/reopen without disturbing other viewers. The
 /// classic distance/perimeter/area kinds don't need it - they're inferred
 /// from the subtype - but the takeoff kinds (count, volume, angle, arc,
-/// slope, area cutout) all do, because several share a subtype.
+/// slope, area cutout) all do, because several share a subtype. So does
+/// any measurement whose value the user wrote themselves ([valueText]).
 class PdfTakeoffData {
   const PdfTakeoffData({
     required this.kind,
     this.depth,
     this.holes = const [],
     this.label,
+    this.valueText,
   });
 
   /// The measurement kind this annotation represents.
@@ -39,6 +41,13 @@ class PdfTakeoffData {
   /// unit.
   final String? label;
 
+  /// The value the user wrote for this measurement (`12'-6"`, `3.2 m`,
+  /// `TYP.`), shown as the caption in place of the one computed from the
+  /// geometry and the scale. Null (the default) shows the computed value.
+  /// A written value needs no scale and stays put when the geometry is
+  /// reshaped - it is what the drawing says, not what the ruler reads.
+  final String? valueText;
+
   /// Reads the /Takeoff dictionary off [annotation]; returns null when the
   /// annotation carries none.
   static PdfTakeoffData? read(PdfAnnotation annotation) {
@@ -56,6 +65,10 @@ class PdfTakeoffData {
             : null;
     final labelRaw = cos.resolve(dict['Label']);
     final label = labelRaw is CosString ? labelRaw.text : null;
+    final valueRaw = cos.resolve(dict['Value']);
+    final valueText = valueRaw is CosString && valueRaw.text.isNotEmpty
+        ? valueRaw.text
+        : null;
     final holes = <List<(double, double)>>[];
     final holesRaw = cos.resolve(dict['Holes']);
     if (holesRaw is CosArray) {
@@ -75,7 +88,13 @@ class PdfTakeoffData {
         if (points.isNotEmpty) holes.add(points);
       }
     }
-    return PdfTakeoffData(kind: kind, depth: depth, holes: holes, label: label);
+    return PdfTakeoffData(
+      kind: kind,
+      depth: depth,
+      holes: holes,
+      label: label,
+      valueText: valueText,
+    );
   }
 
   CosDictionary toCosDictionary() {
@@ -83,6 +102,9 @@ class PdfTakeoffData {
     if (depth != null) dict['Depth'] = CosReal(depth!);
     if (label != null && label!.isNotEmpty) {
       dict['Label'] = CosString.fromText(label!);
+    }
+    if (valueText != null && valueText!.isNotEmpty) {
+      dict['Value'] = CosString.fromText(valueText!);
     }
     if (holes.isNotEmpty) {
       dict['Holes'] = CosArray([
@@ -120,6 +142,7 @@ class PdfMeasurementResult {
     required this.unit,
     required this.text,
     this.count = 1,
+    this.isCustom = false,
   });
 
   final PdfMeasurementKind kind;
@@ -127,6 +150,40 @@ class PdfMeasurementResult {
   final String unit;
   final String text;
   final int count;
+
+  /// Whether [text] is a value the user wrote ([PdfTakeoffData.valueText])
+  /// rather than one computed from the geometry. [value] and [unit] are
+  /// then read off that text by [pdfParseMeasurementValue].
+  final bool isCustom;
+}
+
+/// Reads the number and unit off a user-written measurement value, so a
+/// written `12.5 ft` still totals as 12.5 in `ft`: the leading number
+/// (`1,250.5` or a decimal comma, `1,5`) and the trimmed text after it. Architectural
+/// feet-and-inches (`12'-6"`, `12' 6"`) read as decimal feet in `ft`. Text
+/// with no leading number (`TYP.`, `N/A`) reads as a null value with the
+/// whole text as its unit.
+(double?, String) pdfParseMeasurementValue(String text) {
+  final trimmed = text.trim();
+  final feet = RegExp(r'''^(\d+(?:\.\d+)?)\s*'\s*-?\s*(\d+(?:\.\d+)?)\s*"$''')
+      .firstMatch(trimmed);
+  if (feet != null) {
+    final ft = double.parse(feet.group(1)!);
+    final inches = double.parse(feet.group(2)!);
+    return (ft + inches / 12, 'ft');
+  }
+  // `1,250.5` groups thousands; a lone comma is a decimal one (`1,5 m`)
+  final grouped =
+      RegExp(r'^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?').firstMatch(trimmed);
+  final match = grouped ??
+      RegExp(r'^[-+]?(?:\d+(?:[.,]\d+)?|[.,]\d+)').firstMatch(trimmed);
+  if (match == null) return (null, trimmed);
+  final digits = grouped != null
+      ? match.group(0)!.replaceAll(',', '')
+      : match.group(0)!.replaceAll(',', '.');
+  final value = double.tryParse(digits);
+  if (value == null) return (null, trimmed);
+  return (value, trimmed.substring(match.end).trim());
 }
 
 /// One bucket in a [PdfTakeoffSummary]: every measurement of the same
@@ -195,12 +252,17 @@ class PdfTakeoffSummary {
   /// Builds the summary by walking every page's annotations. [pages] limits
   /// the scan to specific page indices; null scans the whole document.
   factory PdfTakeoffSummary.of(PdfDocument document, {Iterable<int>? pages}) {
-    final indices = pages ?? Iterable<int>.generate(document.pageCount);
+    // The whole document comes from one page-tree walk; page(i) per index
+    // rescans a flat /Kids array on a cold wrapper.
+    final all = pages == null ? document.pages : null;
+    final count = all?.length ?? document.pageCount;
+    final indices = pages ?? Iterable<int>.generate(count);
     final byKey = <String, PdfTakeoffGroup>{};
     final order = <String>[];
     for (final pageIndex in indices) {
-      if (pageIndex < 0 || pageIndex >= document.pageCount) continue;
-      for (final annot in document.page(pageIndex).annotations) {
+      if (pageIndex < 0 || pageIndex >= count) continue;
+      final page = all?[pageIndex] ?? document.page(pageIndex);
+      for (final annot in page.annotations) {
         final result = annot.measurementResult;
         if (result == null) continue;
         final takeoff = annot.takeoff;
