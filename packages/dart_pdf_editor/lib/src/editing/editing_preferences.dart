@@ -6,7 +6,12 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
-    show PdfEmbeddedFont, PdfLineEnding, PdfStandardFont, PdfTextAlign;
+    show
+        PdfEmbeddedFont,
+        PdfLineEnding,
+        PdfStandardFont,
+        PdfTextAlign,
+        PdfTextVerticalAlign;
 
 import '../viewport.dart';
 import 'line_style.dart';
@@ -176,6 +181,7 @@ class PdfEditingPreferences extends ChangeNotifier
   String? _embeddedFontData;
   PdfEmbeddedFont? _embeddedFont;
   PdfTextAlign? _textAlign;
+  PdfTextVerticalAlign _textVerticalAlign = PdfTextVerticalAlign.top;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
   double _lineScale = 1;
@@ -316,6 +322,9 @@ class PdfEditingPreferences extends ChangeNotifier
             PdfStandardFont.values.asNameMap()[fontFamily] ?? _fontFamily;
       }
       _embeddedFontData = store.getString('${_prefix}embeddedFont');
+      _textVerticalAlign = PdfTextVerticalAlign.values
+              .asNameMap()[store.getString('${_prefix}textVerticalAlign')] ??
+          PdfTextVerticalAlign.top;
       final textAlign = store.getString('${_prefix}textAlign');
       if (textAlign != null) {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
@@ -692,6 +701,10 @@ class PdfEditingPreferences extends ChangeNotifier
         final font = PdfStandardFont.values.asNameMap()[v];
         if (font != null) fontFamily = font;
       }
+      if (slot['textVerticalAlign'] case final String value) {
+        textVerticalAlign = PdfTextVerticalAlign.values.asNameMap()[value] ??
+            PdfTextVerticalAlign.top;
+      }
       if (slot.containsKey('textAlign')) {
         final v = slot['textAlign'];
         textAlign = v is String ? PdfTextAlign.values.asNameMap()[v] : null;
@@ -754,6 +767,7 @@ class PdfEditingPreferences extends ChangeNotifier
     put('fontSize', _fontSize);
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
+    put('textVerticalAlign', _textVerticalAlign.name);
     put('lineStyle', _lineStyle.name);
     put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
@@ -1000,9 +1014,19 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
-  /// Horizontal alignment (left/center/right) new free-text boxes are
-  /// created with - the box's /Q quadding. Null (the default) follows the
-  /// text direction: left for LTR, right for RTL. Persisted.
+  /// Default vertical placement for newly authored text boxes.
+  PdfTextVerticalAlign get textVerticalAlign => _textVerticalAlign;
+
+  set textVerticalAlign(PdfTextVerticalAlign value) {
+    if (value == _textVerticalAlign) return;
+    _textVerticalAlign = value;
+    _write(
+        (store) => store.setString('${_prefix}textVerticalAlign', value.name));
+    _recordScoped('textVerticalAlign', value.name);
+    notifyListeners();
+  }
+
+  /// Horizontal alignment of new free-text boxes; null follows text direction.
   PdfTextAlign? get textAlign => _textAlign;
 
   set textAlign(PdfTextAlign? value) {

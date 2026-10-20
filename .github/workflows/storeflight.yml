@@ -401,7 +401,7 @@ jobs:
           dart pub global activate --source path .storeflight-cli
       - name: Install Firebase CLI
         run: npm install --global firebase-tools
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -994,7 +994,7 @@ jobs:
         run: |
           echo '.storeflight-cli/' >> .git/info/exclude
           dart pub global activate --source path .storeflight-cli
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'

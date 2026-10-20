@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:characters/characters.dart';
+
 import 'content_writer.dart';
 import 'rect.dart';
 
@@ -101,7 +103,10 @@ String pdfNormalizeLineEndings(String text) =>
 /// Greedy word-wrap of [text] to [maxWidth] using [measure] to size a
 /// candidate line. Paragraphs (with CR, LF, or CRLF separators) always
 /// contribute at least one line; a single word wider than [maxWidth] overflows
-/// onto its own line (and is clipped by the appearance).
+/// onto its own line (and is clipped by the appearance), unless
+/// [breakLongWords] splits it at grapheme boundaries. This lets free-text
+/// annotations wrap CJK paragraphs and long tokens without changing the
+/// overflow policy of existing form-field and signature callers.
 ///
 /// [tolerance] is the slack allowed before a line breaks. A box auto-sized to
 /// its content sets its width to `lineWidth + 2*pad` and wraps at
@@ -113,6 +118,7 @@ List<String> pdfWrapText(
   double maxWidth,
   double Function(String candidate) measure, {
   double tolerance = 0,
+  bool breakLongWords = false,
 }) {
   final lines = <String>[];
   for (final paragraph in pdfNormalizeLineEndings(text).split('\n')) {
@@ -124,6 +130,20 @@ List<String> pdfWrapText(
         line = word;
       } else {
         line = candidate;
+      }
+      if (breakLongWords && measure(line) > maxWidth + tolerance) {
+        var fragment = '';
+        for (final character in line.characters) {
+          final candidate = '$fragment$character';
+          if (fragment.isNotEmpty &&
+              measure(candidate) > maxWidth + tolerance) {
+            lines.add(fragment);
+            fragment = character;
+          } else {
+            fragment = candidate;
+          }
+        }
+        line = fragment;
       }
     }
     lines.add(line);
@@ -173,8 +193,7 @@ void writePdfTextBox(
   int? underlineColor,
 }) {
   final measure = measureLine ?? (String s) => font.measure(s, fontSize);
-  final emit =
-      emitLine ?? (ContentWriter w, String s) => w.showText(s);
+  final emit = emitLine ?? (ContentWriter w, String s) => w.showText(s);
   final ascentPts = fontSize * font.ascent / 1000;
 
   if (clip) {

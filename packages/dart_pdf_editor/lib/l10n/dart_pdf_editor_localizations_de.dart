@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Vertikale Ausrichtung';
+
+  @override
+  String get textAlignTop => 'Text oben ausrichten';
+
+  @override
+  String get textAlignMiddle => 'Text vertikal zentrieren';
+
+  @override
+  String get textAlignBottom => 'Text unten ausrichten';
+
+  @override
   String get add => 'Hinzufügen';
 
   @override

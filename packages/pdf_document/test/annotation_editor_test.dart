@@ -46,6 +46,27 @@ void main() {
     return latin1.decode(doc.cos.decodeStreamData(stream!));
   }
 
+  test('free-text saved appearances wrap CJK and unbroken tokens', () {
+    for (final text in ['LONGUNBROKENANNOTATIONTEXT', '日本語中国語韓国語']) {
+      final doc = roundTrip((e) =>
+          e.addFreeText(0, const PdfRect(20, 20, 56, 200), text, fontSize: 12));
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.contents, text);
+      final operations = ContentStreamParser.parse(
+          doc.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(
+          operations.where((o) => o.operator == 'Tj').length, greaterThan(1));
+      final resized = PdfEditor(doc)
+        ..resizeAnnotation(0, annotation, const PdfRect(20, 20, 68, 200));
+      final reopened = PdfDocument.open(resized.save());
+      final after = reopened.page(0).annotations.single;
+      expect(after.contents, text);
+      final afterOps = ContentStreamParser.parse(
+          reopened.cos.decodeStreamData(after.normalAppearance!));
+      expect(afterOps.where((o) => o.operator == 'Tj').length, greaterThan(1));
+    }
+  });
+
   test('an annotation survives a reopen when /Size is past 2^32', () {
     // New objects take their numbers from /Size, so a junk one hands the
     // edit numbers past what the object cache's packed key holds.

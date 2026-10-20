@@ -142,6 +142,8 @@ class PdfToolShortcut {
 ///
 /// Pressing a tool's key arms it; pressing it again drops back to
 /// [PdfEditTool.select], mirroring the toolbar chips.
+/// With a rotatable selection, the stock R rectangle binding yields to
+/// clockwise selection rotation; Shift+R rotates counterclockwise.
 ///
 /// Every tool is covered. The common ones sit on plain letters; a group's
 /// less-common variants (the poly / cloud shapes, the extra measurement

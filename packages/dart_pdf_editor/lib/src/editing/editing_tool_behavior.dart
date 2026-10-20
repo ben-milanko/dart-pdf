@@ -477,6 +477,7 @@ const _textFields = {
   'fontSize',
   'fontFamily',
   'textAlign',
+  'textVerticalAlign',
   'opacity',
   'textFillColor',
   'textBorderColor',
