@@ -4337,6 +4337,25 @@ class PdfEditingController extends ChangeNotifier {
   void saveCustomStamp(PdfCustomStamp stamp) =>
       preferences.customStamps = [...preferences.customStamps, stamp];
 
+  /// Saves an independent copy of a library stamp, preserving its artwork,
+  /// fields and metadata, and selects the copy for placement.
+  PdfCustomStamp duplicateCustomStamp(PdfCustomStamp stamp) {
+    final detached = PdfCustomStamp.decode(stamp.encode())!;
+    final copy = PdfCustomStamp(
+      id: 'copy-${DateTime.now().microsecondsSinceEpoch}-${_stampCopySequence++}',
+      text: detached.text,
+      color: detached.color,
+      template: detached.template,
+      type: detached.type,
+      tags: detached.tags,
+    );
+    saveCustomStamp(copy);
+    activeStamp = copy;
+    return copy;
+  }
+
+  static int _stampCopySequence = 0;
+
   /// Replaces a user-saved stamp with [next]. If [stamp] is active, the
   /// edited stamp remains active. Returns false for app-supplied stamps.
   bool replaceCustomStamp(PdfCustomStamp stamp, PdfCustomStamp next) {
@@ -4457,6 +4476,7 @@ class PdfEditingController extends ChangeNotifier {
     if (active == null) return;
     final rgb = color.toARGB32() & 0xFFFFFF;
     final next = PdfCustomStamp(
+      id: active.id,
       text: active.text,
       color: rgb,
       template: active.template == null

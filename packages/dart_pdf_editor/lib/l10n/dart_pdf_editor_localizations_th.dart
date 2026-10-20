@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
-
-  @override
-  String get textAlignTop => 'จัดข้อความชิดบน';
-
-  @override
-  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
-
-  @override
-  String get textAlignBottom => 'จัดข้อความชิดล่าง';
+  String get duplicate => 'ทำสำเนา';
 
   @override
   String get add => 'เพิ่ม';
@@ -2465,4 +2456,16 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
+
+  @override
+  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
+
+  @override
+  String get textAlignTop => 'จัดข้อความชิดบน';
+
+  @override
+  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
+
+  @override
+  String get textAlignBottom => 'จัดข้อความชิดล่าง';
 }

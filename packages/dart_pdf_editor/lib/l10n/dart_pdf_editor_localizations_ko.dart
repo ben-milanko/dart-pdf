@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
-  String get textVerticalAlign => '세로 맞춤';
-
-  @override
-  String get textAlignTop => '텍스트 위쪽 맞춤';
-
-  @override
-  String get textAlignMiddle => '텍스트 가운데 맞춤';
-
-  @override
-  String get textAlignBottom => '텍스트 아래쪽 맞춤';
+  String get duplicate => '복제';
 
   @override
   String get add => '추가';
@@ -2451,4 +2442,16 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
+
+  @override
+  String get textVerticalAlign => '세로 맞춤';
+
+  @override
+  String get textAlignTop => '텍스트 위쪽 맞춤';
+
+  @override
+  String get textAlignMiddle => '텍스트 가운데 맞춤';
+
+  @override
+  String get textAlignBottom => '텍스트 아래쪽 맞춤';
 }

@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
-
-  @override
-  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
-
-  @override
-  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
-
-  @override
-  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+  String get duplicate => 'دووبارەکردنەوە';
 
   @override
   String get add => 'زیادکردن';
@@ -2495,4 +2486,16 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
+
+  @override
+  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
+
+  @override
+  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
+
+  @override
+  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
+
+  @override
+  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
 }

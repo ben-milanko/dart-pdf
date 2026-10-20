@@ -1,8 +1,5 @@
 {
-  "textVerticalAlign": "Allineamento verticale",
-  "textAlignTop": "Allinea il testo in alto",
-  "textAlignMiddle": "Centra il testo verticalmente",
-  "textAlignBottom": "Allinea il testo in basso",
+  "duplicate": "Duplica",
   "@@locale": "it",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -724,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{Inserisce 1 pagina} other{Inserisce {inserted} pagine}}: il documento avrà {total, plural, =1{1 pagina} other{{total} pagine}}.",
   "insertPagesConfirm": "Inserisci",
   "shellBakePageColor": "Salva il colore della pagina nel file",
-  "pageColorNotBakedSigned": "Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme."
+  "pageColorNotBakedSigned": "Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme.",
+  "textVerticalAlign": "Allineamento verticale",
+  "textAlignTop": "Allinea il testo in alto",
+  "textAlignMiddle": "Centra il testo verticalmente",
+  "textAlignBottom": "Allinea il testo in basso"
 }

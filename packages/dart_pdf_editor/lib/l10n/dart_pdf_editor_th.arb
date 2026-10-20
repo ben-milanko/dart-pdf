@@ -1,8 +1,5 @@
 {
-  "textVerticalAlign": "การจัดแนวแนวตั้ง",
-  "textAlignTop": "จัดข้อความชิดบน",
-  "textAlignMiddle": "จัดข้อความกึ่งกลางแนวตั้ง",
-  "textAlignBottom": "จัดข้อความชิดล่าง",
+  "duplicate": "ทำสำเนา",
   "@@locale": "th",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -724,5 +721,9 @@
   "insertPagesSummary": "จะแทรก {inserted} หน้า เอกสารจะมีทั้งหมด {total} หน้า",
   "insertPagesConfirm": "แทรก",
   "shellBakePageColor": "บันทึกสีหน้าลงในไฟล์",
-  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง"
+  "pageColorNotBakedSigned": "ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง",
+  "textVerticalAlign": "การจัดแนวแนวตั้ง",
+  "textAlignTop": "จัดข้อความชิดบน",
+  "textAlignMiddle": "จัดข้อความกึ่งกลางแนวตั้ง",
+  "textAlignBottom": "จัดข้อความชิดล่าง"
 }

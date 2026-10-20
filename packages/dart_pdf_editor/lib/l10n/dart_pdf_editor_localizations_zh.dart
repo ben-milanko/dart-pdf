@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get textVerticalAlign => '垂直对齐';
-
-  @override
-  String get textAlignTop => '文本顶端对齐';
-
-  @override
-  String get textAlignMiddle => '文本垂直居中';
-
-  @override
-  String get textAlignBottom => '文本底端对齐';
+  String get duplicate => '复制副本';
 
   @override
   String get add => '添加';
@@ -2440,6 +2431,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
+
+  @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2447,16 +2450,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
 
   @override
-  String get textVerticalAlign => '垂直對齊';
-
-  @override
-  String get textAlignTop => '文字靠上對齊';
-
-  @override
-  String get textAlignMiddle => '文字垂直置中';
-
-  @override
-  String get textAlignBottom => '文字靠下對齊';
+  String get duplicate => '製作副本';
 
   @override
   String get add => '新增';
@@ -4878,4 +4872,16 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
+
+  @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
 }

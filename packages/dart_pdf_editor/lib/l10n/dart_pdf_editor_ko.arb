@@ -1,8 +1,5 @@
 {
-  "textVerticalAlign": "세로 맞춤",
-  "textAlignTop": "텍스트 위쪽 맞춤",
-  "textAlignMiddle": "텍스트 가운데 맞춤",
-  "textAlignBottom": "텍스트 아래쪽 맞춤",
+  "duplicate": "복제",
   "@@locale": "ko",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -724,5 +721,9 @@
   "insertPagesSummary": "{inserted}페이지를 삽입합니다. 문서는 {total}페이지가 됩니다.",
   "insertPagesConfirm": "삽입",
   "shellBakePageColor": "페이지 색상을 파일에 저장",
-  "pageColorNotBakedSigned": "페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다."
+  "pageColorNotBakedSigned": "페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.",
+  "textVerticalAlign": "세로 맞춤",
+  "textAlignTop": "텍스트 위쪽 맞춤",
+  "textAlignMiddle": "텍스트 가운데 맞춤",
+  "textAlignBottom": "텍스트 아래쪽 맞춤"
 }

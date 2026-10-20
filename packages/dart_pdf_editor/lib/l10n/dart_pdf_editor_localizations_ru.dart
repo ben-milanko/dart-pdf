@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Вертикальное выравнивание';
-
-  @override
-  String get textAlignTop => 'Выровнять текст по верхнему краю';
-
-  @override
-  String get textAlignMiddle => 'Выровнять текст по центру';
-
-  @override
-  String get textAlignBottom => 'Выровнять текст по нижнему краю';
+  String get duplicate => 'Дублировать';
 
   @override
   String get add => 'Добавить';
@@ -2539,4 +2530,16 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Цвет страницы не сохранён в файле: изменение страниц сделает его подписи недействительными.';
+
+  @override
+  String get textVerticalAlign => 'Вертикальное выравнивание';
+
+  @override
+  String get textAlignTop => 'Выровнять текст по верхнему краю';
+
+  @override
+  String get textAlignMiddle => 'Выровнять текст по центру';
+
+  @override
+  String get textAlignBottom => 'Выровнять текст по нижнему краю';
 }

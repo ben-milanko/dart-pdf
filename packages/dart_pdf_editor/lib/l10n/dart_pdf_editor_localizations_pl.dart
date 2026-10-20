@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Wyrównanie w pionie';
-
-  @override
-  String get textAlignTop => 'Wyrównaj tekst do góry';
-
-  @override
-  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
-
-  @override
-  String get textAlignBottom => 'Wyrównaj tekst do dołu';
+  String get duplicate => 'Duplikuj';
 
   @override
   String get add => 'Dodaj';
@@ -2540,4 +2531,16 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy.';
+
+  @override
+  String get textVerticalAlign => 'Wyrównanie w pionie';
+
+  @override
+  String get textAlignTop => 'Wyrównaj tekst do góry';
+
+  @override
+  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
+
+  @override
+  String get textAlignBottom => 'Wyrównaj tekst do dołu';
 }

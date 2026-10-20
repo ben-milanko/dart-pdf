@@ -1,8 +1,5 @@
 {
-  "textVerticalAlign": "Dikey hizalama",
-  "textAlignTop": "Metni üste hizala",
-  "textAlignMiddle": "Metni dikey ortala",
-  "textAlignBottom": "Metni alta hizala",
+  "duplicate": "Çoğalt",
   "@@locale": "tr",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -724,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{1 sayfa eklenecek} other{{inserted} sayfa eklenecek}}; belge {total, plural, =1{1 sayfa} other{{total} sayfa}} olacak.",
   "insertPagesConfirm": "Ekle",
   "shellBakePageColor": "Sayfa rengini dosyaya kaydet",
-  "pageColorNotBakedSigned": "Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar."
+  "pageColorNotBakedSigned": "Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.",
+  "textVerticalAlign": "Dikey hizalama",
+  "textAlignTop": "Metni üste hizala",
+  "textAlignMiddle": "Metni dikey ortala",
+  "textAlignBottom": "Metni alta hizala"
 }

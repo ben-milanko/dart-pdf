@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Verticaal uitlijnen';
-
-  @override
-  String get textAlignTop => 'Tekst boven uitlijnen';
-
-  @override
-  String get textAlignMiddle => 'Tekst verticaal centreren';
-
-  @override
-  String get textAlignBottom => 'Tekst onder uitlijnen';
+  String get duplicate => 'Dupliceren';
 
   @override
   String get add => 'Toevoegen';
@@ -2496,4 +2487,16 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina\'s zou de handtekeningen ongeldig maken.';
+
+  @override
+  String get textVerticalAlign => 'Verticaal uitlijnen';
+
+  @override
+  String get textAlignTop => 'Tekst boven uitlijnen';
+
+  @override
+  String get textAlignMiddle => 'Tekst verticaal centreren';
+
+  @override
+  String get textAlignBottom => 'Tekst onder uitlijnen';
 }

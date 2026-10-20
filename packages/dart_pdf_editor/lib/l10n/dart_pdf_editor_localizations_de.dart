@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertikale Ausrichtung';
-
-  @override
-  String get textAlignTop => 'Text oben ausrichten';
-
-  @override
-  String get textAlignMiddle => 'Text vertikal zentrieren';
-
-  @override
-  String get textAlignBottom => 'Text unten ausrichten';
+  String get duplicate => 'Duplizieren';
 
   @override
   String get add => 'Hinzufügen';
@@ -2501,4 +2492,16 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.';
+
+  @override
+  String get textVerticalAlign => 'Vertikale Ausrichtung';
+
+  @override
+  String get textAlignTop => 'Text oben ausrichten';
+
+  @override
+  String get textAlignMiddle => 'Text vertikal zentrieren';
+
+  @override
+  String get textAlignBottom => 'Text unten ausrichten';
 }

@@ -1,8 +1,5 @@
 {
-  "textVerticalAlign": "Verticaal uitlijnen",
-  "textAlignTop": "Tekst boven uitlijnen",
-  "textAlignMiddle": "Tekst verticaal centreren",
-  "textAlignBottom": "Tekst onder uitlijnen",
+  "duplicate": "Dupliceren",
   "@@locale": "nl",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -724,5 +721,9 @@
   "insertPagesSummary": "{inserted, plural, =1{Voegt 1 pagina in} other{Voegt {inserted} pagina's in}} – het document krijgt {total, plural, =1{1 pagina} other{{total} pagina's}}.",
   "insertPagesConfirm": "Invoegen",
   "shellBakePageColor": "Paginakleur in bestand opslaan",
-  "pageColorNotBakedSigned": "De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina's zou de handtekeningen ongeldig maken."
+  "pageColorNotBakedSigned": "De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina's zou de handtekeningen ongeldig maken.",
+  "textVerticalAlign": "Verticaal uitlijnen",
+  "textAlignTop": "Tekst boven uitlijnen",
+  "textAlignMiddle": "Tekst verticaal centreren",
+  "textAlignBottom": "Tekst onder uitlijnen"
 }
