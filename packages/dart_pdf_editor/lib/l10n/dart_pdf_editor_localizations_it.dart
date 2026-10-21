@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsIt([String locale = 'it']) : super(locale);
 
   @override
-  String get duplicate => 'Duplica';
+  String get textVerticalAlign => 'Allineamento verticale';
+
+  @override
+  String get textAlignTop => 'Allinea il testo in alto';
+
+  @override
+  String get textAlignMiddle => 'Centra il testo verticalmente';
+
+  @override
+  String get textAlignBottom => 'Allinea il testo in basso';
 
   @override
   String get add => 'Aggiungi';
@@ -2492,14 +2501,58 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Il colore della pagina non è stato salvato nel file: modificare le pagine invaliderebbe le sue firme.';
 
   @override
-  String get textVerticalAlign => 'Allineamento verticale';
+  String get table => 'Tabella';
 
   @override
-  String get textAlignTop => 'Allinea il testo in alto';
+  String get tableEdit => 'Modifica tabella';
 
   @override
-  String get textAlignMiddle => 'Centra il testo verticalmente';
+  String get tableRows => 'Righe';
 
   @override
-  String get textAlignBottom => 'Allinea il testo in basso';
+  String get tableColumns => 'Colonne';
+
+  @override
+  String get tableStyle => 'Stile tabella';
+
+  @override
+  String get tableStyleHint => 'Si applica a tutta la tabella.';
+
+  @override
+  String get tableBackgroundColor => 'Colore di sfondo';
+
+  @override
+  String get tableHeaderColor => 'Colore intestazione';
+
+  @override
+  String get tableTextColor => 'Colore carattere';
+
+  @override
+  String get tableGridLines => 'Linee della griglia';
+
+  @override
+  String get tableGridColor => 'Colore griglia';
+
+  @override
+  String get tableGridWidth => 'Spessore griglia';
+
+  @override
+  String get tableHeaderRow => 'Riga di intestazione';
+
+  @override
+  String get tableColumnWidth => 'Larghezza colonna';
+
+  @override
+  String get tableRowHeight => 'Altezza riga';
+
+  @override
+  String get tableSelectionHint =>
+      'Fai clic su una cella per modificarla; Maiusc-clic seleziona un intervallo. Copia e Incolla scambiano i valori delle celle con Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle.';
+
+  @override
+  String get duplicate => 'Duplica';
 }

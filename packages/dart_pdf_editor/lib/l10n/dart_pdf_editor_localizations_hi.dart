@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
-  String get duplicate => 'डुप्लिकेट बनाएँ';
+  String get textVerticalAlign => 'लंबवत संरेखण';
+
+  @override
+  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+
+  @override
+  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+
+  @override
+  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
 
   @override
   String get add => 'जोड़ें';
@@ -2481,14 +2490,58 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।';
 
   @override
-  String get textVerticalAlign => 'लंबवत संरेखण';
+  String get table => 'तालिका';
 
   @override
-  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+  String get tableEdit => 'तालिका संपादित करें';
 
   @override
-  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+  String get tableRows => 'पंक्तियाँ';
 
   @override
-  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+  String get tableColumns => 'कॉलम';
+
+  @override
+  String get tableStyle => 'तालिका शैली';
+
+  @override
+  String get tableStyleHint => 'पूरी तालिका पर लागू होता है।';
+
+  @override
+  String get tableBackgroundColor => 'पृष्ठभूमि का रंग';
+
+  @override
+  String get tableHeaderColor => 'शीर्षलेख का रंग';
+
+  @override
+  String get tableTextColor => 'फ़ॉन्ट का रंग';
+
+  @override
+  String get tableGridLines => 'ग्रिड रेखाएँ';
+
+  @override
+  String get tableGridColor => 'ग्रिड का रंग';
+
+  @override
+  String get tableGridWidth => 'ग्रिड की मोटाई';
+
+  @override
+  String get tableHeaderRow => 'शीर्षक पंक्ति';
+
+  @override
+  String get tableColumnWidth => 'कॉलम की चौड़ाई';
+
+  @override
+  String get tableRowHeight => 'पंक्ति की ऊँचाई';
+
+  @override
+  String get tableSelectionHint =>
+      'संपादित करने के लिए सेल पर क्लिक करें; रेंज चुनने के लिए Shift-क्लिक करें। कॉपी और पेस्ट से Excel के साथ सेल मान साझा करें।';
+
+  @override
+  String get tableClipboardError =>
+      'क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।';
+
+  @override
+  String get duplicate => 'डुप्लिकेट बनाएँ';
 }

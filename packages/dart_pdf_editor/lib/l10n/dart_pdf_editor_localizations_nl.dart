@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
-  String get duplicate => 'Dupliceren';
+  String get textVerticalAlign => 'Verticaal uitlijnen';
+
+  @override
+  String get textAlignTop => 'Tekst boven uitlijnen';
+
+  @override
+  String get textAlignMiddle => 'Tekst verticaal centreren';
+
+  @override
+  String get textAlignBottom => 'Tekst onder uitlijnen';
 
   @override
   String get add => 'Toevoegen';
@@ -2489,14 +2498,58 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'De paginakleur is niet in het bestand opgeslagen: het wijzigen van de pagina\'s zou de handtekeningen ongeldig maken.';
 
   @override
-  String get textVerticalAlign => 'Verticaal uitlijnen';
+  String get table => 'Tabel';
 
   @override
-  String get textAlignTop => 'Tekst boven uitlijnen';
+  String get tableEdit => 'Tabel bewerken';
 
   @override
-  String get textAlignMiddle => 'Tekst verticaal centreren';
+  String get tableRows => 'Rijen';
 
   @override
-  String get textAlignBottom => 'Tekst onder uitlijnen';
+  String get tableColumns => 'Kolommen';
+
+  @override
+  String get tableStyle => 'Tabelstijl';
+
+  @override
+  String get tableStyleHint => 'Geldt voor de hele tabel.';
+
+  @override
+  String get tableBackgroundColor => 'Achtergrondkleur';
+
+  @override
+  String get tableHeaderColor => 'Kopkleur';
+
+  @override
+  String get tableTextColor => 'Tekstkleur';
+
+  @override
+  String get tableGridLines => 'Rasterlijnen';
+
+  @override
+  String get tableGridColor => 'Rasterkleur';
+
+  @override
+  String get tableGridWidth => 'Lijndikte';
+
+  @override
+  String get tableHeaderRow => 'Koprij';
+
+  @override
+  String get tableColumnWidth => 'Kolombreedte';
+
+  @override
+  String get tableRowHeight => 'Rijhoogte';
+
+  @override
+  String get tableSelectionHint =>
+      'Klik op een cel om te bewerken; Shift-klik selecteert een bereik. Kopiëren en Plakken wisselen celwaarden uit met Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen.';
+
+  @override
+  String get duplicate => 'Dupliceren';
 }

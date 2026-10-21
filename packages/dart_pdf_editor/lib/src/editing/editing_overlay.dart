@@ -1238,6 +1238,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // until the new revision's raster lands - see [_shapeResizeStyle]
   _ShapeResize? _afterShapeResize;
   ({
+    Rect rect,
+    PdfTableData table,
+    double rotation,
+    double opacity
+  })? _afterTableResize;
+  ({
     List<Offset> points,
     PdfEditTool tool,
     Color color,
@@ -2503,6 +2509,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterShape = null;
     _afterStamp = null;
     _afterShapeResize = null;
+    _afterTableResize = null;
     _afterPath = null;
     _afterText = null;
     _afterTextClean?.dispose();
@@ -2755,6 +2762,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       lineSpacing: parsed.lineSpacing,
     );
   }
+
+  PdfTableData? get _tableResizeData => _controller.selectedIsSingleGroup
+      ? null
+      : _controller.selectedAnnotation?.table;
 
   /// The selected annotation's style when a resize commit will
   /// REGENERATE it (Square/Circle) at a constant stroke width - the
@@ -4371,7 +4382,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // lift the box off the page for a re-wrapping (free-text) resize:
         // render the page without it so the preview floats over the real
         // content behind, not an opaque wash
-        if (_textResizeStyle != null) _renderResizeClean();
+        if (_textResizeStyle != null || _tableResizeData != null) {
+          _renderResizeClean();
+        }
         return;
       }
       if (chrome != null && _hitsRotateHandle(chrome.$1, resting, position)) {
@@ -4723,7 +4736,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // ownership from [_clearResizeClean]) so the commit afterimage can keep
     // it up until the new raster lands - without it a transparent box
     // flashes opaque paper on release
-    final textResizing = resizeRect != null && _textResizeStyle != null;
+    final textResizing = resizeRect != null &&
+        (_textResizeStyle != null || _tableResizeData != null);
     final liftClean = textResizing ? _resizeCleanPicture : null;
     final liftHideRect = textResizing ? _resizeFrom : null;
     final liftHideAngle = _resizeAngle;
@@ -4804,6 +4818,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitVertexDrag(vertexPoints, handle: vertexHandle);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
+      final table = _tableResizeData;
+      final tableOpacity =
+          _controller.selectedAnnotation?.appearanceOpacity ?? 1;
       // captured before the commit: a Square/Circle regenerates at a
       // constant stroke width, so its afterimage must too (the stretch
       // ghost would thicken the line until the raster lands)
@@ -4825,7 +4842,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               flipX: resizeFlipX, flipY: resizeFlipY)
           : _controller.resizeSelectedLocal(localTo,
               flipX: resizeFlipX, flipY: resizeFlipY);
-      if (wrapStyle != null) {
+      if (table != null) {
+        final before = _controller.revisionId;
+        commit();
+        if (before != _controller.revisionId) {
+          _clearAfterimage();
+          _afterTableResize = (
+            rect: resizeRect,
+            table: table,
+            rotation: resizeAngle,
+            opacity: tableOpacity
+          );
+          _afterTextClean = liftClean;
+          _afterTextHideRect = liftHideRect;
+          _afterTextHideAngle = liftHideAngle;
+          _afterRevisionId = _controller.revisionId;
+        } else {
+          liftClean?.dispose();
+        }
+      } else if (wrapStyle != null) {
         // the commit re-wraps the text at constant size - a stretched
         // ghost afterimage would show scaled glyphs, so freeze the same
         // wrapped-text preview the drag showed instead
@@ -6678,6 +6713,58 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  Widget _tableResizeBox(
+      {required Rect rect,
+      required PdfTableData table,
+      required double rotation,
+      required double opacity}) {
+    final children = <Widget>[];
+    var top = 0.0;
+    for (var r = 0; r < table.rowCount; r++) {
+      final height = rect.height * table.rowHeights[r] / table.height;
+      var left = 0.0;
+      for (var c = 0; c < table.columnCount; c++) {
+        final width = rect.width * table.columnWidths[c] / table.width;
+        children.add(Positioned.fromRect(
+            rect: Rect.fromLTWH(left, top, width, height),
+            child: ClipRect(
+                child: Stack(children: [
+              _wrappedTextBox(
+                  rect: Rect.fromLTWH(0, 0, width, height),
+                  text: table.cells[r][c],
+                  font: table.font,
+                  size: table.fontSize,
+                  color: Color(0xFF000000 | table.textColor),
+                  background: Color(0xFF000000 |
+                      (r == 0 && table.headerRow
+                          ? table.headerColor
+                          : table.backgroundColor)),
+                  rotation: 0),
+              if (table.gridLines)
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Color(0xFF000000 | table.borderColor),
+                                width: table.borderWidth * _geometry.scale)))),
+            ]))));
+        left += width;
+      }
+      top += height;
+    }
+    return Positioned.fromRect(
+        rect: rect,
+        child: IgnorePointer(
+            child: Transform.rotate(
+                angle: rotation,
+                child: Opacity(
+                    opacity: opacity.clamp(0.0, 1.0),
+                    child: ClipRect(
+                        child: Stack(
+                            key: const ValueKey('pdf-table-resize-preview'),
+                            children: children))))));
+  }
+
   @override
   Widget build(BuildContext context) {
     _scheduleRasterReady();
@@ -6757,6 +6844,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
+            _afterTableResize == null &&
             _ghost != null &&
             selected != null
         ? (
@@ -6785,6 +6873,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
         _resizeHandle != null && _resizeRect != null ? _textResizeStyle : null;
+    final resizeTable =
+        _resizeHandle != null && _resizeRect != null ? _tableResizeData : null;
+    final tableResize = resizeTable == null
+        ? _afterTableResize
+        : (
+            rect: _resizeRect!,
+            table: resizeTable,
+            rotation: _resizeAngle,
+            opacity: _controller.selectedAnnotation!.appearanceOpacity
+          );
+    final reflowResize = wrapResize != null || resizeTable != null;
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
@@ -7023,7 +7122,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null && shapeResize == null
+                    ghost: wrapResize == null &&
+                            shapeResize == null &&
+                            tableResize == null
                         ? _ghost
                         : null,
                     shapeResize: shapeResize,
@@ -7045,13 +7146,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // the same lift carries on (kept alive as
                     // [_afterTextClean]) so a transparent box's afterimage
                     // shows page content behind it, not an opaque flash.
-                    resizeClean: wrapResize != null
-                        ? _resizeCleanPicture
-                        : _afterTextClean,
+                    resizeClean:
+                        reflowResize ? _resizeCleanPicture : _afterTextClean,
                     resizeHideRect:
-                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
+                        reflowResize ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
-                        wrapResize != null ? _resizeAngle : _afterTextHideAngle,
+                        reflowResize ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
                         widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
@@ -7193,6 +7293,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   underline: wrapResize.underline,
                   lineSpacing: wrapResize.lineSpacing,
                 ),
+              if (tableResize != null)
+                _tableResizeBox(
+                    rect: tableResize.rect,
+                    table: tableResize.table,
+                    rotation: tableResize.rotation,
+                    opacity: tableResize.opacity),
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
               // renderings, so nothing shows through meanwhile)

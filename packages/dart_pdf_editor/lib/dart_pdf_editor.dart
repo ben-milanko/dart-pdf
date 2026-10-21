@@ -144,3 +144,5 @@ export 'src/tile_layer.dart';
 export 'src/tile_raster_backend.dart';
 export 'src/tile_store.dart';
 export 'src/toast.dart';
+
+export 'src/editing/editing_table.dart';

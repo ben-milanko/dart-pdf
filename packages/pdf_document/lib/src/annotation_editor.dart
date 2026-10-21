@@ -5103,6 +5103,9 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final form = annotation.normalAppearance;
     if (form == null) return false;
+    if (behavior.resizeBehavior == PdfAnnotationResizeBehavior.reflowTable) {
+      return _regenerateTableAppearance(annotation, to, pageRotation);
+    }
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Square' || 'Circle':
