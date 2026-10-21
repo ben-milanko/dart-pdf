@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF documents",
   "exFileTypeImages": "Images",
   "exFileTypeFonts": "Fonts",
-  "exExtractedTitle": "{title} - part {part}.pdf"
+  "exExtractedTitle": "{title} - part {part}.pdf",
+  "exUseCupertinoDesign": "Switch to Cupertino design",
+  "exSettings": "Settings",
+  "exDesignSection": "Design",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "Switching keeps your open documents and unsaved edits.",
+  "exAppearanceSection": "Appearance",
+  "exAppearanceSystem": "System",
+  "exAppearanceLight": "Light",
+  "exAppearanceDark": "Dark",
+  "exOpenDocumentsSection": "Open documents"
 }

@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF 文档",
   "exFileTypeImages": "图像",
   "exFileTypeFonts": "字体",
-  "exExtractedTitle": "{title} - 第 {part} 部分.pdf"
+  "exExtractedTitle": "{title} - 第 {part} 部分.pdf",
+  "exUseCupertinoDesign": "切换到 Cupertino 设计",
+  "exSettings": "设置",
+  "exDesignSection": "设计",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "切换后，已打开的文档和未保存的编辑都会保留。",
+  "exAppearanceSection": "外观",
+  "exAppearanceSystem": "跟随系统",
+  "exAppearanceLight": "浅色",
+  "exAppearanceDark": "深色",
+  "exOpenDocumentsSection": "已打开的文档"
 }

@@ -442,4 +442,38 @@ class AppLocalizationsTh extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - ส่วนที่ $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'เปลี่ยนเป็นดีไซน์ Cupertino';
+
+  @override
+  String get exSettings => 'การตั้งค่า';
+
+  @override
+  String get exDesignSection => 'ดีไซน์';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'การเปลี่ยนจะเก็บเอกสารที่เปิดอยู่และการแก้ไขที่ยังไม่ได้บันทึกไว้';
+
+  @override
+  String get exAppearanceSection => 'ลักษณะที่ปรากฏ';
+
+  @override
+  String get exAppearanceSystem => 'ระบบ';
+
+  @override
+  String get exAppearanceLight => 'สว่าง';
+
+  @override
+  String get exAppearanceDark => 'มืด';
+
+  @override
+  String get exOpenDocumentsSection => 'เอกสารที่เปิดอยู่';
 }

@@ -120,5 +120,16 @@
   "exFileTypePdf": "مستندات PDF",
   "exFileTypeImages": "الصور",
   "exFileTypeFonts": "الخطوط",
-  "exExtractedTitle": "{title} - الجزء {part}.pdf"
+  "exExtractedTitle": "{title} - الجزء {part}.pdf",
+  "exUseCupertinoDesign": "التبديل إلى تصميم Cupertino",
+  "exSettings": "الإعدادات",
+  "exDesignSection": "التصميم",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "يحتفظ التبديل بالمستندات المفتوحة والتعديلات غير المحفوظة.",
+  "exAppearanceSection": "المظهر",
+  "exAppearanceSystem": "النظام",
+  "exAppearanceLight": "فاتح",
+  "exAppearanceDark": "داكن",
+  "exOpenDocumentsSection": "المستندات المفتوحة"
 }

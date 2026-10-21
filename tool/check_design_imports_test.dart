@@ -10,6 +10,7 @@ void main() {
   _directives();
   _comments();
   _closureAndCounters();
+  _cupertinoSeparation();
   _ratchet();
   print('Design import check tests passed.');
 }
@@ -178,6 +179,40 @@ import 'package:flutter_localizations/flutter_localizations.dart';
           'TextFieldWithoutMenu': {'$lib/src/editing/leaky.dart': 2},
         },
         'counters skip comments and lib/src/design/, and scan printing');
+  } finally {
+    root.deleteSync(recursive: true);
+  }
+}
+
+void _cupertinoSeparation() {
+  final root = Directory.systemTemp.createTempSync('design_imports_cupertino');
+  try {
+    const lib = 'packages/dart_pdf_editor/lib';
+    void write(String path, String source) =>
+        (File('${root.path}/$path')..createSync(recursive: true))
+            .writeAsStringSync(source);
+    final resolver = PackageResolver({
+      'dart_pdf_editor': Uri.directory('${root.path}/$lib'),
+    });
+    List<String> check() => checkNotReached(
+        root.path, '$lib/dart_pdf_editor.dart', cupertinoOnlyDir, resolver);
+
+    write('$lib/cupertino.dart', "export 'src/cupertino/presenter.dart';\n");
+    write('$lib/src/cupertino/presenter.dart',
+        "import 'package:cupertino_ui/cupertino_ui.dart';\n");
+    write('$lib/src/viewer.dart', "import '../l10n/strings.dart';\n");
+    write('$lib/dart_pdf_editor.dart', "export 'src/viewer.dart';\n");
+    _expect(check(), [], 'the main library may not reach the presenter');
+
+    write('$lib/src/viewer.dart',
+        "import 'package:dart_pdf_editor/src/cupertino/presenter.dart';\n");
+    final problems = check();
+    _expect(problems.length, 1, 'one reach: $problems');
+    _expect(
+        problems.single.contains('$lib/dart_pdf_editor.dart -> '
+            '$lib/src/viewer.dart -> $lib/src/cupertino/presenter.dart'),
+        true,
+        'reports the chain into lib/src/cupertino/: $problems');
   } finally {
     root.deleteSync(recursive: true);
   }

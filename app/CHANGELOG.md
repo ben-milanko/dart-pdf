@@ -1,5 +1,6 @@
 # Changelog
 
+## Unreleased
 ## 10.0.0
 
 - Type the value shown on a drawing into a measurement, even without setting a scale.

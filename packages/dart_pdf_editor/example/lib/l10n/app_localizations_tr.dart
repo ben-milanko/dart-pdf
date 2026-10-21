@@ -442,4 +442,38 @@ class AppLocalizationsTr extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - bölüm $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Cupertino tasarımına geç';
+
+  @override
+  String get exSettings => 'Ayarlar';
+
+  @override
+  String get exDesignSection => 'Tasarım';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Geçiş, açık belgeleri ve kaydedilmemiş düzenlemeleri korur.';
+
+  @override
+  String get exAppearanceSection => 'Görünüm';
+
+  @override
+  String get exAppearanceSystem => 'Sistem';
+
+  @override
+  String get exAppearanceLight => 'Açık';
+
+  @override
+  String get exAppearanceDark => 'Koyu';
+
+  @override
+  String get exOpenDocumentsSection => 'Açık belgeler';
 }
