@@ -179,6 +179,76 @@ void main() {
     expect(cursorPainter(tester).penCursor, end);
   });
 
+  // The dot is the stroke's footprint: its coloured disc is the pen width at
+  // the current zoom - no floor, no chrome on top of it - so it previews the
+  // line exactly rather than reading a size bigger.
+  testWidgets('the pen dot is exactly the stroke width', (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..preferences.strokeWidth = 1
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    await hoverAt(tester, view(300, 400));
+    expect(cursorPainter(tester).penCursorDiameter, closeTo(1 * scale, 1e-9));
+
+    editing.preferences.strokeWidth = 12;
+    await tester.pump();
+    expect(cursorPainter(tester).penCursorDiameter, closeTo(12 * scale, 1e-9));
+  });
+
+  // A pressure-sensitive stroke paints wider or thinner than the nominal pen
+  // width; mid-stroke the dot tracks the width the tip is actually laying
+  // down instead of sitting at the nominal size beside it.
+  testWidgets('mid-stroke the pen dot tracks the pressure-mapped width',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..inkCommitDelay = null
+      ..preferences.strokeWidth = 4
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final start = view(250, 450);
+    PointerEvent stylus(Offset at, double pressure, {bool down = false}) {
+      const kind = PointerDeviceKind.stylus;
+      return down
+          ? PointerDownEvent(
+              pointer: 7,
+              kind: kind,
+              position: at,
+              pressure: pressure,
+              pressureMin: 0,
+              pressureMax: 1)
+          : PointerMoveEvent(
+              pointer: 7,
+              kind: kind,
+              position: at,
+              pressure: pressure,
+              pressureMin: 0,
+              pressureMax: 1);
+    }
+
+    tester.binding.handlePointerEvent(stylus(start, 0.9, down: true));
+    await tester.pump();
+    tester.binding.handlePointerEvent(stylus(view(300, 430), 0.9));
+    await tester.pump();
+    expect(cursorPainter(tester).penCursorDiameter,
+        closeTo(pdfInkStrokeWidth(4 * scale, 0.9), 1e-9));
+
+    tester.binding.handlePointerEvent(stylus(view(320, 420), 0.1));
+    await tester.pump();
+    expect(cursorPainter(tester).penCursorDiameter,
+        closeTo(pdfInkStrokeWidth(4 * scale, 0.1), 1e-9));
+
+    tester.binding.handlePointerEvent(const PointerUpEvent(
+        pointer: 7,
+        kind: PointerDeviceKind.stylus,
+        pressureMin: 0,
+        pressureMax: 1));
+    await tester.pumpAndSettle();
+  });
+
   // A stylus never hovers, so pointer-down is the only thing that positions
   // the pen dot for it. This pins that the raw-pointer stroke path sets it -
   // it asserts the *state*, not that the cursor layer was repainted (a widget

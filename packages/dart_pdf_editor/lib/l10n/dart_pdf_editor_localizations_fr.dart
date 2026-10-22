@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
-  String get duplicate => 'Dupliquer';
+  String get textVerticalAlign => 'Alignement vertical';
+
+  @override
+  String get textAlignTop => 'Aligner le texte en haut';
+
+  @override
+  String get textAlignMiddle => 'Centrer le texte verticalement';
+
+  @override
+  String get textAlignBottom => 'Aligner le texte en bas';
 
   @override
   String get add => 'Ajouter';
@@ -2499,14 +2508,58 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'La couleur de page n\'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures.';
 
   @override
-  String get textVerticalAlign => 'Alignement vertical';
+  String get table => 'Tableau';
 
   @override
-  String get textAlignTop => 'Aligner le texte en haut';
+  String get tableEdit => 'Modifier le tableau';
 
   @override
-  String get textAlignMiddle => 'Centrer le texte verticalement';
+  String get tableRows => 'Lignes';
 
   @override
-  String get textAlignBottom => 'Aligner le texte en bas';
+  String get tableColumns => 'Colonnes';
+
+  @override
+  String get tableStyle => 'Style du tableau';
+
+  @override
+  String get tableStyleHint => 'S’applique à tout le tableau.';
+
+  @override
+  String get tableBackgroundColor => 'Couleur de fond';
+
+  @override
+  String get tableHeaderColor => 'Couleur de l’en-tête';
+
+  @override
+  String get tableTextColor => 'Couleur de police';
+
+  @override
+  String get tableGridLines => 'Quadrillage';
+
+  @override
+  String get tableGridColor => 'Couleur du quadrillage';
+
+  @override
+  String get tableGridWidth => 'Épaisseur du quadrillage';
+
+  @override
+  String get tableHeaderRow => 'Ligne d’en-tête';
+
+  @override
+  String get tableColumnWidth => 'Largeur de colonne';
+
+  @override
+  String get tableRowHeight => 'Hauteur de ligne';
+
+  @override
+  String get tableSelectionHint =>
+      'Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.';
+
+  @override
+  String get duplicate => 'Dupliquer';
 }

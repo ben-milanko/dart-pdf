@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
-  String get duplicate => 'Çoğalt';
+  String get textVerticalAlign => 'Dikey hizalama';
+
+  @override
+  String get textAlignTop => 'Metni üste hizala';
+
+  @override
+  String get textAlignMiddle => 'Metni dikey ortala';
+
+  @override
+  String get textAlignBottom => 'Metni alta hizala';
 
   @override
   String get add => 'Ekle';
@@ -2484,14 +2493,58 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
 
   @override
-  String get textVerticalAlign => 'Dikey hizalama';
+  String get table => 'Tablo';
 
   @override
-  String get textAlignTop => 'Metni üste hizala';
+  String get tableEdit => 'Tabloyu düzenle';
 
   @override
-  String get textAlignMiddle => 'Metni dikey ortala';
+  String get tableRows => 'Satırlar';
 
   @override
-  String get textAlignBottom => 'Metni alta hizala';
+  String get tableColumns => 'Sütunlar';
+
+  @override
+  String get tableStyle => 'Tablo stili';
+
+  @override
+  String get tableStyleHint => 'Tablonun tamamına uygulanır.';
+
+  @override
+  String get tableBackgroundColor => 'Arka plan rengi';
+
+  @override
+  String get tableHeaderColor => 'Başlık rengi';
+
+  @override
+  String get tableTextColor => 'Yazı rengi';
+
+  @override
+  String get tableGridLines => 'Izgara çizgileri';
+
+  @override
+  String get tableGridColor => 'Izgara rengi';
+
+  @override
+  String get tableGridWidth => 'Izgara kalınlığı';
+
+  @override
+  String get tableHeaderRow => 'Başlık satırı';
+
+  @override
+  String get tableColumnWidth => 'Sütun genişliği';
+
+  @override
+  String get tableRowHeight => 'Satır yüksekliği';
+
+  @override
+  String get tableSelectionHint =>
+      'Düzenlemek için hücreye tıklayın; aralık seçmek için Shift ile tıklayın. Kopyala ve Yapıştır, Excel ile hücre değerlerini aktarır.';
+
+  @override
+  String get tableClipboardError =>
+      'Pano tablosu geçersiz veya 500 satır, 100 sütun ya da 20.000 hücre sınırını aşıyor.';
+
+  @override
+  String get duplicate => 'Çoğalt';
 }

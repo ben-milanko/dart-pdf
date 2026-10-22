@@ -9,7 +9,16 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
-  String get duplicate => 'Duplizieren';
+  String get textVerticalAlign => 'Vertikale Ausrichtung';
+
+  @override
+  String get textAlignTop => 'Text oben ausrichten';
+
+  @override
+  String get textAlignMiddle => 'Text vertikal zentrieren';
+
+  @override
+  String get textAlignBottom => 'Text unten ausrichten';
 
   @override
   String get add => 'Hinzufügen';
@@ -2494,14 +2503,58 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.';
 
   @override
-  String get textVerticalAlign => 'Vertikale Ausrichtung';
+  String get table => 'Tabelle';
 
   @override
-  String get textAlignTop => 'Text oben ausrichten';
+  String get tableEdit => 'Tabelle bearbeiten';
 
   @override
-  String get textAlignMiddle => 'Text vertikal zentrieren';
+  String get tableRows => 'Zeilen';
 
   @override
-  String get textAlignBottom => 'Text unten ausrichten';
+  String get tableColumns => 'Spalten';
+
+  @override
+  String get tableStyle => 'Tabellenstil';
+
+  @override
+  String get tableStyleHint => 'Gilt für die gesamte Tabelle.';
+
+  @override
+  String get tableBackgroundColor => 'Hintergrundfarbe';
+
+  @override
+  String get tableHeaderColor => 'Kopfzeilenfarbe';
+
+  @override
+  String get tableTextColor => 'Schriftfarbe';
+
+  @override
+  String get tableGridLines => 'Gitterlinien';
+
+  @override
+  String get tableGridColor => 'Gitterfarbe';
+
+  @override
+  String get tableGridWidth => 'Linienbreite';
+
+  @override
+  String get tableHeaderRow => 'Kopfzeile';
+
+  @override
+  String get tableColumnWidth => 'Spaltenbreite';
+
+  @override
+  String get tableRowHeight => 'Zeilenhöhe';
+
+  @override
+  String get tableSelectionHint =>
+      'Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.';
+
+  @override
+  String get tableClipboardError =>
+      'Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen.';
+
+  @override
+  String get duplicate => 'Duplizieren';
 }

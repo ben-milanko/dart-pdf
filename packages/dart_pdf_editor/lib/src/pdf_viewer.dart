@@ -25,6 +25,7 @@ import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
+import 'editing/editing_table.dart';
 import 'editing/editing_reach.dart';
 import 'temporary_pan.dart';
 import 'editing/editor_commands.dart' show PdfEditorCommandsScope;
@@ -2531,6 +2532,8 @@ class _PdfViewerState extends State<PdfViewer>
   // second click of a double-click.
   Duration? _lastMouseDownStamp;
   Offset? _lastMouseDownLocal;
+  int _lastMouseDownButtons = 0;
+  bool _primaryDoubleClick = false;
   bool _wordDrag = false;
 
   ((int, int), (int, int))? _wordAnchor;
@@ -8058,6 +8061,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (_textEditController?.isEditingText != true) _focusNode.requestFocus();
     if (event.kind != PointerDeviceKind.mouse) {
       _wordDrag = false;
+      _primaryDoubleClick = false;
       return;
     }
     final lastStamp = _lastMouseDownStamp;
@@ -8066,6 +8070,10 @@ class _PdfViewerState extends State<PdfViewer>
         lastLocal != null &&
         event.timeStamp - lastStamp < kDoubleTapTimeout &&
         (event.localPosition - lastLocal).distance < kDoubleTapSlop;
+    _primaryDoubleClick = _wordDrag &&
+        _lastMouseDownButtons == kPrimaryMouseButton &&
+        event.buttons == kPrimaryMouseButton;
+    _lastMouseDownButtons = event.buttons;
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
     // Hand mode closes the hand on press, not once the drag clears the
@@ -8099,11 +8107,42 @@ class _PdfViewerState extends State<PdfViewer>
     if (_editingTextBoxAt(event.localPosition)) {
       return; // let the editing overlay turn the click into in-place edit
     }
+    if (_primaryDoubleClick && _openTableAt(event.localPosition)) return;
     // the viewer's own tap recognizer fires after this raw event and
     // would immediately clear the selection made here
     _suppressTap = true;
     _selectWordAt(event.localPosition);
     _applyArmedMarkup();
+  }
+
+  /// Reuse the viewer's double-click/tap paths so tables need neither a
+  /// pre-existing selection nor a mouse recognizer that delays other clicks.
+  bool _openTableAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null ||
+        !widget.showAnnotations ||
+        editing.isHandMode ||
+        editing.isPickingColor ||
+        editing.isCroppingImage ||
+        editing.isEditingText ||
+        editing.activeSavedAnnotation != null ||
+        (editing.tool != null && editing.tool != PdfEditTool.select) ||
+        HardwareKeyboard.instance.isShiftPressed ||
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed) {
+      return false;
+    }
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final hit = editing.selectableAnnotationAt(point.$1, point.$2, point.$3);
+    if (hit == null || hit.$2.table == null || hit.$2.isLockedContents) {
+      return false;
+    }
+    _suppressTap = true;
+    editing.selectAnnotation(point.$1, hit.$1);
+    unawaited(showPdfTableEditor(context,
+        controller: editing, pageIndex: point.$1, annotationSlot: hit.$1));
+    return true;
   }
 
   /// Whether a default/select-mode mouse click at [local] is over a
@@ -9003,6 +9042,7 @@ class _PdfViewerState extends State<PdfViewer>
   void _onDoubleTap() {
     final details = _doubleTapDetails;
     if (details == null) return;
+    if (_openTableAt(details.localPosition)) return;
     // two quick pen dots (dotting an i twice) are ink, not a zoom
     // gesture - the strokes already committed through the raw path
     if (_kindDrawsInk(details.kind)) return;
