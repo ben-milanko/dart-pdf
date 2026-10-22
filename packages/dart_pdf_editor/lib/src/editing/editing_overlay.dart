@@ -7836,23 +7836,34 @@ class _ActiveStrokePainter extends CustomPainter {
 void _paintPenCursor(
   Canvas canvas,
   Offset center, {
-  required double strokeWidth,
+  required double diameter,
   required double chromeScale,
   required Color color,
   required double opacity,
 }) {
-  final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-  canvas.drawCircle(
-      center, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
-  canvas.drawCircle(
-      center, r, Paint()..color = color.withValues(alpha: opacity));
+  // The coloured disc is exactly the stroke's footprint; the hairline and
+  // halo sit wholly outside it, so neither the chrome nor a floor on the
+  // radius makes the dot read bigger than the line it previews, and the
+  // halo never darkens a translucent pen colour from underneath.
+  final r = diameter / 2;
   canvas.drawCircle(
       center,
-      r,
+      r + 1.5 * chromeScale,
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 * chromeScale);
+  canvas.drawCircle(
+      center,
+      r + 0.5 * chromeScale,
       Paint()
         ..color = const Color(0xB3FFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1 * chromeScale);
+  if (r > 0) {
+    canvas.drawCircle(
+        center, r, Paint()..color = color.withValues(alpha: opacity));
+  }
 }
 
 /// Paints the temporary object/page alignment lines that appear only while a
@@ -8098,6 +8109,20 @@ class _HoverCursorPainter extends CustomPainter {
   @visibleForTesting
   Offset? get penCursor => _state._inkTool ? _state._penCursor : null;
 
+  /// The pen dot's diameter in view pixels: the width the stroke paints at
+  /// the tip - the pen width scaled to the zoom, and mid-stroke the width
+  /// the latest pressure sample maps to, exactly as the live stroke draws.
+  @visibleForTesting
+  double get penCursorDiameter {
+    final width =
+        _state._controller.preferences.strokeWidth * _state._geometry.scale;
+    final pressures =
+        _state._activeStroke == null ? null : _state._activeStrokePressures;
+    return pressures == null || pressures.isEmpty
+        ? width
+        : pdfInkStrokeWidth(width, pressures.last);
+  }
+
   @visibleForTesting
   _StampAfterimage? get countPreview {
     final at = _state._countCursor;
@@ -8261,7 +8286,7 @@ class _HoverCursorPainter extends CustomPainter {
       _paintPenCursor(
         canvas,
         pen,
-        strokeWidth: preferences.strokeWidth * geometry.scale,
+        diameter: penCursorDiameter,
         chromeScale: chromeScale,
         color: state._controller.color,
         opacity: preferences.opacity,
