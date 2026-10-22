@@ -359,12 +359,24 @@ class PdfAnnotation {
   }
 
   /// Whether the annotation asks conforming viewers to render its border as
-  /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
+  /// a cloudy border effect (`/BE << /S /C ... >>`, §12.5.4 Table 167). The
+  /// non-standard `/S /Cloudy` older builds of this package wrote reads the
+  /// same.
   bool get hasCloudyBorder {
     final be = document.cos.resolve(dict['BE']);
     if (be is! CosDictionary) return false;
     final style = document.cos.resolve(be['S']);
-    return style is CosName && style.value == 'Cloudy';
+    return style is CosName && (style.value == 'C' || style.value == 'Cloudy');
+  }
+
+  /// The outline shape of a callout's text box: [PdfCalloutBoxShape.cloud]
+  /// when it carries a cloudy border effect, else
+  /// [PdfCalloutBoxShape.rectangle]. Null when this isn't a callout.
+  PdfCalloutBoxShape? get calloutBoxShape {
+    if (!isCallout) return null;
+    return hasCloudyBorder
+        ? PdfCalloutBoxShape.cloud
+        : PdfCalloutBoxShape.rectangle;
   }
 
   /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
@@ -1165,6 +1177,17 @@ typedef PdfCalloutLeader = ({
   (double, double) target,
   (double, double)? attach,
 });
+
+/// The outline a callout draws around its text box.
+enum PdfCalloutBoxShape {
+  /// A straight-edged rectangle (solid or dashed, per /BS).
+  rectangle,
+
+  /// A revision cloud: scalloped puffs around the box, persisted as the
+  /// standard cloudy border effect (`/BE << /S /C /I scale >>`), so other
+  /// viewers that regenerate appearances draw it too.
+  cloud,
+}
 
 /// Dictionary key holding a callout's extra leader lines - an array of point
 /// arrays shaped like /CL (arrow tip first, box attachment last). /CL itself

@@ -727,6 +727,15 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo di linea';
 
   @override
+  String get propBoxShape => 'Forma della casella';
+
+  @override
+  String get propBoxShapeRectangle => 'Rettangolo';
+
+  @override
+  String get propBoxShapeCloud => 'Nuvola';
+
+  @override
   String get propLoadFont => 'Carica carattere…';
 
   @override
@@ -1692,6 +1701,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Didascalia';
 
   @override
+  String get tbNameCloudCallout => 'Didascalia a nuvola';
+
+  @override
   String get tbNameCloudPolygon => 'Poligono a nuvola';
 
   @override
@@ -1899,6 +1911,10 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Didascalia - trascina dal punto verso dove va la casella';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Didascalia a nuvola - trascina dal punto verso dove va la nuvola';
 
   @override
   String get tbTipContent => 'Modifica il contenuto della pagina';

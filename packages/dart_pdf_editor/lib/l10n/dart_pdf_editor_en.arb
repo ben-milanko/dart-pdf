@@ -927,6 +927,18 @@
   "@propLineType": {
     "description": "Row label for the line-style (solid/dashed) dropdown."
   },
+  "propBoxShape": "Box shape",
+  "@propBoxShape": {
+    "description": "Properties panel label: the outline shape of a callout's text box (rectangle or cloud)."
+  },
+  "propBoxShapeRectangle": "Rectangle",
+  "@propBoxShapeRectangle": {
+    "description": "Callout box shape option: a plain straight-edged rectangle."
+  },
+  "propBoxShapeCloud": "Cloud",
+  "@propBoxShapeCloud": {
+    "description": "Callout box shape option: a scalloped revision cloud."
+  },
   "propLoadFont": "Load font…",
   "@propLoadFont": {
     "description": "Font picker entry that opens a file picker to load a custom font."
@@ -2189,6 +2201,10 @@
   "@tbNameCallout": {
     "description": "Tool name: insert a callout (text box with a leader line)."
   },
+  "tbNameCloudCallout": "Cloud callout",
+  "@tbNameCloudCallout": {
+    "description": "Tool name: insert a callout whose text box is outlined by a revision cloud."
+  },
   "tbNameCloudPolygon": "Cloud polygon",
   "@tbNameCloudPolygon": {
     "description": "Tool name: draw a cloud-outline polygon."
@@ -2458,6 +2474,10 @@
   "tbTipCallout": "Callout - drag from the point to where the box goes",
   "@tbTipCallout": {
     "description": "Tooltip for the callout tool, explaining the drag gesture."
+  },
+  "tbTipCloudCallout": "Cloud callout - drag from the point to where the cloud goes",
+  "@tbTipCloudCallout": {
+    "description": "Tooltip for the cloud callout tool, explaining the drag gesture."
   },
   "tbTipContent": "Edit page content",
   "@tbTipContent": {

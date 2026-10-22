@@ -134,6 +134,7 @@ class _PdfAnnotationPropertiesPanelState
   double? _draggingStroke;
   double? _draggingLeaderWidth;
   double? _draggingOutlineWidth;
+  double? _draggingCloudScale;
   double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
@@ -970,6 +971,83 @@ class _PdfAnnotationPropertiesPanelState
             onChangeEnd: (v) {
               _controller.restyleSelectedText(borderWidth: v);
               setState(() => _draggingOutlineWidth = null);
+            }),
+      ..._calloutBoxControls(),
+    ];
+  }
+
+  /// The selected callouts' box outline: its shape (plain rectangle or
+  /// revision cloud), line type, and - for clouds - scallop size, applied
+  /// through [PdfEditingController.restyleSelectedCalloutBox].
+  List<Widget> _calloutBoxControls() {
+    final callouts = [
+      for (final a in _selectedAnnotations)
+        if (a.isCallout) a
+    ];
+    if (callouts.isEmpty) return const [];
+    final l = pdfL10n(context);
+    final shapes = _common<PdfCalloutBoxShape>(
+        [for (final a in callouts) a.calloutBoxShape!]);
+    final dashes = _common<PdfLineStyle>(
+        [for (final a in callouts) PdfLineStyle.ofDashArray(a.borderDash)]);
+    final clouds = [
+      for (final a in callouts)
+        if (a.hasCloudyBorder) a.cloudBorderScale
+    ];
+    final scales = clouds.isEmpty ? null : _common<double>(clouds);
+    return [
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(l.propBoxShape)),
+            PdfDropdown<PdfCalloutBoxShape>(
+                key: const ValueKey('pdf-prop-callout-box-shape'),
+                value: shapes.varies ? null : shapes.value,
+                hint: Text(l.propVaries),
+                isDense: true,
+                items: [
+                  for (final shape in PdfCalloutBoxShape.values)
+                    PdfDropdownItem(
+                        value: shape,
+                        key: ValueKey(
+                            'pdf-prop-callout-box-shape-${shape.name}'),
+                        label: switch (shape) {
+                          PdfCalloutBoxShape.rectangle =>
+                            l.propBoxShapeRectangle,
+                          PdfCalloutBoxShape.cloud => l.propBoxShapeCloud,
+                        }),
+                ],
+                onChanged: (shape) =>
+                    _controller.restyleSelectedCalloutBox(shape: shape)),
+          ])),
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(l.propLineType)),
+            PdfDropdown<PdfLineStyle>(
+                key: const ValueKey('pdf-prop-callout-box-dash'),
+                value: dashes.varies ? null : dashes.value,
+                hint: Text(l.propVaries),
+                isDense: true,
+                items: [
+                  for (final s in PdfLineStyle.values)
+                    PdfDropdownItem(
+                        value: s, label: pdfLineStyleLabel(context, s))
+                ],
+                onChanged: (s) =>
+                    _controller.restyleSelectedCalloutBox(lineStyle: s)),
+          ])),
+      if (scales != null)
+        _sliderRow(l.propScale, _draggingCloudScale ?? scales.value,
+            key: const ValueKey('pdf-prop-callout-cloud-scale'),
+            min: 0.5,
+            max: 4,
+            varies: _draggingCloudScale == null && scales.varies,
+            display: (v) => '${v.toStringAsFixed(1)}×',
+            onChanged: (v) => setState(() => _draggingCloudScale = v),
+            onChangeEnd: (v) {
+              _controller.restyleSelectedCalloutBox(cloudScale: v);
+              setState(() => _draggingCloudScale = null);
             }),
     ];
   }

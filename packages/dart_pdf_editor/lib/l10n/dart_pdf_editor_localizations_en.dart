@@ -724,6 +724,15 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get propLineType => 'Line type';
 
   @override
+  String get propBoxShape => 'Box shape';
+
+  @override
+  String get propBoxShapeRectangle => 'Rectangle';
+
+  @override
+  String get propBoxShapeCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -1686,6 +1695,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -1892,6 +1904,10 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag from the point to where the cloud goes';
 
   @override
   String get tbTipContent => 'Edit page content';
@@ -3261,6 +3277,15 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get propLineType => 'Line type';
 
   @override
+  String get propBoxShape => 'Box shape';
+
+  @override
+  String get propBoxShapeRectangle => 'Rectangle';
+
+  @override
+  String get propBoxShapeCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -4223,6 +4248,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -4429,6 +4457,10 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag from the point to where the cloud goes';
 
   @override
   String get tbTipContent => 'Edit page content';
@@ -5798,6 +5830,15 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get propLineType => 'Line type';
 
   @override
+  String get propBoxShape => 'Box shape';
+
+  @override
+  String get propBoxShapeRectangle => 'Rectangle';
+
+  @override
+  String get propBoxShapeCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -6760,6 +6801,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -6966,6 +7010,10 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag from the point to where the cloud goes';
 
   @override
   String get tbTipContent => 'Edit page content';

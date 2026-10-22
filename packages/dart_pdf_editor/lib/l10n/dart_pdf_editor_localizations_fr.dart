@@ -728,6 +728,15 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get propLineType => 'Type de ligne';
 
   @override
+  String get propBoxShape => 'Forme de la zone';
+
+  @override
+  String get propBoxShapeRectangle => 'Rectangle';
+
+  @override
+  String get propBoxShapeCloud => 'Nuage';
+
+  @override
   String get propLoadFont => 'Charger une police…';
 
   @override
@@ -1696,6 +1705,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Légende';
 
   @override
+  String get tbNameCloudCallout => 'Légende nuage';
+
+  @override
   String get tbNameCloudPolygon => 'Polygone nuage';
 
   @override
@@ -1903,6 +1915,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Légende - faites glisser du point vers l\'emplacement de la zone';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Légende nuage - faites glisser du point vers l\'emplacement du nuage';
 
   @override
   String get tbTipContent => 'Modifier le contenu de la page';

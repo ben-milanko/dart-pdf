@@ -406,6 +406,48 @@ void main() {
     expect(editing.selectedAnnotation!.freeTextStyle!.borderWidth, 0);
   });
 
+  testWidgets('callout properties switch the box between cloud and rectangle',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    addTearDown(tester.view.resetPhysicalSize);
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addCallout(0, const PdfRect(300, 600, 450, 660), 'Detail', (120, 500),
+          boxShape: PdfCalloutBoxShape.cloud)
+      ..selectAnnotation(0, 0);
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Align(
+      alignment: Alignment.centerRight,
+      child: PdfAnnotationPropertiesPanel(controller: editing),
+    ))));
+    await tester.pumpAndSettle();
+    const shapeKey = ValueKey('pdf-prop-callout-box-shape');
+    PdfDropdown<PdfCalloutBoxShape> shape() =>
+        tester.widget<PdfDropdown<PdfCalloutBoxShape>>(find.byKey(shapeKey));
+    expect(shape().value, PdfCalloutBoxShape.cloud);
+    expect(find.byKey(const ValueKey('pdf-prop-callout-cloud-scale')),
+        findsOneWidget,
+        reason: 'a cloud offers its scallop size');
+
+    shape().onChanged!(PdfCalloutBoxShape.rectangle);
+    await tester.pumpAndSettle();
+    expect(editing.selectedAnnotation!.calloutBoxShape,
+        PdfCalloutBoxShape.rectangle);
+    expect(shape().value, PdfCalloutBoxShape.rectangle);
+    expect(find.byKey(const ValueKey('pdf-prop-callout-cloud-scale')),
+        findsNothing,
+        reason: 'a rectangle has no scallops to size');
+
+    tester
+        .widget<PdfDropdown<PdfLineStyle>>(
+            find.byKey(const ValueKey('pdf-prop-callout-box-dash')))
+        .onChanged!(PdfLineStyle.dotted);
+    await tester.pumpAndSettle();
+    expect(PdfLineStyle.ofDashArray(editing.selectedAnnotation!.borderDash),
+        PdfLineStyle.dotted);
+  });
+
   for (final mode in PdfAnnotationRotationMode.values) {
     testWidgets('right-click rotation invokes ${mode.name}', (tester) async {
       final (editing, _) = await pumpEditor(tester,

@@ -726,6 +726,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get propLineType => 'جۆری هێڵ';
 
   @override
+  String get propBoxShape => 'شێوەی چوارگۆشە';
+
+  @override
+  String get propBoxShapeRectangle => 'چوارگۆشە';
+
+  @override
+  String get propBoxShapeCloud => 'هەور';
+
+  @override
   String get propLoadFont => 'بارکردنی فۆنت…';
 
   @override
@@ -1692,6 +1701,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'دەرخەری تێبینی';
 
   @override
+  String get tbNameCloudCallout => 'دەرخەری تێبینی هەوری';
+
+  @override
   String get tbNameCloudPolygon => 'فرەگۆشەی هەوری';
 
   @override
@@ -1900,6 +1912,10 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'دەرخەری تێبینی - لە خاڵەکەوە ڕایبکێشە بۆ شوێنی چوارگۆشەکە';
+
+  @override
+  String get tbTipCloudCallout =>
+      'دەرخەری تێبینی هەوری - لە خاڵەکەوە ڕایبکێشە بۆ شوێنی هەورەکە';
 
   @override
   String get tbTipContent => 'دەستکاریکردنی ناوەڕۆکی پەڕە';

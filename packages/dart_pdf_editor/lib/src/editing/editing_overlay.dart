@@ -1354,6 +1354,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// default-mode (mouse click) selection exists without one.
   PdfEditTool? get _tool => _controller.tool;
 
+  /// Whether the armed tool places a callout (plain or cloud) - they share
+  /// one placement gesture and differ only in the box outline they commit.
+  bool get _calloutTool =>
+      _tool == PdfEditTool.callout || _tool == PdfEditTool.cloudCallout;
+
   /// Select-tool behavior applies: the tool is armed, or an annotation
   /// was selected in default mode (no tool) by a mouse click - the
   /// selection needs its move/resize/marquee interactions either way.
@@ -3857,7 +3862,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// placing a new one. Null otherwise.
   List<(Offset, Offset, Color, double)>? _calloutLeaderPreview() {
     // placing: the leader runs from the press (the terminus) to the pointer
-    if (_tool == PdfEditTool.callout &&
+    if (_calloutTool &&
         _textEditRect == null &&
         _dragStart != null &&
         _dragCurrent != null) {
@@ -3972,7 +3977,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (text.isNotEmpty) {
       if (calloutTarget != null) {
         _controller.addCallout(
-            widget.pageIndex, _geometry.toPageRect(rect), text, calloutTarget);
+            widget.pageIndex, _geometry.toPageRect(rect), text, calloutTarget,
+            boxShape: _tool == PdfEditTool.cloudCallout
+                ? PdfCalloutBoxShape.cloud
+                : PdfCalloutBoxShape.rectangle);
       } else if (richRuns != null) {
         _controller.addFreeTextRich(
             widget.pageIndex, _geometry.toPageRect(rect), richRuns);
@@ -4236,6 +4244,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.calibrate ||
             PdfEditTool.freeText ||
             PdfEditTool.callout ||
+            PdfEditTool.cloudCallout ||
             PdfEditTool.stamp ||
             PdfEditTool.image ||
             PdfEditTool.redact ||
@@ -4991,7 +5000,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _commitLineDrag(dragStart, dragCurrent);
         return;
       }
-      if (_tool == PdfEditTool.callout) {
+      if (_calloutTool) {
         // the drag draws the leader: press at the terminus, release where
         // the box goes. A too-short drag drops a default-offset box.
         final short = (dragCurrent - dragStart).distance < 8;
@@ -5796,6 +5805,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       PdfEditTool.signature ||
       PdfEditTool.freeText ||
       PdfEditTool.callout ||
+      PdfEditTool.cloudCallout ||
       PdfEditTool.stamp ||
       PdfEditTool.image =>
         PdfEditingInteractionIntent.create,
@@ -5831,7 +5841,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // tapping without dragging out a box opens a default-sized one
           _openTextEditor(_defaultPlacementRect(placementPosition),
               existing: false);
-        case PdfEditTool.callout:
+        case PdfEditTool.callout || PdfEditTool.cloudCallout:
           // a plain tap makes the tap the terminus and offsets the box; a drag
           // (handled in _panEnd) instead aims the box where the drag released
           _openCalloutEditor(
@@ -7089,7 +7099,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // (calloutLeaders), never a rubber-band box
                     dragRect: _dragStart != null &&
                             _dragCurrent != null &&
-                            _tool != PdfEditTool.callout
+                            !_calloutTool
                         ? Rect.fromPoints(_dragStart!, _dragCurrent!)
                         : null,
                     dragLine: _dragStart != null &&

@@ -456,4 +456,124 @@ void main() {
       expect(rd[3], closeTo(a.rect.top - 660, 0.01), reason: 'top');
     });
   });
+  group('cloud callout', () {
+    const box = PdfRect(300, 600, 460, 660);
+
+    PdfDocument cloud(
+            {double scale = 1, (double, double) target = (120, 630)}) =>
+        roundTrip((e) => e.addCallout(0, box, 'Revise', target,
+            boxShape: PdfCalloutBoxShape.cloud, cloudScale: scale));
+
+    test('writes the standard cloudy border effect and draws scallops', () {
+      final doc = cloud(scale: 1.5);
+      final annot = doc.page(0).annotations.single;
+      expect(annot.isCallout, isTrue);
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      final be = doc.cos.resolve(annot.dict['BE']) as CosDictionary;
+      expect((doc.cos.resolve(be['S']) as CosName).value, 'C');
+      expect(annot.cloudBorderScale, 1.5);
+      // the text box is unchanged; /Rect grows to hold the puffs
+      final callout = annot.calloutBox!;
+      expect(callout.left, closeTo(300, 0.01));
+      expect(callout.top, closeTo(660, 0.01));
+      expect(annot.rect.top, greaterThan(660 + 12));
+      final content = appearanceText(doc, annot);
+      expect(' c\n'.allMatches(content).length, greaterThan(16),
+          reason: 'scalloped outline is drawn with curves');
+      expect(content, contains(' Tj'));
+    });
+
+    test('the leader stops on the cloud outline, outside the box edge', () {
+      final line = cloud().page(0).annotations.single.calloutLine!;
+      expect(line.first, (120.0, 630.0));
+      // meets the left side, out on the scallop rather than at x == 300
+      expect(line.last.$1, lessThan(300));
+      expect(line.last.$1, greaterThan(300 - 20));
+      expect(line.last.$2, closeTo(630, 0.01));
+      // the knee clears the puffs
+      expect(line, hasLength(3));
+      expect(line[1].$1, lessThan(line.last.$1));
+    });
+
+    test('a plain callout reads as a rectangle', () {
+      final doc = roundTrip((e) => e.addCallout(0, box, 'x', (120, 500)));
+      final annot = doc.page(0).annotations.single;
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.rectangle);
+      expect(annot.dict['BE'], isNull);
+    });
+
+    test('restyleCalloutBox switches cloud <-> rectangle and keeps tips', () {
+      final doc0 = cloud();
+      final e1 = PdfEditor(doc0);
+      expect(
+          e1.restyleCalloutBox(0, doc0.page(0).annotations.single,
+              shape: PdfCalloutBoxShape.rectangle),
+          isTrue);
+      final doc1 = PdfDocument.open(e1.save());
+      final rect = doc1.page(0).annotations.single;
+      expect(rect.calloutBoxShape, PdfCalloutBoxShape.rectangle);
+      expect(rect.dict['BE'], isNull);
+      expect(rect.calloutLine!.first, (120.0, 630.0));
+      expect(rect.calloutLine!.last.$1, 300, reason: 'back on the box edge');
+      expect(rect.calloutBox!.left, closeTo(300, 0.01));
+
+      final e2 = PdfEditor(doc1);
+      expect(
+          e2.restyleCalloutBox(0, rect,
+              shape: PdfCalloutBoxShape.cloud, cloudScale: 2),
+          isTrue);
+      final back = PdfDocument.open(e2.save()).page(0).annotations.single;
+      expect(back.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(back.cloudBorderScale, 2);
+      expect(back.calloutLine!.first, (120.0, 630.0));
+      expect(back.calloutLine!.last.$1, lessThan(300));
+    });
+
+    test('restyleCalloutBox dashes the outline', () {
+      final doc0 = cloud();
+      final e = PdfEditor(doc0);
+      expect(
+          e.restyleCalloutBox(0, doc0.page(0).annotations.single,
+              outlineDash: ([4, 2],)),
+          isTrue);
+      final doc = PdfDocument.open(e.save());
+      final annot = doc.page(0).annotations.single;
+      expect(annot.borderDash, [4, 2]);
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(appearanceText(doc, annot), contains('[4 2] 0 d'));
+    });
+
+    test('reshaping and moving the box keeps the cloud', () {
+      final doc0 = cloud();
+      final e = PdfEditor(doc0);
+      e.reshapeCallout(0, doc0.page(0).annotations.single,
+          box: const PdfRect(320, 620, 520, 700));
+      final annot = PdfDocument.open(e.save()).page(0).annotations.single;
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(annot.calloutLine!.first, (120.0, 630.0));
+      expect(annot.calloutLine!.last.$1, lessThan(320));
+    });
+
+    test('repeated rebuilds do not drift the leader base', () {
+      var doc = cloud(target: (120, 605));
+      final first = doc.page(0).annotations.single.calloutLine!.last;
+      for (var i = 0; i < 3; i++) {
+        final e = PdfEditor(doc);
+        e.reshapeCallout(0, doc.page(0).annotations.single, target: (120, 605));
+        doc = PdfDocument.open(e.save());
+      }
+      final last = doc.page(0).annotations.single.calloutLine!.last;
+      expect(last.$1, closeTo(first.$1, 0.01));
+      expect(last.$2, closeTo(first.$2, 0.01));
+    });
+
+    test('restyleCalloutBox refuses a plain free text', () {
+      final doc0 = roundTrip(
+          (e) => e.addFreeText(0, const PdfRect(72, 600, 240, 680), 'plain'));
+      expect(
+          PdfEditor(doc0).restyleCalloutBox(0, doc0.page(0).annotations.single,
+              shape: PdfCalloutBoxShape.cloud),
+          isFalse);
+    });
+  });
 }

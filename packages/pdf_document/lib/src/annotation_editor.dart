@@ -1456,10 +1456,7 @@ extension PdfAnnotationEditing on PdfEditor {
       ..['Vertices'] = _pointArray(vertices)
       ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern);
     if (cloudy) {
-      dict['BE'] = CosDictionary({
-        'S': const CosName('Cloudy'),
-        'I': CosReal(cloudScale),
-      });
+      dict['BE'] = _cloudyBorderEffect(cloudScale);
     }
     if (fillColor != null) dict['IC'] = _colorComponents(fillColor);
     _addAnnotation(
@@ -2175,6 +2172,10 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [strokeColor], [strokeWidth], and [leaderDash] style the leaders;
   /// [outlineColor], [outlineWidth], and [outlineDash] style the box separately.
   /// Pass `outlineColor: (null,)` or an outline width of zero for no outline.
+  /// [boxShape] picks a plain rectangle or a revision cloud around the text
+  /// box (a cloud callout, Bluebeam's Cloud+); [cloudScale] sizes the cloud's
+  /// scallops (1 = the cloud tool's default puff) and rides on `/BE /I`.
+  /// [restyleCalloutBox] switches either later.
   void addCallout(
     int pageIndex,
     PdfRect boxRect,
@@ -2195,6 +2196,8 @@ extension PdfAnnotationEditing on PdfEditor {
     (int?,)? outlineColor,
     double? outlineWidth,
     List<double>? outlineDash,
+    PdfCalloutBoxShape boxShape = PdfCalloutBoxShape.rectangle,
+    double cloudScale = 1,
     double opacity = 1,
     PdfLineEnding ending = PdfLineEnding.openArrow,
     double lineSpacing = _defaultLineSpacing,
@@ -2221,12 +2224,15 @@ extension PdfAnnotationEditing on PdfEditor {
 
     final borderColor = outlineColor == null ? strokeColor : outlineColor.$1;
     final borderWidth = borderColor == null ? 0.0 : outlineWidth ?? strokeWidth;
+    final cloud = boxShape == PdfCalloutBoxShape.cloud ? cloudScale : null;
     final geometry = _calloutGeometry(
       boxRect,
       [(target: target, attach: attach), ...extraLeaders],
       ending,
       strokeWidth,
-      pad: math.max(strokeWidth, borderWidth),
+      pad: _calloutPad(strokeWidth, borderWidth, cloud),
+      cloudScale: cloud,
+      cloudStroke: borderWidth,
     );
     final rect = geometry.rect;
 
@@ -2245,6 +2251,7 @@ extension PdfAnnotationEditing on PdfEditor {
       borderColor: borderColor,
       borderWidth: borderWidth,
       borderDash: outlineDash,
+      cloudScale: cloud,
       lineColor: strokeColor,
       lineWidth: strokeWidth,
       lineDash: leaderDash,
@@ -2272,6 +2279,7 @@ extension PdfAnnotationEditing on PdfEditor {
         align?.quadding ??
             (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
       );
+    if (cloud != null) dict['BE'] = _cloudyBorderEffect(cloud);
     _writeCalloutLeaders(dict, geometry.lines);
     _writeCalloutLeaderStyle(dict, strokeColor, strokeWidth, leaderDash);
     _writeFreeTextSpacing(
@@ -2301,16 +2309,25 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The leader polylines of a callout whose text box is [box], one per
   /// entry of [leaders], and the /Rect enclosing the box, every leader, and
   /// each arrowhead (so the markup survives §12.5.5 appearance fitting).
+  ///
+  /// With a [cloudScale] the box is a revision cloud drawn with a
+  /// [cloudStroke] pen, and every leader stops on the cloud's outline rather
+  /// than the straight box edge underneath it.
   ({List<List<(double, double)>> lines, PdfRect rect}) _calloutGeometry(
     PdfRect box,
     List<PdfCalloutLeader> leaders,
     PdfLineEnding ending,
     double strokeWidth, {
     double? pad,
+    double? cloudScale,
+    double cloudStroke = 0,
   }) {
     final lines = [
       for (final leader in leaders)
-        _calloutLine(box, leader.target, attach: leader.attach),
+        _calloutLine(box, leader.target,
+            attach: leader.attach,
+            cloudScale: cloudScale,
+            cloudStroke: cloudStroke),
     ];
     return _calloutPolylineGeometry(box, lines, ending, strokeWidth, pad: pad);
   }
@@ -2332,6 +2349,20 @@ extension PdfAnnotationEditing on PdfEditor {
     ], pad ?? strokeWidth);
     return (lines: lines, rect: rect);
   }
+
+  /// The /Rect padding around a callout's box and leaders: enough for the
+  /// leader pen and the box outline, and - for a cloud box - the puffs.
+  double _calloutPad(double leaderWidth, double borderWidth, double? cloud) =>
+      math.max(
+        math.max(leaderWidth, borderWidth),
+        cloud == null ? 0 : _cloudPadding(borderWidth, cloud),
+      );
+
+  /// The standard cloudy border effect (§12.5.4 Table 167) at [scale].
+  CosDictionary _cloudyBorderEffect(double scale) => CosDictionary({
+        'S': const CosName('C'),
+        'I': CosReal(scale),
+      });
 
   /// Persists a callout's leader polylines: the first in the standard /CL,
   /// the rest under [kPdfCalloutLeadersKey] (dropped when there are none).
@@ -2355,16 +2386,71 @@ extension PdfAnnotationEditing on PdfEditor {
   /// edge nearest the target) and `knee` gives the leader a short stub out of
   /// that edge (Acrobat/Bluebeam house style). Collapses to `[target, attach]`
   /// when a knee would be degenerate.
+  ///
+  /// Around a cloud box ([cloudScale] non-null) the base moves out from the
+  /// box edge onto the scallop above it, and the knee clears the puffs, so
+  /// the leader meets the cloud instead of running under it.
   List<(double, double)> _calloutLine(
     PdfRect box,
     (double, double) target, {
     (double, double)? attach,
+    double? cloudScale,
+    double cloudStroke = 0,
   }) {
     final a = attach != null
         ? _clampToBoxPerimeter(box, attach)
         : _calloutAttach(box, target);
     final knee = _calloutKnee(box, a, target);
-    return knee == null ? [target, a] : [target, knee, a];
+    final normal = cloudScale == null ? null : _boxEdgeNormal(box, a);
+    if (normal == null) return knee == null ? [target, a] : [target, knee, a];
+    final (nx, ny) = normal;
+    final h = _cloudOutlineHeight(box, a, normal, cloudStroke, cloudScale!);
+    final base = (a.$1 + nx * h, a.$2 + ny * h);
+    final extent =
+        _cloudArcRadius(cloudStroke, cloudScale) * _cloudBulgeFactor +
+            cloudStroke / 2;
+    final reach = (target.$1 - a.$1) * nx + (target.$2 - a.$2) * ny;
+    if (knee == null || reach <= extent) return [target, base];
+    final stub = extent + math.min(14.0, (reach - extent) * 0.5);
+    return [target, (a.$1 + nx * stub, a.$2 + ny * stub), base];
+  }
+
+  /// The outward unit normal of the [box] edge [a] lies on, or null when [a]
+  /// isn't on the perimeter (a target inside the box).
+  (double, double)? _boxEdgeNormal(PdfRect box, (double, double) a) {
+    const eps = 0.5;
+    final (ax, ay) = a;
+    if ((ax - box.left).abs() < eps) return (-1, 0);
+    if ((ax - box.right).abs() < eps) return (1, 0);
+    if ((ay - box.bottom).abs() < eps) return (0, -1);
+    if ((ay - box.top).abs() < eps) return (0, 1);
+    return null;
+  }
+
+  /// How far the cloud outline drawn around [box] (see [_appendCloudPath])
+  /// stands out past the edge with outward [normal] at the edge point [a] -
+  /// the scallop over that point, approximated as a half-ellipse from foot to
+  /// apex. Never negative: at a cusp the base stays on the edge.
+  double _cloudOutlineHeight(
+    PdfRect box,
+    (double, double) a,
+    (double, double) normal,
+    double strokeWidth,
+    double cloudScale,
+  ) {
+    final vertical = normal.$1 != 0;
+    final length = vertical ? box.height : box.width;
+    if (length < 0.01) return 0;
+    final s = vertical ? a.$2 - box.bottom : a.$1 - box.left;
+    final arc = _cloudArcRadius(strokeWidth, cloudScale);
+    final scallops = math.max(1, (length / (2 * arc)).round());
+    final chord = length / scallops;
+    final r = chord / 2;
+    final bulge = math.min(r, arc) * _cloudBulgeFactor;
+    final inset = bulge * _cloudNeckInset;
+    final j = (s / chord).floor().clamp(0, scallops - 1);
+    final u = ((s - (j + 0.5) * chord) / r).clamp(-1.0, 1.0);
+    return math.max(0.0, -inset + (bulge + inset) * math.sqrt(1 - u * u));
   }
 
   /// Where the leader meets [box] when the base isn't pinned: the point on the
@@ -2411,10 +2497,20 @@ extension PdfAnnotationEditing on PdfEditor {
 
   /// Snaps [p] onto the nearest point of [box]'s perimeter - how a dragged
   /// arrow base stays glued to the text box edge.
+  ///
+  /// Distances are to each edge *segment*, so a base standing out past one
+  /// edge near a corner (a cloud callout's, on its scallop) snaps back onto
+  /// that edge rather than the neighbouring one.
   (double, double) _clampToBoxPerimeter(PdfRect box, (double, double) p) {
     final (px, py) = p;
-    final dl = (px - box.left).abs(), dr = (px - box.right).abs();
-    final db = (py - box.bottom).abs(), dt = (py - box.top).abs();
+    double off(double v, double lo, double hi) =>
+        v < lo ? lo - v : (v > hi ? v - hi : 0);
+    final ox = off(px, box.left, box.right);
+    final oy = off(py, box.bottom, box.top);
+    double seg(double across, double along) =>
+        math.sqrt(across * across + along * along);
+    final dl = seg(px - box.left, oy), dr = seg(px - box.right, oy);
+    final db = seg(py - box.bottom, ox), dt = seg(py - box.top, ox);
     final m = math.min(math.min(dl, dr), math.min(db, dt));
     if (m == dl) return (box.left, py.clamp(box.bottom, box.top).toDouble());
     if (m == dr) return (box.right, py.clamp(box.bottom, box.top).toDouble());
@@ -2490,6 +2586,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? borderColor,
     required double borderWidth,
     List<double>? borderDash,
+    double? cloudScale,
     required int lineColor,
     required double lineWidth,
     List<double>? lineDash,
@@ -2514,6 +2611,7 @@ extension PdfAnnotationEditing on PdfEditor {
       borderColor: borderColor,
       borderWidth: borderWidth,
       borderDash: borderDash,
+      cloudScale: cloudScale,
       lineSpacing: lineSpacing,
       charSpacing: charSpacing,
       horizontalScale: horizontalScale,
@@ -2697,11 +2795,14 @@ extension PdfAnnotationEditing on PdfEditor {
     final leaderStyle = annotation.calloutLeaderStyle!;
     final leaderColor = leaderStyle.color;
     final leaderWidth = leaderStyle.width;
+    final cloud =
+        annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
+    final pad = _calloutPad(leaderWidth, style.borderWidth, cloud);
     final geometry = preservedLines == null
         ? _calloutGeometry(box, leaders, ending, leaderWidth,
-            pad: math.max(style.borderWidth, leaderWidth))
+            pad: pad, cloudScale: cloud, cloudStroke: style.borderWidth)
         : _calloutPolylineGeometry(box, preservedLines, ending, leaderWidth,
-            pad: math.max(style.borderWidth, leaderWidth));
+            pad: pad);
     final rect = geometry.rect;
 
     final pageRotation = _appearancePageRotation(pageIndex, null);
@@ -2720,6 +2821,7 @@ extension PdfAnnotationEditing on PdfEditor {
       borderColor: style.borderColor,
       borderWidth: style.borderWidth,
       borderDash: annotation.borderDash,
+      cloudScale: cloud,
       lineColor: leaderColor,
       lineWidth: leaderWidth,
       lineDash: leaderStyle.dash,
@@ -2810,24 +2912,99 @@ extension PdfAnnotationEditing on PdfEditor {
         (width != null && (!width.isFinite || width <= 0))) {
       return false;
     }
+    final frame = _calloutLocalFrame(annotation, info.leaders);
+    if (frame == null) return false;
+    _writeCalloutLeaderStyle(annotation.dict, color ?? old.color,
+        width ?? old.width, dash == null ? old.dash : dash.$1);
+    if (ending != null) annotation.dict['LE'] = CosName(ending.pdfName);
+    return _rebuildCallout(
+        pageIndex,
+        annotation,
+        frame.box,
+        [
+          for (final line in frame.lines)
+            (target: line.first, attach: line.last)
+        ],
+        ending ?? info.ending,
+        preservedLines: frame.lines,
+        appearanceToPage: frame.appearanceToPage);
+  }
+
+  /// Restyles a callout's text-box outline without touching its text or
+  /// leaders' style: [shape] switches between a plain rectangle and a
+  /// revision cloud (written as the standard `/BE /S /C`), [cloudScale] resizes
+  /// the cloud's scallops (`/BE /I`; ignored for a rectangle), and
+  /// [outlineDash] sets the outline's dash (`(null,)` for solid). Changing
+  /// the shape or the scallops re-seats each leader base on the new outline;
+  /// arrow tips stay where they point. Returns false when [annotation] isn't
+  /// a callout this editor can reproduce.
+  bool restyleCalloutBox(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    PdfCalloutBoxShape? shape,
+    double? cloudScale,
+    (List<double>?,)? outlineDash,
+  }) {
+    final info = _calloutInfo(annotation);
+    final style = annotation.freeTextStyle;
+    if (info == null ||
+        style == null ||
+        annotation.calloutLeaderStyle == null ||
+        (cloudScale != null && (!cloudScale.isFinite || cloudScale <= 0))) {
+      return false;
+    }
+    final frame = _calloutLocalFrame(annotation, info.leaders);
+    if (frame == null) return false;
+    final dict = annotation.dict;
+    final wasCloud = annotation.hasCloudyBorder;
+    final cloud = shape == null ? wasCloud : shape == PdfCalloutBoxShape.cloud;
+    final oldScale = annotation.cloudBorderScale;
+    if (cloud) {
+      dict['BE'] = _cloudyBorderEffect(cloudScale ?? oldScale);
+    } else {
+      dict.entries.remove('BE');
+    }
+    if (outlineDash != null) {
+      dict['BS'] = _borderStyle(style.borderWidth, dashPattern: outlineDash.$1);
+    }
+    final reseat = cloud != wasCloud ||
+        (cloud && cloudScale != null && cloudScale != oldScale);
+    return _rebuildCallout(
+      pageIndex,
+      annotation,
+      frame.box,
+      [for (final line in frame.lines) (target: line.first, attach: line.last)],
+      info.ending,
+      preservedLines: reseat ? null : frame.lines,
+      appearanceToPage: frame.appearanceToPage,
+    );
+  }
+
+  /// [annotation]'s callout box and [leaders] in the frame its appearance is
+  /// authored in: page space normally, or - for a rotated callout whose form
+  /// carries a baked matrix - the form's local frame, with the matrix that
+  /// maps it back to the page. Null when that frame can't be recovered.
+  ({
+    PdfRect box,
+    List<List<(double, double)>> lines,
+    PdfMatrix? appearanceToPage,
+  })? _calloutLocalFrame(
+    PdfAnnotation annotation,
+    List<List<(double, double)>> leaders,
+  ) {
     var box = annotation.calloutBox!;
-    var lines = info.leaders;
+    var lines = leaders;
     PdfMatrix? appearanceToPage;
-    final currentForm = annotation.normalAppearance;
-    final currentTransform = currentForm == null
-        ? null
-        : _bakedFormMatrix(currentForm, annotation.rect);
+    final form = annotation.normalAppearance;
+    final currentTransform =
+        form == null ? null : _bakedFormMatrix(form, annotation.rect);
     if (currentTransform != null && currentTransform != PdfMatrix.identity) {
-      final form = annotation.normalAppearance;
-      final bbox = form == null
-          ? null
-          : pdfRectFrom(document.cos, form.dictionary['BBox']);
-      appearanceToPage =
-          form == null ? null : _bakedFormMatrix(form, annotation.rect);
-      final inverse = appearanceToPage?.inverted();
-      if (bbox == null || inverse == null) return false;
+      final bbox = pdfRectFrom(document.cos, form!.dictionary['BBox']);
+      appearanceToPage = currentTransform;
+      final inverse = appearanceToPage.inverted();
+      if (bbox == null || inverse == null) return null;
       lines = [
-        for (final line in info.leaders)
+        for (final line in leaders)
           [for (final p in line) inverse.apply(p.$1, p.$2)],
       ];
       // /RD belongs to the authored appearance frame. Rotated page-space
@@ -2842,17 +3019,7 @@ extension PdfAnnotationEditing on PdfEditor {
       }
       box = PdfAnnotation.fromDict(document, local).calloutBox!;
     }
-    _writeCalloutLeaderStyle(annotation.dict, color ?? old.color,
-        width ?? old.width, dash == null ? old.dash : dash.$1);
-    if (ending != null) annotation.dict['LE'] = CosName(ending.pdfName);
-    return _rebuildCallout(
-        pageIndex,
-        annotation,
-        box,
-        [for (final line in lines) (target: line.first, attach: line.last)],
-        ending ?? info.ending,
-        preservedLines: lines,
-        appearanceToPage: appearanceToPage);
+    return (box: box, lines: lines, appearanceToPage: appearanceToPage);
   }
 
   /// Adds a rich free-text annotation whose appearance can switch font,
@@ -3102,6 +3269,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int? borderColor,
     required double borderWidth,
     List<double>? borderDash,
+    double? cloudScale,
     bool hasAlpha = false,
     double lineSpacing = _defaultLineSpacing,
     double charSpacing = 0,
@@ -3112,18 +3280,49 @@ extension PdfAnnotationEditing on PdfEditor {
     const pad = 3.0;
     final w = ContentWriter();
     if (hasAlpha) w.extGState('GS0');
+    final stroked = borderColor != null && borderWidth > 0;
+    if (cloudScale != null && (fillColor != null || stroked)) {
+      // A cloud box puffs out past [rect] (the text box) on every side, so it
+      // is drawn in page space around it - the same outline whatever the page
+      // rotation, and the one [_cloudOutlineHeight] seats leaders on.
+      final corners = [
+        (rect.left, rect.bottom),
+        (rect.right, rect.bottom),
+        (rect.right, rect.top),
+        (rect.left, rect.top),
+      ];
+      final dashed = stroked && borderDash != null && borderDash.isNotEmpty;
+      if (fillColor != null) w.fillColor(fillColor);
+      if (stroked) {
+        w
+          ..strokeColor(borderColor)
+          ..lineWidth(borderWidth)
+          ..lineCap(1)
+          ..lineJoin(1);
+      }
+      if (dashed) w.dash(borderDash);
+      _appendCloudPath(w, corners, borderWidth, cloudScale);
+      if (fillColor != null && stroked) {
+        w.fillAndStroke();
+      } else if (stroked) {
+        w.stroke();
+      } else {
+        w.fill();
+      }
+      if (dashed) w.dash(const []);
+    }
     final vr = _orientedVisualRect(rect, pageRotation);
     if (pageRotation != 0) {
       w.save();
       _orientedCounterRotation(w, rect, pageRotation);
     }
-    if (fillColor != null) {
+    if (cloudScale == null && fillColor != null) {
       w
         ..fillColor(fillColor)
         ..rect(vr.left, vr.bottom, vr.width, vr.height)
         ..fill();
     }
-    if (borderColor != null && borderWidth > 0) {
+    if (cloudScale == null && stroked) {
       if (borderDash != null && borderDash.isNotEmpty) w.dash(borderDash);
       w
         ..strokeColor(borderColor)
@@ -5236,6 +5435,9 @@ extension PdfAnnotationEditing on PdfEditor {
               borderColor: style.borderColor,
               borderWidth: style.borderWidth,
               borderDash: annotation.borderDash,
+              cloudScale: annotation.hasCloudyBorder
+                  ? annotation.cloudBorderScale
+                  : null,
               lineColor: annotation.calloutLeaderStyle!.color,
               lineWidth: annotation.calloutLeaderStyle!.width,
               lineDash: annotation.calloutLeaderStyle!.dash,

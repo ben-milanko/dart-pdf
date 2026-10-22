@@ -187,6 +187,70 @@ void main() {
     });
   });
 
+  group('cloud callout through the controller', () {
+    PdfAnnotation only(PdfEditingController e) =>
+        e.document.page(0).annotations.single;
+
+    test('addCallout with a cloud box writes a cloudy callout', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.lineScale = 1.5
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'Revise', (120, 615),
+            boxShape: PdfCalloutBoxShape.cloud);
+      final annot = only(editing);
+      expect(annot.isCallout, isTrue);
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(annot.cloudBorderScale, 1.5);
+      expect(annot.calloutLine!.first, (120.0, 615.0));
+      // 615 is mid-puff on the left edge (two 30pt scallops at 1.5x)
+      expect(annot.calloutLine!.last.$1, lessThan(300),
+          reason: 'the leader meets the cloud, outside the box edge');
+    });
+
+    test('the box shape switches to a rectangle and back in one undo each', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
+            boxShape: PdfCalloutBoxShape.cloud);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      expect(
+          editing.restyleSelectedCalloutBox(
+              shape: PdfCalloutBoxShape.rectangle),
+          isTrue);
+      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.rectangle);
+      expect(only(editing).calloutLine!.first, (120.0, 500.0));
+      expect(editing.selectedAnnotation?.isCallout, isTrue);
+
+      expect(editing.restyleSelectedCalloutBox(lineStyle: PdfLineStyle.dashed),
+          isTrue);
+      expect(PdfLineStyle.ofDashArray(only(editing).borderDash),
+          PdfLineStyle.dashed);
+
+      expect(
+          editing.restyleSelectedCalloutBox(
+              shape: PdfCalloutBoxShape.cloud, cloudScale: 2),
+          isTrue);
+      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(only(editing).cloudBorderScale, 2);
+      expect(PdfLineStyle.ofDashArray(only(editing).borderDash),
+          PdfLineStyle.dashed,
+          reason: 'a dashed cloud');
+
+      editing.undo();
+      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.rectangle);
+    });
+
+    test('text edits keep the cloud', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
+            boxShape: PdfCalloutBoxShape.cloud);
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      editing.setSelectedText('new words');
+      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
+      editing.restyleSelectedText(size: 20, font: PdfStandardFont.courier);
+      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
+    });
+  });
+
   group('callout tool in the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
@@ -257,6 +321,24 @@ void main() {
       // the leader points back at the terminus we pressed on
       expect(line.first.$1, closeTo(150, 2));
       expect(line.first.$2, closeTo(500, 2));
+      await settle(tester);
+    });
+
+    testWidgets('the cloud callout tool places a cloud-outlined callout',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudCallout;
+      await tester.pump();
+
+      await drag(tester, view(150, 500), view(360, 660));
+      expect(find.byKey(editorKey), findsOneWidget);
+      await tester.enterText(find.byKey(editorKey), 'Revise this');
+      await tap(tester, view(450, 400));
+
+      final annot = editing.document.page(0).annotations.single;
+      expect(annot.isCallout, isTrue);
+      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(annot.calloutLine!.first.$1, closeTo(150, 2));
       await settle(tester);
     });
 

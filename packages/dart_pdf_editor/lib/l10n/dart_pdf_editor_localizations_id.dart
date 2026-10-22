@@ -727,6 +727,15 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipe garis';
 
   @override
+  String get propBoxShape => 'Bentuk kotak';
+
+  @override
+  String get propBoxShapeRectangle => 'Persegi panjang';
+
+  @override
+  String get propBoxShapeCloud => 'Awan';
+
+  @override
   String get propLoadFont => 'Muat font…';
 
   @override
@@ -1692,6 +1701,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Keterangan';
 
   @override
+  String get tbNameCloudCallout => 'Keterangan awan';
+
+  @override
   String get tbNameCloudPolygon => 'Poligon awan';
 
   @override
@@ -1899,6 +1911,10 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Keterangan - seret dari titik ke tempat kotak berada';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Keterangan awan - seret dari titik ke tempat awan berada';
 
   @override
   String get tbTipContent => 'Edit konten halaman';

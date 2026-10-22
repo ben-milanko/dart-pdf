@@ -210,6 +210,13 @@ enum PdfEditTool {
   /// like Bluebeam's Callout tool).
   callout,
 
+  /// A [callout] whose text box is outlined by a revision cloud (Bluebeam's
+  /// Cloud+): placed exactly like [callout], scallops sized by
+  /// [PdfEditingPreferences.lineScale]. The cloud is the box's style, not its
+  /// kind - the properties panel switches a placed one back to a plain
+  /// rectangle (or a dashed outline) and back again.
+  cloudCallout,
+
   /// Tap to place a sticky note (/Text).
   note,
 
@@ -3818,12 +3825,16 @@ class PdfEditingController extends ChangeNotifier {
   /// Places a callout: a [text] box at [rect] with a leader line pointing at
   /// [target] on the page (both in page space). Mirrors [addFreeText] for the
   /// box styling and points the arrow with the tool's stroke color/width.
+  /// [boxShape] outlines the box with a revision cloud (the
+  /// [PdfEditTool.cloudCallout] tool) whose scallops follow
+  /// [PdfEditingPreferences.lineScale].
   void addCallout(
     int pageIndex,
     PdfRect rect,
     String text,
-    (double, double) target,
-  ) =>
+    (double, double) target, {
+    PdfCalloutBoxShape boxShape = PdfCalloutBoxShape.rectangle,
+  }) =>
       apply(
         (e) => e.addCallout(
           pageIndex,
@@ -3840,6 +3851,8 @@ class PdfEditingController extends ChangeNotifier {
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
+          boxShape: boxShape,
+          cloudScale: preferences.lineScale,
           opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
@@ -7553,9 +7566,11 @@ class PdfEditingController extends ChangeNotifier {
       case 'Ink':
         return PdfEditTool.ink;
       case 'FreeText':
-        return annotation.isCallout
-            ? PdfEditTool.callout
-            : PdfEditTool.freeText;
+        return switch (annotation.calloutBoxShape) {
+          PdfCalloutBoxShape.cloud => PdfEditTool.cloudCallout,
+          PdfCalloutBoxShape.rectangle => PdfEditTool.callout,
+          null => PdfEditTool.freeText,
+        };
       case 'Text':
         return PdfEditTool.note;
       case 'Stamp':
@@ -8316,6 +8331,37 @@ class PdfEditingController extends ChangeNotifier {
             dash: lineStyle == null
                 ? null
                 : (lineStyle.dashArray(width ?? style.width, scale: 1),));
+      }
+    });
+  }
+
+  /// Restyles the text-box outline of every selected callout: [shape] turns
+  /// it into a revision cloud or back into a plain rectangle, [lineStyle]
+  /// dashes the outline, and [cloudScale] resizes a cloud's scallops (a
+  /// rectangle ignores it). Leaders keep their tips; one revision, one undo.
+  /// Returns whether anything changed.
+  bool restyleSelectedCalloutBox({
+    PdfCalloutBoxShape? shape,
+    PdfLineStyle? lineStyle,
+    double? cloudScale,
+  }) {
+    if (shape == null && lineStyle == null && cloudScale == null) return false;
+    final targets = [
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final a?
+            when a.isCallout && isAnnotationEditable(a))
+          (slot.$1, a),
+    ];
+    if (targets.isEmpty) return false;
+    return apply((e) {
+      for (final (page, a) in targets) {
+        final width = a.freeTextStyle?.borderWidth ?? 1;
+        e.restyleCalloutBox(page, a,
+            shape: shape,
+            cloudScale: cloudScale,
+            outlineDash: lineStyle == null
+                ? null
+                : (lineStyle.dashArray(width, scale: 1),));
       }
     });
   }
@@ -9818,7 +9864,9 @@ class PdfEditingController extends ChangeNotifier {
     List<PdfCalloutLeader> leaders,
     PdfLineEnding ending,
     PdfCalloutLeaderStyle style,
-    List<double>? outlineDash
+    List<double>? outlineDash,
+    PdfCalloutBoxShape boxShape,
+    double cloudScale
   })? _calloutShapeOf(PdfAnnotation annotation) {
     final box = annotation.calloutBox;
     final lines = annotation.calloutLeaders;
@@ -9831,6 +9879,8 @@ class PdfEditingController extends ChangeNotifier {
       ],
       style: annotation.calloutLeaderStyle!,
       outlineDash: annotation.borderDash,
+      boxShape: annotation.calloutBoxShape!,
+      cloudScale: annotation.cloudBorderScale,
       ending: le is CosName
           ? PdfLineEnding.fromName(le.value)
           : PdfLineEnding.openArrow,
@@ -9849,7 +9899,9 @@ class PdfEditingController extends ChangeNotifier {
       List<PdfCalloutLeader> leaders,
       PdfLineEnding ending,
       PdfCalloutLeaderStyle style,
-      List<double>? outlineDash
+      List<double>? outlineDash,
+      PdfCalloutBoxShape boxShape,
+      double cloudScale
     }) shape,
     String text, {
     required double fontSize,
@@ -9888,6 +9940,8 @@ class PdfEditingController extends ChangeNotifier {
       outlineColor: (borderColor,),
       outlineWidth: borderWidth,
       outlineDash: shape.outlineDash,
+      boxShape: shape.boxShape,
+      cloudScale: shape.cloudScale,
       opacity: opacity,
       ending: shape.ending,
       lineSpacing: lineSpacing,
