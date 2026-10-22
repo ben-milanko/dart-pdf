@@ -368,10 +368,57 @@ void main() {
       expect(
           painters.any((p) => (p.calloutLeaders as List?)?.length == 1), isTrue,
           reason: 'the leader (with its arrow) is what previews');
+      final box = painters
+          .map((p) => p.calloutBox)
+          .firstWhere((b) => b != null, orElse: () => null);
+      expect(box, isNotNull, reason: 'the text box it will drop is outlined');
+      expect(box.outline, isTrue);
+      expect(box.cloud, isFalse);
+      expect((box.box as Rect).topLeft, view(360, 660),
+          reason: 'the box sits where the drag releases');
 
       await gesture.up();
       await tester.pump();
       await tap(tester, view(450, 400));
+      await settle(tester);
+    });
+
+    testWidgets('a cloud callout previews its cloud while dragging and typing',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudCallout;
+      await tester.pump();
+
+      dynamic previewBox() => [
+            for (final paint
+                in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+              if (paint.painter?.runtimeType.toString() ==
+                  '_EditingPreviewPainter')
+                (paint.painter! as dynamic).calloutBox,
+          ].firstWhere((b) => b != null, orElse: () => null);
+
+      final gesture = await tester.startGesture(view(150, 500));
+      await gesture.moveTo(view(250, 580));
+      await gesture.moveTo(view(360, 660));
+      await tester.pump();
+      final dragging = previewBox();
+      expect(dragging, isNotNull);
+      expect(dragging.cloud, isTrue, reason: 'the cloud previews on the drag');
+      expect(dragging.outline, isTrue, reason: 'with the text box inside it');
+
+      await gesture.up();
+      await tester.pump();
+      expect(find.byKey(editorKey), findsOneWidget);
+      final typing = previewBox();
+      expect(typing, isNotNull, reason: 'the cloud stays around the editor');
+      expect(typing.cloud, isTrue);
+      expect(typing.outline, isFalse, reason: 'the editor is the text box');
+
+      await tester.enterText(find.byKey(editorKey), 'Revise');
+      await tap(tester, view(450, 400));
+      expect(previewBox(), isNull, reason: 'gone once committed');
+      expect(editing.document.page(0).annotations.single.calloutBoxShape,
+          PdfCalloutBoxShape.cloud);
       await settle(tester);
     });
 

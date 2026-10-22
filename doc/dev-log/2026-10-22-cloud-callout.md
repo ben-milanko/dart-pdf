@@ -55,3 +55,13 @@ a dash-only change preserves the lines exactly, like `restyleCalloutLeader`.
   cloud is selected (`_common` throws on an empty list - guard it).
 - New strings: `tbNameCloudCallout`, `tbTipCloudCallout`, `propBoxShape`,
   `propBoxShapeRectangle`, `propBoxShapeCloud` in every locale.
+
+## Placement preview
+
+`_calloutBoxPreview()` feeds the preview painter's `calloutBox`: during the
+placement drag both callout tools outline the text box at the spot the release
+will drop it (`_defaultPlacementRect(_dragCurrent)` - still no rubber band),
+and the cloud tool draws its cloud around it with the cloud tool's own
+`_paintCloudPolygon`. The cloud stays around the inline editor while the text
+is typed (the editor is the box, so no outline then); it is painted after the
+leaders, as the committed appearance stacks them.

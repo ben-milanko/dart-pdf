@@ -3917,6 +3917,47 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _afterCalloutLeaders;
   }
 
+  /// The text box a callout being placed will drop: outlined at the box the
+  /// drag will commit (the release point, the same [_defaultPlacementRect]),
+  /// and for [PdfEditTool.cloudCallout] the cloud around it - kept around the
+  /// open editor while the text is typed. Null for any other tool or state.
+  ({
+    Rect box,
+    Color color,
+    Color? fill,
+    double width,
+    bool cloud,
+    bool outline,
+  })? _calloutBoxPreview() {
+    if (!_calloutTool) return null;
+    final cloud = _tool == PdfEditTool.cloudCallout;
+    final Rect box;
+    final bool outline;
+    if (_textEditRect != null) {
+      // the editor is the text box; only a cloud has more to draw
+      if (_textEditCalloutTarget == null || !cloud) return null;
+      box = _textEditRect!;
+      outline = false;
+    } else if (_dragStart != null && _dragCurrent != null) {
+      // a too-short drag drops a default-offset box on release; nothing to
+      // aim yet, so only the leader shows until the pointer moves
+      if ((_dragCurrent! - _dragStart!).distance < 8) return null;
+      box = _defaultPlacementRect(_dragCurrent!);
+      outline = true;
+    } else {
+      return null;
+    }
+    final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
+    return (
+      box: box,
+      color: _newCalloutStrokeColor(),
+      fill: _controller.preferences.textFillColor?.withValues(alpha: opacity),
+      width: _controller.preferences.strokeWidth * _geometry.scale,
+      cloud: cloud,
+      outline: outline,
+    );
+  }
+
   /// The stroke color a new callout's box outline and leader commit with
   /// ([PdfEditingController.addCallout]: the box border, else the text color).
   Color _newCalloutStrokeColor() =>
@@ -7108,6 +7149,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         ? (_dragStart!, _dragCurrent!)
                         : null,
                     calloutLeaders: _calloutLeaderPreview(),
+                    calloutBox: _calloutBoxPreview(),
                     dragPath: polyPreview,
                     dragPathFill: (_tool == PdfEditTool.polygon ||
                                 _tool == PdfEditTool.cloudPolygon) &&
@@ -8656,6 +8698,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.dragRect,
     required this.dragLine,
     this.calloutLeaders,
+    this.calloutBox,
     required this.dragPath,
     this.dragPathFill,
     required this.dashed,
@@ -8729,6 +8772,19 @@ class _EditingPreviewPainter extends CustomPainter {
   /// being placed/edited (before the annotation exists) or while the terminus
   /// or base handle is being dragged: (terminus, base, color, strokeWidth).
   final List<(Offset, Offset, Color, double)>? calloutLeaders;
+
+  /// A callout's text box while it is being placed (view space): its
+  /// outline while the placement drag runs ([outline]; once the editor opens,
+  /// the editor is the text box) and, for a cloud callout ([cloud]), the
+  /// revision cloud around it, drawn like the cloud tool's preview.
+  final ({
+    Rect box,
+    Color color,
+    Color? fill,
+    double width,
+    bool cloud,
+    bool outline,
+  })? calloutBox;
   final List<Offset>? dragPath;
 
   /// The interior fill for an in-progress polygon [dragPath], so drawing a
@@ -9409,6 +9465,29 @@ class _EditingPreviewPainter extends CustomPainter {
     for (final leader in calloutLeaders ?? const []) {
       _paintCalloutLeader(canvas, leader.$1, leader.$2, leader.$3, leader.$4);
     }
+    // after the leaders, as the committed appearance stacks them: a filled
+    // cloud covers the end of its arrow
+    if (calloutBox case final placing?) {
+      final box = placing.box;
+      if (placing.cloud) {
+        _paintCloudPolygon(
+            canvas,
+            [box.topLeft, box.topRight, box.bottomRight, box.bottomLeft],
+            placing.color,
+            placing.fill,
+            placing.width,
+            dashed,
+            lineScale);
+      }
+      if (placing.outline) {
+        canvas.drawRect(
+            box,
+            Paint()
+              ..color = placing.color.withValues(alpha: 0.7)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1 * chromeScale);
+      }
+    }
 
     for (final rect in redactionRects) {
       paintRedactionHatch(canvas, rect,
@@ -9608,6 +9687,7 @@ class _EditingPreviewPainter extends CustomPainter {
       !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
       !listEquals(oldDelegate.calloutLeaders, calloutLeaders) ||
+      oldDelegate.calloutBox != calloutBox ||
       oldDelegate.dragPathFill != dragPathFill ||
       oldDelegate.selectionRect != selectionRect ||
       !listEquals(oldDelegate.extraSelectionRects, extraSelectionRects) ||
