@@ -710,6 +710,57 @@ class CanvasPdfDevice
       _cachedUiPath(path, rule),
       _solidFillPaint(color, alpha),
     );
+    _floorThinRectFill(path, color, alpha);
+  }
+
+  /// Gives a thin filled rectangle - a rule or table border drawn as `re f`
+  /// - the one-device-pixel floor [strokeWidthFor] gives a stroke.
+  ///
+  /// The fill above stays exact; this adds a Skia hairline down the middle
+  /// of each thin rectangle, which is one device pixel at full alpha at
+  /// *any* replay scale. Where the fill is wider than a pixel the hairline
+  /// lies inside it and changes nothing, so - unlike widening the rectangle
+  /// at record time - it is right for every ratio a picture is replayed at.
+  /// Only opaque, idempotent paint qualifies: painting the same colour twice
+  /// must not change a pixel the fill already covers.
+  void _floorThinRectFill(PdfPath path, PdfColor color, double alpha) {
+    if (pixelRatio <= 0 || alpha < 1) return;
+    final blend = _fillElementBlend;
+    if (blend != BlendMode.srcOver &&
+        blend != BlendMode.src &&
+        blend != BlendMode.darken) {
+      return;
+    }
+    final rects =
+        pdfThinRectFill(path, pdfThinRectFillMaxThickness / pixelRatio);
+    if (rects == null) return;
+    final lines = ui.Path();
+    var any = false;
+    for (var i = 0; i < rects.length; i += 4) {
+      final l = rects[i], b = rects[i + 1], r = rects[i + 2], t = rects[i + 3];
+      final w = r - l, h = t - b;
+      if (!pdfRectIsRule(w, h)) continue; // a speck stays exact
+      any = true;
+      if (w > h) {
+        final y = (b + t) / 2;
+        lines
+          ..moveTo(l, y)
+          ..lineTo(r, y);
+      } else {
+        final x = (l + r) / 2;
+        lines
+          ..moveTo(x, b)
+          ..lineTo(x, t);
+      }
+    }
+    if (!any) return;
+    canvas.drawPath(
+        lines,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0
+          ..color = _toColor(color, alpha)
+          ..blendMode = blend);
   }
 
   @override
