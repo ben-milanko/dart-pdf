@@ -7189,6 +7189,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _moveStart == null,
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],
+                    calloutLeaderHandles: _selectedCalloutNodesOnly,
                     elementRect: _selectedElementViewRect,
                     elementWordRect: _selectedElementWordViewRect,
                     elementClean: _elementMoveOffset != null
@@ -8704,6 +8705,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.selectionOutline = true,
     required this.showRotateHandle,
     required this.vertexHandles,
+    this.calloutLeaderHandles = false,
     required this.elementRect,
     this.elementWordRect,
     this.elementClean,
@@ -8862,6 +8864,12 @@ class _EditingPreviewPainter extends CustomPainter {
   final bool selectionOutline;
   final bool showRotateHandle;
   final List<Offset>? vertexHandles;
+
+  /// Whether [vertexHandles] are a callout's leader nodes (terminus, base,
+  /// terminus, base, ...). Those paint as round grips - the arrow tip solid,
+  /// the base hollow - like other PDF editors, so they read as "re-aim the
+  /// leader" rather than as more of the text box's square resize knobs.
+  final bool calloutLeaderHandles;
 
   /// The selected content element's box - orange, to read as "page
   /// content", distinct from the blue annotation chrome.
@@ -9539,9 +9547,22 @@ class _EditingPreviewPainter extends CustomPainter {
         ..color = _chrome
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * chromeScale;
-      for (final center in handles) {
-        final knob = Rect.fromCircle(
-            center: center, radius: theme.handleDiameter / 2 * chromeScale);
+      final radius = theme.handleDiameter / 2 * chromeScale;
+      for (var i = 0; i < handles.length; i++) {
+        final center = handles[i];
+        if (calloutLeaderHandles) {
+          if (i.isEven) {
+            // the terminus: a solid dot with a white rim, legible over the
+            // arrowhead it sits on
+            canvas.drawCircle(center, radius + 1 * chromeScale, fill);
+            canvas.drawCircle(center, radius, Paint()..color = _chrome);
+          } else {
+            canvas.drawCircle(center, radius, fill);
+            canvas.drawCircle(center, radius, stroke);
+          }
+          continue;
+        }
+        final knob = Rect.fromCircle(center: center, radius: radius);
         canvas.drawRect(knob, fill);
         canvas.drawRect(knob, stroke);
       }
@@ -9650,6 +9671,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.afterStamp != afterStamp ||
       oldDelegate.showHandles != showHandles ||
       oldDelegate.selectionOutline != selectionOutline ||
+      oldDelegate.calloutLeaderHandles != calloutLeaderHandles ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
       oldDelegate.elementWordRect != elementWordRect ||
