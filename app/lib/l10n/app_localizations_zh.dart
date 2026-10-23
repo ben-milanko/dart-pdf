@@ -1251,6 +1251,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get whatsNewUnavailable => '此版本不提供发行说明。';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '自 $version 以来的工单';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '自 $version 以来没有新工单。';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return '来自比此版本更新的每夜版（$commit）。';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable => '无法加载此每夜版的工单。请检查网络连接后重试。';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2586,6 +2604,24 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get whatsNewUnavailable => '此版本未提供版本資訊。';
+
+  @override
+  String whatsNewNightlyTickets(String version) {
+    return '自 $version 以來的工單';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '自 $version 以來沒有新工單。';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return '來自比此版本更新的每夜版（$commit）。';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable => '無法載入此每夜版的工單。請檢查網路連線後再試一次。';
 
   @override
   String incomingFilesTitle(int count) {

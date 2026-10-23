@@ -1259,6 +1259,25 @@ class AppLocalizationsKo extends AppLocalizations {
   String get whatsNewUnavailable => '이 빌드에서는 릴리스 정보를 사용할 수 없습니다.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '$version 이후 티켓';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '$version 이후 새 티켓이 없습니다.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return '이 빌드보다 최신 나이틀리($commit)의 내용입니다.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      '이 나이틀리의 티켓을 불러올 수 없습니다. 연결을 확인하고 다시 시도하세요.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
