@@ -479,7 +479,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
 
@@ -496,7 +497,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
     }
@@ -2321,9 +2323,10 @@ void main() {
 
       final sheet = find.byType(PdfThumbnailSidebar);
       final position = tester
-          .state<ScrollableState>(find
-              .descendant(of: sheet, matching: find.byType(Scrollable))
-              .first)
+          .state<ScrollableState>(find.descendant(
+            of: find.byKey(const ValueKey('pdf-thumbnail-list')),
+            matching: find.byType(Scrollable),
+          ))
           .position;
       expect(position.pixels, 0);
       expect(position.maxScrollExtent, greaterThan(0),
