@@ -12,6 +12,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('leaving with Space held invalidates the temporary cursor paint',
+      (tester) async {
+    final viewer = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+        home: PdfViewer(
+            document: PdfDocument.open(buildMultiPagePdf(2)),
+            controller: viewer)));
+    await tester.pumpAndSettle();
+    viewer.requestKeyboardFocus();
+    await tester.pump();
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(5, 5));
+    await mouse.moveTo(const Offset(400, 300));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    PdfMouseCursorPainter cursor() => tester
+        .widget<CustomPaint>(
+            find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+        .painter! as PdfMouseCursorPainter;
+    final painter = cursor();
+    expect(painter.kind, PdfMouseCursorKind.grab);
+    expect(painter.position, isNotNull);
+    var repaints = 0;
+    void onRepaint() => repaints++;
+    painter.addListener(onRepaint);
+    await mouse.moveTo(const Offset(900, 900));
+    expect(repaints, greaterThan(0),
+        reason: 'clearing a live position must invalidate the old artwork');
+    painter.removeListener(onRepaint);
+    await tester.pump();
+    expect(cursor().kind, PdfMouseCursorKind.grab);
+    expect(cursor().position, isNull);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+    await mouse.removePointer();
+    await tester.pumpWidget(const SizedBox());
+    viewer.dispose();
+  });
   for (final form in [false, true]) {
     testWidgets('temporary hand replaces the local cursor (form=$form)',
         (tester) async {

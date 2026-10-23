@@ -10040,6 +10040,9 @@ class _PdfViewerState extends State<PdfViewer>
                                   _hoverCursor = null;
                                   _hoverCursorPosition = null;
                                 });
+                                // The live position getter cannot compare the
+                                // old position while Space keeps the kind fixed.
+                                _viewerCursorRepaint.value++;
                               }
                             },
                             child: Listener(
