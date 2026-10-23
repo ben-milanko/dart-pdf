@@ -578,6 +578,8 @@ class EditingPageOverlay extends StatefulWidget {
     this.edgeAutoScroll,
     this.rasterCurrent = true,
     this.zoom = 1,
+    this.viewportChanges,
+    this.visibleRegion,
     this.predictStrokes = true,
     this.formImagePicker,
     this.imagePicker,
@@ -688,6 +690,15 @@ class EditingPageOverlay extends StatefulWidget {
   /// to stay constant-size on screen at any zoom. Page-content previews
   /// (ink, shapes, the drag ghost) scale with the page on purpose.
   final double zoom;
+
+  /// Fires whenever the viewer scrolls or zooms - repaints the chrome that
+  /// pins itself to [visibleRegion] (the page rulers).
+  final Listenable? viewportChanges;
+
+  /// The page's visible slice as fractions of its displayed area (see
+  /// [PdfViewerController.visiblePageRegion]), or null while it is off
+  /// screen. Null callback: the whole page counts as visible.
+  final Rect? Function()? visibleRegion;
 
   /// See [PdfViewer.predictStrokes]. When true the in-progress ink layer
   /// draws a forward-extrapolated lead so the painted line keeps up with
@@ -7917,16 +7928,23 @@ class _AlignmentGuidePainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// Adaptive rulers inset along the page's top and left edges. Values are
-/// distances in PDF points from the visible top-left corner; the major step
-/// follows a 1/2/5 progression so labels never crowd as the page zooms.
+/// Adaptive rulers inset along the top and left edges of the page's visible
+/// slice - zoomed in, the page's own edges scroll off screen, so the rulers
+/// follow the viewport rather than leaving with them. Values are distances
+/// in PDF points from the page's top-left corner; the major step follows a
+/// 1/2/5 progression so labels never crowd as the page zooms.
 class _PageRulerPainter extends CustomPainter {
   _PageRulerPainter(
     this._state, {
     required this.surfaceColor,
     required this.textColor,
     required this.accentColor,
-  }) : super(repaint: _state._cursorRepaint);
+  }) : super(
+          repaint: Listenable.merge([
+            _state._cursorRepaint,
+            _state.widget.viewportChanges,
+          ]),
+        );
 
   final _EditingPageOverlayState _state;
   final Color surfaceColor;
@@ -7938,6 +7956,22 @@ class _PageRulerPainter extends CustomPainter {
 
   @visibleForTesting
   Offset? get cursor => _state._guideCursor;
+
+  /// The part of the overlay on screen, in overlay pixels, or null while the
+  /// page is entirely off screen.
+  @visibleForTesting
+  Rect? visibleRectFor(Size size) {
+    final region = _state.widget.visibleRegion;
+    if (region == null) return Offset.zero & size;
+    final fraction = region();
+    if (fraction == null) return null;
+    return Rect.fromLTRB(
+      fraction.left * size.width,
+      fraction.top * size.height,
+      fraction.right * size.width,
+      fraction.bottom * size.height,
+    );
+  }
 
   @visibleForTesting
   double majorStepFor(Size size) {
@@ -7971,6 +8005,8 @@ class _PageRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
+    final visible = visibleRectFor(size)?.intersect(Offset.zero & size);
+    if (visible == null || visible.width <= 0 || visible.height <= 0) return;
     final s = _state._chromeScale;
     final band = bandWidth;
     final scale = _state._geometry.scale;
@@ -7983,37 +8019,49 @@ class _PageRulerPainter extends CustomPainter {
     final ticks = Paint()
       ..color = textColor.withValues(alpha: 0.62)
       ..strokeWidth = 0.75 * s;
+    // the bands' inner edges: the top ruler hangs from the visible top, the
+    // left one from the visible left
+    final top = visible.top;
+    final left = visible.left;
 
     canvas
-      ..drawRect(Rect.fromLTWH(0, 0, size.width, band), ruleFill)
-      ..drawRect(Rect.fromLTWH(0, 0, band, size.height), ruleFill)
-      ..drawLine(Offset(0, band), Offset(size.width, band), hairline)
-      ..drawLine(Offset(band, 0), Offset(band, size.height), hairline);
+      ..save()
+      ..clipRect(visible)
+      ..drawRect(Rect.fromLTWH(left, top, visible.width, band), ruleFill)
+      ..drawRect(Rect.fromLTWH(left, top, band, visible.height), ruleFill)
+      ..drawLine(
+          Offset(left, top + band), Offset(visible.right, top + band), hairline)
+      ..drawLine(Offset(left + band, top), Offset(left + band, visible.bottom),
+          hairline);
 
-    final widthPoints = size.width / scale;
-    final heightPoints = size.height / scale;
-    final tickCountX = (widthPoints / minor).floor();
-    for (var i = 0; i <= tickCountX; i++) {
+    // only the ticks the visible slice shows, so the count stays bounded
+    // however deep the zoom
+    final firstX = (left / scale / minor).floor();
+    final lastX = (visible.right / scale / minor).ceil();
+    for (var i = firstX; i <= lastX; i++) {
       final value = i * minor;
       final x = value * scale;
       final isMajor = i % 5 == 0;
       final length = (isMajor ? 8 : 4) * s;
-      canvas.drawLine(Offset(x, band), Offset(x, band - length), ticks);
-      if (isMajor && x >= band + 2 * s) {
-        _paintLabel(canvas, value.round().toString(), Offset(x + 2 * s, 3 * s),
-            8.5 * s);
+      canvas.drawLine(
+          Offset(x, top + band), Offset(x, top + band - length), ticks);
+      if (isMajor && x >= left + band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(),
+            Offset(x + 2 * s, top + 3 * s), 8.5 * s);
       }
     }
-    final tickCountY = (heightPoints / minor).floor();
-    for (var i = 0; i <= tickCountY; i++) {
+    final firstY = (top / scale / minor).floor();
+    final lastY = (visible.bottom / scale / minor).ceil();
+    for (var i = firstY; i <= lastY; i++) {
       final value = i * minor;
       final y = value * scale;
       final isMajor = i % 5 == 0;
       final length = (isMajor ? 8 : 4) * s;
-      canvas.drawLine(Offset(band, y), Offset(band - length, y), ticks);
-      if (isMajor && y >= band + 2 * s) {
-        _paintLabel(canvas, value.round().toString(), Offset(2 * s, y + 2 * s),
-            8.5 * s);
+      canvas.drawLine(
+          Offset(left + band, y), Offset(left + band - length, y), ticks);
+      if (isMajor && y >= top + band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(),
+            Offset(left + 2 * s, y + 2 * s), 8.5 * s);
       }
     }
 
@@ -8025,16 +8073,21 @@ class _PageRulerPainter extends CustomPainter {
         ..color = accentColor
         ..strokeWidth = 1.5 * s;
       canvas
-        ..drawLine(Offset(cursor.dx, 0), Offset(cursor.dx, band), marker)
-        ..drawLine(Offset(0, cursor.dy), Offset(band, cursor.dy), marker);
+        ..drawLine(
+            Offset(cursor.dx, top), Offset(cursor.dx, top + band), marker)
+        ..drawLine(
+            Offset(left, cursor.dy), Offset(left + band, cursor.dy), marker);
     }
 
     // The shared corner hides tick/label fragments from both axes and makes
     // the two strips read as one instrument.
-    canvas.drawRect(Rect.fromLTWH(0, 0, band, band), ruleFill);
+    canvas.drawRect(Rect.fromLTWH(left, top, band, band), ruleFill);
     canvas
-      ..drawLine(Offset(0, band), Offset(band, band), hairline)
-      ..drawLine(Offset(band, 0), Offset(band, band), hairline);
+      ..drawLine(
+          Offset(left, top + band), Offset(left + band, top + band), hairline)
+      ..drawLine(
+          Offset(left + band, top), Offset(left + band, top + band), hairline)
+      ..restore();
   }
 
   @override
