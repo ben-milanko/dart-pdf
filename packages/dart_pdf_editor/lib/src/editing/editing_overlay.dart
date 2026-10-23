@@ -823,6 +823,7 @@ void Function() debugPdfPrimeSoftKeyboard = pdfPrimeSoftKeyboard;
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
   // shape/text/stamp drag
+  PdfEditTool? _observedTool;
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
@@ -1095,6 +1096,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // null means "follow the text direction" (left for LTR, right for RTL) -
   // a box with no explicit /Q, matching TextField's TextAlign.start
   PdfTextAlign? _textEditAlign;
+  PdfTextVerticalAlign _textEditVerticalAlign = PdfTextVerticalAlign.top;
   double _textEditLineSpacing = kPdfFreeTextDefaultLineSpacing;
   double _textEditCharSpacing = 0;
   bool _textEditStyleMenuOpen = false;
@@ -1236,6 +1238,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // until the new revision's raster lands - see [_shapeResizeStyle]
   _ShapeResize? _afterShapeResize;
   ({
+    Rect rect,
+    PdfTableData table,
+    double rotation,
+    double opacity
+  })? _afterTableResize;
+  ({
     List<Offset> points,
     PdfEditTool tool,
     Color color,
@@ -1254,6 +1262,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool washed,
     double rotation,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign,
     bool underline,
     double lineSpacing,
   })? _afterText;
@@ -1357,6 +1366,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     super.initState();
     _adoptInteraction();
     _adoptHost();
+    _observedTool = _tool;
     _controller.addListener(_onControllerChanged);
   }
 
@@ -2499,6 +2509,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterShape = null;
     _afterStamp = null;
     _afterShapeResize = null;
+    _afterTableResize = null;
     _afterPath = null;
     _afterText = null;
     _afterTextClean?.dispose();
@@ -2715,6 +2726,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     Color? fill,
     double opacity,
     PdfTextAlign align,
+    PdfTextVerticalAlign verticalAlign,
     bool underline,
     double lineSpacing,
   })? get _textResizeStyle {
@@ -2745,10 +2757,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : null,
       opacity: annotation.appearanceOpacity,
       align: parsed.alignment,
+      verticalAlign: parsed.verticalAlignment,
       underline: parsed.underline,
       lineSpacing: parsed.lineSpacing,
     );
   }
+
+  PdfTableData? get _tableResizeData => _controller.selectedIsSingleGroup
+      ? null
+      : _controller.selectedAnnotation?.table;
 
   /// The selected annotation's style when a resize commit will
   /// REGENERATE it (Square/Circle) at a constant stroke width - the
@@ -3154,6 +3171,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final name = annotation.name;
     _resizeCleanFor = key;
     final revisionAtStart = _controller.revisionId;
+    // Let the first resize preview paint before the clean-page render starts
+    // parsing/interpreting a potentially large drawing on the UI isolate.
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted ||
+        !identical(_resizeCleanFor, key) ||
+        revisionAtStart != _controller.revisionId) {
+      return;
+    }
     try {
       final picture = await PdfPageRenderer.renderPicture(
         _controller.pageAt(widget.pageIndex),
@@ -3234,6 +3259,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _onControllerChanged() {
+    final previousTool = _observedTool;
+    _observedTool = _tool;
+    if (previousTool == PdfEditTool.signatureBox &&
+        _tool != previousTool &&
+        (_dragStart != null || _dragCurrent != null)) {
+      setState(() {
+        _dragStart = null;
+        _dragCurrent = null;
+      });
+      _stopAutoScroll();
+    }
     final activeSavedId = _controller.activeSavedAnnotation?.id;
     if (activeSavedId != _savedAnnotationPictureFor &&
         activeSavedId != _savedAnnotationPictureLoadingFor) {
@@ -3283,20 +3319,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_textEditRect == null) return;
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
-    if (!_textEditExisting) {
+    if (_textEditExisting) {
+      final align = _controller.selectedTextVerticalAlign;
+      if (align != null && align != _textEditVerticalAlign) {
+        setState(() => _textEditVerticalAlign = align);
+      }
+    } else {
       final align = _controller.preferences.textAlign;
+      final verticalAlign = _controller.preferences.textVerticalAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
       final ul = _controller.textUnderline;
       final opacity = _controller.preferences.opacity;
       final defaultUnderline = _textEditText.defaultStyle.underline;
       if (align != _textEditAlign ||
+          verticalAlign != _textEditVerticalAlign ||
           ls != _textEditLineSpacing ||
           cs != _textEditCharSpacing ||
           opacity != _textEditOpacity ||
           (ul != defaultUnderline && !_textEditText.hasRichStyles)) {
         setState(() {
           _textEditAlign = align;
+          _textEditVerticalAlign = verticalAlign;
           _textEditLineSpacing = ls;
           _textEditCharSpacing = cs;
           _textEditOpacity = opacity;
@@ -3716,6 +3760,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _textEditColor = defaultColor;
       _textEditAlign =
           existing ? parsed?.alignment : _controller.preferences.textAlign;
+      _textEditVerticalAlign = existing
+          ? parsed?.verticalAlignment ?? PdfTextVerticalAlign.top
+          : _controller.preferences.textVerticalAlign;
       _textEditLineSpacing = existing
           ? (parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing)
           : _controller.lineSpacing;
@@ -3949,6 +3996,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       washed: existing,
       rotation: rotation,
       align: _textEditAlign,
+      verticalAlign: _textEditVerticalAlign,
       underline: _textEditText.defaultStyle.underline,
       lineSpacing: _textEditLineSpacing,
     );
@@ -4334,7 +4382,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // lift the box off the page for a re-wrapping (free-text) resize:
         // render the page without it so the preview floats over the real
         // content behind, not an opaque wash
-        if (_textResizeStyle != null) _renderResizeClean();
+        if (_textResizeStyle != null || _tableResizeData != null) {
+          _renderResizeClean();
+        }
         return;
       }
       if (chrome != null && _hitsRotateHandle(chrome.$1, resting, position)) {
@@ -4686,7 +4736,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // ownership from [_clearResizeClean]) so the commit afterimage can keep
     // it up until the new raster lands - without it a transparent box
     // flashes opaque paper on release
-    final textResizing = resizeRect != null && _textResizeStyle != null;
+    final textResizing = resizeRect != null &&
+        (_textResizeStyle != null || _tableResizeData != null);
     final liftClean = textResizing ? _resizeCleanPicture : null;
     final liftHideRect = textResizing ? _resizeFrom : null;
     final liftHideAngle = _resizeAngle;
@@ -4767,6 +4818,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitVertexDrag(vertexPoints, handle: vertexHandle);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
+      final table = _tableResizeData;
+      final tableOpacity =
+          _controller.selectedAnnotation?.appearanceOpacity ?? 1;
       // captured before the commit: a Square/Circle regenerates at a
       // constant stroke width, so its afterimage must too (the stretch
       // ghost would thicken the line until the raster lands)
@@ -4788,7 +4842,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               flipX: resizeFlipX, flipY: resizeFlipY)
           : _controller.resizeSelectedLocal(localTo,
               flipX: resizeFlipX, flipY: resizeFlipY);
-      if (wrapStyle != null) {
+      if (table != null) {
+        final before = _controller.revisionId;
+        commit();
+        if (before != _controller.revisionId) {
+          _clearAfterimage();
+          _afterTableResize = (
+            rect: resizeRect,
+            table: table,
+            rotation: resizeAngle,
+            opacity: tableOpacity
+          );
+          _afterTextClean = liftClean;
+          _afterTextHideRect = liftHideRect;
+          _afterTextHideAngle = liftHideAngle;
+          _afterRevisionId = _controller.revisionId;
+        } else {
+          liftClean?.dispose();
+        }
+      } else if (wrapStyle != null) {
         // the commit re-wraps the text at constant size - a stretched
         // ghost afterimage would show scaled glyphs, so freeze the same
         // wrapped-text preview the drag showed instead
@@ -4810,6 +4882,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             washed: liftClean == null,
             rotation: resizeAngle,
             align: wrapStyle.align,
+            verticalAlign: wrapStyle.verticalAlign,
             underline: wrapStyle.underline,
             lineSpacing: wrapStyle.lineSpacing,
           );
@@ -6560,6 +6633,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     double opacity = 1,
     required double rotation,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     bool underline = false,
     double lineSpacing = kPdfFreeTextDefaultLineSpacing,
   }) {
@@ -6612,7 +6686,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       key: key,
       color: background,
       padding: EdgeInsets.fromLTRB(pad, math.max(0.0, baselineShift), pad, pad),
-      alignment: columnAlign,
+      alignment: Alignment(
+          columnAlign.x,
+          switch (verticalAlign) {
+            PdfTextVerticalAlign.top => -1,
+            PdfTextVerticalAlign.center => 0,
+            PdfTextVerticalAlign.bottom => 1,
+          }),
       child: Directionality(textDirection: direction, child: label),
     );
     final faded = opacity >= 1
@@ -6631,6 +6711,58 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             rotation == 0 ? box : Transform.rotate(angle: rotation, child: box),
       ),
     );
+  }
+
+  Widget _tableResizeBox(
+      {required Rect rect,
+      required PdfTableData table,
+      required double rotation,
+      required double opacity}) {
+    final children = <Widget>[];
+    var top = 0.0;
+    for (var r = 0; r < table.rowCount; r++) {
+      final height = rect.height * table.rowHeights[r] / table.height;
+      var left = 0.0;
+      for (var c = 0; c < table.columnCount; c++) {
+        final width = rect.width * table.columnWidths[c] / table.width;
+        children.add(Positioned.fromRect(
+            rect: Rect.fromLTWH(left, top, width, height),
+            child: ClipRect(
+                child: Stack(children: [
+              _wrappedTextBox(
+                  rect: Rect.fromLTWH(0, 0, width, height),
+                  text: table.cells[r][c],
+                  font: table.font,
+                  size: table.fontSize,
+                  color: Color(0xFF000000 | table.textColor),
+                  background: Color(0xFF000000 |
+                      (r == 0 && table.headerRow
+                          ? table.headerColor
+                          : table.backgroundColor)),
+                  rotation: 0),
+              if (table.gridLines)
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Color(0xFF000000 | table.borderColor),
+                                width: table.borderWidth * _geometry.scale)))),
+            ]))));
+        left += width;
+      }
+      top += height;
+    }
+    return Positioned.fromRect(
+        rect: rect,
+        child: IgnorePointer(
+            child: Transform.rotate(
+                angle: rotation,
+                child: Opacity(
+                    opacity: opacity.clamp(0.0, 1.0),
+                    child: ClipRect(
+                        child: Stack(
+                            key: const ValueKey('pdf-table-resize-preview'),
+                            children: children))))));
   }
 
   @override
@@ -6712,6 +6844,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
+            _afterTableResize == null &&
             _ghost != null &&
             selected != null
         ? (
@@ -6740,6 +6873,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
         _resizeHandle != null && _resizeRect != null ? _textResizeStyle : null;
+    final resizeTable =
+        _resizeHandle != null && _resizeRect != null ? _tableResizeData : null;
+    final tableResize = resizeTable == null
+        ? _afterTableResize
+        : (
+            rect: _resizeRect!,
+            table: resizeTable,
+            rotation: _resizeAngle,
+            opacity: _controller.selectedAnnotation!.appearanceOpacity
+          );
+    final reflowResize = wrapResize != null || resizeTable != null;
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
@@ -6978,7 +7122,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null && shapeResize == null
+                    ghost: wrapResize == null &&
+                            shapeResize == null &&
+                            tableResize == null
                         ? _ghost
                         : null,
                     shapeResize: shapeResize,
@@ -7000,13 +7146,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // the same lift carries on (kept alive as
                     // [_afterTextClean]) so a transparent box's afterimage
                     // shows page content behind it, not an opaque flash.
-                    resizeClean: wrapResize != null
-                        ? _resizeCleanPicture
-                        : _afterTextClean,
+                    resizeClean:
+                        reflowResize ? _resizeCleanPicture : _afterTextClean,
                     resizeHideRect:
-                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
+                        reflowResize ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
-                        wrapResize != null ? _resizeAngle : _afterTextHideAngle,
+                        reflowResize ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
                         widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
@@ -7044,6 +7189,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _moveStart == null,
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],
+                    calloutLeaderHandles: _selectedCalloutNodesOnly,
                     elementRect: _selectedElementViewRect,
                     elementWordRect: _selectedElementWordViewRect,
                     elementClean: _elementMoveOffset != null
@@ -7144,9 +7290,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   opacity: wrapResize.opacity,
                   rotation: _resizeAngle,
                   align: wrapResize.align,
+                  verticalAlign: wrapResize.verticalAlign,
                   underline: wrapResize.underline,
                   lineSpacing: wrapResize.lineSpacing,
                 ),
+              if (tableResize != null)
+                _tableResizeBox(
+                    rect: tableResize.rect,
+                    table: tableResize.table,
+                    rotation: tableResize.rotation,
+                    opacity: tableResize.opacity),
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
               // renderings, so nothing shows through meanwhile)
@@ -7164,6 +7317,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   opacity: after.opacity,
                   rotation: after.rotation,
                   align: after.align,
+                  verticalAlign: after.verticalAlign,
                   underline: after.underline,
                   lineSpacing: after.lineSpacing,
                 ),
@@ -7348,7 +7502,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   textAlign: _textEditAlign != null
                                       ? _flutterTextAlign(_textEditAlign!)
                                       : TextAlign.start,
-                                  textAlignVertical: TextAlignVertical.top,
+                                  textAlignVertical: switch (
+                                      _textEditVerticalAlign) {
+                                    PdfTextVerticalAlign.top =>
+                                      TextAlignVertical.top,
+                                    PdfTextVerticalAlign.center =>
+                                      TextAlignVertical.center,
+                                    PdfTextVerticalAlign.bottom =>
+                                      TextAlignVertical.bottom,
+                                  },
                                   strutStyle: strut,
                                   cursorColor: _textEditColor,
                                   cursorWidth: 2 * _chromeScale,
@@ -7675,23 +7837,34 @@ class _ActiveStrokePainter extends CustomPainter {
 void _paintPenCursor(
   Canvas canvas,
   Offset center, {
-  required double strokeWidth,
+  required double diameter,
   required double chromeScale,
   required Color color,
   required double opacity,
 }) {
-  final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-  canvas.drawCircle(
-      center, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
-  canvas.drawCircle(
-      center, r, Paint()..color = color.withValues(alpha: opacity));
+  // The coloured disc is exactly the stroke's footprint; the hairline and
+  // halo sit wholly outside it, so neither the chrome nor a floor on the
+  // radius makes the dot read bigger than the line it previews, and the
+  // halo never darkens a translucent pen colour from underneath.
+  final r = diameter / 2;
   canvas.drawCircle(
       center,
-      r,
+      r + 1.5 * chromeScale,
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 * chromeScale);
+  canvas.drawCircle(
+      center,
+      r + 0.5 * chromeScale,
       Paint()
         ..color = const Color(0xB3FFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1 * chromeScale);
+  if (r > 0) {
+    canvas.drawCircle(
+        center, r, Paint()..color = color.withValues(alpha: opacity));
+  }
 }
 
 /// Paints the temporary object/page alignment lines that appear only while a
@@ -7937,6 +8110,20 @@ class _HoverCursorPainter extends CustomPainter {
   @visibleForTesting
   Offset? get penCursor => _state._inkTool ? _state._penCursor : null;
 
+  /// The pen dot's diameter in view pixels: the width the stroke paints at
+  /// the tip - the pen width scaled to the zoom, and mid-stroke the width
+  /// the latest pressure sample maps to, exactly as the live stroke draws.
+  @visibleForTesting
+  double get penCursorDiameter {
+    final width =
+        _state._controller.preferences.strokeWidth * _state._geometry.scale;
+    final pressures =
+        _state._activeStroke == null ? null : _state._activeStrokePressures;
+    return pressures == null || pressures.isEmpty
+        ? width
+        : pdfInkStrokeWidth(width, pressures.last);
+  }
+
   @visibleForTesting
   _StampAfterimage? get countPreview {
     final at = _state._countCursor;
@@ -8100,7 +8287,7 @@ class _HoverCursorPainter extends CustomPainter {
       _paintPenCursor(
         canvas,
         pen,
-        strokeWidth: preferences.strokeWidth * geometry.scale,
+        diameter: penCursorDiameter,
         chromeScale: chromeScale,
         color: state._controller.color,
         opacity: preferences.opacity,
@@ -8518,6 +8705,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.selectionOutline = true,
     required this.showRotateHandle,
     required this.vertexHandles,
+    this.calloutLeaderHandles = false,
     required this.elementRect,
     this.elementWordRect,
     this.elementClean,
@@ -8676,6 +8864,12 @@ class _EditingPreviewPainter extends CustomPainter {
   final bool selectionOutline;
   final bool showRotateHandle;
   final List<Offset>? vertexHandles;
+
+  /// Whether [vertexHandles] are a callout's leader nodes (terminus, base,
+  /// terminus, base, ...). Those paint as round grips - the arrow tip solid,
+  /// the base hollow - like other PDF editors, so they read as "re-aim the
+  /// leader" rather than as more of the text box's square resize knobs.
+  final bool calloutLeaderHandles;
 
   /// The selected content element's box - orange, to read as "page
   /// content", distinct from the blue annotation chrome.
@@ -9353,9 +9547,22 @@ class _EditingPreviewPainter extends CustomPainter {
         ..color = _chrome
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * chromeScale;
-      for (final center in handles) {
-        final knob = Rect.fromCircle(
-            center: center, radius: theme.handleDiameter / 2 * chromeScale);
+      final radius = theme.handleDiameter / 2 * chromeScale;
+      for (var i = 0; i < handles.length; i++) {
+        final center = handles[i];
+        if (calloutLeaderHandles) {
+          if (i.isEven) {
+            // the terminus: a solid dot with a white rim, legible over the
+            // arrowhead it sits on
+            canvas.drawCircle(center, radius + 1 * chromeScale, fill);
+            canvas.drawCircle(center, radius, Paint()..color = _chrome);
+          } else {
+            canvas.drawCircle(center, radius, fill);
+            canvas.drawCircle(center, radius, stroke);
+          }
+          continue;
+        }
+        final knob = Rect.fromCircle(center: center, radius: radius);
         canvas.drawRect(knob, fill);
         canvas.drawRect(knob, stroke);
       }
@@ -9464,6 +9671,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.afterStamp != afterStamp ||
       oldDelegate.showHandles != showHandles ||
       oldDelegate.selectionOutline != selectionOutline ||
+      oldDelegate.calloutLeaderHandles != calloutLeaderHandles ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
       oldDelegate.elementWordRect != elementWordRect ||

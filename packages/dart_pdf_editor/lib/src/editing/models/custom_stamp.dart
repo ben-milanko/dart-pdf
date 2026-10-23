@@ -133,7 +133,13 @@ class PdfCustomStamp {
     this.template,
     this.type,
     this.tags = const [],
+    this.id,
   });
+
+  /// Optional library identity. Older stamps keep content-based identity;
+  /// explicit duplicates receive a new id so equal-looking copies can be
+  /// edited and deleted independently.
+  final String? id;
 
   /// The caption drawn inside the stamp's rounded border.
   final String text;
@@ -158,6 +164,7 @@ class PdfCustomStamp {
   }
 
   String encode() => jsonEncode({
+        if (id != null) 'id': id,
         'text': text,
         'color': color,
         if (template != null) 'template': template!.toJson(),
@@ -170,6 +177,7 @@ class PdfCustomStamp {
     try {
       final map = jsonDecode(json) as Map<String, dynamic>;
       return PdfCustomStamp(
+        id: map['id'] is String ? map['id'] as String : null,
         text: map['text'] as String,
         color: map['color'] as int,
         template: PdfStampTemplate.fromJson(map['template']),
@@ -188,6 +196,7 @@ class PdfCustomStamp {
   @override
   bool operator ==(Object other) =>
       other is PdfCustomStamp &&
+      other.id == id &&
       other.text == text &&
       other.color == color &&
       other.template == template &&
@@ -195,7 +204,7 @@ class PdfCustomStamp {
       _stringListEquals(other.tags, tags);
 
   @override
-  int get hashCode => Object.hash(text, color, template, type,
+  int get hashCode => Object.hash(id, text, color, template, type,
       Object.hashAll(tags.map((tag) => tag.trim().toLowerCase())));
 }
 

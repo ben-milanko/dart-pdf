@@ -1,3 +1,1 @@
-10.0.0 yenilikleri
-
-Ölçek olmadan kendi ölçüm değerlerinizi yazın. Sözcükleri bütün olarak düzenleyin ve bağlantıları kolayca bulun. Okuma çubukları telefonlarda gizlenir, ekran katlarını aşmaz. İlk OCR işleminden sonra otomatik tanımayı sürdürüp sürdürmeyeceğinizi seçin. Büyük taramalardaki çökme düzeltildi; açıklamalar ve kırpma iyileştirildi.
+Düzenlenebilir tablolar oluşturun ve hesap tablolarıyla hücre kopyalayın. Kesintiye uğrayan metin tanımayı sürdürün. Anlık görüntülerde ve açıklamalarda renkleri değiştirin. Metni dikey hizalayın ve kayıtlı damgaları çoğaltın. Metin kaydırma, hatırlanan yazı tipleri ve döndürülmüş anlık görüntüler iyileştirildi.

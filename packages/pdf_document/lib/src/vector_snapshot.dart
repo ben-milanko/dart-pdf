@@ -297,7 +297,8 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   /// The captured region becomes its own Form XObject (BBox =
   /// `[0 0 displayWidth displayHeight]`, content = the page's operators
   /// under the rotation matrix); the annotation's appearance scales that
-  /// box onto [targetRect].
+  /// box onto [targetRect]'s displayed axes, counter-rotating for the
+  /// destination page's /Rotate so the capture keeps its visible orientation.
   ///
   /// To avoid embedding the (whole-page) content once per paste, pass the
   /// object number returned by an earlier paste of the *same* snapshot into
@@ -361,17 +362,27 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       capObject = capRef.objectNumber;
     }
 
-    // the appearance scales the captured [0 0 dW dH] box onto the target rect
-    final sx = targetRect.width / dW;
-    final sy = targetRect.height / dH;
+    // The capture is already in display orientation. Lay it out on the
+    // destination's visual axes, then cancel that page's display rotation.
+    final pageRotation = _appearancePageRotation(pageIndex, null);
+    final visualRect =
+        PdfAnnotationEditing._orientedVisualRect(targetRect, pageRotation);
+    final sx = visualRect.width / dW;
+    final sy = visualRect.height / dH;
     final w = ContentWriter();
     final gs = _alphaState(opacity);
     if (gs != null) w.extGState('GS0');
+    if (pageRotation != 0) {
+      w.save();
+      PdfAnnotationEditing._orientedCounterRotation(
+          w, targetRect, pageRotation);
+    }
     w
       ..save()
-      ..concatMatrix(sx, 0, 0, sy, targetRect.left, targetRect.bottom)
+      ..concatMatrix(sx, 0, 0, sy, visualRect.left, visualRect.bottom)
       ..drawXObject('Cap')
       ..restore();
+    if (pageRotation != 0) w.restore();
     _addAnnotation(
       pageIndex,
       // mark the stamp so the editor can tell a pasted vector snapshot apart

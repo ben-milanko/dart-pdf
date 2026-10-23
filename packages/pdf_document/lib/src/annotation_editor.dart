@@ -2070,6 +2070,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
@@ -2109,6 +2110,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2133,6 +2135,7 @@ extension PdfAnnotationEditing on PdfEditor {
             (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
       );
     _writeFreeTextSpacing(dict,
+        verticalAlign: verticalAlign,
         lineSpacing: lineSpacing,
         charSpacing: charSpacing,
         horizontalScale: horizontalScale,
@@ -2183,6 +2186,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int color = 0x000000,
     int? fillColor,
     int strokeColor = 0xD02020,
@@ -2235,6 +2239,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2271,6 +2276,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _writeCalloutLeaderStyle(dict, strokeColor, strokeWidth, leaderDash);
     _writeFreeTextSpacing(
       dict,
+      verticalAlign: verticalAlign,
       lineSpacing: lineSpacing,
       charSpacing: charSpacing,
       horizontalScale: horizontalScale,
@@ -2423,11 +2429,17 @@ extension PdfAnnotationEditing on PdfEditor {
   /// unchanged.
   static void _writeFreeTextSpacing(
     CosDictionary dict, {
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required double lineSpacing,
     required double charSpacing,
     required double horizontalScale,
     required bool underline,
   }) {
+    if (verticalAlign == PdfTextVerticalAlign.top) {
+      dict.entries.remove(kPdfFreeTextVerticalAlignKey);
+    } else {
+      dict[kPdfFreeTextVerticalAlignKey] = CosName(verticalAlign.name);
+    }
     if (lineSpacing != _defaultLineSpacing) {
       dict[kPdfFreeTextLineSpacingKey] = CosReal(lineSpacing);
     } else {
@@ -2472,6 +2484,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required PdfTextFont font,
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -2495,6 +2508,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: font,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2700,6 +2714,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: PdfTextDirection.auto,
       align: style.alignment,
+      verticalAlign: style.verticalAlignment,
       color: style.color,
       fillColor: style.fillColor,
       borderColor: style.borderColor,
@@ -2853,6 +2868,7 @@ extension PdfAnnotationEditing on PdfEditor {
     List<PdfFreeTextRun> runs, {
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
@@ -2898,6 +2914,7 @@ extension PdfAnnotationEditing on PdfEditor {
       effective,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
@@ -2930,6 +2947,7 @@ extension PdfAnnotationEditing on PdfEditor {
     // a whole-box underline (every run underlined) is also mirrored in the
     // box-level flag so a flat re-read still shows it
     _writeFreeTextSpacing(dict,
+        verticalAlign: verticalAlign,
         lineSpacing: lineSpacing,
         charSpacing: charSpacing,
         horizontalScale: horizontalScale,
@@ -3078,6 +3096,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required PdfTextFont font,
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -3132,6 +3151,12 @@ extension PdfAnnotationEditing on PdfEditor {
       align: effectiveAlign,
       padding: pad,
       lineHeight: fontSize * lineSpacing,
+      vAlign: switch (verticalAlign) {
+        PdfTextVerticalAlign.top => PdfTextBoxVAlign.top,
+        PdfTextVerticalAlign.center => PdfTextBoxVAlign.centerBlock,
+        PdfTextVerticalAlign.bottom => PdfTextBoxVAlign.bottomBlock,
+      },
+      clampVerticalAlign: true,
       leading: true,
       measureLine: (s) => _advanceWidth(font, s, fontSize,
           charSpacing: charSpacing, horizontalScale: horizontalScale),
@@ -3169,6 +3194,7 @@ extension PdfAnnotationEditing on PdfEditor {
     List<PdfFreeTextRun> runs, {
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
@@ -3209,7 +3235,26 @@ extension PdfAnnotationEditing on PdfEditor {
     final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
     final lines = _wrapRich(runs, vr.width - 2 * pad,
         charSpacing: charSpacing, horizontalScale: horizontalScale);
-    var top = vr.top - pad;
+    // Count every wrapped line, including blank lines, using its largest
+    // run. Trailing leading is not part of the visible block.
+    double emHeight(_RichTextLine line) => line.runs.isEmpty
+        ? 12
+        : line.runs.fold<double>(
+            0, (height, run) => math.max(height, run.style.fontSize));
+    final blockHeight = verticalAlign == PdfTextVerticalAlign.top ||
+            lines.isEmpty
+        ? 0.0
+        : lines.take(lines.length - 1).fold<double>(
+                0, (height, line) => height + emHeight(line) * lineSpacing) +
+            emHeight(lines.last);
+    final spare = math.max(0.0, vr.height - 2 * pad - blockHeight);
+    var top = vr.top -
+        pad -
+        switch (verticalAlign) {
+          PdfTextVerticalAlign.top => 0.0,
+          PdfTextVerticalAlign.center => spare / 2,
+          PdfTextVerticalAlign.bottom => spare,
+        };
     var prevX = 0.0;
     var prevY = 0.0;
     final underlines = <PdfTextUnderline>[];
@@ -5058,6 +5103,9 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final form = annotation.normalAppearance;
     if (form == null) return false;
+    if (behavior.resizeBehavior == PdfAnnotationResizeBehavior.reflowTable) {
+      return _regenerateTableAppearance(annotation, to, pageRotation);
+    }
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Square' || 'Circle':
@@ -5129,6 +5177,7 @@ extension PdfAnnotationEditing on PdfEditor {
             effective,
             textDirection: PdfTextDirection.auto,
             align: style.alignment,
+            verticalAlign: style.verticalAlignment,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth,
@@ -5181,6 +5230,7 @@ extension PdfAnnotationEditing on PdfEditor {
               font: effectiveFont,
               textDirection: PdfTextDirection.auto,
               align: style.alignment,
+              verticalAlign: style.verticalAlignment,
               color: style.color,
               fillColor: style.fillColor,
               borderColor: style.borderColor,
@@ -5206,6 +5256,7 @@ extension PdfAnnotationEditing on PdfEditor {
               // direction follows the text; /Q carries the explicit alignment
               textDirection: PdfTextDirection.auto,
               align: style.alignment,
+              verticalAlign: style.verticalAlignment,
               color: style.color,
               fillColor: style.fillColor,
               borderColor: style.borderColor,
@@ -6774,8 +6825,8 @@ extension PdfAnnotationEditing on PdfEditor {
     return rect;
   }
 
-  /// Greedy word wrap with [font]'s metrics; a single word longer than
-  /// [maxWidth] overflows (and is clipped by the appearance).
+  /// Word wrap with [font]'s metrics, splitting overlong words at grapheme
+  /// boundaries so CJK paragraphs and long tokens remain visible.
   List<String> _wrap(
     String text,
     double fontSize,
@@ -6790,6 +6841,7 @@ extension PdfAnnotationEditing on PdfEditor {
         (candidate) => _advanceWidth(font, candidate, fontSize,
             charSpacing: charSpacing, horizontalScale: horizontalScale),
         tolerance: _wrapTolerance,
+        breakLongWords: true,
       );
 
   /// The horizontal advance of [text] at [fontSize] in [font], including the

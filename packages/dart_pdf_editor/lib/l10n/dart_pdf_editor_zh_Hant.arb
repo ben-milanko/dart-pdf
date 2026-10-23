@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "垂直對齊",
+  "textAlignTop": "文字靠上對齊",
+  "textAlignMiddle": "文字垂直置中",
+  "textAlignBottom": "文字靠下對齊",
   "@@locale": "zh_Hant",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -720,5 +724,23 @@
   "insertPagesSummary": "將插入 {inserted} 頁，文件共 {total} 頁。",
   "insertPagesConfirm": "插入",
   "shellBakePageColor": "將頁面顏色儲存至檔案",
-  "pageColorNotBakedSigned": "頁面顏色未儲存至檔案：變更頁面會使其簽章失效。"
+  "pageColorNotBakedSigned": "頁面顏色未儲存至檔案：變更頁面會使其簽章失效。",
+  "table": "表格",
+  "tableEdit": "編輯表格",
+  "tableRows": "列",
+  "tableColumns": "欄",
+  "tableStyle": "表格樣式",
+  "tableStyleHint": "套用至整個表格。",
+  "tableBackgroundColor": "背景顏色",
+  "tableHeaderColor": "表頭顏色",
+  "tableTextColor": "字型顏色",
+  "tableGridLines": "格線",
+  "tableGridColor": "格線顏色",
+  "tableGridWidth": "格線寬度",
+  "tableHeaderRow": "標題列",
+  "tableColumnWidth": "欄寬",
+  "tableRowHeight": "列高",
+  "tableSelectionHint": "點擊儲存格進行編輯；按住 Shift 點擊可選取範圍。複製和貼上可與 Excel 交換儲存格值。",
+  "tableClipboardError": "剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。",
+  "duplicate": "製作副本"
 }

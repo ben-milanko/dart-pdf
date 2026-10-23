@@ -305,4 +305,87 @@ void main() {
     // And the re-encode of the decode is byte-identical.
     expect(encodeStripPlan(decoded), encodeStripPlan(plan));
   });
+
+  group('thin rectangle fills floor at one device pixel', () {
+    // 0.5 px/unit: a rule 0.5 units thick covers a quarter pixel unfloored
+    const scale = PdfMatrix(0.5, 0, 0, 0.5, 0, 0);
+    PdfPath rects(List<List<double>> boxes) => PdfPath([
+          for (final [l, b, r, t] in boxes) ...[
+            PdfMoveTo(l, b),
+            PdfLineTo(r, b),
+            PdfLineTo(r, t),
+            PdfLineTo(l, t),
+            const PdfClosePath(),
+          ],
+        ]);
+    List<Object> binned(PdfPath path) {
+      final b = StripPlanBinner(
+          pageToDevice: scale,
+          deviceWidth: 64,
+          deviceHeight: 64,
+          pixelRatio: 0.5);
+      fill(b, path);
+      final batch = b.finish().batches.single;
+      return [
+        batch.atlasPixels,
+        for (final chunk in batch.chunks) ...[chunk.positions, chunk.colors],
+      ];
+    }
+
+    test('a horizontal and a vertical rule bin as one-pixel rules', () {
+      // centred on y=30.45 and x=40.45; one device pixel is 2 units
+      expect(
+          binned(rects([
+            [4, 30.2, 60, 30.7]
+          ])),
+          binned(rects([
+            [4, 29.45, 60, 31.45]
+          ])));
+      expect(
+          binned(rects([
+            [40.2, 4, 40.7, 60]
+          ])),
+          binned(rects([
+            [39.45, 4, 41.45, 60]
+          ])));
+    });
+
+    test('a rule at least a pixel thick, a speck and a framed hole stay exact',
+        () {
+      final pixel = rects([
+        [4, 30, 60, 32.5]
+      ]);
+      final speck = rects([
+        [4, 30.2, 4.6, 30.7]
+      ]);
+      final framed = rects([
+        [4, 20, 60, 40],
+        [4, 30.2, 60, 30.7],
+      ]);
+      for (final path in [pixel, speck, framed]) {
+        final b = StripPlanBinner(
+            pageToDevice: scale,
+            deviceWidth: 64,
+            deviceHeight: 64,
+            pixelRatio: 0.5);
+        b.fillPath(path, PdfColor.black, PdfFillRule.evenOdd, 1);
+        final a = StripPlanBinner(
+            pageToDevice: scale,
+            deviceWidth: 64,
+            deviceHeight: 64,
+            pixelRatio: 0.5);
+        // the same geometry through a curve-free path the detector rejects
+        // (an extra collinear corner) bins exactly, so equality means "exact"
+        final segments = <PdfPathSegment>[];
+        for (final s in path.segments) {
+          segments.add(s);
+          if (s is PdfMoveTo) segments.add(PdfLineTo(s.x, s.y));
+        }
+        a.fillPath(PdfPath(segments), PdfColor.black, PdfFillRule.evenOdd, 1);
+        final pb = b.finish().batches.single, pa = a.finish().batches.single;
+        expect(pb.atlasPixels, pa.atlasPixels);
+        expect(pb.chunks.single.positions, pa.chunks.single.positions);
+      }
+    });
+  });
 }

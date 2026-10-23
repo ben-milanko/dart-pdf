@@ -1,0 +1,1 @@
+Create editable tables and copy cells to and from spreadsheets. Resume interrupted text recognition. Replace colours in snapshots and annotations. Align text vertically and duplicate saved stamps. Improve text wrapping, remembered fonts and rotated snapshots.

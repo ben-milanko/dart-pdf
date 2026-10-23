@@ -59,6 +59,15 @@ class PdfAutosizeTextBoxIntent extends Intent {
   const PdfAutosizeTextBoxIntent();
 }
 
+/// Rotates selected annotations by [degrees] counterclockwise in page space.
+/// R turns clockwise by 90°; Shift+R turns counterclockwise. Editing only,
+/// and enabled only when the selection can rotate.
+class PdfRotateSelectionIntent extends Intent {
+  const PdfRotateSelectionIntent(this.degrees);
+
+  final double degrees;
+}
+
 /// Toggles bold, italic, or underline on the selected text (Ctrl/⌘+B/I/U).
 class PdfToggleTextFormattingIntent extends Intent {
   const PdfToggleTextFormattingIntent(this.format);
@@ -125,6 +134,10 @@ final Map<ShortcutActivator, Intent> pdfViewerDefaultShortcuts =
       const PdfUndoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, alt: true):
       const PdfAutosizeTextBoxIntent(),
+  const SingleActivator(LogicalKeyboardKey.keyR):
+      const PdfRotateSelectionIntent(-90),
+  const SingleActivator(LogicalKeyboardKey.keyR, shift: true):
+      const PdfRotateSelectionIntent(90),
   const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
       const PdfRedoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true):

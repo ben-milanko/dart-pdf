@@ -123,8 +123,33 @@ void main() {
     expect(editing.document.page(0).annotations, isEmpty);
   });
 
-  testWidgets('hovering at the viewport edge scrolls mid-path',
+  testWidgets('Space pans an unfinished path without adding a vertex',
       (tester) async {
+    final (editing, viewer) = await pumpEditor(tester);
+    await click(tester, view(100, 700));
+    await click(tester, view(200, 650));
+    final before = viewer.visiblePageRegion(0)!;
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    final pan = await tester.startGesture(const Offset(400, 400),
+        kind: PointerDeviceKind.mouse);
+    await pan.moveBy(const Offset(0, -120));
+    await tester.pump();
+    await pan.up();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(viewer.visiblePageRegion(0)!.top, greaterThan(before.top));
+    expect(editing.hasPlacementDraft, isTrue);
+    expect(editing.tool, PdfEditTool.polyline);
+    expect(editing.document.page(0).annotations, isEmpty);
+    await pressUndo(tester);
+    expect(editing.hasPlacementDraft, isTrue);
+    await pressUndo(tester);
+    expect(editing.hasPlacementDraft, isFalse,
+        reason: 'exactly two original vertices survived');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('hovering at the viewport edge scrolls mid-path', (tester) async {
     final (editing, viewer) = await pumpEditor(tester);
     // one mouse for the click and the hover that follows it
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);

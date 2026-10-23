@@ -3,6 +3,57 @@ import 'dart:math' as math;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
+/// A viewport-level hit-test bridge to visible off-page editing chrome.
+///
+/// List item bounds cannot route a handle in the preceding/following gutter.
+/// This bridge visits registered editing targets only for points outside every
+/// page. It does not clamp the pointer or send it through unrelated page widgets.
+class PdfEditingCanvasReach extends SingleChildRenderObjectWidget {
+  const PdfEditingCanvasReach(
+      {super.key, required this.targets, required this.overPage, super.child});
+  final Iterable<GlobalKey> Function() targets;
+  final bool Function(Offset) overPage;
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      PdfRenderEditingCanvasReach(targets, overPage);
+  @override
+  void updateRenderObject(BuildContext context,
+      covariant PdfRenderEditingCanvasReach renderObject) {
+    renderObject
+      ..targets = targets
+      ..overPage = overPage;
+  }
+}
+
+class PdfRenderEditingCanvasReach extends RenderProxyBox {
+  PdfRenderEditingCanvasReach(this.targets, this.overPage);
+  Iterable<GlobalKey> Function() targets;
+  bool Function(Offset) overPage;
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    if (!overPage(position)) {
+      for (final key in targets()) {
+        final target = key.currentContext?.findRenderObject();
+        if (target is! PdfRenderEditingReach ||
+            !target.attached ||
+            !target.hasSize) {
+          continue;
+        }
+        final transform = target.getTransformTo(this);
+        if (result.addWithPaintTransform(
+            transform: transform,
+            position: position,
+            hitTest: (result, local) =>
+                target.grabs(local) &&
+                target.hitTest(result, position: local))) {
+          return true;
+        }
+      }
+    }
+    return super.hitTestChildren(result, position: position);
+  }
+}
+
 /// Lets a page's editing layer be grabbed from *outside* the page.
 ///
 /// An annotation's geometry is not confined to the crop box - a markup can
@@ -22,11 +73,8 @@ import 'package:flutter/widgets.dart';
 /// So the editing overlay reads the real off-page point (negative, or past
 /// the page's width) and every bit of its drag math works unchanged.
 ///
-/// The reach needs no distance of its own: this widget's ancestors bound it.
-/// The page sits inside a list item that spans the viewport's cross axis and
-/// carries the inter-page spacing, and those boxes gate their own hit tests,
-/// so the reach covers exactly the margin beside and between pages and can
-/// never steal a press that belongs to a neighbouring page.
+/// The viewport bridge also routes gutter hits across list-item boundaries.
+/// It excludes points over any page, preserving adjacent-page interaction.
 ///
 /// [grabs] decides which outside positions come in, and it must stay narrow:
 /// the canvas beside a page belongs to scrolling. A phone at
