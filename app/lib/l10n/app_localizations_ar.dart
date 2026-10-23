@@ -1310,6 +1310,25 @@ class AppLocalizationsAr extends AppLocalizations {
   String get whatsNewUnavailable => 'ملاحظات الإصدار غير متوفرة في هذه النسخة.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'التذاكر منذ $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'لا توجد تذاكر جديدة منذ $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'من نسخة ليلية أحدث ($commit) من هذه النسخة.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'تعذّر تحميل تذاكر هذه النسخة الليلية. تحقّق من اتصالك وحاول مرة أخرى.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
