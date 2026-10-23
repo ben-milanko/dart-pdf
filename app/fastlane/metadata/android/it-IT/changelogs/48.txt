@@ -1,0 +1,3 @@
+11.0.0
+
+Crea tabelle modificabili e copia celle da e verso fogli di calcolo. Riprendi il riconoscimento del testo interrotto. Sostituisci i colori nelle istantanee e nelle annotazioni. Allinea il testo verticalmente e duplica i timbri salvati. Migliorati il testo a capo, i caratteri memorizzati e le istantanee ruotate.

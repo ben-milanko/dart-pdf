@@ -1,3 +1,3 @@
-Novidades da 10.0.0
+11.0.0
 
-Digite valores de medida mesmo sem escala. Edite palavras inteiras e identifique links com facilidade. Os controles se ocultam nos celulares e evitam as dobras da tela. Escolha se deseja manter o OCR automático após o primeiro uso. Corrigimos uma falha em digitalizações grandes e melhoramos anotações e recortes.
+Crie tabelas editáveis e copie células de e para planilhas. Retome o reconhecimento de texto interrompido. Substitua cores em capturas e anotações. Alinhe o texto verticalmente e duplique carimbos salvos. Melhorias na quebra de texto, nas fontes lembradas e nas capturas giradas.

@@ -1,0 +1,3 @@
+11.0.0
+
+Maak bewerkbare tabellen en kopieer cellen van en naar spreadsheets. Hervat onderbroken tekstherkenning. Vervang kleuren in momentopnamen en annotaties. Lijn tekst verticaal uit en dupliceer opgeslagen stempels. Verbeteringen in tekstomloop, onthouden lettertypen en gedraaide momentopnamen.

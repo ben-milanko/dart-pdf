@@ -1,5 +1,9 @@
 # Changelog
 
+## 11.0.0
+
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Add `buildGlyphRunsPdf` for testing text split into individually positioned glyph runs.

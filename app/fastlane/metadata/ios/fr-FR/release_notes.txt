@@ -1,3 +1,3 @@
-Nouveautés de 10.0.0
+11.0.0
 
-Saisissez vos mesures, même sans échelle. Modifiez des mots entiers et repérez mieux les liens. Les commandes se masquent sur téléphone et évitent les plis d’écran. Choisissez de conserver ou non l’OCR automatique après sa première utilisation. Correction d’un plantage sur les grands scans et amélioration des annotations et du recadrage.
+Créez des tableaux modifiables et copiez des cellules depuis et vers un tableur. Reprenez la reconnaissance de texte interrompue. Remplacez les couleurs des captures et annotations. Alignez le texte verticalement et dupliquez les tampons enregistrés. Amélioration du retour à la ligne, des polices mémorisées et des captures pivotées.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 11.0.0
+
+- Keep thin filled rectangles visible at a minimum of one device pixel.
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Speed up Indexed image decoding with a palette lookup table and direct box-filter downsampling.

@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -247,7 +247,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -391,7 +391,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -609,7 +609,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -734,7 +734,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -865,7 +865,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -986,7 +986,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1185,7 +1185,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1317,7 +1317,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1450,7 +1450,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1564,7 +1564,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1682,7 +1682,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1800,7 +1800,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -1912,7 +1912,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -2025,7 +2025,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -2131,7 +2131,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: main
+          ref: f312b302c577836c64e16083c307222f62a42faa # experiment-preserving releases
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
