@@ -70,11 +70,13 @@ VIAddVersionKey "ProductVersion" "$Version"
 VIAddVersionKey "FileVersion" "$Version"
 
 !define APP_EXE "`$INSTDIR\dart_pdf_editor_app.exe"
-!define APP_PROCESSES '"`$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "`$PLUGINSDIR\app-processes.ps1" -InstallDir "`$INSTDIR"'
+; `$PowerShell is set in .onInit: the 64-bit one where there is one (see there).
+!define APP_PROCESSES '"`$PowerShell" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "`$PLUGINSDIR\app-processes.ps1" -InstallDir "`$INSTDIR"'
 
 ; 1 once Setup has closed a running DartPDF, so the finish page offers to
 ; relaunch it (and a silent install relaunches it by itself).
 Var AppWasRunning
+Var PowerShell
 
 !insertmacro MUI_PAGE_WELCOME
 ; Leaving the directory page is the last stop before files are copied, and
@@ -93,6 +95,15 @@ Var AppWasRunning
 Function .onInit
   InitPluginsDir
   File "/oname=`$PLUGINSDIR\app-processes.ps1" "$appProcesses"
+  ; Setup is a 32-bit process, so `$SYSDIR is redirected to SysWOW64 and
+  ; would start 32-bit PowerShell, which can't read a 64-bit DartPDF's
+  ; image path - the count read 0 and the locked-file retry box came back.
+  ; Sysnative is the real System32, visible only to a 32-bit process on a
+  ; 64-bit Windows.
+  StrCpy `$PowerShell "`$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+  `${IfNot} `${FileExists} "`$PowerShell"
+    StrCpy `$PowerShell "`$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+  `${EndIf}
 FunctionEnd
 
 ; `$0 = how many copies are running from `$INSTDIR (0 if the check can't run;

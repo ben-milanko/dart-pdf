@@ -748,5 +748,22 @@
   "textVerticalAlign": "Căn dọc",
   "textAlignTop": "Căn văn bản lên trên",
   "textAlignMiddle": "Căn giữa văn bản theo chiều dọc",
-  "textAlignBottom": "Căn văn bản xuống dưới"
+  "textAlignBottom": "Căn văn bản xuống dưới",
+  "table": "Bảng",
+  "tableEdit": "Sửa bảng",
+  "tableRows": "Hàng",
+  "tableColumns": "Cột",
+  "tableStyle": "Kiểu bảng",
+  "tableStyleHint": "Áp dụng cho toàn bộ bảng.",
+  "tableBackgroundColor": "Màu nền",
+  "tableHeaderColor": "Màu tiêu đề",
+  "tableTextColor": "Màu chữ",
+  "tableGridLines": "Đường lưới",
+  "tableGridColor": "Màu lưới",
+  "tableGridWidth": "Độ dày lưới",
+  "tableHeaderRow": "Hàng tiêu đề",
+  "tableColumnWidth": "Độ rộng cột",
+  "tableRowHeight": "Chiều cao hàng",
+  "tableSelectionHint": "Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.",
+  "tableClipboardError": "Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô."
 }

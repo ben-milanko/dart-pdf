@@ -748,5 +748,22 @@
   "textVerticalAlign": "Вертикальне вирівнювання",
   "textAlignTop": "Вирівняти текст за верхнім краєм",
   "textAlignMiddle": "Вирівняти текст по центру",
-  "textAlignBottom": "Вирівняти текст за нижнім краєм"
+  "textAlignBottom": "Вирівняти текст за нижнім краєм",
+  "table": "Таблиця",
+  "tableEdit": "Змінити таблицю",
+  "tableRows": "Рядки",
+  "tableColumns": "Стовпці",
+  "tableStyle": "Стиль таблиці",
+  "tableStyleHint": "Застосовується до всієї таблиці.",
+  "tableBackgroundColor": "Колір тла",
+  "tableHeaderColor": "Колір заголовка",
+  "tableTextColor": "Колір шрифту",
+  "tableGridLines": "Лінії сітки",
+  "tableGridColor": "Колір сітки",
+  "tableGridWidth": "Товщина сітки",
+  "tableHeaderRow": "Рядок заголовків",
+  "tableColumnWidth": "Ширина стовпця",
+  "tableRowHeight": "Висота рядка",
+  "tableSelectionHint": "Натисніть клітинку для редагування; Shift і клацання виділяють діапазон. Копіювання та вставлення обмінюються значеннями клітинок з Excel.",
+  "tableClipboardError": "Таблиця в буфері обміну некоректна або перевищує 500 рядків, 100 стовпців чи 20 000 клітинок."
 }

@@ -748,5 +748,22 @@
   "textVerticalAlign": "การจัดแนวแนวตั้ง",
   "textAlignTop": "จัดข้อความชิดบน",
   "textAlignMiddle": "จัดข้อความกึ่งกลางแนวตั้ง",
-  "textAlignBottom": "จัดข้อความชิดล่าง"
+  "textAlignBottom": "จัดข้อความชิดล่าง",
+  "table": "ตาราง",
+  "tableEdit": "แก้ไขตาราง",
+  "tableRows": "แถว",
+  "tableColumns": "คอลัมน์",
+  "tableStyle": "รูปแบบตาราง",
+  "tableStyleHint": "ใช้กับทั้งตาราง",
+  "tableBackgroundColor": "สีพื้นหลัง",
+  "tableHeaderColor": "สีหัวตาราง",
+  "tableTextColor": "สีตัวอักษร",
+  "tableGridLines": "เส้นตาราง",
+  "tableGridColor": "สีเส้นตาราง",
+  "tableGridWidth": "ความหนาเส้นตาราง",
+  "tableHeaderRow": "แถวส่วนหัว",
+  "tableColumnWidth": "ความกว้างคอลัมน์",
+  "tableRowHeight": "ความสูงแถว",
+  "tableSelectionHint": "คลิกเซลล์เพื่อแก้ไข กด Shift พร้อมคลิกเพื่อเลือกช่วง คัดลอกและวางเพื่อแลกเปลี่ยนค่าเซลล์กับ Excel",
+  "tableClipboardError": "ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์"
 }

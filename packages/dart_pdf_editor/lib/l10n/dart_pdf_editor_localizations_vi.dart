@@ -2561,4 +2561,57 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
+  String get table => 'Bảng';
+
+  @override
+  String get tableEdit => 'Sửa bảng';
+
+  @override
+  String get tableRows => 'Hàng';
+
+  @override
+  String get tableColumns => 'Cột';
+
+  @override
+  String get tableStyle => 'Kiểu bảng';
+
+  @override
+  String get tableStyleHint => 'Áp dụng cho toàn bộ bảng.';
+
+  @override
+  String get tableBackgroundColor => 'Màu nền';
+
+  @override
+  String get tableHeaderColor => 'Màu tiêu đề';
+
+  @override
+  String get tableTextColor => 'Màu chữ';
+
+  @override
+  String get tableGridLines => 'Đường lưới';
+
+  @override
+  String get tableGridColor => 'Màu lưới';
+
+  @override
+  String get tableGridWidth => 'Độ dày lưới';
+
+  @override
+  String get tableHeaderRow => 'Hàng tiêu đề';
+
+  @override
+  String get tableColumnWidth => 'Độ rộng cột';
+
+  @override
+  String get tableRowHeight => 'Chiều cao hàng';
+
+  @override
+  String get tableSelectionHint =>
+      'Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.';
 }

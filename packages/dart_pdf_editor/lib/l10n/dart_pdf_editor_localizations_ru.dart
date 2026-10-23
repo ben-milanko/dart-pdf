@@ -2617,4 +2617,57 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'Выровнять текст по нижнему краю';
+
+  @override
+  String get table => 'Таблица';
+
+  @override
+  String get tableEdit => 'Изменить таблицу';
+
+  @override
+  String get tableRows => 'Строки';
+
+  @override
+  String get tableColumns => 'Столбцы';
+
+  @override
+  String get tableStyle => 'Стиль таблицы';
+
+  @override
+  String get tableStyleHint => 'Применяется ко всей таблице.';
+
+  @override
+  String get tableBackgroundColor => 'Цвет фона';
+
+  @override
+  String get tableHeaderColor => 'Цвет заголовка';
+
+  @override
+  String get tableTextColor => 'Цвет шрифта';
+
+  @override
+  String get tableGridLines => 'Линии сетки';
+
+  @override
+  String get tableGridColor => 'Цвет сетки';
+
+  @override
+  String get tableGridWidth => 'Толщина сетки';
+
+  @override
+  String get tableHeaderRow => 'Строка заголовков';
+
+  @override
+  String get tableColumnWidth => 'Ширина столбца';
+
+  @override
+  String get tableRowHeight => 'Высота строки';
+
+  @override
+  String get tableSelectionHint =>
+      'Нажмите на ячейку для редактирования; Shift и щелчок выделяют диапазон. Копирование и вставка обмениваются значениями ячеек с Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек.';
 }

@@ -2513,6 +2513,58 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => '文本底端对齐';
+
+  @override
+  String get table => '表格';
+
+  @override
+  String get tableEdit => '编辑表格';
+
+  @override
+  String get tableRows => '行';
+
+  @override
+  String get tableColumns => '列';
+
+  @override
+  String get tableStyle => '表格样式';
+
+  @override
+  String get tableStyleHint => '应用于整个表格。';
+
+  @override
+  String get tableBackgroundColor => '背景颜色';
+
+  @override
+  String get tableHeaderColor => '表头颜色';
+
+  @override
+  String get tableTextColor => '字体颜色';
+
+  @override
+  String get tableGridLines => '网格线';
+
+  @override
+  String get tableGridColor => '网格颜色';
+
+  @override
+  String get tableGridWidth => '网格线宽度';
+
+  @override
+  String get tableHeaderRow => '标题行';
+
+  @override
+  String get tableColumnWidth => '列宽';
+
+  @override
+  String get tableRowHeight => '行高';
+
+  @override
+  String get tableSelectionHint =>
+      '点击单元格进行编辑；按住 Shift 点击可选择区域。复制和粘贴可与 Excel 交换单元格值。';
+
+  @override
+  String get tableClipboardError => '剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5025,4 +5077,56 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get textAlignBottom => '文字靠下對齊';
+
+  @override
+  String get table => '表格';
+
+  @override
+  String get tableEdit => '編輯表格';
+
+  @override
+  String get tableRows => '列';
+
+  @override
+  String get tableColumns => '欄';
+
+  @override
+  String get tableStyle => '表格樣式';
+
+  @override
+  String get tableStyleHint => '套用至整個表格。';
+
+  @override
+  String get tableBackgroundColor => '背景顏色';
+
+  @override
+  String get tableHeaderColor => '表頭顏色';
+
+  @override
+  String get tableTextColor => '字型顏色';
+
+  @override
+  String get tableGridLines => '格線';
+
+  @override
+  String get tableGridColor => '格線顏色';
+
+  @override
+  String get tableGridWidth => '格線寬度';
+
+  @override
+  String get tableHeaderRow => '標題列';
+
+  @override
+  String get tableColumnWidth => '欄寬';
+
+  @override
+  String get tableRowHeight => '列高';
+
+  @override
+  String get tableSelectionHint =>
+      '點擊儲存格進行編輯；按住 Shift 點擊可選取範圍。複製和貼上可與 Excel 交換儲存格值。';
+
+  @override
+  String get tableClipboardError => '剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。';
 }

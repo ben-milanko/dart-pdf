@@ -2572,4 +2572,57 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+
+  @override
+  String get table => 'خشتە';
+
+  @override
+  String get tableEdit => 'دەستکاری خشتە';
+
+  @override
+  String get tableRows => 'ڕیزەکان';
+
+  @override
+  String get tableColumns => 'ستوونەکان';
+
+  @override
+  String get tableStyle => 'شێوازی خشتە';
+
+  @override
+  String get tableStyleHint => 'بۆ هەموو خشتەکە جێبەجێ دەبێت.';
+
+  @override
+  String get tableBackgroundColor => 'ڕەنگی پاشبنەما';
+
+  @override
+  String get tableHeaderColor => 'ڕەنگی سەردێڕ';
+
+  @override
+  String get tableTextColor => 'ڕەنگی فۆنت';
+
+  @override
+  String get tableGridLines => 'هێڵەکانی تۆڕ';
+
+  @override
+  String get tableGridColor => 'ڕەنگی تۆڕ';
+
+  @override
+  String get tableGridWidth => 'ئەستووری تۆڕ';
+
+  @override
+  String get tableHeaderRow => 'ڕیزی سەردێڕ';
+
+  @override
+  String get tableColumnWidth => 'پانی ستوون';
+
+  @override
+  String get tableRowHeight => 'بەرزی ڕیز';
+
+  @override
+  String get tableSelectionHint =>
+      'بۆ دەستکاری کرتە لە خانەیەک بکە؛ بۆ دیاریکردنی مەودا Shift بگرە و کرتە بکە. بە کۆپیکردن و لکاندن بەهای خانەکان لەگەڵ Excel بگوازەوە.';
+
+  @override
+  String get tableClipboardError =>
+      'خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.';
 }

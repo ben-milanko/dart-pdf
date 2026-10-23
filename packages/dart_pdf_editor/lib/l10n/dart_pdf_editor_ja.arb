@@ -748,5 +748,22 @@
   "textVerticalAlign": "縦方向の配置",
   "textAlignTop": "文字を上揃え",
   "textAlignMiddle": "文字を中央揃え",
-  "textAlignBottom": "文字を下揃え"
+  "textAlignBottom": "文字を下揃え",
+  "table": "表",
+  "tableEdit": "表を編集",
+  "tableRows": "行",
+  "tableColumns": "列",
+  "tableStyle": "表のスタイル",
+  "tableStyleHint": "表全体に適用されます。",
+  "tableBackgroundColor": "背景色",
+  "tableHeaderColor": "見出しの色",
+  "tableTextColor": "文字色",
+  "tableGridLines": "罫線",
+  "tableGridColor": "罫線の色",
+  "tableGridWidth": "罫線の太さ",
+  "tableHeaderRow": "見出し行",
+  "tableColumnWidth": "列の幅",
+  "tableRowHeight": "行の高さ",
+  "tableSelectionHint": "セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。",
+  "tableClipboardError": "クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。"
 }

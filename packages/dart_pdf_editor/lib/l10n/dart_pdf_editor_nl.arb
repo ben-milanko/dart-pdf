@@ -748,5 +748,22 @@
   "textVerticalAlign": "Verticaal uitlijnen",
   "textAlignTop": "Tekst boven uitlijnen",
   "textAlignMiddle": "Tekst verticaal centreren",
-  "textAlignBottom": "Tekst onder uitlijnen"
+  "textAlignBottom": "Tekst onder uitlijnen",
+  "table": "Tabel",
+  "tableEdit": "Tabel bewerken",
+  "tableRows": "Rijen",
+  "tableColumns": "Kolommen",
+  "tableStyle": "Tabelstijl",
+  "tableStyleHint": "Geldt voor de hele tabel.",
+  "tableBackgroundColor": "Achtergrondkleur",
+  "tableHeaderColor": "Kopkleur",
+  "tableTextColor": "Tekstkleur",
+  "tableGridLines": "Rasterlijnen",
+  "tableGridColor": "Rasterkleur",
+  "tableGridWidth": "Lijndikte",
+  "tableHeaderRow": "Koprij",
+  "tableColumnWidth": "Kolombreedte",
+  "tableRowHeight": "Rijhoogte",
+  "tableSelectionHint": "Klik op een cel om te bewerken; Shift-klik selecteert een bereik. Kopiëren en Plakken wisselen celwaarden uit met Excel.",
+  "tableClipboardError": "De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen."
 }

@@ -2525,4 +2525,57 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => '文字を下揃え';
+
+  @override
+  String get table => '表';
+
+  @override
+  String get tableEdit => '表を編集';
+
+  @override
+  String get tableRows => '行';
+
+  @override
+  String get tableColumns => '列';
+
+  @override
+  String get tableStyle => '表のスタイル';
+
+  @override
+  String get tableStyleHint => '表全体に適用されます。';
+
+  @override
+  String get tableBackgroundColor => '背景色';
+
+  @override
+  String get tableHeaderColor => '見出しの色';
+
+  @override
+  String get tableTextColor => '文字色';
+
+  @override
+  String get tableGridLines => '罫線';
+
+  @override
+  String get tableGridColor => '罫線の色';
+
+  @override
+  String get tableGridWidth => '罫線の太さ';
+
+  @override
+  String get tableHeaderRow => '見出し行';
+
+  @override
+  String get tableColumnWidth => '列の幅';
+
+  @override
+  String get tableRowHeight => '行の高さ';
+
+  @override
+  String get tableSelectionHint =>
+      'セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。';
+
+  @override
+  String get tableClipboardError =>
+      'クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。';
 }

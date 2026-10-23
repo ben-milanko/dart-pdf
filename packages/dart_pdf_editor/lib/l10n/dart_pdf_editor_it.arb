@@ -748,5 +748,22 @@
   "textVerticalAlign": "Allineamento verticale",
   "textAlignTop": "Allinea il testo in alto",
   "textAlignMiddle": "Centra il testo verticalmente",
-  "textAlignBottom": "Allinea il testo in basso"
+  "textAlignBottom": "Allinea il testo in basso",
+  "table": "Tabella",
+  "tableEdit": "Modifica tabella",
+  "tableRows": "Righe",
+  "tableColumns": "Colonne",
+  "tableStyle": "Stile tabella",
+  "tableStyleHint": "Si applica a tutta la tabella.",
+  "tableBackgroundColor": "Colore di sfondo",
+  "tableHeaderColor": "Colore intestazione",
+  "tableTextColor": "Colore carattere",
+  "tableGridLines": "Linee della griglia",
+  "tableGridColor": "Colore griglia",
+  "tableGridWidth": "Spessore griglia",
+  "tableHeaderRow": "Riga di intestazione",
+  "tableColumnWidth": "Larghezza colonna",
+  "tableRowHeight": "Altezza riga",
+  "tableSelectionHint": "Fai clic su una cella per modificarla; Maiusc-clic seleziona un intervallo. Copia e Incolla scambiano i valori delle celle con Excel.",
+  "tableClipboardError": "La tabella negli appunti non è valida o supera 500 righe, 100 colonne o 20.000 celle."
 }

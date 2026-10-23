@@ -748,5 +748,22 @@
   "textVerticalAlign": "Alinhamento vertical",
   "textAlignTop": "Alinhar texto em cima",
   "textAlignMiddle": "Centralizar texto verticalmente",
-  "textAlignBottom": "Alinhar texto embaixo"
+  "textAlignBottom": "Alinhar texto embaixo",
+  "table": "Tabela",
+  "tableEdit": "Editar tabela",
+  "tableRows": "Linhas",
+  "tableColumns": "Colunas",
+  "tableStyle": "Estilo da tabela",
+  "tableStyleHint": "Aplica-se à tabela inteira.",
+  "tableBackgroundColor": "Cor de fundo",
+  "tableHeaderColor": "Cor do cabeçalho",
+  "tableTextColor": "Cor da fonte",
+  "tableGridLines": "Linhas de grade",
+  "tableGridColor": "Cor da grade",
+  "tableGridWidth": "Espessura da grade",
+  "tableHeaderRow": "Linha de cabeçalho",
+  "tableColumnWidth": "Largura da coluna",
+  "tableRowHeight": "Altura da linha",
+  "tableSelectionHint": "Clique numa célula para editar; Shift-clique seleciona um intervalo. Copiar e Colar trocam valores de células com o Excel.",
+  "tableClipboardError": "A tabela da área de transferência é inválida ou excede 500 linhas, 100 colunas ou 20.000 células."
 }

@@ -3280,5 +3280,22 @@
   "textVerticalAlign": "Vertical alignment",
   "textAlignTop": "Align text to top",
   "textAlignMiddle": "Align text to middle",
-  "textAlignBottom": "Align text to bottom"
+  "textAlignBottom": "Align text to bottom",
+  "table": "Table",
+  "tableEdit": "Edit table",
+  "tableRows": "Rows",
+  "tableColumns": "Columns",
+  "tableStyle": "Table style",
+  "tableStyleHint": "Applies to the whole table.",
+  "tableBackgroundColor": "Background color",
+  "tableHeaderColor": "Header color",
+  "tableTextColor": "Font color",
+  "tableGridLines": "Grid lines",
+  "tableGridColor": "Grid color",
+  "tableGridWidth": "Grid width",
+  "tableHeaderRow": "Header row",
+  "tableColumnWidth": "Column width",
+  "tableRowHeight": "Row height",
+  "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
+  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells."
 }

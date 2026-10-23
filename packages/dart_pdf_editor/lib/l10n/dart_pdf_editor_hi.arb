@@ -748,5 +748,22 @@
   "textVerticalAlign": "लंबवत संरेखण",
   "textAlignTop": "पाठ ऊपर संरेखित करें",
   "textAlignMiddle": "पाठ बीच में संरेखित करें",
-  "textAlignBottom": "पाठ नीचे संरेखित करें"
+  "textAlignBottom": "पाठ नीचे संरेखित करें",
+  "table": "तालिका",
+  "tableEdit": "तालिका संपादित करें",
+  "tableRows": "पंक्तियाँ",
+  "tableColumns": "कॉलम",
+  "tableStyle": "तालिका शैली",
+  "tableStyleHint": "पूरी तालिका पर लागू होता है।",
+  "tableBackgroundColor": "पृष्ठभूमि का रंग",
+  "tableHeaderColor": "शीर्षलेख का रंग",
+  "tableTextColor": "फ़ॉन्ट का रंग",
+  "tableGridLines": "ग्रिड रेखाएँ",
+  "tableGridColor": "ग्रिड का रंग",
+  "tableGridWidth": "ग्रिड की मोटाई",
+  "tableHeaderRow": "शीर्षक पंक्ति",
+  "tableColumnWidth": "कॉलम की चौड़ाई",
+  "tableRowHeight": "पंक्ति की ऊँचाई",
+  "tableSelectionHint": "संपादित करने के लिए सेल पर क्लिक करें; रेंज चुनने के लिए Shift-क्लिक करें। कॉपी और पेस्ट से Excel के साथ सेल मान साझा करें।",
+  "tableClipboardError": "क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।"
 }

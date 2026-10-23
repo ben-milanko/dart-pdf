@@ -748,5 +748,22 @@
   "textVerticalAlign": "Vertikale Ausrichtung",
   "textAlignTop": "Text oben ausrichten",
   "textAlignMiddle": "Text vertikal zentrieren",
-  "textAlignBottom": "Text unten ausrichten"
+  "textAlignBottom": "Text unten ausrichten",
+  "table": "Tabelle",
+  "tableEdit": "Tabelle bearbeiten",
+  "tableRows": "Zeilen",
+  "tableColumns": "Spalten",
+  "tableStyle": "Tabellenstil",
+  "tableStyleHint": "Gilt für die gesamte Tabelle.",
+  "tableBackgroundColor": "Hintergrundfarbe",
+  "tableHeaderColor": "Kopfzeilenfarbe",
+  "tableTextColor": "Schriftfarbe",
+  "tableGridLines": "Gitterlinien",
+  "tableGridColor": "Gitterfarbe",
+  "tableGridWidth": "Linienbreite",
+  "tableHeaderRow": "Kopfzeile",
+  "tableColumnWidth": "Spaltenbreite",
+  "tableRowHeight": "Zeilenhöhe",
+  "tableSelectionHint": "Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.",
+  "tableClipboardError": "Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen."
 }

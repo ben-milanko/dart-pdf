@@ -2618,4 +2618,57 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
+
+  @override
+  String get table => 'Таблиця';
+
+  @override
+  String get tableEdit => 'Змінити таблицю';
+
+  @override
+  String get tableRows => 'Рядки';
+
+  @override
+  String get tableColumns => 'Стовпці';
+
+  @override
+  String get tableStyle => 'Стиль таблиці';
+
+  @override
+  String get tableStyleHint => 'Застосовується до всієї таблиці.';
+
+  @override
+  String get tableBackgroundColor => 'Колір тла';
+
+  @override
+  String get tableHeaderColor => 'Колір заголовка';
+
+  @override
+  String get tableTextColor => 'Колір шрифту';
+
+  @override
+  String get tableGridLines => 'Лінії сітки';
+
+  @override
+  String get tableGridColor => 'Колір сітки';
+
+  @override
+  String get tableGridWidth => 'Товщина сітки';
+
+  @override
+  String get tableHeaderRow => 'Рядок заголовків';
+
+  @override
+  String get tableColumnWidth => 'Ширина стовпця';
+
+  @override
+  String get tableRowHeight => 'Висота рядка';
+
+  @override
+  String get tableSelectionHint =>
+      'Натисніть клітинку для редагування; Shift і клацання виділяють діапазон. Копіювання та вставлення обмінюються значеннями клітинок з Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Таблиця в буфері обміну некоректна або перевищує 500 рядків, 100 стовпців чи 20 000 клітинок.';
 }

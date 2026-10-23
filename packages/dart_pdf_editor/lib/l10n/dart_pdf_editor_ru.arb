@@ -748,5 +748,22 @@
   "textVerticalAlign": "Вертикальное выравнивание",
   "textAlignTop": "Выровнять текст по верхнему краю",
   "textAlignMiddle": "Выровнять текст по центру",
-  "textAlignBottom": "Выровнять текст по нижнему краю"
+  "textAlignBottom": "Выровнять текст по нижнему краю",
+  "table": "Таблица",
+  "tableEdit": "Изменить таблицу",
+  "tableRows": "Строки",
+  "tableColumns": "Столбцы",
+  "tableStyle": "Стиль таблицы",
+  "tableStyleHint": "Применяется ко всей таблице.",
+  "tableBackgroundColor": "Цвет фона",
+  "tableHeaderColor": "Цвет заголовка",
+  "tableTextColor": "Цвет шрифта",
+  "tableGridLines": "Линии сетки",
+  "tableGridColor": "Цвет сетки",
+  "tableGridWidth": "Толщина сетки",
+  "tableHeaderRow": "Строка заголовков",
+  "tableColumnWidth": "Ширина столбца",
+  "tableRowHeight": "Высота строки",
+  "tableSelectionHint": "Нажмите на ячейку для редактирования; Shift и щелчок выделяют диапазон. Копирование и вставка обмениваются значениями ячеек с Excel.",
+  "tableClipboardError": "Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек."
 }

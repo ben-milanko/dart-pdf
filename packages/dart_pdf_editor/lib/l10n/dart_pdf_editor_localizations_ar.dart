@@ -2616,4 +2616,57 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'محاذاة النص إلى الأسفل';
+
+  @override
+  String get table => 'جدول';
+
+  @override
+  String get tableEdit => 'تحرير الجدول';
+
+  @override
+  String get tableRows => 'الصفوف';
+
+  @override
+  String get tableColumns => 'الأعمدة';
+
+  @override
+  String get tableStyle => 'نمط الجدول';
+
+  @override
+  String get tableStyleHint => 'ينطبق على الجدول بأكمله.';
+
+  @override
+  String get tableBackgroundColor => 'لون الخلفية';
+
+  @override
+  String get tableHeaderColor => 'لون الرأس';
+
+  @override
+  String get tableTextColor => 'لون الخط';
+
+  @override
+  String get tableGridLines => 'خطوط الشبكة';
+
+  @override
+  String get tableGridColor => 'لون الشبكة';
+
+  @override
+  String get tableGridWidth => 'سُمك الشبكة';
+
+  @override
+  String get tableHeaderRow => 'صف العناوين';
+
+  @override
+  String get tableColumnWidth => 'عرض العمود';
+
+  @override
+  String get tableRowHeight => 'ارتفاع الصف';
+
+  @override
+  String get tableSelectionHint =>
+      'انقر على خلية لتحريرها، أو انقر مع Shift لتحديد نطاق. يتيح النسخ واللصق تبادل قيم الخلايا مع Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'جدول الحافظة غير صالح أو يتجاوز 500 صف أو 100 عمود أو 20,000 خلية.';
 }

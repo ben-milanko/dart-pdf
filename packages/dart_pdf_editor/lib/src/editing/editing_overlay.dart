@@ -578,6 +578,8 @@ class EditingPageOverlay extends StatefulWidget {
     this.edgeAutoScroll,
     this.rasterCurrent = true,
     this.zoom = 1,
+    this.viewportChanges,
+    this.visibleRegion,
     this.predictStrokes = true,
     this.formImagePicker,
     this.imagePicker,
@@ -688,6 +690,15 @@ class EditingPageOverlay extends StatefulWidget {
   /// to stay constant-size on screen at any zoom. Page-content previews
   /// (ink, shapes, the drag ghost) scale with the page on purpose.
   final double zoom;
+
+  /// Fires whenever the viewer scrolls or zooms - repaints the chrome that
+  /// pins itself to [visibleRegion] (the page rulers).
+  final Listenable? viewportChanges;
+
+  /// The page's visible slice as fractions of its displayed area (see
+  /// [PdfViewerController.visiblePageRegion]), or null while it is off
+  /// screen. Null callback: the whole page counts as visible.
+  final Rect? Function()? visibleRegion;
 
   /// See [PdfViewer.predictStrokes]. When true the in-progress ink layer
   /// draws a forward-extrapolated lead so the painted line keeps up with
@@ -1237,6 +1248,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // a just-committed Square/Circle resize, held (constant stroke width)
   // until the new revision's raster lands - see [_shapeResizeStyle]
   _ShapeResize? _afterShapeResize;
+  ({
+    Rect rect,
+    PdfTableData table,
+    double rotation,
+    double opacity
+  })? _afterTableResize;
   ({
     List<Offset> points,
     PdfEditTool tool,
@@ -2503,6 +2520,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterShape = null;
     _afterStamp = null;
     _afterShapeResize = null;
+    _afterTableResize = null;
     _afterPath = null;
     _afterText = null;
     _afterTextClean?.dispose();
@@ -2755,6 +2773,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       lineSpacing: parsed.lineSpacing,
     );
   }
+
+  PdfTableData? get _tableResizeData => _controller.selectedIsSingleGroup
+      ? null
+      : _controller.selectedAnnotation?.table;
 
   /// The selected annotation's style when a resize commit will
   /// REGENERATE it (Square/Circle) at a constant stroke width - the
@@ -4371,7 +4393,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // lift the box off the page for a re-wrapping (free-text) resize:
         // render the page without it so the preview floats over the real
         // content behind, not an opaque wash
-        if (_textResizeStyle != null) _renderResizeClean();
+        if (_textResizeStyle != null || _tableResizeData != null) {
+          _renderResizeClean();
+        }
         return;
       }
       if (chrome != null && _hitsRotateHandle(chrome.$1, resting, position)) {
@@ -4723,7 +4747,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // ownership from [_clearResizeClean]) so the commit afterimage can keep
     // it up until the new raster lands - without it a transparent box
     // flashes opaque paper on release
-    final textResizing = resizeRect != null && _textResizeStyle != null;
+    final textResizing = resizeRect != null &&
+        (_textResizeStyle != null || _tableResizeData != null);
     final liftClean = textResizing ? _resizeCleanPicture : null;
     final liftHideRect = textResizing ? _resizeFrom : null;
     final liftHideAngle = _resizeAngle;
@@ -4804,6 +4829,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _commitVertexDrag(vertexPoints, handle: vertexHandle);
     } else if (resizeRect != null) {
       final wrapStyle = _textResizeStyle;
+      final table = _tableResizeData;
+      final tableOpacity =
+          _controller.selectedAnnotation?.appearanceOpacity ?? 1;
       // captured before the commit: a Square/Circle regenerates at a
       // constant stroke width, so its afterimage must too (the stretch
       // ghost would thicken the line until the raster lands)
@@ -4825,7 +4853,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               flipX: resizeFlipX, flipY: resizeFlipY)
           : _controller.resizeSelectedLocal(localTo,
               flipX: resizeFlipX, flipY: resizeFlipY);
-      if (wrapStyle != null) {
+      if (table != null) {
+        final before = _controller.revisionId;
+        commit();
+        if (before != _controller.revisionId) {
+          _clearAfterimage();
+          _afterTableResize = (
+            rect: resizeRect,
+            table: table,
+            rotation: resizeAngle,
+            opacity: tableOpacity
+          );
+          _afterTextClean = liftClean;
+          _afterTextHideRect = liftHideRect;
+          _afterTextHideAngle = liftHideAngle;
+          _afterRevisionId = _controller.revisionId;
+        } else {
+          liftClean?.dispose();
+        }
+      } else if (wrapStyle != null) {
         // the commit re-wraps the text at constant size - a stretched
         // ghost afterimage would show scaled glyphs, so freeze the same
         // wrapped-text preview the drag showed instead
@@ -6678,6 +6724,58 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
+  Widget _tableResizeBox(
+      {required Rect rect,
+      required PdfTableData table,
+      required double rotation,
+      required double opacity}) {
+    final children = <Widget>[];
+    var top = 0.0;
+    for (var r = 0; r < table.rowCount; r++) {
+      final height = rect.height * table.rowHeights[r] / table.height;
+      var left = 0.0;
+      for (var c = 0; c < table.columnCount; c++) {
+        final width = rect.width * table.columnWidths[c] / table.width;
+        children.add(Positioned.fromRect(
+            rect: Rect.fromLTWH(left, top, width, height),
+            child: ClipRect(
+                child: Stack(children: [
+              _wrappedTextBox(
+                  rect: Rect.fromLTWH(0, 0, width, height),
+                  text: table.cells[r][c],
+                  font: table.font,
+                  size: table.fontSize,
+                  color: Color(0xFF000000 | table.textColor),
+                  background: Color(0xFF000000 |
+                      (r == 0 && table.headerRow
+                          ? table.headerColor
+                          : table.backgroundColor)),
+                  rotation: 0),
+              if (table.gridLines)
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            border: Border.all(
+                                color: Color(0xFF000000 | table.borderColor),
+                                width: table.borderWidth * _geometry.scale)))),
+            ]))));
+        left += width;
+      }
+      top += height;
+    }
+    return Positioned.fromRect(
+        rect: rect,
+        child: IgnorePointer(
+            child: Transform.rotate(
+                angle: rotation,
+                child: Opacity(
+                    opacity: opacity.clamp(0.0, 1.0),
+                    child: ClipRect(
+                        child: Stack(
+                            key: const ValueKey('pdf-table-resize-preview'),
+                            children: children))))));
+  }
+
   @override
   Widget build(BuildContext context) {
     _scheduleRasterReady();
@@ -6757,6 +6855,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
+            _afterTableResize == null &&
             _ghost != null &&
             selected != null
         ? (
@@ -6785,6 +6884,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // wrapping live instead of the ghost's stretched glyphs
     final wrapResize =
         _resizeHandle != null && _resizeRect != null ? _textResizeStyle : null;
+    final resizeTable =
+        _resizeHandle != null && _resizeRect != null ? _tableResizeData : null;
+    final tableResize = resizeTable == null
+        ? _afterTableResize
+        : (
+            rect: _resizeRect!,
+            table: resizeTable,
+            rotation: _resizeAngle,
+            opacity: _controller.selectedAnnotation!.appearanceOpacity
+          );
+    final reflowResize = wrapResize != null || resizeTable != null;
     // a Square/Circle resize regenerates at a constant stroke width:
     // preview that (live during the drag, then the frozen afterimage)
     // instead of the ghost, whose line would stretch and snap back
@@ -7023,7 +7133,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _marqueeStart != null && _marqueeCurrent != null
                             ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
                             : null,
-                    ghost: wrapResize == null && shapeResize == null
+                    ghost: wrapResize == null &&
+                            shapeResize == null &&
+                            tableResize == null
                         ? _ghost
                         : null,
                     shapeResize: shapeResize,
@@ -7045,13 +7157,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     // the same lift carries on (kept alive as
                     // [_afterTextClean]) so a transparent box's afterimage
                     // shows page content behind it, not an opaque flash.
-                    resizeClean: wrapResize != null
-                        ? _resizeCleanPicture
-                        : _afterTextClean,
+                    resizeClean:
+                        reflowResize ? _resizeCleanPicture : _afterTextClean,
                     resizeHideRect:
-                        wrapResize != null ? _resizeFrom : _afterTextHideRect,
+                        reflowResize ? _resizeFrom : _afterTextHideRect,
                     resizeHideAngle:
-                        wrapResize != null ? _resizeAngle : _afterTextHideAngle,
+                        reflowResize ? _resizeAngle : _afterTextHideAngle,
                     resizeHideWash: Color.alphaBlend(
                         widget.pageColor, const Color(0xFFFFFFFF)),
                     extraInk: extraInk,
@@ -7089,6 +7200,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _moveStart == null,
                     vertexHandles:
                         _moveStart == null ? vertexHandles : const <Offset>[],
+                    calloutLeaderHandles: _selectedCalloutNodesOnly,
                     elementRect: _selectedElementViewRect,
                     elementWordRect: _selectedElementWordViewRect,
                     elementClean: _elementMoveOffset != null
@@ -7193,6 +7305,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   underline: wrapResize.underline,
                   lineSpacing: wrapResize.lineSpacing,
                 ),
+              if (tableResize != null)
+                _tableResizeBox(
+                    rect: tableResize.rect,
+                    table: tableResize.table,
+                    rotation: tableResize.rotation,
+                    opacity: tableResize.opacity),
               // a just-committed text edit, frozen until the page raster
               // catches up (same wash the inline editor painted over old
               // renderings, so nothing shows through meanwhile)
@@ -7730,23 +7848,34 @@ class _ActiveStrokePainter extends CustomPainter {
 void _paintPenCursor(
   Canvas canvas,
   Offset center, {
-  required double strokeWidth,
+  required double diameter,
   required double chromeScale,
   required Color color,
   required double opacity,
 }) {
-  final r = math.max(strokeWidth / 2, 1.5 * chromeScale);
-  canvas.drawCircle(
-      center, r + 1.5 * chromeScale, Paint()..color = const Color(0x33000000));
-  canvas.drawCircle(
-      center, r, Paint()..color = color.withValues(alpha: opacity));
+  // The coloured disc is exactly the stroke's footprint; the hairline and
+  // halo sit wholly outside it, so neither the chrome nor a floor on the
+  // radius makes the dot read bigger than the line it previews, and the
+  // halo never darkens a translucent pen colour from underneath.
+  final r = diameter / 2;
   canvas.drawCircle(
       center,
-      r,
+      r + 1.5 * chromeScale,
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 * chromeScale);
+  canvas.drawCircle(
+      center,
+      r + 0.5 * chromeScale,
       Paint()
         ..color = const Color(0xB3FFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1 * chromeScale);
+  if (r > 0) {
+    canvas.drawCircle(
+        center, r, Paint()..color = color.withValues(alpha: opacity));
+  }
 }
 
 /// Paints the temporary object/page alignment lines that appear only while a
@@ -7799,16 +7928,23 @@ class _AlignmentGuidePainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// Adaptive rulers inset along the page's top and left edges. Values are
-/// distances in PDF points from the visible top-left corner; the major step
-/// follows a 1/2/5 progression so labels never crowd as the page zooms.
+/// Adaptive rulers inset along the top and left edges of the page's visible
+/// slice - zoomed in, the page's own edges scroll off screen, so the rulers
+/// follow the viewport rather than leaving with them. Values are distances
+/// in PDF points from the page's top-left corner; the major step follows a
+/// 1/2/5 progression so labels never crowd as the page zooms.
 class _PageRulerPainter extends CustomPainter {
   _PageRulerPainter(
     this._state, {
     required this.surfaceColor,
     required this.textColor,
     required this.accentColor,
-  }) : super(repaint: _state._cursorRepaint);
+  }) : super(
+          repaint: Listenable.merge([
+            _state._cursorRepaint,
+            _state.widget.viewportChanges,
+          ]),
+        );
 
   final _EditingPageOverlayState _state;
   final Color surfaceColor;
@@ -7820,6 +7956,22 @@ class _PageRulerPainter extends CustomPainter {
 
   @visibleForTesting
   Offset? get cursor => _state._guideCursor;
+
+  /// The part of the overlay on screen, in overlay pixels, or null while the
+  /// page is entirely off screen.
+  @visibleForTesting
+  Rect? visibleRectFor(Size size) {
+    final region = _state.widget.visibleRegion;
+    if (region == null) return Offset.zero & size;
+    final fraction = region();
+    if (fraction == null) return null;
+    return Rect.fromLTRB(
+      fraction.left * size.width,
+      fraction.top * size.height,
+      fraction.right * size.width,
+      fraction.bottom * size.height,
+    );
+  }
 
   @visibleForTesting
   double majorStepFor(Size size) {
@@ -7853,6 +8005,8 @@ class _PageRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
+    final visible = visibleRectFor(size)?.intersect(Offset.zero & size);
+    if (visible == null || visible.width <= 0 || visible.height <= 0) return;
     final s = _state._chromeScale;
     final band = bandWidth;
     final scale = _state._geometry.scale;
@@ -7865,37 +8019,49 @@ class _PageRulerPainter extends CustomPainter {
     final ticks = Paint()
       ..color = textColor.withValues(alpha: 0.62)
       ..strokeWidth = 0.75 * s;
+    // the bands' inner edges: the top ruler hangs from the visible top, the
+    // left one from the visible left
+    final top = visible.top;
+    final left = visible.left;
 
     canvas
-      ..drawRect(Rect.fromLTWH(0, 0, size.width, band), ruleFill)
-      ..drawRect(Rect.fromLTWH(0, 0, band, size.height), ruleFill)
-      ..drawLine(Offset(0, band), Offset(size.width, band), hairline)
-      ..drawLine(Offset(band, 0), Offset(band, size.height), hairline);
+      ..save()
+      ..clipRect(visible)
+      ..drawRect(Rect.fromLTWH(left, top, visible.width, band), ruleFill)
+      ..drawRect(Rect.fromLTWH(left, top, band, visible.height), ruleFill)
+      ..drawLine(
+          Offset(left, top + band), Offset(visible.right, top + band), hairline)
+      ..drawLine(Offset(left + band, top), Offset(left + band, visible.bottom),
+          hairline);
 
-    final widthPoints = size.width / scale;
-    final heightPoints = size.height / scale;
-    final tickCountX = (widthPoints / minor).floor();
-    for (var i = 0; i <= tickCountX; i++) {
+    // only the ticks the visible slice shows, so the count stays bounded
+    // however deep the zoom
+    final firstX = (left / scale / minor).floor();
+    final lastX = (visible.right / scale / minor).ceil();
+    for (var i = firstX; i <= lastX; i++) {
       final value = i * minor;
       final x = value * scale;
       final isMajor = i % 5 == 0;
       final length = (isMajor ? 8 : 4) * s;
-      canvas.drawLine(Offset(x, band), Offset(x, band - length), ticks);
-      if (isMajor && x >= band + 2 * s) {
-        _paintLabel(canvas, value.round().toString(), Offset(x + 2 * s, 3 * s),
-            8.5 * s);
+      canvas.drawLine(
+          Offset(x, top + band), Offset(x, top + band - length), ticks);
+      if (isMajor && x >= left + band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(),
+            Offset(x + 2 * s, top + 3 * s), 8.5 * s);
       }
     }
-    final tickCountY = (heightPoints / minor).floor();
-    for (var i = 0; i <= tickCountY; i++) {
+    final firstY = (top / scale / minor).floor();
+    final lastY = (visible.bottom / scale / minor).ceil();
+    for (var i = firstY; i <= lastY; i++) {
       final value = i * minor;
       final y = value * scale;
       final isMajor = i % 5 == 0;
       final length = (isMajor ? 8 : 4) * s;
-      canvas.drawLine(Offset(band, y), Offset(band - length, y), ticks);
-      if (isMajor && y >= band + 2 * s) {
-        _paintLabel(canvas, value.round().toString(), Offset(2 * s, y + 2 * s),
-            8.5 * s);
+      canvas.drawLine(
+          Offset(left + band, y), Offset(left + band - length, y), ticks);
+      if (isMajor && y >= top + band + 2 * s) {
+        _paintLabel(canvas, value.round().toString(),
+            Offset(left + 2 * s, y + 2 * s), 8.5 * s);
       }
     }
 
@@ -7907,16 +8073,21 @@ class _PageRulerPainter extends CustomPainter {
         ..color = accentColor
         ..strokeWidth = 1.5 * s;
       canvas
-        ..drawLine(Offset(cursor.dx, 0), Offset(cursor.dx, band), marker)
-        ..drawLine(Offset(0, cursor.dy), Offset(band, cursor.dy), marker);
+        ..drawLine(
+            Offset(cursor.dx, top), Offset(cursor.dx, top + band), marker)
+        ..drawLine(
+            Offset(left, cursor.dy), Offset(left + band, cursor.dy), marker);
     }
 
     // The shared corner hides tick/label fragments from both axes and makes
     // the two strips read as one instrument.
-    canvas.drawRect(Rect.fromLTWH(0, 0, band, band), ruleFill);
+    canvas.drawRect(Rect.fromLTWH(left, top, band, band), ruleFill);
     canvas
-      ..drawLine(Offset(0, band), Offset(band, band), hairline)
-      ..drawLine(Offset(band, 0), Offset(band, band), hairline);
+      ..drawLine(
+          Offset(left, top + band), Offset(left + band, top + band), hairline)
+      ..drawLine(
+          Offset(left + band, top), Offset(left + band, top + band), hairline)
+      ..restore();
   }
 
   @override
@@ -7991,6 +8162,20 @@ class _HoverCursorPainter extends CustomPainter {
   /// riding the tip mid-stroke.
   @visibleForTesting
   Offset? get penCursor => _state._inkTool ? _state._penCursor : null;
+
+  /// The pen dot's diameter in view pixels: the width the stroke paints at
+  /// the tip - the pen width scaled to the zoom, and mid-stroke the width
+  /// the latest pressure sample maps to, exactly as the live stroke draws.
+  @visibleForTesting
+  double get penCursorDiameter {
+    final width =
+        _state._controller.preferences.strokeWidth * _state._geometry.scale;
+    final pressures =
+        _state._activeStroke == null ? null : _state._activeStrokePressures;
+    return pressures == null || pressures.isEmpty
+        ? width
+        : pdfInkStrokeWidth(width, pressures.last);
+  }
 
   @visibleForTesting
   _StampAfterimage? get countPreview {
@@ -8155,7 +8340,7 @@ class _HoverCursorPainter extends CustomPainter {
       _paintPenCursor(
         canvas,
         pen,
-        strokeWidth: preferences.strokeWidth * geometry.scale,
+        diameter: penCursorDiameter,
         chromeScale: chromeScale,
         color: state._controller.color,
         opacity: preferences.opacity,
@@ -8573,6 +8758,7 @@ class _EditingPreviewPainter extends CustomPainter {
     this.selectionOutline = true,
     required this.showRotateHandle,
     required this.vertexHandles,
+    this.calloutLeaderHandles = false,
     required this.elementRect,
     this.elementWordRect,
     this.elementClean,
@@ -8731,6 +8917,12 @@ class _EditingPreviewPainter extends CustomPainter {
   final bool selectionOutline;
   final bool showRotateHandle;
   final List<Offset>? vertexHandles;
+
+  /// Whether [vertexHandles] are a callout's leader nodes (terminus, base,
+  /// terminus, base, ...). Those paint as round grips - the arrow tip solid,
+  /// the base hollow - like other PDF editors, so they read as "re-aim the
+  /// leader" rather than as more of the text box's square resize knobs.
+  final bool calloutLeaderHandles;
 
   /// The selected content element's box - orange, to read as "page
   /// content", distinct from the blue annotation chrome.
@@ -9408,9 +9600,22 @@ class _EditingPreviewPainter extends CustomPainter {
         ..color = _chrome
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 * chromeScale;
-      for (final center in handles) {
-        final knob = Rect.fromCircle(
-            center: center, radius: theme.handleDiameter / 2 * chromeScale);
+      final radius = theme.handleDiameter / 2 * chromeScale;
+      for (var i = 0; i < handles.length; i++) {
+        final center = handles[i];
+        if (calloutLeaderHandles) {
+          if (i.isEven) {
+            // the terminus: a solid dot with a white rim, legible over the
+            // arrowhead it sits on
+            canvas.drawCircle(center, radius + 1 * chromeScale, fill);
+            canvas.drawCircle(center, radius, Paint()..color = _chrome);
+          } else {
+            canvas.drawCircle(center, radius, fill);
+            canvas.drawCircle(center, radius, stroke);
+          }
+          continue;
+        }
+        final knob = Rect.fromCircle(center: center, radius: radius);
         canvas.drawRect(knob, fill);
         canvas.drawRect(knob, stroke);
       }
@@ -9519,6 +9724,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.afterStamp != afterStamp ||
       oldDelegate.showHandles != showHandles ||
       oldDelegate.selectionOutline != selectionOutline ||
+      oldDelegate.calloutLeaderHandles != calloutLeaderHandles ||
       oldDelegate.showRotateHandle != showRotateHandle ||
       oldDelegate.elementRect != elementRect ||
       oldDelegate.elementWordRect != elementWordRect ||

@@ -1108,7 +1108,18 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     return Flex(
                       direction: scrollAxis,
                       children: [
-                        if (horizontal) horizontalHeader else verticalHeader,
+                        if (horizontal)
+                          horizontalHeader
+                        else
+                          // Docked bars and a top panel can leave less than
+                          // the header's 40px. Keep its actions reachable by
+                          // scrolling without changing the list's position
+                          // in the tree as the available height changes.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight),
+                            child: SingleChildScrollView(child: verticalHeader),
+                          ),
                         Expanded(child: tiles),
                         // a footer to append a blank page; only when the strip
                         // is editable (a read-only strip is purely navigational)

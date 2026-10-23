@@ -2584,4 +2584,57 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'Aligner le texte en bas';
+
+  @override
+  String get table => 'Tableau';
+
+  @override
+  String get tableEdit => 'Modifier le tableau';
+
+  @override
+  String get tableRows => 'Lignes';
+
+  @override
+  String get tableColumns => 'Colonnes';
+
+  @override
+  String get tableStyle => 'Style du tableau';
+
+  @override
+  String get tableStyleHint => 'S’applique à tout le tableau.';
+
+  @override
+  String get tableBackgroundColor => 'Couleur de fond';
+
+  @override
+  String get tableHeaderColor => 'Couleur de l’en-tête';
+
+  @override
+  String get tableTextColor => 'Couleur de police';
+
+  @override
+  String get tableGridLines => 'Quadrillage';
+
+  @override
+  String get tableGridColor => 'Couleur du quadrillage';
+
+  @override
+  String get tableGridWidth => 'Épaisseur du quadrillage';
+
+  @override
+  String get tableHeaderRow => 'Ligne d’en-tête';
+
+  @override
+  String get tableColumnWidth => 'Largeur de colonne';
+
+  @override
+  String get tableRowHeight => 'Hauteur de ligne';
+
+  @override
+  String get tableSelectionHint =>
+      'Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.';
 }

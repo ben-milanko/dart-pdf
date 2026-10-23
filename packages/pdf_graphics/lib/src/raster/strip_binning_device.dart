@@ -234,8 +234,43 @@ abstract class StripBinningDevice
       return;
     }
     if (!binningEnabled) return;
-    generator.fillPath(path, pageToDevice, rule, stripArgbColor(color, alpha),
+    generator.fillPath(_flooredThinRects(path), pageToDevice, rule,
+        stripArgbColor(color, alpha),
         tolerance: stripFlattenTolerance);
+  }
+
+  /// [path] with every filled rectangle thinner than one device pixel widened
+  /// about its centre to one pixel - the stroke floor in [strokePath], for
+  /// the rules and table borders producers draw as `re f`. Matches
+  /// CanvasPdfDevice's thin-fill hairline.
+  PdfPath _flooredThinRects(PdfPath path) {
+    final sf = pageToDevice.scaleFactor;
+    if (sf <= 0) return path;
+    final min = 1 / sf;
+    final rects = pdfThinRectFill(path, min);
+    if (rects == null) return path;
+    var changed = false;
+    for (var i = 0; i < rects.length; i += 4) {
+      final w = rects[i + 2] - rects[i], h = rects[i + 3] - rects[i + 1];
+      // a speck stays exact; so does a rule already a pixel thick
+      if (!pdfRectIsRule(w, h) || (w < h ? w : h) >= min) continue;
+      final axis = w > h ? 1 : 0; // widen across the short side
+      final mid = (rects[i + axis] + rects[i + axis + 2]) / 2;
+      rects[i + axis] = mid - min / 2;
+      rects[i + axis + 2] = mid + min / 2;
+      changed = true;
+    }
+    if (!changed) return path;
+    final builder = PdfPathBuilder();
+    for (var i = 0; i < rects.length; i += 4) {
+      builder
+        ..moveTo(rects[i], rects[i + 1])
+        ..lineTo(rects[i + 2], rects[i + 1])
+        ..lineTo(rects[i + 2], rects[i + 3])
+        ..lineTo(rects[i], rects[i + 3])
+        ..close();
+    }
+    return builder.takePath();
   }
 
   @override

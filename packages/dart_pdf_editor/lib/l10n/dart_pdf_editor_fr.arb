@@ -748,5 +748,22 @@
   "textVerticalAlign": "Alignement vertical",
   "textAlignTop": "Aligner le texte en haut",
   "textAlignMiddle": "Centrer le texte verticalement",
-  "textAlignBottom": "Aligner le texte en bas"
+  "textAlignBottom": "Aligner le texte en bas",
+  "table": "Tableau",
+  "tableEdit": "Modifier le tableau",
+  "tableRows": "Lignes",
+  "tableColumns": "Colonnes",
+  "tableStyle": "Style du tableau",
+  "tableStyleHint": "S’applique à tout le tableau.",
+  "tableBackgroundColor": "Couleur de fond",
+  "tableHeaderColor": "Couleur de l’en-tête",
+  "tableTextColor": "Couleur de police",
+  "tableGridLines": "Quadrillage",
+  "tableGridColor": "Couleur du quadrillage",
+  "tableGridWidth": "Épaisseur du quadrillage",
+  "tableHeaderRow": "Ligne d’en-tête",
+  "tableColumnWidth": "Largeur de colonne",
+  "tableRowHeight": "Hauteur de ligne",
+  "tableSelectionHint": "Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.",
+  "tableClipboardError": "Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules."
 }

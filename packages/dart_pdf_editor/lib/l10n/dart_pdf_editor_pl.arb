@@ -748,5 +748,22 @@
   "textVerticalAlign": "Wyrównanie w pionie",
   "textAlignTop": "Wyrównaj tekst do góry",
   "textAlignMiddle": "Wyśrodkuj tekst w pionie",
-  "textAlignBottom": "Wyrównaj tekst do dołu"
+  "textAlignBottom": "Wyrównaj tekst do dołu",
+  "table": "Tabela",
+  "tableEdit": "Edytuj tabelę",
+  "tableRows": "Wiersze",
+  "tableColumns": "Kolumny",
+  "tableStyle": "Styl tabeli",
+  "tableStyleHint": "Dotyczy całej tabeli.",
+  "tableBackgroundColor": "Kolor tła",
+  "tableHeaderColor": "Kolor nagłówka",
+  "tableTextColor": "Kolor czcionki",
+  "tableGridLines": "Linie siatki",
+  "tableGridColor": "Kolor siatki",
+  "tableGridWidth": "Grubość siatki",
+  "tableHeaderRow": "Wiersz nagłówka",
+  "tableColumnWidth": "Szerokość kolumny",
+  "tableRowHeight": "Wysokość wiersza",
+  "tableSelectionHint": "Kliknij komórkę, aby edytować; Shift i kliknięcie zaznacza zakres. Kopiuj i Wklej wymieniają wartości komórek z Excelem.",
+  "tableClipboardError": "Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek."
 }

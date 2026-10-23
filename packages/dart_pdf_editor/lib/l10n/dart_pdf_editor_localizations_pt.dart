@@ -2574,4 +2574,57 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => 'Alinhar texto embaixo';
+
+  @override
+  String get table => 'Tabela';
+
+  @override
+  String get tableEdit => 'Editar tabela';
+
+  @override
+  String get tableRows => 'Linhas';
+
+  @override
+  String get tableColumns => 'Colunas';
+
+  @override
+  String get tableStyle => 'Estilo da tabela';
+
+  @override
+  String get tableStyleHint => 'Aplica-se à tabela inteira.';
+
+  @override
+  String get tableBackgroundColor => 'Cor de fundo';
+
+  @override
+  String get tableHeaderColor => 'Cor do cabeçalho';
+
+  @override
+  String get tableTextColor => 'Cor da fonte';
+
+  @override
+  String get tableGridLines => 'Linhas de grade';
+
+  @override
+  String get tableGridColor => 'Cor da grade';
+
+  @override
+  String get tableGridWidth => 'Espessura da grade';
+
+  @override
+  String get tableHeaderRow => 'Linha de cabeçalho';
+
+  @override
+  String get tableColumnWidth => 'Largura da coluna';
+
+  @override
+  String get tableRowHeight => 'Altura da linha';
+
+  @override
+  String get tableSelectionHint =>
+      'Clique numa célula para editar; Shift-clique seleciona um intervalo. Copiar e Colar trocam valores de células com o Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'A tabela da área de transferência é inválida ou excede 500 linhas, 100 colunas ou 20.000 células.';
 }

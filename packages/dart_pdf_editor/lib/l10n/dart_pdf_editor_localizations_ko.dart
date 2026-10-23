@@ -2526,4 +2526,57 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get textAlignBottom => '텍스트 아래쪽 맞춤';
+
+  @override
+  String get table => '표';
+
+  @override
+  String get tableEdit => '표 편집';
+
+  @override
+  String get tableRows => '행';
+
+  @override
+  String get tableColumns => '열';
+
+  @override
+  String get tableStyle => '표 스타일';
+
+  @override
+  String get tableStyleHint => '표 전체에 적용됩니다.';
+
+  @override
+  String get tableBackgroundColor => '배경색';
+
+  @override
+  String get tableHeaderColor => '머리글 색';
+
+  @override
+  String get tableTextColor => '글꼴 색';
+
+  @override
+  String get tableGridLines => '격자선';
+
+  @override
+  String get tableGridColor => '격자선 색';
+
+  @override
+  String get tableGridWidth => '격자선 두께';
+
+  @override
+  String get tableHeaderRow => '머리글 행';
+
+  @override
+  String get tableColumnWidth => '열 너비';
+
+  @override
+  String get tableRowHeight => '행 높이';
+
+  @override
+  String get tableSelectionHint =>
+      '셀을 클릭하여 편집하고 Shift 키를 누른 채 클릭하여 범위를 선택하세요. 복사와 붙여넣기로 Excel과 셀 값을 주고받을 수 있습니다.';
+
+  @override
+  String get tableClipboardError =>
+      '클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.';
 }
