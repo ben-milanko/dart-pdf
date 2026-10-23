@@ -948,6 +948,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _cursorRepaint.value++;
   }
 
+  /// Records a mouse position for the cursor guides and keeps
+  /// [_retrackGuide] armed while the mouse is over this page.
+  void _trackGuide(Offset local, Offset global) {
+    _guideGlobal = global;
+    if (_guideCursor != local) {
+      _guideCursor = local;
+      _bumpCursor();
+    }
+    if (_guideRetrackArmed) return;
+    _guideRetrackArmed = true;
+    // a post-frame callback doesn't schedule a frame, so an idle pointer
+    // costs nothing; it runs only behind frames something else (a scroll)
+    // asked for
+    SchedulerBinding.instance.addPostFrameCallback(_retrackGuide);
+  }
+
+  void _retrackGuide(Duration _) {
+    _guideRetrackArmed = false;
+    final global = _guideGlobal;
+    if (!mounted || global == null) return;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return;
+    final local = box.globalToLocal(global);
+    // scrolled off this page: the mouse tracker's exit clears the guides
+    if (!(Offset.zero & box.size).contains(local)) return;
+    _trackGuide(local, global);
+  }
+
   /// Extends the in-progress ink stroke to the view-space [localPosition].
   /// Normally each sample appends, tracing the freehand path. While Shift is
   /// pressed, the tail snaps to the nearest 45° direction from the latest
@@ -1042,6 +1070,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// vertical cursor guides are painted through it on the cursor-only layer,
   /// so pointer motion never rebuilds the editing overlay.
   Offset? _guideCursor;
+
+  /// The global position behind [_guideCursor]. A scroll or zoom moves the
+  /// page under a still mouse without any hover event, so after every frame
+  /// [_retrackGuide] re-derives [_guideCursor] from it - the guides stay on
+  /// the pointer through a wheel/trackpad scroll instead of riding the page
+  /// until the mouse next moves.
+  Offset? _guideGlobal;
+  bool _guideRetrackArmed = false;
 
   /// The count tool's check-mark cursor: the mark that will be placed by a
   /// click, centered on the mouse and clamped the same way the commit is.
@@ -1884,8 +1920,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _pointerPressure = _normalizedPressure(event);
     if (event.kind == PointerDeviceKind.mouse ||
         event.kind == PointerDeviceKind.trackpad) {
-      _guideCursor = event.localPosition;
-      _bumpCursor();
+      _trackGuide(event.localPosition, event.position);
     }
     if (_lastPointerKind != event.kind) {
       // the selection action chip shows for touch/stylus input only
@@ -2011,8 +2046,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (event.kind == PointerDeviceKind.mouse ||
         event.kind == PointerDeviceKind.trackpad) {
-      _guideCursor = event.localPosition;
-      _bumpCursor();
+      _trackGuide(event.localPosition, event.position);
     }
     if (event.buttons == kMiddleMouseButton && _polyPoints != null) {
       // a middle-button pan mid-path: the page slides under the pointer, so
@@ -5913,10 +5947,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // the mouse tracker), which would park the pen dot, eraser ring, guides
     // and previews wherever the last stroke ended.
     if (event.kind == PointerDeviceKind.touch) return;
-    if (_guideCursor != event.localPosition) {
-      _guideCursor = event.localPosition;
-      _bumpCursor();
-    }
+    _trackGuide(event.localPosition, event.position);
     final MouseCursor cursor;
     if (_controller.isPickingColor) {
       _updatePickPreview(event.localPosition);
@@ -7017,9 +7048,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // the mouse arriving over this page is the cue to build its
           // sampling raster - by the time the pointer stops moving the first
           // preview is ready
-          onEnter: picking ? (_) => unawaited(_ensureSampler()) : null,
+          onEnter: (event) {
+            if (picking) unawaited(_ensureSampler());
+            // a scroll that carries the page under a still mouse sends an
+            // enter but no hover - pick the guides up here
+            if (event.kind != PointerDeviceKind.touch) {
+              _trackGuide(event.localPosition, event.position);
+            }
+          },
           onHover: _onHover,
           onExit: (_) {
+            _guideGlobal = null;
             if (_pickPosition == null &&
                 _guideCursor == null &&
                 (_signaturePreview == null || _signatureDrag) &&
