@@ -9797,6 +9797,8 @@ class _PdfViewerState extends State<PdfViewer>
                     crossPageGhost: _crossPageGhostFor(index),
                     transformScale: _transformScale,
                     transformChanges: _transform,
+                    viewportChanges: _controller.viewportChanges,
+                    visibleRegion: () => _visibleFractionOf(index),
                     renderScheduler: _renderScheduler,
                     previewCache: widget.pagePreviews ? _previews : null,
                     renderWorker: _effectiveRenderWorker,
@@ -10858,6 +10860,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.crossPageGhost,
     required this.transformScale,
     required this.transformChanges,
+    required this.viewportChanges,
+    required this.visibleRegion,
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
@@ -10969,6 +10973,13 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// The complete viewer matrix notifier, including translation-only pans.
   final Listenable transformChanges;
+
+  /// See [PdfViewerController.viewportChanges].
+  final Listenable viewportChanges;
+
+  /// See [PdfViewerController.visiblePageRegion] - this page's visible
+  /// slice as fractions of its displayed area, or null while off-screen.
+  final Rect? Function() visibleRegion;
 
   /// See [PdfPageView.renderScheduler].
   final PdfPageRenderScheduler renderScheduler;
@@ -11349,6 +11360,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                         widget.interactionSession,
                                     rasterCurrent: rasterCurrent,
                                     zoom: zoom,
+                                    viewportChanges: widget.viewportChanges,
+                                    visibleRegion: widget.visibleRegion,
                                     predictStrokes: widget.predictStrokes,
                                     contextMenuEnabled:
                                         widget.contextMenuEnabled,
