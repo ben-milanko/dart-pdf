@@ -100,6 +100,28 @@ void paintPdfMouseCursor(
   canvas.restore();
 }
 
+/// Lets a temporary viewer-level cursor replace local editing/form artwork
+/// without changing hit testing or rebuilding those layers on pointer motion.
+class PdfMouseCursorVisibility extends InheritedWidget {
+  const PdfMouseCursorVisibility({
+    super.key,
+    required this.visible,
+    required super.child,
+  });
+
+  final bool visible;
+
+  static bool of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<PdfMouseCursorVisibility>()
+          ?.visible ??
+      true;
+
+  @override
+  bool updateShouldNotify(PdfMouseCursorVisibility oldWidget) =>
+      visible != oldWidget.visible;
+}
+
 /// A mouse region that hides the native cursor and paints [kind] over its
 /// child. It also follows pointer moves while a button is held, which
 /// [MouseRegion.onHover] alone does not receive.
@@ -127,7 +149,7 @@ class PdfMouseCursorRegion extends SingleChildRenderObjectWidget {
   @override
   RenderPdfMouseCursorRegion createRenderObject(BuildContext context) =>
       RenderPdfMouseCursorRegion(
-        kind: kind,
+        kind: PdfMouseCursorVisibility.of(context) ? kind : null,
         scale: scale,
         onCursorEnter: onEnter,
         onCursorHover: onHover,
@@ -138,7 +160,7 @@ class PdfMouseCursorRegion extends SingleChildRenderObjectWidget {
   void updateRenderObject(
           BuildContext context, RenderPdfMouseCursorRegion renderObject) =>
       renderObject
-        ..kind = kind
+        ..kind = PdfMouseCursorVisibility.of(context) ? kind : null
         ..scale = scale
         ..onCursorEnter = onEnter
         ..onCursorHover = onHover

@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
+import 'editing_table.dart';
 import 'editing_color_processing.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
@@ -316,7 +317,40 @@ Future<void> showPdfAnnotationMenu({
             .setAnnotationLocked(unlockTarget.$1, unlockTarget.$2, false),
       ),
   ];
+  final selectedTable = controller.selectedAnnotation?.table;
   final clipboard = <PdfAnnotationMenuItem>[
+    if (hasSelection &&
+        selectedTable != null &&
+        controller.selectedAnnotationSlots.length == 1)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-edit-table'),
+          label: pdfL10n(context).tableEdit,
+          icon: Icons.table_chart_outlined,
+          enabled:
+              controller.isAnnotationEditable(controller.selectedAnnotation!) &&
+                  !controller.selectedAnnotation!.isLockedContents,
+          onSelected: (request) => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: request.slots.single.$1,
+              annotationSlot: request.slots.single.$2)),
+    if (hasSelection &&
+        selectedTable != null &&
+        controller.selectedAnnotationSlots.length == 1)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-copy-table-cells'),
+          label: '${pdfL10n(context).copy} (Excel)',
+          icon: Icons.copy,
+          onSelected: (_) =>
+              controller.copyTableCellsText(selectedTable.toTsv())),
+    if (onEmptyPage)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-insert-table'),
+          label: pdfL10n(context).table,
+          icon: Icons.table_chart_outlined,
+          onSelected: (_) => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: pageIndex,
+              position: pagePoint)),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-copy'),

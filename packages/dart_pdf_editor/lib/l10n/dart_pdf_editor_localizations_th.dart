@@ -2465,4 +2465,60 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
+
+  @override
+  String get table => 'ตาราง';
+
+  @override
+  String get tableEdit => 'แก้ไขตาราง';
+
+  @override
+  String get tableRows => 'แถว';
+
+  @override
+  String get tableColumns => 'คอลัมน์';
+
+  @override
+  String get tableStyle => 'รูปแบบตาราง';
+
+  @override
+  String get tableStyleHint => 'ใช้กับทั้งตาราง';
+
+  @override
+  String get tableBackgroundColor => 'สีพื้นหลัง';
+
+  @override
+  String get tableHeaderColor => 'สีหัวตาราง';
+
+  @override
+  String get tableTextColor => 'สีตัวอักษร';
+
+  @override
+  String get tableGridLines => 'เส้นตาราง';
+
+  @override
+  String get tableGridColor => 'สีเส้นตาราง';
+
+  @override
+  String get tableGridWidth => 'ความหนาเส้นตาราง';
+
+  @override
+  String get tableHeaderRow => 'แถวส่วนหัว';
+
+  @override
+  String get tableColumnWidth => 'ความกว้างคอลัมน์';
+
+  @override
+  String get tableRowHeight => 'ความสูงแถว';
+
+  @override
+  String get tableSelectionHint =>
+      'คลิกเซลล์เพื่อแก้ไข กด Shift พร้อมคลิกเพื่อเลือกช่วง คัดลอกและวางเพื่อแลกเปลี่ยนค่าเซลล์กับ Excel';
+
+  @override
+  String get tableClipboardError =>
+      'ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์';
+
+  @override
+  String get duplicate => 'ทำสำเนา';
 }

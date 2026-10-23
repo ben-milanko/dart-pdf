@@ -1412,20 +1412,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
     }
   }
 
-  /// Exports a Snapshot tool capture as a PNG image - a save dialog on
-  /// desktop, a download on the web, the share sheet on phones. The vector
-  /// copy of the same region stays on the editor's clipboard, so ⌘V/Ctrl+V
-  /// (or the right-click Paste) drops it back into the PDF as vectors.
+  /// Exports a native Snapshot tool capture as a PNG image - a save dialog
+  /// on desktop, the share sheet on phones. Web captures only fill the
+  /// editor's vector clipboard; they do not automatically download a PNG.
   Future<void> _saveSnapshot(BuildContext context, PdfSnapshot snapshot) async {
     final l10n = appL10n(context);
     const name = 'snapshot.png';
     final file =
         XFile.fromData(snapshot.pngBytes, mimeType: 'image/png', name: name);
-    if (kIsWeb) {
-      await file.saveTo(name);
-      _toast(l10n.exDownloadedSnapshotCtrl(name));
-      return;
-    }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android || TargetPlatform.iOS:
         final box = context.findRenderObject() as RenderBox?;
@@ -1832,7 +1826,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 formImagePicker: _pickFormImage,
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
-                                onSnapshot: _saveSnapshot,
+                                onSnapshot: kIsWeb ? null : _saveSnapshot,
                                 onPlaceSignature: (context,
                                         {required pageIndex,
                                         required pageRect}) =>

@@ -480,19 +480,33 @@
     "description": "Annotation context-menu item that copies the selected annotation(s) to a range of pages."
   },
   "propLeader": "Leader",
-  "@propLeader": {"description": "Properties section for independently styling callout leader lines."},
+  "@propLeader": {
+    "description": "Properties section for independently styling callout leader lines."
+  },
   "propOutlineWidth": "Outline width",
-  "@propOutlineWidth": {"description": "Properties control for the callout text box outline width; zero removes it."},
+  "@propOutlineWidth": {
+    "description": "Properties control for the callout text box outline width; zero removes it."
+  },
   "menuRotateSelection": "Rotate around selection center…",
-  "@menuRotateSelection": {"description": "Annotation menu: rotate multiple annotations around their shared centre."},
+  "@menuRotateSelection": {
+    "description": "Annotation menu: rotate multiple annotations around their shared centre."
+  },
   "menuRotateEach": "Rotate each annotation…",
-  "@menuRotateEach": {"description": "Annotation menu: rotate multiple annotations around their individual centres."},
+  "@menuRotateEach": {
+    "description": "Annotation menu: rotate multiple annotations around their individual centres."
+  },
   "rotationAngleTitle": "Rotation (degrees, counterclockwise)",
-  "@rotationAngleTitle": {"description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."},
+  "@rotationAngleTitle": {
+    "description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."
+  },
   "menuGroup": "Group",
-  "@menuGroup": {"description": "Annotation context menu: make the selected annotations one persistent group."},
+  "@menuGroup": {
+    "description": "Annotation context menu: make the selected annotations one persistent group."
+  },
   "menuUngroup": "Ungroup",
-  "@menuUngroup": {"description": "Annotation context menu: dissolve selected groups while retaining their annotations."},
+  "@menuUngroup": {
+    "description": "Annotation context menu: dissolve selected groups while retaining their annotations."
+  },
   "menuBringToFront": "Bring to front",
   "@menuBringToFront": {
     "description": "Annotation context-menu item that raises the selected annotation to the top of the z-order."
@@ -3170,5 +3184,26 @@
   "pageColorNotBakedSigned": "The page color wasn't saved into the file: changing the pages would invalidate its signatures.",
   "@pageColorNotBakedSigned": {
     "description": "Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid."
+  },
+  "table": "Table",
+  "tableEdit": "Edit table",
+  "tableRows": "Rows",
+  "tableColumns": "Columns",
+  "tableStyle": "Table style",
+  "tableStyleHint": "Applies to the whole table.",
+  "tableBackgroundColor": "Background color",
+  "tableHeaderColor": "Header color",
+  "tableTextColor": "Font color",
+  "tableGridLines": "Grid lines",
+  "tableGridColor": "Grid color",
+  "tableGridWidth": "Grid width",
+  "tableHeaderRow": "Header row",
+  "tableColumnWidth": "Column width",
+  "tableRowHeight": "Row height",
+  "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
+  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.",
+  "duplicate": "Duplicate",
+  "@duplicate": {
+    "description": "Duplicate a library item or selected annotation as an independent copy."
   }
 }

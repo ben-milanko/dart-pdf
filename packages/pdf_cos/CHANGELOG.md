@@ -1,5 +1,9 @@
 # Changelog
 
+## 11.0.0
+
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Release with the 10.0.0 package suite; no public API changes in this package.

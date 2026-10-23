@@ -26,11 +26,22 @@ try { Add-Type -AssemblyName Microsoft.VisualBasic } catch { }
 
 $prefix = [System.IO.Path]::GetFullPath($InstallDir).TrimEnd('\') + '\'
 
+# Process.Path reads the main module, which fails across bitness (a 32-bit
+# PowerShell can't open a 64-bit DartPDF's modules) and reads as empty; CIM's
+# ExecutablePath doesn't care, so it backs Path up.
+function Get-ImagePath($process) {
+  if ($process.Path) { return $process.Path }
+  try {
+    (Get-CimInstance Win32_Process -Filter "ProcessId = $($process.Id)").ExecutablePath
+  } catch { $null }
+}
+
 function Get-AppProcesses {
   @(Get-Process -Name 'dart_pdf_editor_app', 'dartpdf' -ErrorAction SilentlyContinue |
     Where-Object {
-      $_.Path -and
-      $_.Path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+      $path = Get-ImagePath $_
+      $path -and
+      $path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
     })
 }
 
