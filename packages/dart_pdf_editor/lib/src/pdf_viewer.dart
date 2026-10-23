@@ -7706,17 +7706,20 @@ class _PdfViewerState extends State<PdfViewer>
     final hit = controller.formFieldAt(point.$1, point.$2, point.$3);
     return hit != null &&
         pdfFormFieldMouseCursor(hit.$1,
-                canPickButtonImage: widget.formImagePicker != null) !=
+                canPickButtonImage: widget.formImagePicker != null,
+                isSignedSignature: hit.$1.type == PdfFieldType.signature &&
+                    controller.signatureByFieldName.containsKey(hit.$1.name)) !=
             null;
   }
 
-  bool get _editingOwnsCursor {
+  bool _editingOwnsCursorAt(Offset local) {
     final editing = widget.editing;
     return editing != null &&
         (editing.tool != null ||
             editing.isPickingColor ||
             editing.hasAnnotationSelection ||
-            editing.pendingFlash != null);
+            editing.activeSavedAnnotation != null) &&
+        (_pageContainsListPoint(local) || _selectionGrabsCanvasPoint(local));
   }
 
   void _onHover(PointerHoverEvent event) {
@@ -7724,7 +7727,8 @@ class _PdfViewerState extends State<PdfViewer>
     if (_grabPanning) return; // grabbing keeps its cursor mid-drag
     final editing = widget.editing;
     final PdfMouseCursorKind? cursor;
-    if (_editingOwnsCursor || _formOwnsCursorAt(event.localPosition)) {
+    if (_editingOwnsCursorAt(event.localPosition) ||
+        _formOwnsCursorAt(event.localPosition)) {
       cursor = null;
     } else if (editing?.isHandMode == true) {
       final action = _annotationAt(event.localPosition);
@@ -10187,15 +10191,9 @@ class _PdfViewerState extends State<PdfViewer>
                 // own their local cursor rects and set this layer to null.
                 Positioned.fill(
                   child: IgnorePointer(
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: _viewerCursorRepaint,
-                      builder: (context, _, child) => CustomPaint(
-                        key: const ValueKey('pdf-viewer-mouse-cursor'),
-                        painter: PdfMouseCursorPainter(
-                          kind: _temporaryCursor ?? _hoverCursor,
-                          position: _hoverCursorPosition,
-                        ),
-                      ),
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-viewer-mouse-cursor'),
+                      painter: _ViewerMouseCursorPainter(this),
                     ),
                   ),
                 ),
@@ -10367,6 +10365,23 @@ class _PdfViewerState extends State<PdfViewer>
 /// Paints the Shift+drag rubber-band marquee (a translucent fill with a
 /// hairline border), in list space so it tracks the gesture while the
 /// border counter-scales the zoom transform.
+/// Pointer movement repaints directly, without rebuilding a widget per tick.
+/// Kind is captured per build so shouldRepaint detects ownership changes;
+/// position stays live because movement need not rebuild the viewer.
+class _ViewerMouseCursorPainter extends PdfMouseCursorPainter {
+  _ViewerMouseCursorPainter(this.state)
+      : super(
+          kind: state._temporaryCursor ?? state._hoverCursor,
+          position: null,
+          repaint: state._viewerCursorRepaint,
+        );
+
+  final _PdfViewerState state;
+
+  @override
+  Offset? get position => state._hoverCursorPosition;
+}
+
 class _MarqueePainter extends CustomPainter {
   const _MarqueePainter(this.rect, this.color, this.chromeScale);
 

@@ -38,7 +38,11 @@ enum PdfMouseCursorKind {
 PdfMouseCursorKind? pdfFormFieldMouseCursor(
   PdfFormField field, {
   required bool canPickButtonImage,
+  bool isSignedSignature = false,
 }) {
+  if (field.type == PdfFieldType.signature && isSignedSignature) {
+    return PdfMouseCursorKind.click;
+  }
   if (field.isReadOnly) return null;
   return switch (field.type) {
     PdfFieldType.text => PdfMouseCursorKind.text,
@@ -259,6 +263,7 @@ class PdfMouseCursorPainter extends CustomPainter {
     required this.kind,
     required this.position,
     this.scale = 1,
+    super.repaint,
   });
 
   final PdfMouseCursorKind? kind;

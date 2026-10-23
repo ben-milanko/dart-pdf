@@ -661,13 +661,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
   }
 
-  PdfMouseCursorKind? _cursorFor(PdfFormField field) {
-    if (field.type == PdfFieldType.signature && _isSigned(field)) {
-      return PdfMouseCursorKind.click;
-    }
-    return pdfFormFieldMouseCursor(field,
-        canPickButtonImage: widget.formImagePicker != null);
-  }
+  PdfMouseCursorKind? _cursorFor(PdfFormField field) =>
+      pdfFormFieldMouseCursor(field,
+          canPickButtonImage: widget.formImagePicker != null,
+          isSignedSignature:
+              field.type == PdfFieldType.signature && _isSigned(field));
 
   bool _interactive(PdfFormField field) {
     if (field.type == PdfFieldType.signature) return _isSigned(field);

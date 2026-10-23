@@ -5939,7 +5939,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _bumpCursor();
     }
     final PdfMouseCursorKind? cursor;
-    if (_controller.isPickingColor) {
+    final textRect = _textEditRect;
+    if (textRect != null &&
+        textRect.inflate(2).contains(_rotatePoint(
+            event.localPosition, textRect.center, -_textEditRotation))) {
+      // EditableText owns its native I-beam inside the rotated inline editor.
+      cursor = null;
+    } else if (_controller.isPickingColor) {
       _updatePickPreview(event.localPosition);
       cursor = PdfMouseCursorKind.precise;
     } else if (widget.interactiveForms &&
@@ -5949,7 +5955,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           final hit = _controller.formFieldAt(widget.pageIndex, x, y);
           return hit != null &&
               pdfFormFieldMouseCursor(hit.$1,
-                      canPickButtonImage: widget.formImagePicker != null) !=
+                      canPickButtonImage: widget.formImagePicker != null,
+                      isSignedSignature:
+                          hit.$1.type == PdfFieldType.signature &&
+                              _controller.signatureByFieldName
+                                  .containsKey(hit.$1.name)) !=
                   null;
         })()) {
       // FormInteractionLayer sits above this overlay and paints the field's
@@ -6110,7 +6120,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         cursor = PdfMouseCursorKind.precise; // a drag here adds a field
       }
     } else {
-      cursor = PdfMouseCursorKind.precise;
+      // A passive guide/ruler/afterimage layer does not own the pointer glyph.
+      cursor = _tool == null ? null : PdfMouseCursorKind.precise;
     }
     // retract the painted glyph cursors when the pointer leaves their zone:
     // the rotate glyph shows only over the knob (the lone `none` in select
