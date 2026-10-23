@@ -1086,6 +1086,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // when non-null the open editor is a callout: this is the page-space point
   // (the terminus) the committed box's leader line will point at
   (double, double)? _textEditCalloutTarget;
+  // when non-null the open editor is a cloud callout's note: the page-space
+  // region its cloud marks (the leader runs from the note to it)
+  PdfRect? _textEditCloudRegion;
   late final _RichTextEditingController _textEditText =
       _RichTextEditingController()..addListener(_onTextEditChanged);
   late final FocusNode _textEditFocus = FocusNode(onKeyEvent: _onTextEditKey)
@@ -1129,6 +1132,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // the painter spins by _resizeAngle), not page-axis view rects.
   Offset? _moveStart;
   Offset? _moveCurrent;
+  // the move grabbed a selected cloud callout by its cloud: note, leader and
+  // cloud travel together (a grab on the note moves the note alone)
+  bool _moveWholeCallout = false;
 
   /// Smart guides currently holding a move/resize on an annotation edge or
   /// centre. They exist only for the live drag and never enter the PDF.
@@ -2093,6 +2099,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _dragCurrent = null;
       _moveStart = null;
       _moveCurrent = null;
+      _moveWholeCallout = false;
       _alignmentGuides = const [];
       _moveCurrentGlobal = null;
       _elementMoveStart = null;
@@ -2438,6 +2445,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a callout exposes two handles per leader: the terminus (arrow tip,
     // index 2k) and the base where the leader meets the box (index 2k + 1),
     // so each can be dragged without disturbing the rest or the text box
+    // a cloud callout's handles are its region's corners: drag one to
+    // reshape the cloud (the leader re-seats itself)
+    if (annotation.calloutRegion case final region?) {
+      return [
+        for (final (x, y) in region.vertices) _geometry.toViewOffset(x, y),
+      ];
+    }
     if (annotation.calloutLeaders case final leaders?) {
       return [
         for (final line in leaders) ...[
@@ -3812,6 +3826,95 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _openTextEditor(viewRect, existing: false);
   }
 
+  /// Opens the note editor for a cloud callout whose cloud marks [region]
+  /// (view space): the note goes up and to the left of the cloud, as a
+  /// reviewer writes it ([_cloudCalloutNoteRect]), and the commit builds the
+  /// cloud, note and leader as one callout.
+  void _openCloudCalloutEditor(Rect region) {
+    _textEditCloudRegion = _geometry.toPageRect(region);
+    _openTextEditor(_cloudCalloutNoteRect(region), existing: false);
+  }
+
+  /// The cloud a tap (rather than a drag) lays down, centred on [center].
+  Rect _defaultCloudRegion(Offset center) => Rect.fromCenter(
+      center: center,
+      width: 120 * _geometry.scale,
+      height: 72 * _geometry.scale);
+
+  /// Where a new cloud callout's note goes: a default-sized box up and to the
+  /// left of the cloud [region] (view space), else the first other corner
+  /// with room on the page.
+  Rect _cloudCalloutNoteRect(Rect region) {
+    final size = _defaultPlacementRect(Offset.zero).size;
+    final gap = 24 * _geometry.scale;
+    final page = Offset.zero & _geometry.viewSize;
+    final corners = [
+      Offset(region.left - gap - size.width, region.top - gap - size.height),
+      Offset(region.right + gap, region.top - gap - size.height),
+      Offset(region.left - gap - size.width, region.bottom + gap),
+      Offset(region.right + gap, region.bottom + gap),
+    ];
+    for (final corner in corners) {
+      final note = corner & size;
+      if (page.contains(note.topLeft) && page.contains(note.bottomRight)) {
+        return note;
+      }
+    }
+    return _defaultPlacementRect(corners.first);
+  }
+
+  /// The plain leader a cloud callout previews between its [note] and
+  /// [region] polygon (view space): tip on the region's nearest edge, base
+  /// on the note's edge facing it - close to where the commit seats them.
+  static (Offset, Offset) _cloudLeader(List<Offset> region, Rect note) {
+    final c = note.center;
+    var tip = region.first;
+    var best = double.infinity;
+    for (var i = 0; i < region.length; i++) {
+      final a = region[i];
+      final b = region[(i + 1) % region.length];
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      final t = len2 == 0
+          ? 0.0
+          : (((c - a).dx * ab.dx + (c - a).dy * ab.dy) / len2)
+              .clamp(0.0, 1.0)
+              .toDouble();
+      final p = a + ab * t;
+      final d = (p - c).distanceSquared;
+      if (d < best) {
+        best = d;
+        tip = p;
+      }
+    }
+    return (tip, _nearestBoxEdge(note, tip));
+  }
+
+  static List<Offset> _rectCorners(Rect r) =>
+      [r.bottomLeft, r.bottomRight, r.topRight, r.topLeft];
+
+  /// Whether [position] grabs the selected cloud callout by its cloud (inside
+  /// the region's bounds, off the note) - such a drag moves the whole callout.
+  bool _grabsSelectedCloud(Offset position) {
+    final annotation = _controller.selectedAnnotation;
+    final region = annotation?.calloutRegion;
+    if (region == null || _controller.selectedAnnotationSlots.length != 1) {
+      return false;
+    }
+    final box = annotation!.calloutBox;
+    if (box != null && _geometry.toViewRect(box).contains(position)) {
+      return false;
+    }
+    final points = [
+      for (final (x, y) in region.vertices) _geometry.toViewOffset(x, y),
+    ];
+    var bounds = Rect.fromPoints(points.first, points.first);
+    for (final p in points.skip(1)) {
+      bounds = bounds.expandToInclude(Rect.fromPoints(p, p));
+    }
+    return bounds.inflate(8).contains(position);
+  }
+
   /// The nearest point on [box]'s perimeter to [p] (view space, y-down) -
   /// where the leader meets the box before the base is pinned.
   static Offset _nearestBoxEdge(Rect box, Offset p) {
@@ -3872,8 +3975,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// leaders stretch to the moving box), and while the box editor is open
   /// placing a new one. Null otherwise.
   List<(Offset, Offset, Color, double)>? _calloutLeaderPreview() {
+    // a cloud callout previews its own plain leader (_calloutBoxPreview)
+    if (_tool == PdfEditTool.cloudCallout && _textEditRect == null) {
+      return null;
+    }
+    if (_controller.selectedAnnotation?.calloutRegion != null &&
+        (_vertexHandle != null || _moveWholeCallout)) {
+      return null;
+    }
     // placing: the leader runs from the press (the terminus) to the pointer
-    if (_calloutTool &&
+    if (_tool == PdfEditTool.callout &&
         _textEditRect == null &&
         _dragStart != null &&
         _dragCurrent != null) {
@@ -3928,44 +4039,108 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _afterCalloutLeaders;
   }
 
-  /// The text box a callout being placed will drop: outlined at the box the
-  /// drag will commit (the release point, the same [_defaultPlacementRect]),
-  /// and for [PdfEditTool.cloudCallout] the cloud around it - kept around the
-  /// open editor while the text is typed. Null for any other tool or state.
+  /// What [_EditingPreviewPainter.calloutBox] draws: while an arrow
+  /// callout's placement drag runs, the outline of the box the release will
+  /// drop ([_defaultPlacementRect]); for a cloud callout, its cloud (as the
+  /// drag lays it out, then around the area while the note is typed), the
+  /// note's box and the plain leader joining them; and for a selected cloud
+  /// callout, its cloud as a vertex drag reshapes it or a grab on the cloud
+  /// moves it. Null for any other tool or state.
   ({
-    Rect box,
-    Color color,
-    Color? fill,
-    double width,
+    List<Offset>? region,
     bool cloud,
-    bool outline,
+    bool dashed,
+    double scale,
+    Rect? note,
+    (Offset, Offset)? leader,
+    Color color,
+    double width,
   })? _calloutBoxPreview() {
+    final scale = _controller.preferences.lineScale;
+    final width = _controller.preferences.strokeWidth * _geometry.scale;
+    // reshaping or moving a placed cloud callout
+    final selected = _controller.selectedAnnotation;
+    final placed = selected?.calloutRegion;
+    if (placed != null) {
+      final stroke = _selectedCalloutStroke();
+      List<Offset>? region;
+      var delta = Offset.zero;
+      if (_vertexHandle != null && _vertexPoints != null) {
+        region = _vertexPoints;
+      } else if (_moveWholeCallout &&
+          _moveStart != null &&
+          _moveCurrent != null) {
+        delta = _moveCurrent! - _moveStart!;
+        region = [
+          for (final (x, y) in placed.vertices)
+            _geometry.toViewOffset(x, y) + delta,
+        ];
+      }
+      if (region != null && stroke != null && region.length >= 3) {
+        final box = selected!.calloutBox;
+        final note =
+            box == null ? null : _geometry.toViewRect(box).shift(delta);
+        return (
+          region: region,
+          cloud: placed.shape == PdfCalloutRegionShape.cloud,
+          dashed: placed.dash != null,
+          scale: placed.cloudScale,
+          note: null,
+          leader: note == null ? null : _cloudLeader(region, note),
+          color: stroke.$1,
+          width: stroke.$2,
+        );
+      }
+    }
     if (!_calloutTool) return null;
-    final cloud = _tool == PdfEditTool.cloudCallout;
-    final Rect box;
-    final bool outline;
+    if (_tool == PdfEditTool.callout) {
+      // the editor is the text box once it opens; before that, outline the
+      // box the release will drop (a too-short drag has nothing aimed yet)
+      if (_textEditRect != null ||
+          _dragStart == null ||
+          _dragCurrent == null ||
+          (_dragCurrent! - _dragStart!).distance < 8) {
+        return null;
+      }
+      return (
+        region: null,
+        cloud: false,
+        dashed: false,
+        scale: scale,
+        note: _defaultPlacementRect(_dragCurrent!),
+        leader: null,
+        color: _newCalloutStrokeColor(),
+        width: width,
+      );
+    }
+    final Rect region;
+    final Rect note;
+    final bool typing;
     if (_textEditRect != null) {
-      // the editor is the text box; only a cloud has more to draw
-      if (_textEditCalloutTarget == null || !cloud) return null;
-      box = _textEditRect!;
-      outline = false;
-    } else if (_dragStart != null && _dragCurrent != null) {
-      // a too-short drag drops a default-offset box on release; nothing to
-      // aim yet, so only the leader shows until the pointer moves
-      if ((_dragCurrent! - _dragStart!).distance < 8) return null;
-      box = _defaultPlacementRect(_dragCurrent!);
-      outline = true;
+      final page = _textEditCloudRegion;
+      if (page == null) return null;
+      region = _geometry.toViewRect(page);
+      note = _textEditRect!;
+      typing = true;
+    } else if (_dragStart != null &&
+        _dragCurrent != null &&
+        (_dragCurrent! - _dragStart!).distance >= 8) {
+      region = Rect.fromPoints(_dragStart!, _dragCurrent!);
+      note = _cloudCalloutNoteRect(region);
+      typing = false;
     } else {
       return null;
     }
-    final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
+    final corners = _rectCorners(region);
     return (
-      box: box,
+      region: corners,
+      cloud: true,
+      dashed: false,
+      scale: scale,
+      note: typing ? null : note,
+      leader: _cloudLeader(corners, note),
       color: _newCalloutStrokeColor(),
-      fill: _controller.preferences.textFillColor?.withValues(alpha: opacity),
-      width: _controller.preferences.strokeWidth * _geometry.scale,
-      cloud: cloud,
-      outline: outline,
+      width: width,
     );
   }
 
@@ -4000,6 +4175,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final opacity = _textEditOpacity;
     final rotation = _textEditRotation;
     final calloutTarget = _textEditCalloutTarget;
+    final cloudRegion = _textEditCloudRegion;
     _closeTextEditor();
     final before = _controller.revisionId;
     if (existing) {
@@ -4027,12 +4203,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.setSelectedText(text);
       }
     } else if (text.isNotEmpty) {
-      if (calloutTarget != null) {
+      if (cloudRegion != null) {
+        _controller.addCloudCallout(
+            widget.pageIndex, cloudRegion, _geometry.toPageRect(rect), text);
+      } else if (calloutTarget != null) {
         _controller.addCallout(
-            widget.pageIndex, _geometry.toPageRect(rect), text, calloutTarget,
-            boxShape: _tool == PdfEditTool.cloudCallout
-                ? PdfCalloutBoxShape.cloud
-                : PdfCalloutBoxShape.rectangle);
+            widget.pageIndex, _geometry.toPageRect(rect), text, calloutTarget);
       } else if (richRuns != null) {
         _controller.addFreeTextRich(
             widget.pageIndex, _geometry.toPageRect(rect), richRuns);
@@ -4127,6 +4303,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // does not - that new focus must be left alone
     final ownedFocus = _textEditFocus.hasFocus;
     _textEditCalloutTarget = null;
+    _textEditCloudRegion = null;
     if (mounted) {
       setState(() {
         _textEditRect = null;
@@ -4467,6 +4644,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() {
         _moveStart = position;
         _moveCurrent = position;
+        _moveWholeCallout = _grabsSelectedCloud(position);
         _cursor = SystemMouseCursors.move; // 4-arrow while dragging
       });
       return;
@@ -4479,6 +4657,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       setState(() {
         _moveStart = position;
         _moveCurrent = position;
+        _moveWholeCallout = _grabsSelectedCloud(position);
         _cursor = SystemMouseCursors.move;
       });
       return;
@@ -4790,6 +4969,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         ? Rect.fromPoints(_marqueeStart!, _marqueeCurrent!)
         : null;
     final marqueeAdd = _marqueeAdd;
+    final wholeCallout = _moveWholeCallout;
     final panned = _viewportPanning;
     final signaturePlace = _signatureDrag ? _signaturePreview : null;
     // a free-text resize lifts the original box out of the page so the drag
@@ -4814,6 +4994,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _dragCurrent = null;
       _moveStart = null;
       _moveCurrent = null;
+      _moveWholeCallout = false;
       _alignmentGuides = const [];
       _moveCurrentGlobal = null;
       _elementMoveStart = null;
@@ -5038,7 +5219,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final leaders = _calloutLeaderPreview();
       // Wash the old spot so the stale raster does not leave a second copy
       // behind while the committed revision re-renders.
-      _commitWithGhost(() => _controller.moveSelected(x1 - x0, y1 - y0),
+      _commitWithGhost(
+          () => _controller.moveSelected(x1 - x0, y1 - y0,
+              wholeCallout: wholeCallout),
           to: _selectedViewRect?.shift(moveCurrent - moveStart));
       if (leaders != null && _afterRevisionId == _controller.revisionId) {
         _afterCalloutLeaders = leaders;
@@ -5050,6 +5233,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (_lineDragTool) {
         if ((dragCurrent - dragStart).distance < 4) return; // a click
         _commitLineDrag(dragStart, dragCurrent);
+        return;
+      }
+      if (_tool == PdfEditTool.cloudCallout) {
+        // the drag draws the cloud around the area to mark; the note opens
+        // beside it. A too-short drag drops a default-size cloud.
+        _openCloudCalloutEditor((dragCurrent - dragStart).distance < 8
+            ? _defaultCloudRegion(dragStart)
+            : viewRect);
         return;
       }
       if (_calloutTool) {
@@ -5196,6 +5387,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _commitVertexDrag(List<Offset> points, {int? handle}) {
     final annotation = _controller.selectedAnnotation;
+    if (annotation?.calloutRegion != null && points.length >= 3) {
+      _controller.reshapeSelectedCalloutRegion(
+          [for (final point in points) _geometry.toPagePoint(point)]);
+      return;
+    }
     if (annotation != null && annotation.isCallout && points.isNotEmpty) {
       // even handles are a leader's terminus (re-aim that arrow), odd ones
       // its base (slide where it meets the box); both leave the box and the
@@ -5893,7 +6089,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // tapping without dragging out a box opens a default-sized one
           _openTextEditor(_defaultPlacementRect(placementPosition),
               existing: false);
-        case PdfEditTool.callout || PdfEditTool.cloudCallout:
+        case PdfEditTool.cloudCallout:
+          // a tap drops a default-size cloud there and opens its note
+          _openCloudCalloutEditor(_defaultCloudRegion(placementPosition));
+        case PdfEditTool.callout:
           // a plain tap makes the tap the terminus and offsets the box; a drag
           // (handled in _panEnd) instead aims the box where the drag released
           _openCalloutEditor(
@@ -8853,17 +9052,20 @@ class _EditingPreviewPainter extends CustomPainter {
   /// or base handle is being dragged: (terminus, base, color, strokeWidth).
   final List<(Offset, Offset, Color, double)>? calloutLeaders;
 
-  /// A callout's text box while it is being placed (view space): its
-  /// outline while the placement drag runs ([outline]; once the editor opens,
-  /// the editor is the text box) and, for a cloud callout ([cloud]), the
-  /// revision cloud around it, drawn like the cloud tool's preview.
+  /// A callout being placed or reshaped (view space): the outline of the
+  /// [note] box it will drop (while the placement drag runs - once the editor
+  /// opens, the editor is the box), and for a cloud callout its [region] -
+  /// drawn like the cloud tool's preview when [cloud], a plain polygon
+  /// otherwise - joined to the note by a plain [leader] (tip first).
   final ({
-    Rect box,
-    Color color,
-    Color? fill,
-    double width,
+    List<Offset>? region,
     bool cloud,
-    bool outline,
+    bool dashed,
+    double scale,
+    Rect? note,
+    (Offset, Offset)? leader,
+    Color color,
+    double width,
   })? calloutBox;
   final List<Offset>? dragPath;
 
@@ -9551,23 +9753,30 @@ class _EditingPreviewPainter extends CustomPainter {
     for (final leader in calloutLeaders ?? const []) {
       _paintCalloutLeader(canvas, leader.$1, leader.$2, leader.$3, leader.$4);
     }
-    // after the leaders, as the committed appearance stacks them: a filled
-    // cloud covers the end of its arrow
     if (calloutBox case final placing?) {
-      final box = placing.box;
-      if (placing.cloud) {
-        _paintCloudPolygon(
-            canvas,
-            [box.topLeft, box.topRight, box.bottomRight, box.bottomLeft],
-            placing.color,
-            placing.fill,
-            placing.width,
-            dashed,
-            lineScale);
+      final stroke = Paint()
+        ..color = placing.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = placing.width
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      if (placing.leader case (final tip, final base)) {
+        canvas.drawLine(tip, base, stroke);
       }
-      if (placing.outline) {
+      final region = placing.region;
+      if (region != null && region.length >= 3) {
+        if (placing.cloud) {
+          _paintCloudPolygon(canvas, region, placing.color, null, placing.width,
+              placing.dashed, placing.scale);
+        } else {
+          final path = Path()..addPolygon(region, true);
+          canvas.drawPath(
+              placing.dashed ? _dashPath(path, placing.width) : path, stroke);
+        }
+      }
+      if (placing.note case final note?) {
         canvas.drawRect(
-            box,
+            note,
             Paint()
               ..color = placing.color.withValues(alpha: 0.7)
               ..style = PaintingStyle.stroke

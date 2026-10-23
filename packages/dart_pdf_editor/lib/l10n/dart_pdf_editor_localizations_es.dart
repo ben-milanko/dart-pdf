@@ -728,13 +728,13 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo de línea';
 
   @override
-  String get propBoxShape => 'Forma del cuadro';
+  String get propRegion => 'Área marcada';
 
   @override
-  String get propBoxShapeRectangle => 'Rectángulo';
+  String get propRegionPolygon => 'Polígono';
 
   @override
-  String get propBoxShapeCloud => 'Nube';
+  String get propRegionCloud => 'Nube';
 
   @override
   String get propLoadFont => 'Cargar fuente…';
@@ -1914,7 +1914,7 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'Llamada en nube: arrastra desde el punto hasta donde va la nube';
+      'Llamada en nube: arrastra una nube alrededor del área y escribe la nota';
 
   @override
   String get tbTipContent => 'Editar contenido de la página';

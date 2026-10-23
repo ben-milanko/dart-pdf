@@ -972,60 +972,59 @@ class _PdfAnnotationPropertiesPanelState
               _controller.restyleSelectedText(borderWidth: v);
               setState(() => _draggingOutlineWidth = null);
             }),
-      ..._calloutBoxControls(),
     ];
   }
 
-  /// The selected callouts' box outline: its shape (plain rectangle or
-  /// revision cloud), line type, and - for clouds - scallop size, applied
-  /// through [PdfEditingController.restyleSelectedCalloutBox].
-  List<Widget> _calloutBoxControls() {
-    final callouts = [
+  /// The marked region of the selected cloud callouts: its outline (the
+  /// revision cloud or the plain polygon), line type, and - for clouds -
+  /// scallop size, applied through
+  /// [PdfEditingController.restyleSelectedCalloutRegion].
+  List<Widget> _calloutRegionControls() {
+    final regions = [
       for (final a in _selectedAnnotations)
-        if (a.isCallout) a
+        if (a.calloutRegion case final region?) region
     ];
-    if (callouts.isEmpty) return const [];
+    if (regions.isEmpty) return const [];
     final l = pdfL10n(context);
-    final shapes = _common<PdfCalloutBoxShape>(
-        [for (final a in callouts) a.calloutBoxShape!]);
+    final shapes =
+        _common<PdfCalloutRegionShape>([for (final r in regions) r.shape]);
     final dashes = _common<PdfLineStyle>(
-        [for (final a in callouts) PdfLineStyle.ofDashArray(a.borderDash)]);
+        [for (final r in regions) PdfLineStyle.ofDashArray(r.dash)]);
     final clouds = [
-      for (final a in callouts)
-        if (a.hasCloudyBorder) a.cloudBorderScale
+      for (final r in regions)
+        if (r.shape == PdfCalloutRegionShape.cloud) r.cloudScale
     ];
     final scales = clouds.isEmpty ? null : _common<double>(clouds);
     return [
       Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(children: [
-            Expanded(child: Text(l.propBoxShape)),
-            PdfDropdown<PdfCalloutBoxShape>(
-                key: const ValueKey('pdf-prop-callout-box-shape'),
+            Expanded(child: Text(l.propOutline)),
+            PdfDropdown<PdfCalloutRegionShape>(
+                key: const ValueKey('pdf-prop-callout-region-shape'),
                 value: shapes.varies ? null : shapes.value,
                 hint: Text(l.propVaries),
                 isDense: true,
                 items: [
-                  for (final shape in PdfCalloutBoxShape.values)
+                  for (final shape in PdfCalloutRegionShape.values)
                     PdfDropdownItem(
                         value: shape,
                         key: ValueKey(
-                            'pdf-prop-callout-box-shape-${shape.name}'),
+                            'pdf-prop-callout-region-shape-${shape.name}'),
                         label: switch (shape) {
-                          PdfCalloutBoxShape.rectangle =>
-                            l.propBoxShapeRectangle,
-                          PdfCalloutBoxShape.cloud => l.propBoxShapeCloud,
+                          PdfCalloutRegionShape.cloud => l.propRegionCloud,
+                          PdfCalloutRegionShape.polygon => l.propRegionPolygon,
                         }),
                 ],
                 onChanged: (shape) =>
-                    _controller.restyleSelectedCalloutBox(shape: shape)),
+                    _controller.restyleSelectedCalloutRegion(shape: shape)),
           ])),
       Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(children: [
             Expanded(child: Text(l.propLineType)),
             PdfDropdown<PdfLineStyle>(
-                key: const ValueKey('pdf-prop-callout-box-dash'),
+                key: const ValueKey('pdf-prop-callout-region-dash'),
                 value: dashes.varies ? null : dashes.value,
                 hint: Text(l.propVaries),
                 isDense: true,
@@ -1035,7 +1034,7 @@ class _PdfAnnotationPropertiesPanelState
                         value: s, label: pdfLineStyleLabel(context, s))
                 ],
                 onChanged: (s) =>
-                    _controller.restyleSelectedCalloutBox(lineStyle: s)),
+                    _controller.restyleSelectedCalloutRegion(lineStyle: s)),
           ])),
       if (scales != null)
         _sliderRow(l.propScale, _draggingCloudScale ?? scales.value,
@@ -1046,7 +1045,7 @@ class _PdfAnnotationPropertiesPanelState
             display: (v) => '${v.toStringAsFixed(1)}×',
             onChanged: (v) => setState(() => _draggingCloudScale = v),
             onChangeEnd: (v) {
-              _controller.restyleSelectedCalloutBox(cloudScale: v);
+              _controller.restyleSelectedCalloutRegion(cloudScale: v);
               setState(() => _draggingCloudScale = null);
             }),
     ];
@@ -1249,12 +1248,16 @@ class _PdfAnnotationPropertiesPanelState
     final l = pdfL10n(context);
     final sections = <Widget>[
       ListTile(
-        leading: Icon(annotation.isCallout
-            ? Icons.chat_bubble_outline
-            : pdfAnnotationIcon(annotation.subtype)),
-        title: Text(annotation.isCallout
-            ? l.propCallout
-            : pdfAnnotationLabel(context, annotation.subtype)),
+        leading: Icon(annotation.calloutRegion != null
+            ? Icons.cloud_queue
+            : annotation.isCallout
+                ? Icons.chat_bubble_outline
+                : pdfAnnotationIcon(annotation.subtype)),
+        title: Text(annotation.calloutRegion != null
+            ? l.tbNameCloudCallout
+            : annotation.isCallout
+                ? l.propCallout
+                : pdfAnnotationLabel(context, annotation.subtype)),
         subtitle: Text(l.propPageNumber(slot.$1 + 1)),
       ),
     ];
@@ -1266,6 +1269,7 @@ class _PdfAnnotationPropertiesPanelState
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
     addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
+    addGroup('callout-region', l.propRegion, _calloutRegionControls());
     // a form widget's /T is its field name, not an author, and /V (not
     // /Contents) is its value - so widgets get a "Field name" group instead
     // of the generic Contents/Author group
@@ -1368,6 +1372,7 @@ class _PdfAnnotationPropertiesPanelState
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
     addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
+    addGroup('callout-region', l.propRegion, _calloutRegionControls());
     if (hasWidget) {
       // bulk form-field edits: text styling for every selected text field
       // and one width/height for every selected widget

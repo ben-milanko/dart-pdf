@@ -457,123 +457,150 @@ void main() {
     });
   });
   group('cloud callout', () {
-    const box = PdfRect(300, 600, 460, 660);
+    // a cloud around (300,500)-(420,560); the note sits up and to the left
+    const region = PdfRect(300, 500, 420, 560);
+    const box = PdfRect(120, 620, 260, 660);
 
-    PdfDocument cloud(
-            {double scale = 1, (double, double) target = (120, 630)}) =>
-        roundTrip((e) => e.addCallout(0, box, 'Revise', target,
-            boxShape: PdfCalloutBoxShape.cloud, cloudScale: scale));
+    PdfDocument cloud({
+      PdfCalloutRegionShape shape = PdfCalloutRegionShape.cloud,
+      double scale = 1,
+    }) =>
+        roundTrip((e) => e.addCallout(0, box, 'Trainstop on concrete', (0, 0),
+            region:
+                PdfCalloutRegion.rect(region, shape: shape, cloudScale: scale),
+            outlineColor: (null,),
+            ending: PdfLineEnding.none));
 
-    test('writes the standard cloudy border effect and draws scallops', () {
+    double distanceToRegion((double, double) p) {
+      final dx = p.$1 < region.left
+          ? region.left - p.$1
+          : (p.$1 > region.right ? p.$1 - region.right : 0.0);
+      final dy = p.$2 < region.bottom
+          ? region.bottom - p.$2
+          : (p.$2 > region.top ? p.$2 - region.top : 0.0);
+      return dx > dy ? dx : dy;
+    }
+
+    test('marks a region, and the leader runs from the note to it', () {
       final doc = cloud(scale: 1.5);
       final annot = doc.page(0).annotations.single;
       expect(annot.isCallout, isTrue);
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      final be = doc.cos.resolve(annot.dict['BE']) as CosDictionary;
-      expect((doc.cos.resolve(be['S']) as CosName).value, 'C');
-      expect(annot.cloudBorderScale, 1.5);
-      // the text box is unchanged; /Rect grows to hold the puffs
-      final callout = annot.calloutBox!;
-      expect(callout.left, closeTo(300, 0.01));
-      expect(callout.top, closeTo(660, 0.01));
-      expect(annot.rect.top, greaterThan(660 + 12));
+      final r = annot.calloutRegion!;
+      expect(r.shape, PdfCalloutRegionShape.cloud);
+      expect(r.cloudScale, 1.5);
+      expect(r.vertices, hasLength(4));
+      expect(annot.calloutBox!.left, closeTo(120, 0.01));
+      // the tip sits on the cloud just outside the region, near its top-left
+      final tip = annot.calloutLine!.first;
+      expect(distanceToRegion(tip), lessThan(25));
+      expect(tip.$1, lessThan(region.left + 40));
+      expect(tip.$2, greaterThan(region.top - 40));
+      // the base is on the note
+      final base = annot.calloutLine!.last;
+      expect(base.$1, inInclusiveRange(box.left - 0.01, box.right + 0.01));
+      expect(base.$2, inInclusiveRange(box.bottom - 0.01, box.top + 0.01));
+      // /Rect holds the note and the puffs around the region
+      expect(annot.rect.left, lessThanOrEqualTo(box.left));
+      expect(annot.rect.right, greaterThan(region.right + 12));
+      expect(annot.rect.bottom, lessThan(region.bottom - 12));
+      // the appearance draws the cloud (many curves), no arrow, and the text
       final content = appearanceText(doc, annot);
-      expect(' c\n'.allMatches(content).length, greaterThan(16),
-          reason: 'scalloped outline is drawn with curves');
+      expect(' c\n'.allMatches(content).length, greaterThan(16));
       expect(content, contains(' Tj'));
+      expect((doc.cos.resolve(annot.dict['LE']) as CosName).value, 'None');
     });
 
-    test('the leader stops on the cloud outline, outside the box edge', () {
-      final line = cloud().page(0).annotations.single.calloutLine!;
-      expect(line.first, (120.0, 630.0));
-      // meets the left side, out on the scallop rather than at x == 300
-      expect(line.last.$1, lessThan(300));
-      expect(line.last.$1, greaterThan(300 - 20));
-      expect(line.last.$2, closeTo(630, 0.01));
-      // the knee clears the puffs
-      expect(line, hasLength(3));
-      expect(line[1].$1, lessThan(line.last.$1));
-    });
-
-    test('a plain callout reads as a rectangle', () {
-      final doc = roundTrip((e) => e.addCallout(0, box, 'x', (120, 500)));
+    test('a plain polygon region draws straight edges', () {
+      final doc = cloud(shape: PdfCalloutRegionShape.polygon);
       final annot = doc.page(0).annotations.single;
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.rectangle);
-      expect(annot.dict['BE'], isNull);
+      expect(annot.calloutRegion!.shape, PdfCalloutRegionShape.polygon);
+      final content = appearanceText(doc, annot);
+      expect(content, contains('300 500 m'));
+      expect(content, contains('420 560 l'));
+      // the tip lands on the rectangle's edge itself
+      expect(distanceToRegion(annot.calloutLine!.first), lessThan(0.01));
     });
 
-    test('restyleCalloutBox switches cloud <-> rectangle and keeps tips', () {
+    test('an ordinary callout marks no region', () {
+      final doc = roundTrip((e) => e.addCallout(0, box, 'x', (380, 520)));
+      expect(doc.page(0).annotations.single.calloutRegion, isNull);
+    });
+
+    test('restyleCalloutRegion switches cloud <-> polygon and dashes it', () {
       final doc0 = cloud();
       final e1 = PdfEditor(doc0);
       expect(
-          e1.restyleCalloutBox(0, doc0.page(0).annotations.single,
-              shape: PdfCalloutBoxShape.rectangle),
+          e1.restyleCalloutRegion(0, doc0.page(0).annotations.single,
+              shape: PdfCalloutRegionShape.polygon, dash: ([4, 2],)),
           isTrue);
       final doc1 = PdfDocument.open(e1.save());
-      final rect = doc1.page(0).annotations.single;
-      expect(rect.calloutBoxShape, PdfCalloutBoxShape.rectangle);
-      expect(rect.dict['BE'], isNull);
-      expect(rect.calloutLine!.first, (120.0, 630.0));
-      expect(rect.calloutLine!.last.$1, 300, reason: 'back on the box edge');
-      expect(rect.calloutBox!.left, closeTo(300, 0.01));
+      final a1 = doc1.page(0).annotations.single;
+      expect(a1.calloutRegion!.shape, PdfCalloutRegionShape.polygon);
+      expect(a1.calloutRegion!.dash, [4, 2]);
+      expect(appearanceText(doc1, a1), contains('[4 2] 0 d'));
+      expect(a1.contents, 'Trainstop on concrete');
 
       final e2 = PdfEditor(doc1);
       expect(
-          e2.restyleCalloutBox(0, rect,
-              shape: PdfCalloutBoxShape.cloud, cloudScale: 2),
+          e2.restyleCalloutRegion(0, a1,
+              shape: PdfCalloutRegionShape.cloud, cloudScale: 2, dash: (null,)),
           isTrue);
-      final back = PdfDocument.open(e2.save()).page(0).annotations.single;
-      expect(back.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(back.cloudBorderScale, 2);
-      expect(back.calloutLine!.first, (120.0, 630.0));
-      expect(back.calloutLine!.last.$1, lessThan(300));
+      final a2 = PdfDocument.open(e2.save()).page(0).annotations.single;
+      expect(a2.calloutRegion!.shape, PdfCalloutRegionShape.cloud);
+      expect(a2.calloutRegion!.cloudScale, 2);
+      expect(a2.calloutRegion!.dash, isNull);
     });
 
-    test('restyleCalloutBox dashes the outline', () {
+    test('moving the note keeps the region; the leader follows', () {
       final doc0 = cloud();
       final e = PdfEditor(doc0);
-      expect(
-          e.restyleCalloutBox(0, doc0.page(0).annotations.single,
-              outlineDash: ([4, 2],)),
-          isTrue);
-      final doc = PdfDocument.open(e.save());
-      final annot = doc.page(0).annotations.single;
-      expect(annot.borderDash, [4, 2]);
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(appearanceText(doc, annot), contains('[4 2] 0 d'));
+      // put the note to the right of the cloud
+      e.reshapeCallout(0, doc0.page(0).annotations.single,
+          box: const PdfRect(480, 520, 600, 560));
+      final a = PdfDocument.open(e.save()).page(0).annotations.single;
+      expect(a.calloutRegion!.vertices.first, (300.0, 500.0));
+      final tip = a.calloutLine!.first;
+      expect(tip.$1, greaterThan(region.right - 5),
+          reason: 'the leader now meets the right side (a cusp dips ~3pt in)');
+      expect(a.calloutLine!.last.$1, closeTo(480, 0.01),
+          reason: 'and leaves the note from its left edge');
     });
 
-    test('reshaping and moving the box keeps the cloud', () {
+    test('reshapeCallout(region:) moves the region and re-aims the leader', () {
       final doc0 = cloud();
       final e = PdfEditor(doc0);
       e.reshapeCallout(0, doc0.page(0).annotations.single,
-          box: const PdfRect(320, 620, 520, 700));
-      final annot = PdfDocument.open(e.save()).page(0).annotations.single;
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(annot.calloutLine!.first, (120.0, 630.0));
-      expect(annot.calloutLine!.last.$1, lessThan(320));
+          region: [(300, 300), (420, 300), (420, 360), (300, 360)]);
+      final a = PdfDocument.open(e.save()).page(0).annotations.single;
+      expect(a.calloutRegion!.vertices, [
+        (300.0, 300.0),
+        (420.0, 300.0),
+        (420.0, 360.0),
+        (300.0, 360.0),
+      ]);
+      expect(a.calloutLine!.first.$2, lessThan(380));
+      expect(a.calloutBox!.left, closeTo(120, 0.01), reason: 'note stays');
     });
 
-    test('repeated rebuilds do not drift the leader base', () {
-      var doc = cloud(target: (120, 605));
-      final first = doc.page(0).annotations.single.calloutLine!.last;
-      for (var i = 0; i < 3; i++) {
-        final e = PdfEditor(doc);
-        e.reshapeCallout(0, doc.page(0).annotations.single, target: (120, 605));
-        doc = PdfDocument.open(e.save());
-      }
-      final last = doc.page(0).annotations.single.calloutLine!.last;
-      expect(last.$1, closeTo(first.$1, 0.01));
-      expect(last.$2, closeTo(first.$2, 0.01));
+    test('moving the whole callout carries the region', () {
+      final doc0 = cloud();
+      final e = PdfEditor(doc0);
+      e.moveAnnotation(0, doc0.page(0).annotations.single, 10, -20);
+      final a = PdfDocument.open(e.save()).page(0).annotations.single;
+      expect(a.calloutRegion!.vertices.first, (310.0, 480.0));
+      expect(a.calloutBox!.left, closeTo(130, 0.01));
     });
 
-    test('restyleCalloutBox refuses a plain free text', () {
-      final doc0 = roundTrip(
-          (e) => e.addFreeText(0, const PdfRect(72, 600, 240, 680), 'plain'));
+    test('restyling the text keeps the region', () {
+      final doc0 = cloud();
+      final e = PdfEditor(doc0);
       expect(
-          PdfEditor(doc0).restyleCalloutBox(0, doc0.page(0).annotations.single,
-              shape: PdfCalloutBoxShape.cloud),
-          isFalse);
+          e.restyleAnnotation(0, doc0.page(0).annotations.single,
+              color: 0x2060C0),
+          isTrue);
+      final a = PdfDocument.open(e.save()).page(0).annotations.single;
+      expect(a.calloutRegion, isNotNull);
+      expect(appearanceText(PdfDocument.open(e.save()), a), contains(' c\n'));
     });
   });
 }

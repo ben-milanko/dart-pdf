@@ -210,11 +210,11 @@ enum PdfEditTool {
   /// like Bluebeam's Callout tool).
   callout,
 
-  /// A [callout] whose text box is outlined by a revision cloud (Bluebeam's
-  /// Cloud+): placed exactly like [callout], scallops sized by
-  /// [PdfEditingPreferences.lineScale]. The cloud is the box's style, not its
-  /// kind - the properties panel switches a placed one back to a plain
-  /// rectangle (or a dashed outline) and back again.
+  /// Drag a revision cloud around the area to mark, then type the note
+  /// (Bluebeam's Cloud+): one callout whose leader runs from the note to the
+  /// cloud. Scallops are sized by [PdfEditingPreferences.lineScale]; the
+  /// properties panel switches the cloud to a plain polygon (and dashes it)
+  /// and back. Drag the note to move it alone, the cloud to move both.
   cloudCallout,
 
   /// Tap to place a sticky note (/Text).
@@ -3825,16 +3825,12 @@ class PdfEditingController extends ChangeNotifier {
   /// Places a callout: a [text] box at [rect] with a leader line pointing at
   /// [target] on the page (both in page space). Mirrors [addFreeText] for the
   /// box styling and points the arrow with the tool's stroke color/width.
-  /// [boxShape] outlines the box with a revision cloud (the
-  /// [PdfEditTool.cloudCallout] tool) whose scallops follow
-  /// [PdfEditingPreferences.lineScale].
   void addCallout(
     int pageIndex,
     PdfRect rect,
     String text,
-    (double, double) target, {
-    PdfCalloutBoxShape boxShape = PdfCalloutBoxShape.rectangle,
-  }) =>
+    (double, double) target,
+  ) =>
       apply(
         (e) => e.addCallout(
           pageIndex,
@@ -3851,8 +3847,43 @@ class PdfEditingController extends ChangeNotifier {
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
-          boxShape: boxShape,
-          cloudScale: preferences.lineScale,
+          opacity: preferences.opacity,
+          pageRotation: _page(pageIndex).rotation,
+          author: preferences.author,
+        ),
+      );
+
+  /// Places a cloud callout ([PdfEditTool.cloudCallout]): a revision cloud
+  /// around [region] and the [text] note at [rect], joined by a plain leader
+  /// from the note to the cloud (all page space). The note is borderless
+  /// text in the tool's colour, over [PdfEditingPreferences.textFillColor];
+  /// the cloud and leader share the stroke ([PdfEditingPreferences.
+  /// textBorderColor], else the text colour) and the scallops follow
+  /// [PdfEditingPreferences.lineScale].
+  void addCloudCallout(
+    int pageIndex,
+    PdfRect region,
+    PdfRect rect,
+    String text,
+  ) =>
+      apply(
+        (e) => e.addCallout(
+          pageIndex,
+          rect,
+          text,
+          (region.left, region.top),
+          region:
+              PdfCalloutRegion.rect(region, cloudScale: preferences.lineScale),
+          fontSize: preferences.fontSize,
+          font: activeFont ?? preferences.fontFamily,
+          align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
+          color: _colorValue,
+          fillColor: _rgbOf(preferences.textFillColor),
+          strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          outlineColor: (null,),
+          ending: PdfLineEnding.none,
           opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
@@ -7529,6 +7560,7 @@ class PdfEditingController extends ChangeNotifier {
   double? get selectedLineScale {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
+    if (annotation.calloutRegion case final region?) return region.cloudScale;
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
   }
 
@@ -7566,11 +7598,10 @@ class PdfEditingController extends ChangeNotifier {
       case 'Ink':
         return PdfEditTool.ink;
       case 'FreeText':
-        return switch (annotation.calloutBoxShape) {
-          PdfCalloutBoxShape.cloud => PdfEditTool.cloudCallout,
-          PdfCalloutBoxShape.rectangle => PdfEditTool.callout,
-          null => PdfEditTool.freeText,
-        };
+        if (!annotation.isCallout) return PdfEditTool.freeText;
+        return annotation.calloutRegion != null
+            ? PdfEditTool.cloudCallout
+            : PdfEditTool.callout;
       case 'Text':
         return PdfEditTool.note;
       case 'Stamp':
@@ -7616,6 +7647,8 @@ class PdfEditingController extends ChangeNotifier {
       // shapes bake their pattern scale into the dash array; only a cloud
       // exposes a readable scallop scale to seed
       if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      if (annotation.calloutRegion case final region?)
+        'lineScale': region.cloudScale,
       'shapeFillColor': argb(style.fillColor),
       if (endings != null) 'lineStartEnding': endings.$1.name,
       if (endings != null) 'lineEndEnding': endings.$2.name,
@@ -7853,14 +7886,19 @@ class PdfEditingController extends ChangeNotifier {
   /// Translates every selected annotation by ([dx], [dy]) in page space,
   /// as one revision. The selection survives: annotations keep their
   /// /Annots slots across a move.
-  void moveSelected(double dx, double dy) {
+  ///
+  /// A callout moves only its text box (see [_moveAnnotationIn]) unless
+  /// [wholeCallout] - a cloud callout dragged by its cloud moves note, leader
+  /// and cloud together.
+  void moveSelected(double dx, double dy, {bool wholeCallout = false}) {
     final targets = <(int, PdfAnnotation, bool)>[
       for (final slot in _selected)
         if (_annotationAt(slot) case final annotation?)
           (
             slot.$1,
             annotation,
-            _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
+            wholeCallout ||
+                _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
           ),
     ];
     if (targets.isEmpty) return;
@@ -8335,13 +8373,12 @@ class PdfEditingController extends ChangeNotifier {
     });
   }
 
-  /// Restyles the text-box outline of every selected callout: [shape] turns
-  /// it into a revision cloud or back into a plain rectangle, [lineStyle]
-  /// dashes the outline, and [cloudScale] resizes a cloud's scallops (a
-  /// rectangle ignores it). Leaders keep their tips; one revision, one undo.
-  /// Returns whether anything changed.
-  bool restyleSelectedCalloutBox({
-    PdfCalloutBoxShape? shape,
+  /// Restyles the marked region of every selected cloud callout: [shape]
+  /// switches between the revision cloud and the plain polygon, [lineStyle]
+  /// dashes its outline, and [cloudScale] resizes the cloud's scallops. One
+  /// revision, one undo. Returns whether anything changed.
+  bool restyleSelectedCalloutRegion({
+    PdfCalloutRegionShape? shape,
     PdfLineStyle? lineStyle,
     double? cloudScale,
   }) {
@@ -8349,21 +8386,32 @@ class PdfEditingController extends ChangeNotifier {
     final targets = [
       for (final slot in _selected)
         if (_annotationAt(slot) case final a?
-            when a.isCallout && isAnnotationEditable(a))
+            when a.calloutRegion != null && isAnnotationEditable(a))
           (slot.$1, a),
     ];
     if (targets.isEmpty) return false;
     return apply((e) {
       for (final (page, a) in targets) {
-        final width = a.freeTextStyle?.borderWidth ?? 1;
-        e.restyleCalloutBox(page, a,
+        final width = a.calloutLeaderStyle?.width ?? 1;
+        e.restyleCalloutRegion(page, a,
             shape: shape,
             cloudScale: cloudScale,
-            outlineDash: lineStyle == null
+            dash: lineStyle == null
                 ? null
                 : (lineStyle.dashArray(width, scale: 1),));
       }
     });
+  }
+
+  /// Gives the selected cloud callout's region new corners (page space) - a
+  /// dragged vertex handle. The note stays and the leader follows. A no-op
+  /// unless one cloud callout is selected.
+  void reshapeSelectedCalloutRegion(List<(double, double)> vertices) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.calloutRegion == null) return;
+    apply(
+      (e) => e.reshapeCallout(_selected.last.$1, annotation, region: vertices),
+    );
   }
 
   /// Whether [addSelectedCalloutLeader] can act: one editable callout is
@@ -9852,6 +9900,9 @@ class PdfEditingController extends ChangeNotifier {
         dict[kPdfCalloutLeadersKey] =
             CosArray([for (final line in lines.skip(1)) local(line)]);
       }
+      if (annotation.calloutRegion case final region?) {
+        dict[kPdfCalloutRegionKey] = local(region.vertices);
+      }
     }
     return (
       annotation: PdfAnnotation.fromDict(_document, dict),
@@ -9865,8 +9916,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfLineEnding ending,
     PdfCalloutLeaderStyle style,
     List<double>? outlineDash,
-    PdfCalloutBoxShape boxShape,
-    double cloudScale
+    PdfCalloutRegion? region
   })? _calloutShapeOf(PdfAnnotation annotation) {
     final box = annotation.calloutBox;
     final lines = annotation.calloutLeaders;
@@ -9879,8 +9929,7 @@ class PdfEditingController extends ChangeNotifier {
       ],
       style: annotation.calloutLeaderStyle!,
       outlineDash: annotation.borderDash,
-      boxShape: annotation.calloutBoxShape!,
-      cloudScale: annotation.cloudBorderScale,
+      region: annotation.calloutRegion,
       ending: le is CosName
           ? PdfLineEnding.fromName(le.value)
           : PdfLineEnding.openArrow,
@@ -9900,8 +9949,7 @@ class PdfEditingController extends ChangeNotifier {
       PdfLineEnding ending,
       PdfCalloutLeaderStyle style,
       List<double>? outlineDash,
-      PdfCalloutBoxShape boxShape,
-      double cloudScale
+      PdfCalloutRegion? region
     }) shape,
     String text, {
     required double fontSize,
@@ -9940,8 +9988,7 @@ class PdfEditingController extends ChangeNotifier {
       outlineColor: (borderColor,),
       outlineWidth: borderWidth,
       outlineDash: shape.outlineDash,
-      boxShape: shape.boxShape,
-      cloudScale: shape.cloudScale,
+      region: shape.region,
       opacity: opacity,
       ending: shape.ending,
       lineSpacing: lineSpacing,

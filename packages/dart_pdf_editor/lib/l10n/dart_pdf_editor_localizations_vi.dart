@@ -726,13 +726,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get propLineType => 'Kiểu đường';
 
   @override
-  String get propBoxShape => 'Hình dạng hộp';
+  String get propRegion => 'Vùng được đánh dấu';
 
   @override
-  String get propBoxShapeRectangle => 'Hình chữ nhật';
+  String get propRegionPolygon => 'Đa giác';
 
   @override
-  String get propBoxShapeCloud => 'Đám mây';
+  String get propRegionCloud => 'Đám mây';
 
   @override
   String get propLoadFont => 'Tải phông chữ…';
@@ -1908,7 +1908,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'Chú dẫn đám mây - kéo từ điểm đến nơi đặt đám mây';
+      'Chú dẫn đám mây - kéo đám mây quanh vùng, rồi nhập ghi chú';
 
   @override
   String get tbTipContent => 'Chỉnh sửa nội dung trang';

@@ -724,13 +724,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get propLineType => 'रेखा प्रकार';
 
   @override
-  String get propBoxShape => 'बॉक्स का आकार';
+  String get propRegion => 'चिह्नित क्षेत्र';
 
   @override
-  String get propBoxShapeRectangle => 'आयत';
+  String get propRegionPolygon => 'बहुभुज';
 
   @override
-  String get propBoxShapeCloud => 'बादल';
+  String get propRegionCloud => 'बादल';
 
   @override
   String get propLoadFont => 'फ़ॉन्ट लोड करें…';
@@ -1910,7 +1910,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'क्लाउड कॉलआउट - बिंदु से उस जगह तक खींचें जहाँ बादल जाता है';
+      'क्लाउड कॉलआउट - क्षेत्र के चारों ओर बादल खींचें, फिर नोट लिखें';
 
   @override
   String get tbTipContent => 'पृष्ठ सामग्री संपादित करें';

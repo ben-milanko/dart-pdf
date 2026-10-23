@@ -739,13 +739,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get propLineType => 'نوع الخط';
 
   @override
-  String get propBoxShape => 'شكل المربع';
+  String get propRegion => 'المنطقة المحددة';
 
   @override
-  String get propBoxShapeRectangle => 'مستطيل';
+  String get propRegionPolygon => 'مضلّع';
 
   @override
-  String get propBoxShapeCloud => 'سحابة';
+  String get propRegionCloud => 'سحابة';
 
   @override
   String get propLoadFont => 'تحميل خط…';
@@ -1936,7 +1936,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'وسيلة شرح سحابية - اسحب من النقطة إلى موضع السحابة';
+      'وسيلة شرح سحابية - اسحب سحابة حول المنطقة، ثم اكتب الملاحظة';
 
   @override
   String get tbTipContent => 'تحرير محتوى الصفحة';

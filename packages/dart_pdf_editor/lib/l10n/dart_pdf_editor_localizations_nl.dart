@@ -726,13 +726,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get propLineType => 'Lijntype';
 
   @override
-  String get propBoxShape => 'Vakvorm';
+  String get propRegion => 'Gemarkeerd gebied';
 
   @override
-  String get propBoxShapeRectangle => 'Rechthoek';
+  String get propRegionPolygon => 'Veelhoek';
 
   @override
-  String get propBoxShapeCloud => 'Wolk';
+  String get propRegionCloud => 'Wolk';
 
   @override
   String get propLoadFont => 'Lettertype laden…';
@@ -1913,7 +1913,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'Wolkbijschrift - sleep van het punt naar waar de wolk komt';
+      'Wolkbijschrift - sleep een wolk om het gebied en typ dan de notitie';
 
   @override
   String get tbTipContent => 'Pagina-inhoud bewerken';

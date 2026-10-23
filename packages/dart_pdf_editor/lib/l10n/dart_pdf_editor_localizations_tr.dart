@@ -724,13 +724,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get propLineType => 'Çizgi türü';
 
   @override
-  String get propBoxShape => 'Kutu şekli';
+  String get propRegion => 'İşaretli alan';
 
   @override
-  String get propBoxShapeRectangle => 'Dikdörtgen';
+  String get propRegionPolygon => 'Çokgen';
 
   @override
-  String get propBoxShapeCloud => 'Bulut';
+  String get propRegionCloud => 'Bulut';
 
   @override
   String get propLoadFont => 'Yazı tipi yükle…';
@@ -1908,7 +1908,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'Bulut belirtme çizgisi - noktadan bulutun geleceği yere sürükleyin';
+      'Bulut belirtme çizgisi - alanın etrafına bir bulut sürükleyin, ardından notu yazın';
 
   @override
   String get tbTipContent => 'Sayfa içeriğini düzenle';

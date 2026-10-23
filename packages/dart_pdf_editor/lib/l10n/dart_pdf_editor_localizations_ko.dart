@@ -723,13 +723,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get propLineType => '선 유형';
 
   @override
-  String get propBoxShape => '상자 모양';
+  String get propRegion => '표시한 영역';
 
   @override
-  String get propBoxShapeRectangle => '사각형';
+  String get propRegionPolygon => '다각형';
 
   @override
-  String get propBoxShapeCloud => '구름';
+  String get propRegionCloud => '구름';
 
   @override
   String get propLoadFont => '글꼴 불러오기…';
@@ -1894,7 +1894,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbTipCallout => '콜아웃 - 지점에서 상자가 놓일 위치로 드래그하세요';
 
   @override
-  String get tbTipCloudCallout => '구름 콜아웃 - 지점에서 구름이 놓일 위치로 드래그하세요';
+  String get tbTipCloudCallout => '구름 콜아웃 - 영역 둘레로 구름을 드래그한 다음 메모를 입력하세요';
 
   @override
   String get tbTipContent => '페이지 콘텐츠 편집';

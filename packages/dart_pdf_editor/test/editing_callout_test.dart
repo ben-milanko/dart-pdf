@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
@@ -190,64 +191,88 @@ void main() {
   group('cloud callout through the controller', () {
     PdfAnnotation only(PdfEditingController e) =>
         e.document.page(0).annotations.single;
+    const region = PdfRect(300, 500, 420, 560);
+    const note = PdfRect(120, 620, 260, 660);
 
-    test('addCallout with a cloud box writes a cloudy callout', () {
+    test('addCloudCallout marks the region and leads the note to it', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..preferences.lineScale = 1.5
-        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'Revise', (120, 615),
-            boxShape: PdfCalloutBoxShape.cloud);
+        ..addCloudCallout(0, region, note, 'Revise');
       final annot = only(editing);
       expect(annot.isCallout, isTrue);
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(annot.cloudBorderScale, 1.5);
-      expect(annot.calloutLine!.first, (120.0, 615.0));
-      // 615 is mid-puff on the left edge (two 30pt scallops at 1.5x)
-      expect(annot.calloutLine!.last.$1, lessThan(300),
-          reason: 'the leader meets the cloud, outside the box edge');
+      expect(annot.contents, 'Revise');
+      final r = annot.calloutRegion!;
+      expect(r.shape, PdfCalloutRegionShape.cloud);
+      expect(r.cloudScale, 1.5);
+      expect(r.vertices.first, (300.0, 500.0));
+      expect(annot.calloutBox!.left, closeTo(120, 0.01));
+      expect(annot.freeTextStyle!.borderColor, isNull,
+          reason: 'the note is plain text, no box around it');
+      // a plain leader from the note's edge to the cloud
+      final line = annot.calloutLine!;
+      expect(line.last.$2, inInclusiveRange(note.bottom - 0.01, note.top));
+      expect(line.first.$1, lessThan(region.left + 40));
     });
 
-    test('the box shape switches to a rectangle and back in one undo each', () {
+    test('the region restyles to a dashed polygon and back, one undo each', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
-            boxShape: PdfCalloutBoxShape.cloud);
+        ..addCloudCallout(0, region, note, 'x');
       expect(editing.selectAnnotation(0, 0), isTrue);
 
       expect(
-          editing.restyleSelectedCalloutBox(
-              shape: PdfCalloutBoxShape.rectangle),
+          editing.restyleSelectedCalloutRegion(
+              shape: PdfCalloutRegionShape.polygon,
+              lineStyle: PdfLineStyle.dashed),
           isTrue);
-      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.rectangle);
-      expect(only(editing).calloutLine!.first, (120.0, 500.0));
-      expect(editing.selectedAnnotation?.isCallout, isTrue);
-
-      expect(editing.restyleSelectedCalloutBox(lineStyle: PdfLineStyle.dashed),
-          isTrue);
-      expect(PdfLineStyle.ofDashArray(only(editing).borderDash),
+      expect(only(editing).calloutRegion!.shape, PdfCalloutRegionShape.polygon);
+      expect(PdfLineStyle.ofDashArray(only(editing).calloutRegion!.dash),
           PdfLineStyle.dashed);
+      expect(editing.selectedAnnotation?.calloutRegion, isNotNull);
 
       expect(
-          editing.restyleSelectedCalloutBox(
-              shape: PdfCalloutBoxShape.cloud, cloudScale: 2),
+          editing.restyleSelectedCalloutRegion(
+              shape: PdfCalloutRegionShape.cloud, cloudScale: 2),
           isTrue);
-      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(only(editing).cloudBorderScale, 2);
-      expect(PdfLineStyle.ofDashArray(only(editing).borderDash),
-          PdfLineStyle.dashed,
-          reason: 'a dashed cloud');
+      expect(only(editing).calloutRegion!.shape, PdfCalloutRegionShape.cloud);
+      expect(only(editing).calloutRegion!.cloudScale, 2);
+      expect(editing.selectedLineScale, 2);
 
       editing.undo();
-      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.rectangle);
+      expect(only(editing).calloutRegion!.shape, PdfCalloutRegionShape.polygon);
+    });
+
+    test('moving the note leaves the cloud; a whole move carries both', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCloudCallout(0, region, note, 'x');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.moveSelected(-40, 10);
+      expect(only(editing).calloutRegion!.vertices.first, (300.0, 500.0));
+      expect(only(editing).calloutBox!.left, closeTo(80, 0.01));
+
+      editing.moveSelected(10, -20, wholeCallout: true);
+      expect(only(editing).calloutRegion!.vertices.first, (310.0, 480.0));
+      expect(only(editing).calloutBox!.left, closeTo(90, 0.01));
+    });
+
+    test('reshapeSelectedCalloutRegion moves a corner; the note stays', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCloudCallout(0, region, note, 'x');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      editing.reshapeSelectedCalloutRegion(
+          [(300, 500), (420, 500), (460, 600), (300, 560)]);
+      expect(only(editing).calloutRegion!.vertices[2], (460.0, 600.0));
+      expect(only(editing).calloutBox!.left, closeTo(120, 0.01));
     });
 
     test('text edits keep the cloud', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (120, 500),
-            boxShape: PdfCalloutBoxShape.cloud);
+        ..addCloudCallout(0, region, note, 'x');
       expect(editing.selectAnnotation(0, 0), isTrue);
       editing.setSelectedText('new words');
-      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(only(editing).calloutRegion, isNotNull);
       editing.restyleSelectedText(size: 20, font: PdfStandardFont.courier);
-      expect(only(editing).calloutBoxShape, PdfCalloutBoxShape.cloud);
+      expect(only(editing).calloutRegion!.vertices.first, (300.0, 500.0));
     });
   });
 
@@ -324,22 +349,113 @@ void main() {
       await settle(tester);
     });
 
-    testWidgets('the cloud callout tool places a cloud-outlined callout',
+    dynamic previewBox(WidgetTester tester) => [
+          for (final paint
+              in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+            if (paint.painter?.runtimeType.toString() ==
+                '_EditingPreviewPainter')
+              (paint.painter! as dynamic).calloutBox,
+        ].firstWhere((b) => b != null, orElse: () => null);
+
+    testWidgets('the cloud callout tool clouds the dragged area, then the note',
         (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.cloudCallout;
       await tester.pump();
 
-      await drag(tester, view(150, 500), view(360, 660));
+      // drag the cloud around the area to mark
+      final gesture = await tester.startGesture(view(300, 560));
+      await gesture.moveTo(view(360, 530));
+      await gesture.moveTo(view(420, 500));
+      await tester.pump();
+      final dragging = previewBox(tester);
+      expect(dragging, isNotNull);
+      expect(dragging.cloud, isTrue, reason: 'the cloud previews on the drag');
+      expect(dragging.region, hasLength(4));
+      expect(dragging.note, isNotNull, reason: 'with the note it will open');
+      expect(dragging.leader, isNotNull);
+      expect((dragging.note as Rect).right, lessThan(view(300, 560).dx),
+          reason: 'the note sits up-left');
+
+      await gesture.up();
+      await tester.pump();
       expect(find.byKey(editorKey), findsOneWidget);
-      await tester.enterText(find.byKey(editorKey), 'Revise this');
-      await tap(tester, view(450, 400));
+      final typing = previewBox(tester);
+      expect(typing.cloud, isTrue, reason: 'the cloud stays while typing');
+      expect(typing.note, isNull, reason: 'the editor is the note');
+      expect(typing.leader, isNotNull);
+
+      await tester.enterText(find.byKey(editorKey), 'Trainstop on concrete');
+      await tap(tester, view(500, 400));
+      expect(previewBox(tester), isNull, reason: 'gone once committed');
 
       final annot = editing.document.page(0).annotations.single;
-      expect(annot.isCallout, isTrue);
-      expect(annot.calloutBoxShape, PdfCalloutBoxShape.cloud);
-      expect(annot.calloutLine!.first.$1, closeTo(150, 2));
+      expect(annot.contents, 'Trainstop on concrete');
+      final region = annot.calloutRegion!;
+      expect(region.shape, PdfCalloutRegionShape.cloud);
+      final xs = [for (final p in region.vertices) p.$1];
+      final ys = [for (final p in region.vertices) p.$2];
+      expect(xs.reduce(math.min), closeTo(300, 1));
+      expect(xs.reduce(math.max), closeTo(420, 1));
+      expect(ys.reduce(math.min), closeTo(500, 1));
+      expect(ys.reduce(math.max), closeTo(560, 1));
+      expect(annot.calloutBox!.right, lessThan(300));
       await settle(tester);
+    });
+
+    testWidgets('a tap drops a default cloud around the tap', (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.cloudCallout;
+      await tester.pump();
+      await tap(tester, view(360, 400));
+      expect(find.byKey(editorKey), findsOneWidget);
+      await tester.enterText(find.byKey(editorKey), 'Here');
+      await tap(tester, view(150, 700));
+      final region = editing.document.page(0).annotations.single.calloutRegion!;
+      final xs = [for (final p in region.vertices) p.$1];
+      expect((xs.reduce(math.min) + xs.reduce(math.max)) / 2, closeTo(360, 1));
+      await settle(tester);
+    });
+
+    testWidgets('dragging a selected cloud moves it all; the note moves alone',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCloudCallout(0, const PdfRect(300, 380, 420, 440),
+          const PdfRect(100, 480, 300, 600), 'x');
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+
+      // grab the cloud
+      await drag(tester, view(360, 410), view(380, 390));
+      await settle(tester);
+      var a = editing.document.page(0).annotations.single;
+      expect(a.calloutRegion!.vertices.first.$1, closeTo(320, 1));
+      expect(a.calloutBox!.left, closeTo(120, 1), reason: 'the note came too');
+
+      // grab the note
+      // the note now spans (120, 460)-(320, 580); grab its middle
+      await drag(tester, view(220, 520), view(180, 520));
+      await settle(tester);
+      a = editing.document.page(0).annotations.single;
+      expect(a.calloutBox!.left, closeTo(80, 1));
+      expect(a.calloutRegion!.vertices.first.$1, closeTo(320, 1),
+          reason: 'the cloud stayed');
+    });
+
+    testWidgets('a cloud corner handle reshapes the cloud', (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCloudCallout(0, const PdfRect(300, 400, 420, 460),
+          const PdfRect(120, 520, 260, 560), 'x');
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      // the top-right corner (420, 460)
+      await drag(tester, view(420, 460), view(460, 500));
+      await settle(tester);
+      final region = editing.document.page(0).annotations.single.calloutRegion!;
+      expect(region.vertices[2].$1, closeTo(460, 1.5));
+      expect(region.vertices[2].$2, closeTo(500, 1.5));
     });
 
     testWidgets('the placement drag previews the leader, not a box',
@@ -372,53 +488,13 @@ void main() {
           .map((p) => p.calloutBox)
           .firstWhere((b) => b != null, orElse: () => null);
       expect(box, isNotNull, reason: 'the text box it will drop is outlined');
-      expect(box.outline, isTrue);
-      expect(box.cloud, isFalse);
-      expect((box.box as Rect).topLeft, view(360, 660),
+      expect(box.region, isNull, reason: 'no cloud on a plain callout');
+      expect((box.note as Rect).topLeft, view(360, 660),
           reason: 'the box sits where the drag releases');
 
       await gesture.up();
       await tester.pump();
       await tap(tester, view(450, 400));
-      await settle(tester);
-    });
-
-    testWidgets('a cloud callout previews its cloud while dragging and typing',
-        (tester) async {
-      final editing = await pumpEditor(tester);
-      editing.tool = PdfEditTool.cloudCallout;
-      await tester.pump();
-
-      dynamic previewBox() => [
-            for (final paint
-                in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
-              if (paint.painter?.runtimeType.toString() ==
-                  '_EditingPreviewPainter')
-                (paint.painter! as dynamic).calloutBox,
-          ].firstWhere((b) => b != null, orElse: () => null);
-
-      final gesture = await tester.startGesture(view(150, 500));
-      await gesture.moveTo(view(250, 580));
-      await gesture.moveTo(view(360, 660));
-      await tester.pump();
-      final dragging = previewBox();
-      expect(dragging, isNotNull);
-      expect(dragging.cloud, isTrue, reason: 'the cloud previews on the drag');
-      expect(dragging.outline, isTrue, reason: 'with the text box inside it');
-
-      await gesture.up();
-      await tester.pump();
-      expect(find.byKey(editorKey), findsOneWidget);
-      final typing = previewBox();
-      expect(typing, isNotNull, reason: 'the cloud stays around the editor');
-      expect(typing.cloud, isTrue);
-      expect(typing.outline, isFalse, reason: 'the editor is the text box');
-
-      await tester.enterText(find.byKey(editorKey), 'Revise');
-      await tap(tester, view(450, 400));
-      expect(previewBox(), isNull, reason: 'gone once committed');
-      expect(editing.document.page(0).annotations.single.calloutBoxShape,
-          PdfCalloutBoxShape.cloud);
       await settle(tester);
     });
 

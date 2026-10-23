@@ -736,13 +736,13 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get propLineType => 'Тип линии';
 
   @override
-  String get propBoxShape => 'Форма поля';
+  String get propRegion => 'Отмеченная область';
 
   @override
-  String get propBoxShapeRectangle => 'Прямоугольник';
+  String get propRegionPolygon => 'Многоугольник';
 
   @override
-  String get propBoxShapeCloud => 'Облако';
+  String get propRegionCloud => 'Облако';
 
   @override
   String get propLoadFont => 'Загрузить шрифт…';
@@ -1937,7 +1937,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCloudCallout =>
-      'Облачная выноска — перетащите от точки к месту размещения облака';
+      'Облачная выноска — обведите область облаком, затем введите заметку';
 
   @override
   String get tbTipContent => 'Редактировать содержимое страницы';
