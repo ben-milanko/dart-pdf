@@ -1,3 +1,1 @@
-Mới trong 10.0.0
-
-Nhập giá trị đo riêng ngay cả khi chưa đặt tỷ lệ. Sửa cả từ và nhận biết liên kết dễ hơn. Thanh đọc tự ẩn trên điện thoại và tránh nếp gấp màn hình. Chọn có giữ OCR tự động sau lần đầu hay không. Sửa lỗi thoát khi quét lớn, cải thiện hiển thị chú thích và cắt ảnh.
+Tạo bảng có thể chỉnh sửa và sao chép ô từ và sang bảng tính. Tiếp tục nhận dạng văn bản bị gián đoạn. Thay màu trong ảnh chụp và chú thích. Căn văn bản theo chiều dọc và nhân đôi dấu đã lưu. Cải thiện xuống dòng, ghi nhớ phông chữ và ảnh chụp đã xoay.

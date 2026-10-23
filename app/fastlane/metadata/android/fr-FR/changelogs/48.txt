@@ -1,0 +1,1 @@
+Créez des tableaux modifiables et copiez des cellules depuis et vers un tableur. Reprenez la reconnaissance de texte interrompue. Remplacez les couleurs des captures et annotations. Alignez le texte verticalement et dupliquez les tampons enregistrés. Amélioration du retour à la ligne, des polices mémorisées et des captures pivotées.

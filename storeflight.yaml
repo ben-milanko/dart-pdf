@@ -128,6 +128,9 @@ profiles:
         # Deliberate copy updates use the separate `storeflight metadata` command.
         release_listing_policy: preserve
         protect_product_page_tests: true
+        # Verify live controls, treatment assets and allocation before review.
+        # Never stop/reset experiments or replace them with repository assets.
+        product_page_test_policy: preserve_active_experiments
         bundle_id_ios: dev.milanko.dartpdf
         bundle_id_macos: dev.milanko.dartpdf
         platforms: [ios, macos]

@@ -1,3 +1,1 @@
-Nieuw in 10.0.0
-
-Voer eigen meetwaarden in, ook zonder schaal. Bewerk hele woorden en herken links beter. Leesbalken verdwijnen op telefoons en vermijden schermvouwen. Kies na de eerste OCR of automatische herkenning aanblijft. Een crash bij grote scans is opgelost; annotaties en afbeeldingen bijsnijden zijn verbeterd.
+Maak bewerkbare tabellen en kopieer cellen van en naar spreadsheets. Hervat onderbroken tekstherkenning. Vervang kleuren in momentopnamen en annotaties. Lijn tekst verticaal uit en dupliceer opgeslagen stempels. Verbeteringen in tekstomloop, onthouden lettertypen en gedraaide momentopnamen.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 11.0.0
+
+- **BREAKING:** add 22 abstract localization getters for tables, vertical text alignment and stamp duplication. See doc/MIGRATING-11.0.0.md.
+- Add editable tables with spreadsheet clipboard transfer, vertical text alignment and colour replacement in snapshots and annotations.
+- Duplicate library stamps and choose stamps to import or export.
+- Pan temporarily with Space-drag or the middle mouse button.
+- Preserve embedded font defaults, wrap long words and CJK text, and correct rotated text sizing and snapshot orientation.
+- Fix off-page handles, text resize previews and Escape cancellation of digital signature placement.
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - **BREAKING:** add `PdfEditTool.measureCustom` and four abstract localization getters. Update exhaustive tool switches and custom localization implementations; see `doc/MIGRATING-10.0.0.md`.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 11.0.0
+
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Regenerate the bundled web render worker for the 10.0.0 suite.
