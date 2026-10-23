@@ -9,6 +9,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -152,6 +153,10 @@ Uint8List buildDisjointHighlightPdf({bool rotated = false}) {
   }
   return editor.save();
 }
+
+PdfMouseCursorPainter viewerMouseCursor(WidgetTester tester) => tester
+    .widget<CustomPaint>(find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+    .painter! as PdfMouseCursorPainter;
 
 void main() {
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
@@ -495,7 +500,8 @@ void main() {
     await tester.pump();
     await hover.moveTo(view(101, 711));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.grab));
     await hover.removePointer();
     await tester.pump();
   });
@@ -566,7 +572,8 @@ void main() {
     await tester.pump();
     await hover.moveTo(view(101, 720));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.grab));
     await hover.removePointer();
     await tester.pump();
 
@@ -639,15 +646,18 @@ void main() {
     await tester.pump();
     await gesture.moveTo(const Offset(301, 400));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.grab));
 
     await gesture.down(const Offset(301, 400));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grabbing);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.grabbing));
 
     await gesture.up();
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.grab));
     await gesture.removePointer();
     await tester.pump(const Duration(milliseconds: 400));
   });
@@ -718,6 +728,10 @@ void main() {
         .descendant(
             of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
         .first);
+    PdfMouseCursorPainter cursor() => tester
+        .widget<CustomPaint>(
+            find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+        .painter! as PdfMouseCursorPainter;
 
     final gesture =
         await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 7);
@@ -728,26 +742,24 @@ void main() {
     await gesture.moveTo(view(301, 500));
     await tester.pump();
     // empty page area: a drag grab-pans, so the cursor advertises it
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(region().cursor, SystemMouseCursors.none);
+    expect(cursor().kind, PdfMouseCursorKind.grab);
 
     await gesture.moveTo(view(100, 720)); // over 'Page 1'
     await tester.pump();
-    // An ordinary (small) page still extracts synchronously on hover, so the
-    // I-beam appears immediately. Only heavy pages defer (see
-    // hover_text_warm_test).
-    expect(region().cursor, SystemMouseCursors.text);
+    expect(cursor().kind, PdfMouseCursorKind.text);
 
     await gesture.moveTo(view(300, 500));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(cursor().kind, PdfMouseCursorKind.grab);
 
     // leaving the viewer entirely must also reset the cursor
     await gesture.moveTo(view(100, 720));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.text);
+    expect(cursor().kind, PdfMouseCursorKind.text);
     await gesture.moveTo(const Offset(400, 900)); // outside the window
     await tester.pump();
-    expect(region().cursor, MouseCursor.defer);
+    expect(cursor().kind, isNull);
   });
 
   testWidgets('double-click with a mouse selects the word under it',
@@ -1433,8 +1445,13 @@ void main() {
     await tester.pump();
     await gesture.moveTo(annotView(171, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab,
-        reason: 'the invisible gap inside a markup /Rect is not clickable');
+    expect((
+      region().cursor,
+      viewerMouseCursor(tester).kind
+    ), (
+      SystemMouseCursors.none,
+      PdfMouseCursorKind.grab
+    ), reason: 'the invisible gap inside a markup /Rect is not clickable');
 
     await tester.tapAt(annotView(170, 690));
     await tester.pump(const Duration(milliseconds: 400));
@@ -1442,7 +1459,8 @@ void main() {
 
     await gesture.moveTo(annotView(110, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.click);
+    expect((region().cursor, viewerMouseCursor(tester).kind),
+        (SystemMouseCursors.none, PdfMouseCursorKind.click));
 
     await tester.tapAt(annotView(110, 690));
     await tester.pump(const Duration(milliseconds: 400));
@@ -1612,6 +1630,10 @@ void main() {
         .descendant(
             of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
         .first);
+    PdfMouseCursorPainter cursor() => tester
+        .widget<CustomPaint>(
+            find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+        .painter! as PdfMouseCursorPainter;
 
     final gesture =
         await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 9);
@@ -1622,20 +1644,21 @@ void main() {
     // onHover fires on moves, not on the pointer appearing
     await gesture.moveTo(annotView(451, 690));
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(region().cursor, SystemMouseCursors.none);
+    expect(cursor().kind, PdfMouseCursorKind.grab);
 
     await gesture.moveTo(annotView(136, 652)); // over the URI link
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.click);
+    expect(cursor().kind, PdfMouseCursorKind.click);
 
     await gesture.moveTo(annotView(100, 725)); // over 'Page 1' text
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.text);
+    expect(cursor().kind, PdfMouseCursorKind.text);
 
     await gesture.moveTo(annotView(350, 612)); // hidden link: grab like
     // any other empty area
     await tester.pump();
-    expect(region().cursor, SystemMouseCursors.grab);
+    expect(cursor().kind, PdfMouseCursorKind.grab);
   });
 
   testWidgets('jumpToPage scrolls to the requested page', (tester) async {

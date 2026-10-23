@@ -5,12 +5,123 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/temporary_pan.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('leaving with Space held invalidates the temporary cursor paint',
+      (tester) async {
+    final viewer = PdfViewerController();
+    await tester.pumpWidget(MaterialApp(
+        home: PdfViewer(
+            document: PdfDocument.open(buildMultiPagePdf(2)),
+            controller: viewer)));
+    await tester.pumpAndSettle();
+    viewer.requestKeyboardFocus();
+    await tester.pump();
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(5, 5));
+    await mouse.moveTo(const Offset(400, 300));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    PdfMouseCursorPainter cursor() => tester
+        .widget<CustomPaint>(
+            find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+        .painter! as PdfMouseCursorPainter;
+    final painter = cursor();
+    expect(painter.kind, PdfMouseCursorKind.grab);
+    expect(painter.position, isNotNull);
+    var repaints = 0;
+    void onRepaint() => repaints++;
+    painter.addListener(onRepaint);
+    await mouse.moveTo(const Offset(900, 900));
+    expect(repaints, greaterThan(0),
+        reason: 'clearing a live position must invalidate the old artwork');
+    painter.removeListener(onRepaint);
+    await tester.pump();
+    expect(cursor().kind, PdfMouseCursorKind.grab);
+    expect(cursor().position, isNull);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+    await mouse.removePointer();
+    await tester.pumpWidget(const SizedBox());
+    viewer.dispose();
+  });
+  for (final form in [false, true]) {
+    testWidgets('temporary hand replaces the local cursor (form=$form)',
+        (tester) async {
+      final editing = PdfEditingController(
+          form ? buildAcroFormPdf() : buildMultiPagePdf(3));
+      if (!form) editing.tool = PdfEditTool.rectangle;
+      final viewer = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+          home: PdfViewer(
+              editing: editing,
+              controller: viewer,
+              initialFit: PdfViewerFit.width)));
+      await tester.pumpAndSettle();
+      viewer.requestKeyboardFocus();
+      await tester.pump();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(5, 5));
+      final position = form ? const Offset(243, 105) : const Offset(400, 300);
+      await mouse.moveTo(position);
+      await tester.pump();
+      PdfMouseCursorPainter cursor() => tester
+          .widget<CustomPaint>(
+              find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+          .painter! as PdfMouseCursorPainter;
+      void expectLocalCursorVisible(bool visible) {
+        if (form) {
+          final regions = tester.renderObjectList<RenderPdfMouseCursorRegion>(
+              find.descendant(
+                  of: find.byType(PdfMouseCursorVisibility),
+                  matching: find.byType(PdfMouseCursorRegion)));
+          expect(regions.where((region) => region.kind != null).isNotEmpty,
+              visible);
+        } else {
+          final dynamic painter = tester
+              .widgetList<CustomPaint>(find.byType(CustomPaint))
+              .map((paint) => paint.painter)
+              .firstWhere((painter) =>
+                  painter.runtimeType.toString() == '_HoverCursorPainter');
+          expect(painter.visible, visible);
+        }
+      }
+
+      expect(cursor().kind, isNull);
+      expectLocalCursorVisible(true);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(cursor().kind, PdfMouseCursorKind.grab);
+      expect(cursor().position, position);
+      expectLocalCursorVisible(false);
+      final document = editing.document;
+      await mouse.down(position);
+      await mouse.moveBy(const Offset(0, -30));
+      await tester.pump();
+      expect(cursor().kind, PdfMouseCursorKind.grabbing);
+      expect(cursor().position, position + const Offset(0, -30));
+      expectLocalCursorVisible(false);
+      expect(editing.document, same(document));
+      await mouse.up();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      await mouse.moveTo(form
+          ? tester
+              .getCenter(find.byKey(const ValueKey('pdf-form-field-0-name-0')))
+          : position);
+      await tester.pumpAndSettle();
+      expect(cursor().kind, isNull);
+      expectLocalCursorVisible(true);
+      await mouse.removePointer();
+      await tester.pumpWidget(const SizedBox());
+      editing.dispose();
+      viewer.dispose();
+    });
+  }
   for (final panning in [false, true]) {
     testWidgets('cached hit targets and transformed events (pan=$panning)',
         (tester) async {

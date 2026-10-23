@@ -16,11 +16,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The overlay's own MouseRegion cursor - what the system shows on hover.
-MouseCursor regionCursor(WidgetTester tester) {
+PdfMouseCursorKind? regionCursor(WidgetTester tester) {
   final paint = find
       .descendant(
           of: find.byType(EditingPageOverlay),
@@ -28,7 +29,15 @@ MouseCursor regionCursor(WidgetTester tester) {
       .first;
   final region =
       find.ancestor(of: paint, matching: find.byType(MouseRegion)).first;
-  return tester.widget<MouseRegion>(region).cursor;
+  expect(tester.widget<MouseRegion>(region).cursor, SystemMouseCursors.none);
+  final painter = tester
+      .widgetList<CustomPaint>(find.descendant(
+          of: find.byType(EditingPageOverlay),
+          matching: find.byType(CustomPaint)))
+      .map((paint) => paint.painter)
+      .singleWhere(
+          (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
+  return (painter as dynamic).mouseCursor as PdfMouseCursorKind?;
 }
 
 void main() {
@@ -100,7 +109,7 @@ void main() {
     await selectedTextBox(tester);
     // the middle of the box's right edge on screen: page (125, 700)
     await hoverAt(tester, view(125, 700));
-    expect(regionCursor(tester), SystemMouseCursors.resizeLeftRight);
+    expect(regionCursor(tester), PdfMouseCursorKind.resizeLeftRight);
   });
 
   testWidgets('dragging the right-middle handle widens the box on screen',
@@ -170,6 +179,6 @@ void main() {
     // points up on screen, so the local right-middle handle sits on the
     // top edge - and its cursor reads up-down, the direction it moves
     await hoverAt(tester, view0(225, 575));
-    expect(regionCursor(tester), SystemMouseCursors.resizeUpDown);
+    expect(regionCursor(tester), PdfMouseCursorKind.resizeUpDown);
   });
 }

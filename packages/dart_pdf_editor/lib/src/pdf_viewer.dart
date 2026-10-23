@@ -34,13 +34,13 @@ import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'editing/xfa_notice.dart';
 import 'exact_extent_list.dart';
+import 'mouse_cursor.dart';
 import 'budgeted_cache.dart';
 import 'l10n/pdf_l10n.dart';
 import 'page_geometry.dart';
 import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
-import 'platform_cursors.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -2520,7 +2520,9 @@ class _PdfViewerState extends State<PdfViewer>
   // text selection: (pageIndex, offset into that page's text)
   (int, int)? _selAnchor;
   (int, int)? _selFocus;
-  MouseCursor _hoverCursor = MouseCursor.defer;
+  PdfMouseCursorKind? _hoverCursor;
+  Offset? _hoverCursorPosition;
+  final _viewerCursorRepaint = ValueNotifier(0);
 
   /// Ctrl/Cmd held: wheel events bypass the list's scrolling and zoom the
   /// InteractiveViewer instead (the standard ctrl+wheel zoom).
@@ -2559,6 +2561,10 @@ class _PdfViewerState extends State<PdfViewer>
   /// The widget inside the zoom transform whose render box maps handle
   /// drags' global positions back into list coordinates.
   final GlobalKey _listSpaceKey = GlobalKey();
+
+  /// The untransformed viewer stack: page hover events arrive in list space,
+  /// but the custom cursor paints here so it stays screen-sized at any zoom.
+  final GlobalKey _viewerSpaceKey = GlobalKey();
 
   /// A mouse drag that started on empty page area (no text under the
   /// press) grab-pans the document instead of selecting text.
@@ -2852,6 +2858,11 @@ class _PdfViewerState extends State<PdfViewer>
   int? _temporaryPanPointer;
   bool _temporaryPanStopped = false;
 
+  PdfMouseCursorKind? get _temporaryCursor =>
+      _temporaryPanPointer != null && !_temporaryPanStopped
+          ? PdfMouseCursorKind.grabbing
+          : (_spacePan ? PdfMouseCursorKind.grab : null);
+
   KeyEventResult _onViewerKey(FocusNode node, KeyEvent event) {
     if (event.logicalKey != LogicalKeyboardKey.space ||
         !_focusNode.hasPrimaryFocus ||
@@ -2886,6 +2897,7 @@ class _PdfViewerState extends State<PdfViewer>
     setState(() {
       _temporaryPanPointer = event.pointer;
       _temporaryPanStopped = false;
+      _hoverCursorPosition = _viewerCursorAt(event.position);
     });
     _panFlinger.stop();
     _touchFlinger.stop();
@@ -2900,6 +2912,7 @@ class _PdfViewerState extends State<PdfViewer>
       _stopTemporaryPan();
       return;
     }
+    _onCursorPointerMove(event);
     // Outside the zoom transform; the existing pan takes list-space pixels.
     _grabPanBy(event.delta / _transformScale.value);
   }
@@ -5398,6 +5411,7 @@ class _PdfViewerState extends State<PdfViewer>
     _panFlinger.dispose();
     _touchFlinger.dispose();
     _hBounceController.dispose();
+    _viewerCursorRepaint.dispose();
     _focusNode.dispose();
     _onScreenSpan.dispose();
     super.dispose();
@@ -7676,17 +7690,53 @@ class _PdfViewerState extends State<PdfViewer>
         editing.selectableAnnotationAt(point.$1, point.$2, point.$3) != null;
   }
 
+  Offset? _viewerCursorAt(Offset globalPosition) {
+    final box =
+        _viewerSpaceKey.currentContext?.findRenderObject() as RenderBox?;
+    return box?.globalToLocal(globalPosition);
+  }
+
+  /// The field-local form layer paints its own custom cursor above the page.
+  /// The viewer's general link/text/grab cursor must stand down on that rect.
+  bool _formOwnsCursorAt(Offset local) {
+    if (!widget.interactiveForms || !widget.showAnnotations) return false;
+    final controller = widget.editing ?? widget.formController;
+    final point = _pagePointAt(local);
+    if (controller == null || point == null) return false;
+    final hit = controller.formFieldAt(point.$1, point.$2, point.$3);
+    return hit != null &&
+        pdfFormFieldMouseCursor(hit.$1,
+                canPickButtonImage: widget.formImagePicker != null,
+                isSignedSignature: hit.$1.type == PdfFieldType.signature &&
+                    controller.signatureByFieldName.containsKey(hit.$1.name)) !=
+            null;
+  }
+
+  bool _editingOwnsCursorAt(Offset local) {
+    final editing = widget.editing;
+    return editing != null &&
+        (editing.tool != null ||
+            editing.isPickingColor ||
+            editing.hasAnnotationSelection ||
+            editing.activeSavedAnnotation != null) &&
+        (_pageContainsListPoint(local) || _selectionGrabsCanvasPoint(local));
+  }
+
   void _onHover(PointerHoverEvent event) {
     _lastPointerLocal = event.localPosition;
     if (_grabPanning) return; // grabbing keeps its cursor mid-drag
     final editing = widget.editing;
-    final MouseCursor cursor;
-    if (editing?.isHandMode == true) {
+    final PdfMouseCursorKind? cursor;
+    if (_editingOwnsCursorAt(event.localPosition) ||
+        _formOwnsCursorAt(event.localPosition)) {
+      cursor = null;
+    } else if (editing?.isHandMode == true) {
       final action = _annotationAt(event.localPosition);
       final notified = widget.onAnnotationTap != null &&
           _annotationHitAt(event.localPosition, actionsOnly: false) != null;
-      cursor =
-          action != null || notified ? SystemMouseCursors.click : grabCursor;
+      cursor = action != null || notified
+          ? PdfMouseCursorKind.click
+          : PdfMouseCursorKind.grab;
     } else if (editing != null &&
         !editing.isPickingColor &&
         (_selectToolMarqueeModifier ||
@@ -7695,7 +7745,7 @@ class _PdfViewerState extends State<PdfViewer>
                 HardwareKeyboard.instance.isShiftPressed))) {
       // Shift held in default editing mode, or ⌘/Ctrl with the select
       // tool: a drag rubber-bands a marquee
-      cursor = SystemMouseCursors.precise;
+      cursor = PdfMouseCursorKind.precise;
     } else if (_pagePointAt(event.localPosition) case final at?) {
       // One page resolution per event, shared by every probe below. Each of
       // these used to call _pagePointAt itself - a linear page scan plus a
@@ -7707,18 +7757,23 @@ class _PdfViewerState extends State<PdfViewer>
                       actionsOnly: false, at: at) !=
                   null) ||
           _selectableAnnotationAt(event.localPosition, at: at)) {
-        cursor = SystemMouseCursors.click;
+        cursor = PdfMouseCursorKind.click;
       } else if (_hoverTextCursorAt(event.localPosition, at: at)) {
-        cursor = SystemMouseCursors.text;
+        cursor = PdfMouseCursorKind.text;
       } else {
-        cursor = grabCursor;
+        cursor = PdfMouseCursorKind.grab;
       }
     } else {
       // Off any page. Every probe above resolves through _pagePointAt, so
       // none of them could have matched: a mouse drag here grab-pans.
-      cursor = grabCursor;
+      cursor = PdfMouseCursorKind.grab;
     }
-    if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
+    final nextPosition = _viewerCursorAt(event.position);
+    if (_hoverCursor != cursor) setState(() => _hoverCursor = cursor);
+    if (_hoverCursorPosition != nextPosition) {
+      _hoverCursorPosition = nextPosition;
+      _viewerCursorRepaint.value++;
+    }
   }
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
@@ -8041,6 +8096,11 @@ class _PdfViewerState extends State<PdfViewer>
     _suppressTap = false;
     _lastPointerKind = event.kind;
     _lastPointerLocal = event.localPosition;
+    if ((event.kind == PointerDeviceKind.mouse ||
+            event.kind == PointerDeviceKind.trackpad) &&
+        _hoverCursor != null) {
+      _hoverCursorPosition = _viewerCursorAt(event.position);
+    }
     // Direct manipulation supersedes any programmatic jump whose target has
     // not painted yet. Do not leave render priority pinned to an abandoned
     // destination while the user scrolls elsewhere.
@@ -8080,8 +8140,21 @@ class _PdfViewerState extends State<PdfViewer>
     // slop - the cursor answers the click the way a native hand tool does
     if (event.buttons == kPrimaryMouseButton &&
         widget.editing?.isHandMode == true &&
-        _hoverCursor == grabCursor) {
-      setState(() => _hoverCursor = grabbingCursor);
+        _hoverCursor == PdfMouseCursorKind.grab) {
+      setState(() => _hoverCursor = PdfMouseCursorKind.grabbing);
+    }
+  }
+
+  void _onCursorPointerMove(PointerMoveEvent event) {
+    if ((event.kind != PointerDeviceKind.mouse &&
+            event.kind != PointerDeviceKind.trackpad) ||
+        (_hoverCursor == null && _temporaryCursor == null)) {
+      return;
+    }
+    final position = _viewerCursorAt(event.position);
+    if (position != null && position != _hoverCursorPosition) {
+      _hoverCursorPosition = position;
+      _viewerCursorRepaint.value++;
     }
   }
 
@@ -8093,8 +8166,8 @@ class _PdfViewerState extends State<PdfViewer>
   /// clicks, starving buttons in page overlays.
   void _onPointerUp(PointerUpEvent event) {
     // a press that never became a grab-pan opens the hand again
-    if (!_grabPanning && _hoverCursor == grabbingCursor) {
-      setState(() => _hoverCursor = grabCursor);
+    if (!_grabPanning && _hoverCursor == PdfMouseCursorKind.grabbing) {
+      setState(() => _hoverCursor = PdfMouseCursorKind.grab);
     }
     // Hand mode keeps this: a double-click still selects a word, even
     // though a plain drag grabs the document
@@ -8213,7 +8286,7 @@ class _PdfViewerState extends State<PdfViewer>
       // double-click-drag) selects words.
       _grabPanning = true;
       _beginMotionRenderHold();
-      setState(() => _hoverCursor = grabbingCursor);
+      setState(() => _hoverCursor = PdfMouseCursorKind.grabbing);
       _controller._setSelection('');
       return;
     }
@@ -8258,7 +8331,7 @@ class _PdfViewerState extends State<PdfViewer>
       // instead (mouse drags don't reach the list's scrollable)
       _grabPanning = true;
       _beginMotionRenderHold();
-      setState(() => _hoverCursor = grabbingCursor);
+      setState(() => _hoverCursor = PdfMouseCursorKind.grabbing);
       _controller._setSelection('');
       return;
     }
@@ -8369,7 +8442,7 @@ class _PdfViewerState extends State<PdfViewer>
     }
     _grabPanning = false;
     _scheduleMotionRenderHoldRelease();
-    setState(() => _hoverCursor = grabCursor);
+    setState(() => _hoverCursor = PdfMouseCursorKind.grab);
   }
 
   /// Word granularity: spans from the anchor word through the word
@@ -9855,238 +9928,256 @@ class _PdfViewerState extends State<PdfViewer>
               // the canvas color behind the page: visible as margins when
               // zoomed out past fit-width
               color: canvasColor,
-              child: Stack(children: [
+              child: Stack(key: _viewerSpaceKey, children: [
                 PdfTemporaryPanRegion(
                   wantsPan: _wantsTemporaryPan,
-                  cursor: _temporaryPanPointer != null && !_temporaryPanStopped
-                      ? grabbingCursor
-                      : (_spacePan ? grabCursor : MouseCursor.defer),
+                  cursor: _temporaryCursor != null
+                      ? SystemMouseCursors.none
+                      : MouseCursor.defer,
                   onDown: _temporaryPanDown,
                   onMove: _temporaryPanMove,
                   onEnd: _temporaryPanEnd,
-                  child: InteractiveViewer(
-                    transformationController: _transform,
-                    maxScale: _effectiveMaxZoom,
-                    // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
-                    // disables InteractiveViewer's own (modifier-blind) version
-                    scaleFactor: double.maxFinite,
-                    // a draw tool armed: stand IV's scale handling down so a
-                    // stray trackpad pinch (a PointerScaleEvent on the web,
-                    // which scaleFactor does NOT neutralize) can't zoom the
-                    // page out from under a stroke. Touch pinch still zooms
-                    // through _EagerPinchRecognizer, not IV.
-                    scaleEnabled: !_drawToolArmed,
-                    minScale: widget.minZoom,
-                    // scaling below "cover" needs a free boundary; our own
-                    // clamping replaces InteractiveViewer's (live for wheel and
-                    // trackpad, on gesture end for touch)
-                    boundaryMargin: const EdgeInsets.all(double.infinity),
-                    // Every direct pan path is owned below: mouse grab-pan,
-                    // bounded zoomed touch-pan, editing-overlay touch-pan, and
-                    // trackpad pan. Letting InteractiveViewer also pan was more
-                    // than redundant: a touch beginning on canvas beside a
-                    // narrow page could start its unbounded inertial pan and
-                    // push the matrix past our vertical clamp, desynchronizing
-                    // lazy page layout from the visible zoom window.
-                    panEnabled: false,
-                    // touch pinches that InteractiveViewer still wins run on
-                    // the transform mid-gesture; settle them the same way as
-                    // the eager pinch recognizer's
-                    onInteractionStart: (details) => pdfLogGesture(
-                        'InteractiveViewer interaction START',
-                        () => 'pointers=${details.pointerCount}'),
-                    onInteractionEnd: (_) {
-                      pdfLogGesture('InteractiveViewer interaction END');
-                      _settleZoomGesture();
-                      _springBackCross();
-                    },
-                    // all trackpad pan-zoom gestures are handled here, never by
-                    // the list's drag recognizer (whose iOS-style velocity
-                    // tracker asserts on macOS trackpad timestamps) nor by
-                    // InteractiveViewer (which would pan only within the zoom
-                    // window). Innermost recognizers win the arena, and this one
-                    // accepts eagerly.
-                    child: RawGestureDetector(
-                      gestures: <Type, GestureRecognizerFactory>{
-                        _TrackpadPanRecognizer:
-                            GestureRecognizerFactoryWithHandlers<
-                                _TrackpadPanRecognizer>(
-                          () => _TrackpadPanRecognizer(debugOwner: this),
-                          (recognizer) => recognizer
-                            ..gestureSettings = gestureSettings
-                            ..onStart = _onTrackpadPanZoomStart
-                            ..onUpdate = _onTrackpadPanZoomUpdate
-                            ..onEnd = _onTrackpadPanZoomEnd,
-                        ),
-                        // touch pinch zoom: passive for single touches,
-                        // claims the gesture when a second finger lands
-                        _EagerPinchRecognizer:
-                            GestureRecognizerFactoryWithHandlers<
-                                _EagerPinchRecognizer>(
-                          () => _EagerPinchRecognizer(debugOwner: this),
-                          (recognizer) => recognizer
-                            ..gestureSettings = gestureSettings
-                            ..onStart = _onPinchStart
-                            ..onUpdate = _onPinchUpdate
-                            ..onEnd = _onPinchEnd,
-                        ),
-                        // At zoom, the ListView's drag reaches only its
-                        // untransformed extent. This pan spills edge motion into
-                        // the transform so every page edge remains reachable.
-                        _ZoomedTouchPanRecognizer:
-                            GestureRecognizerFactoryWithHandlers<
-                                _ZoomedTouchPanRecognizer>(
-                          () => _ZoomedTouchPanRecognizer(debugOwner: this),
-                          (recognizer) => recognizer
-                            // must match InteractiveViewer's scale recognizer or
-                            // IV wins this drag and drops it (see above)
-                            ..gestureSettings = gestureSettings
-                            ..isEnabled = _touchPanEnabledAt
-                            ..onStart = _onZoomedTouchPanStart
-                            ..onUpdate = _onZoomedTouchPanUpdate
-                            ..onEnd = _onZoomedTouchPanEnd
-                            ..onCancel = _onZoomedTouchPanCancel,
-                        ),
+                  child: PdfMouseCursorVisibility(
+                    visible: _temporaryCursor == null,
+                    child: InteractiveViewer(
+                      transformationController: _transform,
+                      maxScale: _effectiveMaxZoom,
+                      // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
+                      // disables InteractiveViewer's own (modifier-blind) version
+                      scaleFactor: double.maxFinite,
+                      // a draw tool armed: stand IV's scale handling down so a
+                      // stray trackpad pinch (a PointerScaleEvent on the web,
+                      // which scaleFactor does NOT neutralize) can't zoom the
+                      // page out from under a stroke. Touch pinch still zooms
+                      // through _EagerPinchRecognizer, not IV.
+                      scaleEnabled: !_drawToolArmed,
+                      minScale: widget.minZoom,
+                      // scaling below "cover" needs a free boundary; our own
+                      // clamping replaces InteractiveViewer's (live for wheel and
+                      // trackpad, on gesture end for touch)
+                      boundaryMargin: const EdgeInsets.all(double.infinity),
+                      // Every direct pan path is owned below: mouse grab-pan,
+                      // bounded zoomed touch-pan, editing-overlay touch-pan, and
+                      // trackpad pan. Letting InteractiveViewer also pan was more
+                      // than redundant: a touch beginning on canvas beside a
+                      // narrow page could start its unbounded inertial pan and
+                      // push the matrix past our vertical clamp, desynchronizing
+                      // lazy page layout from the visible zoom window.
+                      panEnabled: false,
+                      // touch pinches that InteractiveViewer still wins run on
+                      // the transform mid-gesture; settle them the same way as
+                      // the eager pinch recognizer's
+                      onInteractionStart: (details) => pdfLogGesture(
+                          'InteractiveViewer interaction START',
+                          () => 'pointers=${details.pointerCount}'),
+                      onInteractionEnd: (_) {
+                        pdfLogGesture('InteractiveViewer interaction END');
+                        _settleZoomGesture();
+                        _springBackCross();
                       },
-                      // plain wheel events the list can't use (at its extents)
-                      // must not fall through to InteractiveViewer's wheel-zoom
-                      child: Listener(
-                        onPointerSignal: _onPointerSignal,
-                        // selection drags: scroll wheels and touch scrolling go to
-                        // the list (its drag recognizers win the arena for touch);
-                        // mouse drags fall through to this detector
-                        child: MouseRegion(
-                          cursor: _hoverCursor,
-                          onHover: _onHover,
-                          onExit: (_) {
-                            if (_hoverCursor != MouseCursor.defer) {
-                              setState(() => _hoverCursor = MouseCursor.defer);
-                            }
-                          },
-                          child: Listener(
-                            onPointerDown: _onPointerDown,
-                            onPointerMove: _trackTouchVelocity,
-                            onPointerUp: _onPointerUp,
-                            child: GestureDetector(
-                              onTapUp: _onTapUp,
-                              onSecondaryTapUp: _onSecondaryTapUp,
-                              child: RawGestureDetector(
-                                gestures: <Type, GestureRecognizerFactory>{
-                                  // drag selection is mouse-only: touch and
-                                  // stylus drags always scroll (a pan
-                                  // recognizer that accepted touch claimed
-                                  // any swipe with a horizontal component
-                                  // before the list's vertical drag could,
-                                  // and the swipe selected text instead of
-                                  // scrolling)
-                                  PanGestureRecognizer:
-                                      GestureRecognizerFactoryWithHandlers<
-                                          PanGestureRecognizer>(
-                                    () => PanGestureRecognizer(
-                                      debugOwner: this,
-                                      supportedDevices: const {
-                                        PointerDeviceKind.mouse,
-                                        PointerDeviceKind.trackpad,
-                                      },
-                                    ),
-                                    (recognizer) => recognizer
-                                      ..gestureSettings = gestureSettings
-                                      ..onStart = _onSelectionStart
-                                      ..onUpdate = _onSelectionUpdate
-                                      ..onEnd = _onSelectionEnd
-                                      ..onCancel = () => _onSelectionEnd(
-                                          DragEndDetails(),
-                                          cancelled: true),
-                                  ),
-                                  // touch text selection starts with a long
-                                  // press instead; stands aside while a
-                                  // drawing tool owns touch gestures
-                                  _SelectionLongPressRecognizer:
-                                      GestureRecognizerFactoryWithHandlers<
-                                          _SelectionLongPressRecognizer>(
-                                    () => _SelectionLongPressRecognizer(
-                                        debugOwner: this),
-                                    (recognizer) => recognizer
-                                      ..gestureSettings = gestureSettings
-                                      ..isEnabled = _selectionLongPressEnabledAt
-                                      ..onLongPressStart = _onLongPressStart
-                                      ..onLongPressMoveUpdate = _onLongPressMove
-                                      ..onLongPressEnd =
-                                          ((_) => _onLongPressEnd())
-                                      ..onLongPressCancel = () =>
-                                          _onLongPressEnd(cancelled: true),
-                                  ),
-                                },
-                                child: ColoredBox(
-                                  key: _listSpaceKey,
-                                  color: canvasColor,
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      // with ctrl/cmd held the list stops claiming
-                                      // wheel events, so they reach the
-                                      // InteractiveViewer, which zooms around the
-                                      // pointer
-                                      IgnorePointer(
-                                        ignoring: _zoomModifierDown,
-                                        child: PdfEditingCanvasReach(
-                                          targets: () =>
-                                              _editingReachKeys.values,
-                                          overPage: _pageContainsListPoint,
-                                          child: scrollable,
-                                        ),
+                      // all trackpad pan-zoom gestures are handled here, never by
+                      // the list's drag recognizer (whose iOS-style velocity
+                      // tracker asserts on macOS trackpad timestamps) nor by
+                      // InteractiveViewer (which would pan only within the zoom
+                      // window). Innermost recognizers win the arena, and this one
+                      // accepts eagerly.
+                      child: RawGestureDetector(
+                        gestures: <Type, GestureRecognizerFactory>{
+                          _TrackpadPanRecognizer:
+                              GestureRecognizerFactoryWithHandlers<
+                                  _TrackpadPanRecognizer>(
+                            () => _TrackpadPanRecognizer(debugOwner: this),
+                            (recognizer) => recognizer
+                              ..gestureSettings = gestureSettings
+                              ..onStart = _onTrackpadPanZoomStart
+                              ..onUpdate = _onTrackpadPanZoomUpdate
+                              ..onEnd = _onTrackpadPanZoomEnd,
+                          ),
+                          // touch pinch zoom: passive for single touches,
+                          // claims the gesture when a second finger lands
+                          _EagerPinchRecognizer:
+                              GestureRecognizerFactoryWithHandlers<
+                                  _EagerPinchRecognizer>(
+                            () => _EagerPinchRecognizer(debugOwner: this),
+                            (recognizer) => recognizer
+                              ..gestureSettings = gestureSettings
+                              ..onStart = _onPinchStart
+                              ..onUpdate = _onPinchUpdate
+                              ..onEnd = _onPinchEnd,
+                          ),
+                          // At zoom, the ListView's drag reaches only its
+                          // untransformed extent. This pan spills edge motion into
+                          // the transform so every page edge remains reachable.
+                          _ZoomedTouchPanRecognizer:
+                              GestureRecognizerFactoryWithHandlers<
+                                  _ZoomedTouchPanRecognizer>(
+                            () => _ZoomedTouchPanRecognizer(debugOwner: this),
+                            (recognizer) => recognizer
+                              // must match InteractiveViewer's scale recognizer or
+                              // IV wins this drag and drops it (see above)
+                              ..gestureSettings = gestureSettings
+                              ..isEnabled = _touchPanEnabledAt
+                              ..onStart = _onZoomedTouchPanStart
+                              ..onUpdate = _onZoomedTouchPanUpdate
+                              ..onEnd = _onZoomedTouchPanEnd
+                              ..onCancel = _onZoomedTouchPanCancel,
+                          ),
+                        },
+                        // plain wheel events the list can't use (at its extents)
+                        // must not fall through to InteractiveViewer's wheel-zoom
+                        child: Listener(
+                          onPointerSignal: _onPointerSignal,
+                          // selection drags: scroll wheels and touch scrolling go to
+                          // the list (its drag recognizers win the arena for touch);
+                          // mouse drags fall through to this detector
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.none,
+                            onHover: _onHover,
+                            onExit: (_) {
+                              if (_hoverCursor != null ||
+                                  _hoverCursorPosition != null) {
+                                setState(() {
+                                  _hoverCursor = null;
+                                  _hoverCursorPosition = null;
+                                });
+                                // The live position getter cannot compare the
+                                // old position while Space keeps the kind fixed.
+                                _viewerCursorRepaint.value++;
+                              }
+                            },
+                            child: Listener(
+                              onPointerDown: _onPointerDown,
+                              onPointerMove: (event) {
+                                _onCursorPointerMove(event);
+                                _trackTouchVelocity(event);
+                              },
+                              onPointerUp: _onPointerUp,
+                              child: GestureDetector(
+                                onTapUp: _onTapUp,
+                                onSecondaryTapUp: _onSecondaryTapUp,
+                                child: RawGestureDetector(
+                                  gestures: <Type, GestureRecognizerFactory>{
+                                    // drag selection is mouse-only: touch and
+                                    // stylus drags always scroll (a pan
+                                    // recognizer that accepted touch claimed
+                                    // any swipe with a horizontal component
+                                    // before the list's vertical drag could,
+                                    // and the swipe selected text instead of
+                                    // scrolling)
+                                    PanGestureRecognizer:
+                                        GestureRecognizerFactoryWithHandlers<
+                                            PanGestureRecognizer>(
+                                      () => PanGestureRecognizer(
+                                        debugOwner: this,
+                                        supportedDevices: const {
+                                          PointerDeviceKind.mouse,
+                                          PointerDeviceKind.trackpad,
+                                        },
                                       ),
-                                      // the Shift+drag marquee, drawn in this
-                                      // (list) space so it tracks the gesture;
-                                      // its chrome counter-scales the zoom
-                                      // transform below.
-                                      if (_marqueeStart != null &&
-                                          _marqueeCurrent != null)
-                                        Positioned.fill(
-                                          child: IgnorePointer(
-                                            child:
-                                                ValueListenableBuilder<double>(
-                                              valueListenable: _transformScale,
-                                              builder: (context, zoom, _) =>
-                                                  CustomPaint(
-                                                painter: _MarqueePainter(
-                                                  Rect.fromPoints(
-                                                      _marqueeStart!,
-                                                      _marqueeCurrent!),
-                                                  marqueeColor,
-                                                  zoom.isFinite && zoom > 0
-                                                      ? 1 / zoom
-                                                      : 1.0,
+                                      (recognizer) => recognizer
+                                        ..gestureSettings = gestureSettings
+                                        ..onStart = _onSelectionStart
+                                        ..onUpdate = _onSelectionUpdate
+                                        ..onEnd = _onSelectionEnd
+                                        ..onCancel = () => _onSelectionEnd(
+                                            DragEndDetails(),
+                                            cancelled: true),
+                                    ),
+                                    // touch text selection starts with a long
+                                    // press instead; stands aside while a
+                                    // drawing tool owns touch gestures
+                                    _SelectionLongPressRecognizer:
+                                        GestureRecognizerFactoryWithHandlers<
+                                            _SelectionLongPressRecognizer>(
+                                      () => _SelectionLongPressRecognizer(
+                                          debugOwner: this),
+                                      (recognizer) => recognizer
+                                        ..gestureSettings = gestureSettings
+                                        ..isEnabled =
+                                            _selectionLongPressEnabledAt
+                                        ..onLongPressStart = _onLongPressStart
+                                        ..onLongPressMoveUpdate =
+                                            _onLongPressMove
+                                        ..onLongPressEnd =
+                                            ((_) => _onLongPressEnd())
+                                        ..onLongPressCancel = () =>
+                                            _onLongPressEnd(cancelled: true),
+                                    ),
+                                  },
+                                  child: ColoredBox(
+                                    key: _listSpaceKey,
+                                    color: canvasColor,
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        // with ctrl/cmd held the list stops claiming
+                                        // wheel events, so they reach the
+                                        // InteractiveViewer, which zooms around the
+                                        // pointer
+                                        IgnorePointer(
+                                          ignoring: _zoomModifierDown,
+                                          child: PdfEditingCanvasReach(
+                                            targets: () =>
+                                                _editingReachKeys.values,
+                                            overPage: _pageContainsListPoint,
+                                            child: scrollable,
+                                          ),
+                                        ),
+                                        // the Shift+drag marquee, drawn in this
+                                        // (list) space so it tracks the gesture;
+                                        // its chrome counter-scales the zoom
+                                        // transform below.
+                                        if (_marqueeStart != null &&
+                                            _marqueeCurrent != null)
+                                          Positioned.fill(
+                                            child: IgnorePointer(
+                                              child: ValueListenableBuilder<
+                                                  double>(
+                                                valueListenable:
+                                                    _transformScale,
+                                                builder: (context, zoom, _) =>
+                                                    CustomPaint(
+                                                  painter: _MarqueePainter(
+                                                    Rect.fromPoints(
+                                                        _marqueeStart!,
+                                                        _marqueeCurrent!),
+                                                    marqueeColor,
+                                                    zoom.isFinite && zoom > 0
+                                                        ? 1 / zoom
+                                                        : 1.0,
+                                                  ),
                                                 ),
                                               ),
                                             ),
                                           ),
+                                        // Shift+wheel must pan horizontally, not
+                                        // scroll the list. The platform (browser/
+                                        // macOS) flips a shift-scroll's delta into
+                                        // dx, and a vertical Scrollable flips its
+                                        // own axis to match and consumes it as a
+                                        // vertical scroll before _onPointerSignal
+                                        // runs. This translucent, signal-only
+                                        // Listener sits in front of the list and so
+                                        // sees the wheel first; for a shift+mouse
+                                        // wheel it claims the pointer-signal
+                                        // resolver (front of the hit path registers
+                                        // first) and routes it to _onPointerSignal,
+                                        // which pans the zoom window. Every other
+                                        // signal it leaves unclaimed so the list
+                                        // scrolls as usual, and it handles no other
+                                        // pointer events, so shift+click
+                                        // multi-select and shift-resize in the
+                                        // editing overlay still reach it.
+                                        Positioned.fill(
+                                          child: Listener(
+                                            behavior:
+                                                HitTestBehavior.translucent,
+                                            onPointerSignal:
+                                                _onShiftWheelSignal,
+                                          ),
                                         ),
-                                      // Shift+wheel must pan horizontally, not
-                                      // scroll the list. The platform (browser/
-                                      // macOS) flips a shift-scroll's delta into
-                                      // dx, and a vertical Scrollable flips its
-                                      // own axis to match and consumes it as a
-                                      // vertical scroll before _onPointerSignal
-                                      // runs. This translucent, signal-only
-                                      // Listener sits in front of the list and so
-                                      // sees the wheel first; for a shift+mouse
-                                      // wheel it claims the pointer-signal
-                                      // resolver (front of the hit path registers
-                                      // first) and routes it to _onPointerSignal,
-                                      // which pans the zoom window. Every other
-                                      // signal it leaves unclaimed so the list
-                                      // scrolls as usual, and it handles no other
-                                      // pointer events, so shift+click
-                                      // multi-select and shift-resize in the
-                                      // editing overlay still reach it.
-                                      Positioned.fill(
-                                        child: Listener(
-                                          behavior: HitTestBehavior.translucent,
-                                          onPointerSignal: _onShiftWheelSignal,
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -10094,6 +10185,18 @@ class _PdfViewerState extends State<PdfViewer>
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                ),
+                // The general viewer cursor paints outside the zoom
+                // transform, keeping one geometry and physical size on every
+                // platform and at every document zoom. Editing/form overlays
+                // own their local cursor rects and set this layer to null.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      key: const ValueKey('pdf-viewer-mouse-cursor'),
+                      painter: _ViewerMouseCursorPainter(this),
                     ),
                   ),
                 ),
@@ -10265,6 +10368,23 @@ class _PdfViewerState extends State<PdfViewer>
 /// Paints the Shift+drag rubber-band marquee (a translucent fill with a
 /// hairline border), in list space so it tracks the gesture while the
 /// border counter-scales the zoom transform.
+/// Pointer movement repaints directly, without rebuilding a widget per tick.
+/// Kind is captured per build so shouldRepaint detects ownership changes;
+/// position stays live because movement need not rebuild the viewer.
+class _ViewerMouseCursorPainter extends PdfMouseCursorPainter {
+  _ViewerMouseCursorPainter(this.state)
+      : super(
+          kind: state._temporaryCursor ?? state._hoverCursor,
+          position: null,
+          repaint: state._viewerCursorRepaint,
+        );
+
+  final _PdfViewerState state;
+
+  @override
+  Offset? get position => state._hoverCursorPosition;
+}
+
 class _MarqueePainter extends CustomPainter {
   const _MarqueePainter(this.rect, this.color, this.chromeScale);
 
@@ -11350,6 +11470,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                     formImagePicker: widget.formImagePicker,
                                     imagePicker: widget.imagePicker,
                                     onSnapshot: widget.onSnapshot,
+                                    interactiveForms: widget.interactiveForms,
                                     onPlaceSignature: widget.onPlaceSignature,
                                     pageColor: widget.pageColor,
                                     showAnnotations: widget.showAnnotations,
