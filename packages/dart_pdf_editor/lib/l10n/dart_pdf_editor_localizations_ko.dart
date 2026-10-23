@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
-  String get textVerticalAlign => '세로 맞춤';
-
-  @override
-  String get textAlignTop => '텍스트 위쪽 맞춤';
-
-  @override
-  String get textAlignMiddle => '텍스트 가운데 맞춤';
-
-  @override
-  String get textAlignBottom => '텍스트 아래쪽 맞춤';
+  String get duplicate => '복제';
 
   @override
   String get add => '추가';
@@ -2326,6 +2317,78 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get dialogDismiss => '닫기';
 
   @override
+  String get tbBarGrip => '드래그하여 도킹하거나 클릭하여 위치 선택';
+
+  @override
+  String get tbDockTop => '위';
+
+  @override
+  String get tbDockBottom => '아래';
+
+  @override
+  String get tbDockLeft => '왼쪽';
+
+  @override
+  String get tbDockRight => '오른쪽';
+
+  @override
+  String get tbDockWithMainToolbar => '기본 도구 모음과 함께';
+
+  @override
+  String get tbStyleInToolBars => '도구 막대 안에';
+
+  @override
+  String get tbSeparateStyleBar => '별도 스타일 막대';
+
+  @override
+  String get tbToolbarLayout => '도구 모음 레이아웃';
+
+  @override
+  String get tbToolbarLayoutMain => '기본 도구 모음';
+
+  @override
+  String get tbToolbarLayoutStyle => '스타일 컨트롤';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      '스타일 막대는 모든 도구와 선택에 대해 색상, 선, 불투명도, 글꼴을 한곳에 모아 둡니다.';
+
+  @override
+  String get tbToolbarLayoutToolBars => '도구 막대';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '가장자리에 도킹한 도구 막대는 그곳에 열린 채로 있습니다. 기본 도구 모음과 함께이면 그룹을 선택할 때 열립니다.';
+
+  @override
+  String get tbToolbarLayoutReset => '레이아웃 재설정';
+
+  @override
+  String get tbToolbarMode => '도구 모음';
+
+  @override
+  String get tbToolbarDocked => '가장자리에 도킹';
+
+  @override
+  String get tbToolbarFloating => '페이지 위에 떠 있음';
+
+  @override
+  String get tbFloatingToolbar => '페이지 위에 띄우기';
+
+  @override
+  String get tbPropertiesHint => '도구를 고르거나 마크업을 선택하면 속성이 표시됩니다';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      '속성 막대는 선택 항목의 작업과 도구의 옵션 및 스타일을 한곳에 보여 줍니다.';
+
+  @override
+  String get tbFloatingToolbars => '떠 있는 도구 모음';
+
+  @override
+  String get tbFloatingToolbarsHint => '도구 모음을 창 가장자리에 도킹하지 않고 페이지 위에 띄웁니다';
+
+  @override
   String get insertPagesTitle => '페이지 삽입';
 
   @override
@@ -2453,6 +2516,18 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
 
   @override
+  String get textVerticalAlign => '세로 맞춤';
+
+  @override
+  String get textAlignTop => '텍스트 위쪽 맞춤';
+
+  @override
+  String get textAlignMiddle => '텍스트 가운데 맞춤';
+
+  @override
+  String get textAlignBottom => '텍스트 아래쪽 맞춤';
+
+  @override
   String get table => '표';
 
   @override
@@ -2504,7 +2579,4 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       '클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.';
-
-  @override
-  String get duplicate => '복제';
 }

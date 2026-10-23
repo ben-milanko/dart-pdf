@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'المحاذاة الرأسية';
-
-  @override
-  String get textAlignTop => 'محاذاة النص إلى الأعلى';
-
-  @override
-  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
-
-  @override
-  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
+  String get duplicate => 'تكرار';
 
   @override
   String get add => 'إضافة';
@@ -2393,6 +2384,79 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'رفض';
 
   @override
+  String get tbBarGrip => 'اسحب للإرساء أو انقر لاختيار الموضع';
+
+  @override
+  String get tbDockTop => 'أعلى';
+
+  @override
+  String get tbDockBottom => 'أسفل';
+
+  @override
+  String get tbDockLeft => 'يسار';
+
+  @override
+  String get tbDockRight => 'يمين';
+
+  @override
+  String get tbDockWithMainToolbar => 'مع شريط الأدوات الرئيسي';
+
+  @override
+  String get tbStyleInToolBars => 'داخل أشرطة الأدوات';
+
+  @override
+  String get tbSeparateStyleBar => 'شريط نمط منفصل';
+
+  @override
+  String get tbToolbarLayout => 'تخطيط أشرطة الأدوات';
+
+  @override
+  String get tbToolbarLayoutMain => 'شريط الأدوات الرئيسي';
+
+  @override
+  String get tbToolbarLayoutStyle => 'عناصر التحكم في النمط';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'يجمع شريط النمط اللون والحد والشفافية والخط في مكان واحد لكل أداة وتحديد.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'أشرطة الأدوات';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'يبقى شريط الأدوات المرسى على حافة مفتوحًا هناك. ومع الشريط الرئيسي يُفتح عند اختيار مجموعته.';
+
+  @override
+  String get tbToolbarLayoutReset => 'إعادة تعيين التخطيط';
+
+  @override
+  String get tbToolbarMode => 'أشرطة الأدوات';
+
+  @override
+  String get tbToolbarDocked => 'مرساة على الحواف';
+
+  @override
+  String get tbToolbarFloating => 'عائمة فوق الصفحة';
+
+  @override
+  String get tbFloatingToolbar => 'تعويم فوق الصفحة';
+
+  @override
+  String get tbPropertiesHint => 'اختر أداة أو حدّد تعليقًا لعرض خصائصه';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد.';
+
+  @override
+  String get tbFloatingToolbars => 'أشرطة أدوات عائمة';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة';
+
+  @override
   String get insertPagesTitle => 'إدراج صفحات';
 
   @override
@@ -2542,6 +2606,18 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.';
 
   @override
+  String get textVerticalAlign => 'المحاذاة الرأسية';
+
+  @override
+  String get textAlignTop => 'محاذاة النص إلى الأعلى';
+
+  @override
+  String get textAlignMiddle => 'محاذاة النص إلى الوسط';
+
+  @override
+  String get textAlignBottom => 'محاذاة النص إلى الأسفل';
+
+  @override
   String get table => 'جدول';
 
   @override
@@ -2593,7 +2669,4 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'جدول الحافظة غير صالح أو يتجاوز 500 صف أو 100 عمود أو 20,000 خلية.';
-
-  @override
-  String get duplicate => 'تكرار';
 }

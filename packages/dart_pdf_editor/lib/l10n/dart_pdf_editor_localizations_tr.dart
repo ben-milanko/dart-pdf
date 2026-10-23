@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Dikey hizalama';
-
-  @override
-  String get textAlignTop => 'Metni üste hizala';
-
-  @override
-  String get textAlignMiddle => 'Metni dikey ortala';
-
-  @override
-  String get textAlignBottom => 'Metni alta hizala';
+  String get duplicate => 'Çoğalt';
 
   @override
   String get add => 'Ekle';
@@ -2352,6 +2343,81 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'Kapat';
 
   @override
+  String get tbBarGrip =>
+      'Yerleştirmek için sürükleyin veya konum için tıklayın';
+
+  @override
+  String get tbDockTop => 'Üst';
+
+  @override
+  String get tbDockBottom => 'Alt';
+
+  @override
+  String get tbDockLeft => 'Sol';
+
+  @override
+  String get tbDockRight => 'Sağ';
+
+  @override
+  String get tbDockWithMainToolbar => 'Ana araç çubuğuyla';
+
+  @override
+  String get tbStyleInToolBars => 'Araç çubuklarının içinde';
+
+  @override
+  String get tbSeparateStyleBar => 'Ayrı stil çubuğu';
+
+  @override
+  String get tbToolbarLayout => 'Araç çubuğu düzeni';
+
+  @override
+  String get tbToolbarLayoutMain => 'Ana araç çubuğu';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Stil denetimleri';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Stil çubuğu renk, çizgi, opaklık ve yazı tipini her araç ve seçim için tek bir yerde tutar.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Araç çubukları';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Bir kenara yerleştirilen araç çubuğu orada açık kalır. Ana araç çubuğuyla birlikteyse grubunu seçtiğinizde açılır.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Düzeni sıfırla';
+
+  @override
+  String get tbToolbarMode => 'Araç çubukları';
+
+  @override
+  String get tbToolbarDocked => 'Kenarlara yerleştirilmiş';
+
+  @override
+  String get tbToolbarFloating => 'Sayfanın üzerinde yüzen';
+
+  @override
+  String get tbFloatingToolbar => 'Sayfanın üzerinde yüzdür';
+
+  @override
+  String get tbPropertiesHint =>
+      'Özelliklerini görmek için bir araç seçin veya bir işaretleme seçin';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Özellikler çubuğu seçimin eylemlerini ve aracın seçeneklerini ile stilini tek yerde gösterir.';
+
+  @override
+  String get tbFloatingToolbars => 'Yüzen araç çubukları';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür';
+
+  @override
   String get insertPagesTitle => 'Sayfa ekle';
 
   @override
@@ -2493,6 +2559,18 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
 
   @override
+  String get textVerticalAlign => 'Dikey hizalama';
+
+  @override
+  String get textAlignTop => 'Metni üste hizala';
+
+  @override
+  String get textAlignMiddle => 'Metni dikey ortala';
+
+  @override
+  String get textAlignBottom => 'Metni alta hizala';
+
+  @override
   String get table => 'Tablo';
 
   @override
@@ -2544,7 +2622,4 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Pano tablosu geçersiz veya 500 satır, 100 sütun ya da 20.000 hücre sınırını aşıyor.';
-
-  @override
-  String get duplicate => 'Çoğalt';
 }

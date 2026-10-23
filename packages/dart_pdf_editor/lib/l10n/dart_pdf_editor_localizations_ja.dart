@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get textVerticalAlign => '縦方向の配置';
-
-  @override
-  String get textAlignTop => '文字を上揃え';
-
-  @override
-  String get textAlignMiddle => '文字を中央揃え';
-
-  @override
-  String get textAlignBottom => '文字を下揃え';
+  String get duplicate => '複製';
 
   @override
   String get add => '追加';
@@ -2325,6 +2316,78 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get dialogDismiss => '閉じる';
 
   @override
+  String get tbBarGrip => 'ドラッグしてドッキング、またはクリックして配置を選択';
+
+  @override
+  String get tbDockTop => '上';
+
+  @override
+  String get tbDockBottom => '下';
+
+  @override
+  String get tbDockLeft => '左';
+
+  @override
+  String get tbDockRight => '右';
+
+  @override
+  String get tbDockWithMainToolbar => 'メインツールバーと一緒';
+
+  @override
+  String get tbStyleInToolBars => 'ツールバー内';
+
+  @override
+  String get tbSeparateStyleBar => '独立したスタイルバー';
+
+  @override
+  String get tbToolbarLayout => 'ツールバーのレイアウト';
+
+  @override
+  String get tbToolbarLayoutMain => 'メインツールバー';
+
+  @override
+  String get tbToolbarLayoutStyle => 'スタイルの設定';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'スタイルバーは、どのツールや選択でも色・線・不透明度・フォントを同じ場所にまとめます。';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'ツールバー';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '端にドッキングしたツールバーはそこに開いたままになります。メインツールバーと一緒の場合は、グループを選ぶと開きます。';
+
+  @override
+  String get tbToolbarLayoutReset => 'レイアウトをリセット';
+
+  @override
+  String get tbToolbarMode => 'ツールバー';
+
+  @override
+  String get tbToolbarDocked => '端にドッキング';
+
+  @override
+  String get tbToolbarFloating => 'ページ上にフローティング';
+
+  @override
+  String get tbFloatingToolbar => 'ページ上にフローティング';
+
+  @override
+  String get tbPropertiesHint => 'ツールを選ぶか注釈を選択するとプロパティが表示されます';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。';
+
+  @override
+  String get tbFloatingToolbars => 'フローティングツールバー';
+
+  @override
+  String get tbFloatingToolbarsHint => 'ツールバーをウィンドウの端にドッキングせず、ページ上に浮かせて表示します';
+
+  @override
   String get insertPagesTitle => 'ページを挿入';
 
   @override
@@ -2452,6 +2515,18 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       'ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。';
 
   @override
+  String get textVerticalAlign => '縦方向の配置';
+
+  @override
+  String get textAlignTop => '文字を上揃え';
+
+  @override
+  String get textAlignMiddle => '文字を中央揃え';
+
+  @override
+  String get textAlignBottom => '文字を下揃え';
+
+  @override
   String get table => '表';
 
   @override
@@ -2503,7 +2578,4 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。';
-
-  @override
-  String get duplicate => '複製';
 }

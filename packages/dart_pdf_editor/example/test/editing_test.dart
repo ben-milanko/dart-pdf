@@ -63,21 +63,30 @@ void main() {
       'Digital signature' => 'insert',
       _ => null,
     };
-    if (group != null) {
-      await tester.tap(find.byKey(ValueKey('pdf-group-$group')));
+    final chip = find.byKey(ValueKey('pdf-group-$group'));
+    if (group != null && chip.evaluate().isNotEmpty) {
+      await tester.tap(chip);
       await tester.pump();
       // A group chip arms its default tool itself. Tapping the same tool in
       // the strip would immediately toggle it back to Select.
       if (const {'Select', 'Draw', 'Rectangle'}.contains(tooltip)) return;
     }
+    // Docked toolbars have no group chips (Select aside): every group's
+    // tools are always out, so arm the tool itself.
+    final docked = switch (tooltip) {
+      'Draw' => find.byKey(const ValueKey('pdf-tool-ink')),
+      'Rectangle' => find.byKey(const ValueKey('pdf-tool-rectangle')),
+      _ => null,
+    };
     final key = switch (tooltip) {
+      'Select' => 'pdf-tool-select',
       'Note' => 'pdf-tool-note',
       'Digital signature' => 'pdf-tool-signatureBox',
       'Delete annotation' => 'pdf-delete-selected',
       'Edit annotation text' => 'pdf-edit-selected-text',
-      _ => throw ArgumentError.value(tooltip, 'tooltip', 'no key mapped'),
+      _ => '',
     };
-    final button = find.byKey(ValueKey(key)).first;
+    final button = (docked ?? find.byKey(ValueKey(key))).first;
     await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pump();

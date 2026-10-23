@@ -479,6 +479,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
 
@@ -495,6 +497,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts')));
       await tester.pumpAndSettle();
     }
@@ -1135,17 +1139,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
 
-      final insert = find.byKey(const ValueKey('pdf-group-insert'));
-      final dock = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .last;
-      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
-      await tester.tap(insert);
-      await tester.pump();
-
+      expect(find.byKey(const ValueKey('pdf-tool-bar-insert')), findsOneWidget);
       expect(find.byIcon(Icons.draw_outlined), findsNothing);
     });
 
@@ -1160,25 +1154,11 @@ void main() {
         ),
       );
 
-      final insert = find.byKey(const ValueKey('pdf-group-insert'));
-      final dock = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .last;
-      await tester.scrollUntilVisible(insert, 80, scrollable: dock);
-      await tester.tap(insert);
-      await tester.pump();
-
-      final signature = find.byIcon(Icons.draw_outlined);
-      final strip = find
-          .descendant(
-            of: find.byType(PdfEditingToolbar),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      await tester.scrollUntilVisible(signature, 100, scrollable: strip);
+      // docked, the Insert toolbar is always on show
+      final signature = find.descendant(
+        of: find.byKey(const ValueKey('pdf-tool-bar-insert')),
+        matching: find.byIcon(Icons.draw_outlined),
+      );
       expect(signature, findsOneWidget);
     });
 
@@ -1192,15 +1172,14 @@ void main() {
           ),
         ),
       );
-      // the two kept groups show their dock chips...
+      // docked, the kept groups show as toolbars (Select lives in the main
+      // toolbar)...
       expect(find.byKey(const ValueKey('pdf-group-select')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-group-draw')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-tool-bar-draw')), findsOneWidget);
       // ...and every other group is gone
-      expect(find.byKey(const ValueKey('pdf-group-markup')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-insert')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-measure')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-group-edit')), findsNothing);
+      for (final gone in ['markup', 'shapes', 'insert', 'measure', 'edit']) {
+        expect(find.byKey(ValueKey('pdf-tool-bar-$gone')), findsNothing);
+      }
     });
 
     testWidgets('colorControls hides the color changer, keeps the style popup',
@@ -1215,9 +1194,8 @@ void main() {
           ),
         ),
       );
-      // open the Shapes group; its strip is where colour + style controls
-      // now live (the toolbar's first scrollable once the strip is up)
-      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      // arm a shape; the properties bar is where colour + style controls live
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-rectangle')));
       await tester.pump();
       // color changer gone: "More colors…" picker and eyedropper
       expect(find.byIcon(Icons.palette), findsNothing);
@@ -1229,7 +1207,7 @@ void main() {
           find.byTooltip('Stroke, opacity, font'), 100,
           scrollable: find
               .descendant(
-                  of: find.byType(PdfEditingToolbar),
+                  of: find.byKey(const ValueKey('pdf-style-bar')),
                   matching: find.byType(Scrollable))
               .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
@@ -1255,7 +1233,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const ValueKey('pdf-group-draw')));
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-ink')));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
@@ -1270,8 +1248,9 @@ void main() {
 
     testWidgets('color controls are present by default', (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(1)));
-      // the colour controls live in a group's strip - open one
-      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      // docked, every tool is on show; arming one puts its colour and style
+      // controls in the properties bar
+      await tester.tap(find.byKey(const ValueKey('pdf-tool-rectangle')));
       await tester.pump();
       final moreColors = find.byKey(const ValueKey('pdf-more-colors'));
       expect(moreColors, findsOneWidget);
@@ -1282,7 +1261,7 @@ void main() {
           find.byTooltip('Stroke, opacity, font'), 100,
           scrollable: find
               .descendant(
-                  of: find.byType(PdfEditingToolbar),
+                  of: find.byKey(const ValueKey('pdf-style-bar')),
                   matching: find.byType(Scrollable))
               .first);
       await tester.tap(find.byTooltip('Stroke, opacity, font'));
@@ -1340,6 +1319,9 @@ void main() {
         (tester) async {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
+      // the floating layout's group switcher opens Markup with nothing armed
+      // yet; docked, every markup tool is already on show
+      editing.preferences.toolbarFloating = true;
       await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
@@ -1649,7 +1631,9 @@ void main() {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      final prefs = PdfEditingPreferences();
+      final prefs = PdfEditingPreferences()
+        ..toolbarFloating = true
+        ..toolbarDock = PdfPanelDock.bottom;
       addTearDown(prefs.dispose);
       await pump(
         tester,
@@ -1694,13 +1678,14 @@ void main() {
       expect(tester.getTopLeft(card).dy, lessThan(140));
     });
 
-    testWidgets('left toolbar is a vertical rail inside docked panels',
+    testWidgets('floating left toolbar is a vertical rail inside docked panels',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
+      prefs.toolbarFloating = true;
       prefs.toolbarDock = PdfPanelDock.left;
 
       await pump(
@@ -1763,7 +1748,8 @@ void main() {
       expect(contextualScroll.scrollDirection, Axis.vertical);
     });
 
-    testWidgets('right toolbar is a vertical rail inside docked panels',
+    testWidgets(
+        'floating right toolbar is a vertical rail inside docked panels',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1;
@@ -1772,6 +1758,7 @@ void main() {
       addTearDown(prefs.dispose);
       prefs.showThumbnailSidebar = false;
       prefs.showAnnotationSidebar = true;
+      prefs.toolbarFloating = true;
       prefs.toolbarDock = PdfPanelDock.right;
 
       await pump(
@@ -2336,9 +2323,10 @@ void main() {
 
       final sheet = find.byType(PdfThumbnailSidebar);
       final position = tester
-          .state<ScrollableState>(find
-              .descendant(of: sheet, matching: find.byType(Scrollable))
-              .first)
+          .state<ScrollableState>(find.descendant(
+            of: find.byKey(const ValueKey('pdf-thumbnail-list')),
+            matching: find.byType(Scrollable),
+          ))
           .position;
       expect(position.pixels, 0);
       expect(position.maxScrollExtent, greaterThan(0),
@@ -2411,14 +2399,39 @@ void main() {
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
       expect(
-          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 0);
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 12);
     });
 
-    testWidgets('wide: the editing toolbar floats over the viewer',
+    testWidgets('wide: the editing toolbar docks above the viewer',
         (tester) async {
-      // Above the breakpoint the toolbar is transparent floating cards -
-      // it sits over the bottom of the page (Acrobat/Bluebeam-style).
+      // Above the breakpoint the toolbars dock as solid bars along the top,
+      // taking their own space (Acrobat/Bluebeam-style) - nothing covers the
+      // page, so the viewer needs no scroll tail.
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+
+      final bands = find.byKey(const ValueKey('pdf-editing-toolbar-band'));
+      expect(bands, findsNWidgets(2)); // main toolbar + properties bar
+      final viewerTop = tester.getRect(find.byType(PdfViewer)).top;
+      for (final band in bands.evaluate()) {
+        final rect = tester.getRect(
+            find.byElementPredicate((element) => identical(element, band)));
+        expect(rect.bottom, lessThanOrEqualTo(viewerTop + 0.5),
+            reason: 'a docked bar never overlaps the page');
+      }
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 12);
+    });
+
+    testWidgets('wide: the floating editing toolbar floats over the viewer',
+        (tester) async {
+      // Floating, the toolbar is transparent cards over the bottom of the
+      // page.
+      final prefs = PdfEditingPreferences()
+        ..toolbarFloating = true
+        ..toolbarDock = PdfPanelDock.bottom;
+      addTearDown(prefs.dispose);
+      await pump(tester,
+          PdfEditorView(bytes: buildMultiPagePdf(2), preferences: prefs));
 
       final toolbar = find.byType(PdfEditingToolbar);
       expect(toolbar, findsOneWidget);

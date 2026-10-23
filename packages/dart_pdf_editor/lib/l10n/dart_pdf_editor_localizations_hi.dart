@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'लंबवत संरेखण';
-
-  @override
-  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
-
-  @override
-  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
-
-  @override
-  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+  String get duplicate => 'डुप्लिकेट बनाएँ';
 
   @override
   String get add => 'जोड़ें';
@@ -2350,6 +2341,81 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'खारिज करें';
 
   @override
+  String get tbBarGrip =>
+      'डॉक करने के लिए खींचें, या स्थान चुनने के लिए क्लिक करें';
+
+  @override
+  String get tbDockTop => 'ऊपर';
+
+  @override
+  String get tbDockBottom => 'नीचे';
+
+  @override
+  String get tbDockLeft => 'बाएँ';
+
+  @override
+  String get tbDockRight => 'दाएँ';
+
+  @override
+  String get tbDockWithMainToolbar => 'मुख्य टूलबार के साथ';
+
+  @override
+  String get tbStyleInToolBars => 'टूल बार के अंदर';
+
+  @override
+  String get tbSeparateStyleBar => 'अलग स्टाइल बार';
+
+  @override
+  String get tbToolbarLayout => 'टूलबार लेआउट';
+
+  @override
+  String get tbToolbarLayoutMain => 'मुख्य टूलबार';
+
+  @override
+  String get tbToolbarLayoutStyle => 'स्टाइल नियंत्रण';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'स्टाइल बार हर टूल और चयन के लिए रंग, स्ट्रोक, अपारदर्शिता और फ़ॉन्ट को एक ही जगह रखता है।';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'टूल बार';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'किनारे पर डॉक किया गया टूल बार वहीं खुला रहता है। मुख्य टूलबार के साथ होने पर, समूह चुनने पर खुलता है।';
+
+  @override
+  String get tbToolbarLayoutReset => 'लेआउट रीसेट करें';
+
+  @override
+  String get tbToolbarMode => 'टूलबार';
+
+  @override
+  String get tbToolbarDocked => 'किनारों पर डॉक';
+
+  @override
+  String get tbToolbarFloating => 'पेज के ऊपर तैरते हुए';
+
+  @override
+  String get tbFloatingToolbar => 'पेज के ऊपर तैराएँ';
+
+  @override
+  String get tbPropertiesHint =>
+      'गुण देखने के लिए कोई टूल चुनें या कोई मार्कअप चुनें';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'गुण बार चयन की क्रियाएँ और टूल के विकल्प व स्टाइल एक ही जगह दिखाता है।';
+
+  @override
+  String get tbFloatingToolbars => 'तैरते टूलबार';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'टूलबार को विंडो के किनारों पर डॉक करने के बजाय पेज के ऊपर तैराएँ';
+
+  @override
   String get insertPagesTitle => 'पेज डालें';
 
   @override
@@ -2490,6 +2556,18 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।';
 
   @override
+  String get textVerticalAlign => 'लंबवत संरेखण';
+
+  @override
+  String get textAlignTop => 'पाठ ऊपर संरेखित करें';
+
+  @override
+  String get textAlignMiddle => 'पाठ बीच में संरेखित करें';
+
+  @override
+  String get textAlignBottom => 'पाठ नीचे संरेखित करें';
+
+  @override
   String get table => 'तालिका';
 
   @override
@@ -2541,7 +2619,4 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।';
-
-  @override
-  String get duplicate => 'डुप्लिकेट बनाएँ';
 }

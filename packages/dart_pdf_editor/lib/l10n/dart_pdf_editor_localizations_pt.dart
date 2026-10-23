@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPt([String locale = 'pt']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Alinhamento vertical';
-
-  @override
-  String get textAlignTop => 'Alinhar texto em cima';
-
-  @override
-  String get textAlignMiddle => 'Centralizar texto verticalmente';
-
-  @override
-  String get textAlignBottom => 'Alinhar texto embaixo';
+  String get duplicate => 'Duplicar';
 
   @override
   String get add => 'Adicionar';
@@ -2357,6 +2348,81 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'Dispensar';
 
   @override
+  String get tbBarGrip =>
+      'Arraste para encaixar ou clique para escolher a posição';
+
+  @override
+  String get tbDockTop => 'Topo';
+
+  @override
+  String get tbDockBottom => 'Base';
+
+  @override
+  String get tbDockLeft => 'Esquerda';
+
+  @override
+  String get tbDockRight => 'Direita';
+
+  @override
+  String get tbDockWithMainToolbar => 'Com a barra principal';
+
+  @override
+  String get tbStyleInToolBars => 'Dentro das barras de ferramentas';
+
+  @override
+  String get tbSeparateStyleBar => 'Barra de estilo separada';
+
+  @override
+  String get tbToolbarLayout => 'Layout das barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutMain => 'Barra principal';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Controles de estilo';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Uma barra de estilo reúne cor, traço, opacidade e fonte num só lugar para cada ferramenta e seleção.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Barras de ferramentas';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Uma barra encaixada numa borda fica aberta ali. Com a barra principal, ela abre quando você escolhe o grupo.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Redefinir layout';
+
+  @override
+  String get tbToolbarMode => 'Barras de ferramentas';
+
+  @override
+  String get tbToolbarDocked => 'Encaixadas nas bordas';
+
+  @override
+  String get tbToolbarFloating => 'Flutuando sobre a página';
+
+  @override
+  String get tbFloatingToolbar => 'Flutuar sobre a página';
+
+  @override
+  String get tbPropertiesHint =>
+      'Escolha uma ferramenta ou selecione uma marcação para ver as propriedades';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'A barra de propriedades mostra num só lugar as ações da seleção e as opções e o estilo da ferramenta.';
+
+  @override
+  String get tbFloatingToolbars => 'Barras flutuantes';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Mostrar as barras de ferramentas flutuando sobre a página em vez de encaixadas nas bordas da janela';
+
+  @override
   String get insertPagesTitle => 'Inserir páginas';
 
   @override
@@ -2498,6 +2564,18 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
       'A cor da página não foi salva no arquivo: alterar as páginas invalidaria as assinaturas.';
 
   @override
+  String get textVerticalAlign => 'Alinhamento vertical';
+
+  @override
+  String get textAlignTop => 'Alinhar texto em cima';
+
+  @override
+  String get textAlignMiddle => 'Centralizar texto verticalmente';
+
+  @override
+  String get textAlignBottom => 'Alinhar texto embaixo';
+
+  @override
   String get table => 'Tabela';
 
   @override
@@ -2549,7 +2627,4 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'A tabela da área de transferência é inválida ou excede 500 linhas, 100 colunas ou 20.000 células.';
-
-  @override
-  String get duplicate => 'Duplicar';
 }

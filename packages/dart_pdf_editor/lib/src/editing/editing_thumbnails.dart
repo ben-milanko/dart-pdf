@@ -477,6 +477,9 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
 
   double get _extraRightPadding => math.max(0, _barClearance - 12);
 
+  /// The shortest strip that still shows the Add page footer.
+  static const _minExtentForFooter = 120.0;
+
   /// The width a tile's thumbnail actually lays out at: panel width less
   /// the tile's 12px side paddings, the 1px borders, and the scrollbar
   /// clearance.
@@ -1105,11 +1108,28 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                     return Flex(
                       direction: scrollAxis,
                       children: [
-                        if (horizontal) horizontalHeader else verticalHeader,
+                        if (horizontal)
+                          horizontalHeader
+                        else
+                          // Docked bars and a top panel can leave less than
+                          // the header's 40px. Keep its actions reachable by
+                          // scrolling without changing the list's position
+                          // in the tree as the available height changes.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight),
+                            child: SingleChildScrollView(child: verticalHeader),
+                          ),
                         Expanded(child: tiles),
                         // a footer to append a blank page; only when the strip
                         // is editable (a read-only strip is purely navigational)
-                        if (widget.allowPageEditing)
+                        // and long enough to hold it beside the header - a
+                        // panel squeezed by docked toolbars keeps its tiles
+                        if (widget.allowPageEditing &&
+                            (horizontal
+                                    ? constraints.maxWidth
+                                    : constraints.maxHeight) >=
+                                _minExtentForFooter)
                           horizontal
                               ? SizedBox(
                                   width: 110,

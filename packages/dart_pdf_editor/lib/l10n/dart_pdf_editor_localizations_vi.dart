@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Căn dọc';
-
-  @override
-  String get textAlignTop => 'Căn văn bản lên trên';
-
-  @override
-  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
-
-  @override
-  String get textAlignBottom => 'Căn văn bản xuống dưới';
+  String get duplicate => 'Nhân bản';
 
   @override
   String get add => 'Thêm';
@@ -2346,6 +2337,80 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'Bỏ qua';
 
   @override
+  String get tbBarGrip => 'Kéo để neo, hoặc nhấp để chọn vị trí';
+
+  @override
+  String get tbDockTop => 'Trên';
+
+  @override
+  String get tbDockBottom => 'Dưới';
+
+  @override
+  String get tbDockLeft => 'Trái';
+
+  @override
+  String get tbDockRight => 'Phải';
+
+  @override
+  String get tbDockWithMainToolbar => 'Cùng thanh công cụ chính';
+
+  @override
+  String get tbStyleInToolBars => 'Trong các thanh công cụ';
+
+  @override
+  String get tbSeparateStyleBar => 'Thanh kiểu riêng';
+
+  @override
+  String get tbToolbarLayout => 'Bố cục thanh công cụ';
+
+  @override
+  String get tbToolbarLayoutMain => 'Thanh công cụ chính';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Điều khiển kiểu';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Thanh kiểu giữ màu, nét, độ mờ và phông chữ ở một chỗ cho mọi công cụ và vùng chọn.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Thanh công cụ';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Thanh công cụ neo vào một cạnh sẽ luôn mở ở đó. Khi đi cùng thanh chính, nó mở khi bạn chọn nhóm của nó.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Đặt lại bố cục';
+
+  @override
+  String get tbToolbarMode => 'Thanh công cụ';
+
+  @override
+  String get tbToolbarDocked => 'Neo vào các cạnh';
+
+  @override
+  String get tbToolbarFloating => 'Nổi trên trang';
+
+  @override
+  String get tbFloatingToolbar => 'Nổi trên trang';
+
+  @override
+  String get tbPropertiesHint =>
+      'Chọn công cụ hoặc chọn một chú thích để xem thuộc tính';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ.';
+
+  @override
+  String get tbFloatingToolbars => 'Thanh công cụ nổi';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ';
+
+  @override
   String get insertPagesTitle => 'Chèn trang';
 
   @override
@@ -2486,6 +2551,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
 
   @override
+  String get textVerticalAlign => 'Căn dọc';
+
+  @override
+  String get textAlignTop => 'Căn văn bản lên trên';
+
+  @override
+  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
+
+  @override
+  String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
   String get table => 'Bảng';
 
   @override
@@ -2537,7 +2614,4 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.';
-
-  @override
-  String get duplicate => 'Nhân bản';
 }
