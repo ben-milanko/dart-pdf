@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Perataan vertikal",
+  "textAlignTop": "Ratakan teks ke atas",
+  "textAlignMiddle": "Ratakan teks ke tengah secara vertikal",
+  "textAlignBottom": "Ratakan teks ke bawah",
   "@@locale": "id",
   "sidebarSignatureChecking": "Checking…",
   "sidebarSignatureTrusted": "Valid — trusted",
@@ -720,5 +724,23 @@
   "insertPagesSummary": "{inserted, plural, =1{Menyisipkan 1 halaman} other{Menyisipkan {inserted} halaman}}—dokumen akan memiliki {total, plural, =1{1 halaman} other{{total} halaman}}.",
   "insertPagesConfirm": "Sisipkan",
   "shellBakePageColor": "Simpan warna halaman ke file",
-  "pageColorNotBakedSigned": "Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya."
+  "pageColorNotBakedSigned": "Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.",
+  "table": "Tabel",
+  "tableEdit": "Edit tabel",
+  "tableRows": "Baris",
+  "tableColumns": "Kolom",
+  "tableStyle": "Gaya tabel",
+  "tableStyleHint": "Berlaku untuk seluruh tabel.",
+  "tableBackgroundColor": "Warna latar",
+  "tableHeaderColor": "Warna tajuk",
+  "tableTextColor": "Warna huruf",
+  "tableGridLines": "Garis kisi",
+  "tableGridColor": "Warna kisi",
+  "tableGridWidth": "Ketebalan kisi",
+  "tableHeaderRow": "Baris judul",
+  "tableColumnWidth": "Lebar kolom",
+  "tableRowHeight": "Tinggi baris",
+  "tableSelectionHint": "Klik sel untuk mengedit; Shift-klik untuk memilih rentang. Salin dan Tempel menukar nilai sel dengan Excel.",
+  "tableClipboardError": "Tabel papan klip tidak valid atau melebihi 500 baris, 100 kolom, atau 20.000 sel.",
+  "duplicate": "Duplikat"
 }

@@ -361,6 +361,7 @@ jobs:
       - name: Build release notes
         id: notes
         env:
+          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
           PREVIOUS_SHA: ${{ needs.changes.outputs.previous_sha }}
         shell: bash
@@ -372,6 +373,13 @@ jobs:
           app_version="$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' app/pubspec.yaml)"
           repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           notes="$RUNNER_TEMP/nightly-notes.md"
+          # GitHub's latest endpoint excludes drafts and prereleases, including
+          # the rolling nightly itself. Keep this separate from build gating,
+          # which still compares with the last successful nightly.
+          release_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          release_tickets="$RUNNER_TEMP/nightly-release-tickets.md"
+          python3 .github/scripts/nightly-release-tickets.py \
+            "$HEAD_SHA" "$release_tag" "$repo_url" > "$release_tickets"
 
           {
             echo "Rolling Windows + macOS test build from [\`$short_sha\`]($repo_url/commit/$HEAD_SHA), built $built_at."
@@ -381,6 +389,8 @@ jobs:
             echo
             echo "> [!WARNING]"
             echo "> These CI builds are not distribution-signed. Windows may show a SmartScreen warning; on macOS the app is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch - right-click DartPDF in Applications and choose **Open**, or run \`xattr -dr com.apple.quarantine /Applications/DartPDF.app\`. Neither is a store build."
+            echo
+            cat "$release_tickets"
             echo
             echo "## Changes since the previous nightly"
             echo

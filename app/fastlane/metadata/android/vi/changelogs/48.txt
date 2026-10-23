@@ -1,0 +1,1 @@
+Tạo bảng có thể chỉnh sửa và sao chép ô từ và sang bảng tính. Tiếp tục nhận dạng văn bản bị gián đoạn. Thay màu trong ảnh chụp và chú thích. Căn văn bản theo chiều dọc và nhân đôi dấu đã lưu. Cải thiện xuống dòng, ghi nhớ phông chữ và ảnh chụp đã xoay.

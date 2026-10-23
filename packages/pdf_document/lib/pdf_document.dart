@@ -46,3 +46,5 @@ export 'src/takeoff.dart';
 export 'src/sync.dart';
 export 'src/text_box_appearance.dart';
 export 'src/xmp.dart';
+
+export 'src/table_data.dart';

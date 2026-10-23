@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+- Require the 11.0.0 package suite; no additional public API changes.
+
 ## 0.7.0
 
 - Report the package release version from `dartpdf --version`, and check it against the manifest in the CLI integration tests.

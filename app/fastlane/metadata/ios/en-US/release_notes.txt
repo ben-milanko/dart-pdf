@@ -1,3 +1,1 @@
-New in 10.0.0
-
-Type your own measurement values, even without a scale. Edit whole words and spot links more easily. Reading controls hide on phones and avoid display folds. Choose whether to keep automatic OCR after its first run. Fix a large-scan crash and improve annotation visibility and image cropping.
+Create editable tables and copy cells to and from spreadsheets. Resume interrupted text recognition. Replace colours in snapshots and annotations. Align text vertically and duplicate saved stamps. Improve text wrapping, remembered fonts and rotated snapshots.

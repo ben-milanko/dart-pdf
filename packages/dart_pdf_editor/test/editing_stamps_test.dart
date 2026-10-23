@@ -1660,6 +1660,74 @@ void main() {
       expect(border.height, greaterThan(64));
     });
 
+    test('duplicated library stamps persist and edit independently', () async {
+      final store = PdfMemoryPreferencesStore();
+      final preferences = PdfEditingPreferences(store: store);
+      addTearDown(preferences.dispose);
+      await preferences.ready;
+      final editing =
+          PdfEditingController(buildMultiPagePdf(1), preferences: preferences);
+      addTearDown(editing.dispose);
+      final original = PdfCustomStamp(
+          text: 'APPROVED {{date}}',
+          color: 0xC03030,
+          template: PdfStampTemplate.text('APPROVED {{date}}', 0xC03030),
+          type: 'Audit',
+          tags: const ['site']);
+      editing.saveCustomStamp(original);
+      final copy = editing.duplicateCustomStamp(original);
+      expect(copy, isNot(original));
+      expect(copy.id, isNotNull);
+      expect(copy.template, original.template);
+      expect(identical(copy.template, original.template), isFalse);
+      expect(copy.tags, original.tags);
+      expect(copy.type, original.type);
+      expect(editing.activeStamp, copy);
+      editing.tool = PdfEditTool.stamp;
+      editing.color = const ui.Color(0xFF0000FF);
+      expect(editing.savedCustomStamps.first, original);
+      expect(editing.savedCustomStamps.last.id, copy.id);
+      expect(editing.savedCustomStamps.last.color, 0x0000FF);
+      final restored = PdfEditingPreferences(store: store);
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.customStamps, editing.savedCustomStamps);
+      editing.removeCustomStamp(editing.savedCustomStamps.last);
+      expect(editing.savedCustomStamps, [original]);
+    });
+
+    testWidgets('the picker duplicates a stamp and edits only the copy',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      const original = PdfCustomStamp(text: 'APPROVED', color: 0xC03030);
+      editing.saveCustomStamp(original);
+      await tester.pumpWidget(MaterialApp(
+          home: Builder(
+              builder: (context) => Center(
+                    child: FilledButton(
+                        onPressed: () =>
+                            showPdfStampPicker(context, controller: editing),
+                        child: const Text('open')),
+                  ))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Duplicate'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfStampPreview), findsNWidgets(2));
+      final copy = editing.savedCustomStamps.last;
+      expect(copy.id, isNotNull);
+      await tester.tap(find.byTooltip('Edit stamp').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-stamp-text')), 'REVISED');
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-editor-save')));
+      await tester.pumpAndSettle();
+      expect(editing.savedCustomStamps.first, original);
+      expect(editing.savedCustomStamps.last.text, 'REVISED');
+      expect(editing.savedCustomStamps.last.id, copy.id);
+    });
+
     testWidgets('the picker lists and deletes saved stamps', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
@@ -1773,14 +1841,98 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-export')));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(exported, isNull);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-stamp-transfer-confirm')));
+      await tester.pumpAndSettle();
       expect(exported, [paid]);
 
       await tester.tap(find.byKey(const ValueKey('pdf-stamp-import')));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(importCalls, 1);
+      expect(editing.savedCustomStamps, [paid]);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-stamp-transfer-confirm')));
+      await tester.pumpAndSettle();
       expect(editing.savedCustomStamps, [paid, audit]);
       expect(editing.activeStamp, audit);
+    });
+
+    testWidgets(
+        'stamp transfers can select individual stamps and cancel without changes',
+        (tester) async {
+      const paid = PdfCustomStamp(text: 'PAID', color: 0xC03030);
+      const audit = PdfCustomStamp(text: 'AUDIT', color: 0x1A3E8C);
+      const approved = PdfCustomStamp(text: 'APPROVED', color: 0x00FF00);
+      const rejected = PdfCustomStamp(text: 'REJECTED', color: 0xFF0000);
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..saveCustomStamp(paid)
+        ..saveCustomStamp(audit)
+        ..activeStamp = paid;
+      addTearDown(editing.dispose);
+      List<PdfCustomStamp>? exported;
+      await tester.pumpWidget(MaterialApp(
+          home: Builder(
+              builder: (context) => Center(
+                    child: FilledButton(
+                        onPressed: () => showPdfStampPicker(context,
+                            controller: editing,
+                            onExportStamps: (context, stamps) async {
+                              exported = stamps;
+                            },
+                            onImportStamps: (context) async =>
+                                [paid, approved, rejected, approved]),
+                        child: const Text('open')),
+                  ))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final selection =
+          find.byKey(const ValueKey('pdf-stamp-transfer-selection'));
+      final confirm = find.byKey(const ValueKey('pdf-stamp-transfer-confirm'));
+      final all = find.byKey(const ValueKey('pdf-stamp-transfer-select-all'));
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-export')));
+      await tester.pumpAndSettle();
+      await tester.tap(all);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-transfer-item-1')));
+      await tester.pump();
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      expect(exported, [audit]);
+      expect(editing.savedCustomStamps, [paid, audit]);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-import')));
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: selection, matching: find.text('PAID')),
+          findsNothing);
+      expect(find.descendant(of: selection, matching: find.text('APPROVED')),
+          findsOneWidget);
+      await tester.tap(all);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-transfer-item-0')));
+      await tester.pump();
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      expect(editing.savedCustomStamps, [paid, audit, approved]);
+      expect(editing.activeStamp, approved);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-import')));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.descendant(of: selection, matching: find.text('Cancel')));
+      await tester.pumpAndSettle();
+      expect(editing.savedCustomStamps, [paid, audit, approved]);
+      expect(editing.activeStamp, approved);
+      exported = null;
+      await tester.tap(find.byKey(const ValueKey('pdf-stamp-export')));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.descendant(of: selection, matching: find.text('Cancel')));
+      await tester.pumpAndSettle();
+      expect(exported, isNull);
     });
 
     testWidgets('the picker disables export with no saved stamps',

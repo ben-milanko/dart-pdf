@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Perataan vertikal';
+
+  @override
+  String get textAlignTop => 'Ratakan teks ke atas';
+
+  @override
+  String get textAlignMiddle => 'Ratakan teks ke tengah secara vertikal';
+
+  @override
+  String get textAlignBottom => 'Ratakan teks ke bawah';
+
+  @override
   String get add => 'Tambah';
 
   @override
@@ -2483,4 +2495,60 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.';
+
+  @override
+  String get table => 'Tabel';
+
+  @override
+  String get tableEdit => 'Edit tabel';
+
+  @override
+  String get tableRows => 'Baris';
+
+  @override
+  String get tableColumns => 'Kolom';
+
+  @override
+  String get tableStyle => 'Gaya tabel';
+
+  @override
+  String get tableStyleHint => 'Berlaku untuk seluruh tabel.';
+
+  @override
+  String get tableBackgroundColor => 'Warna latar';
+
+  @override
+  String get tableHeaderColor => 'Warna tajuk';
+
+  @override
+  String get tableTextColor => 'Warna huruf';
+
+  @override
+  String get tableGridLines => 'Garis kisi';
+
+  @override
+  String get tableGridColor => 'Warna kisi';
+
+  @override
+  String get tableGridWidth => 'Ketebalan kisi';
+
+  @override
+  String get tableHeaderRow => 'Baris judul';
+
+  @override
+  String get tableColumnWidth => 'Lebar kolom';
+
+  @override
+  String get tableRowHeight => 'Tinggi baris';
+
+  @override
+  String get tableSelectionHint =>
+      'Klik sel untuk mengedit; Shift-klik untuk memilih rentang. Salin dan Tempel menukar nilai sel dengan Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Tabel papan klip tidak valid atau melebihi 500 baris, 100 kolom, atau 20.000 sel.';
+
+  @override
+  String get duplicate => 'Duplikat';
 }

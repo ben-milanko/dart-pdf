@@ -138,6 +138,30 @@ abstract class DartPdfEditorLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// No description provided for @textVerticalAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical alignment'**
+  String get textVerticalAlign;
+
+  /// No description provided for @textAlignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to top'**
+  String get textAlignTop;
+
+  /// No description provided for @textAlignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to middle'**
+  String get textAlignMiddle;
+
+  /// No description provided for @textAlignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to bottom'**
+  String get textAlignBottom;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:
@@ -4463,6 +4487,114 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
   String get pageColorNotBakedSigned;
+
+  /// No description provided for @table.
+  ///
+  /// In en, this message translates to:
+  /// **'Table'**
+  String get table;
+
+  /// No description provided for @tableEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit table'**
+  String get tableEdit;
+
+  /// No description provided for @tableRows.
+  ///
+  /// In en, this message translates to:
+  /// **'Rows'**
+  String get tableRows;
+
+  /// No description provided for @tableColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Columns'**
+  String get tableColumns;
+
+  /// No description provided for @tableStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Table style'**
+  String get tableStyle;
+
+  /// No description provided for @tableStyleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies to the whole table.'**
+  String get tableStyleHint;
+
+  /// No description provided for @tableBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Background color'**
+  String get tableBackgroundColor;
+
+  /// No description provided for @tableHeaderColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Header color'**
+  String get tableHeaderColor;
+
+  /// No description provided for @tableTextColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Font color'**
+  String get tableTextColor;
+
+  /// No description provided for @tableGridLines.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid lines'**
+  String get tableGridLines;
+
+  /// No description provided for @tableGridColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid color'**
+  String get tableGridColor;
+
+  /// No description provided for @tableGridWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid width'**
+  String get tableGridWidth;
+
+  /// No description provided for @tableHeaderRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Header row'**
+  String get tableHeaderRow;
+
+  /// No description provided for @tableColumnWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Column width'**
+  String get tableColumnWidth;
+
+  /// No description provided for @tableRowHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Row height'**
+  String get tableRowHeight;
+
+  /// No description provided for @tableSelectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.'**
+  String get tableSelectionHint;
+
+  /// No description provided for @tableClipboardError.
+  ///
+  /// In en, this message translates to:
+  /// **'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.'**
+  String get tableClipboardError;
+
+  /// Duplicate a library item or selected annotation as an independent copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicate;
 }
 
 class _DartPdfEditorLocalizationsDelegate
