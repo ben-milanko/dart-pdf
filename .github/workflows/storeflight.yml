@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: fed6b91746cfcae49790a607b0cd29524d92c887 # experiment-preserving releases
+          ref: 931683db1c682fb1a73536a20975a525541df94d # reviewed device-set identity; preserve experiments
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
