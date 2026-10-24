@@ -1429,7 +1429,7 @@ void main() {
       (100.0, 180.0),
     ]);
     final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
-    expect((doc.cos.resolve(be['S']) as CosName).value, 'Cloudy');
+    expect((doc.cos.resolve(be['S']) as CosName).value, 'C');
     expect(annotation.rect.left, lessThan(100));
     expect(annotation.rect.right, greaterThan(220));
     final content = appearanceText(doc, annotation);

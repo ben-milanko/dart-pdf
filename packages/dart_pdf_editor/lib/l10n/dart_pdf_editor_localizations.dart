@@ -1440,6 +1440,24 @@ abstract class DartPdfEditorLocalizations {
   /// **'Line type'**
   String get propLineType;
 
+  /// Properties panel group title: the area a cloud callout marks (its cloud or polygon outline).
+  ///
+  /// In en, this message translates to:
+  /// **'Marked area'**
+  String get propRegion;
+
+  /// Cloud callout outline option: a plain straight-edged polygon (a rectangle when dragged out as one).
+  ///
+  /// In en, this message translates to:
+  /// **'Polygon'**
+  String get propRegionPolygon;
+
+  /// Cloud callout outline option: a scalloped revision cloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud'**
+  String get propRegionCloud;
+
   /// Font picker entry that opens a file picker to load a custom font.
   ///
   /// In en, this message translates to:
@@ -3132,6 +3150,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Callout'**
   String get tbNameCallout;
 
+  /// Tool name: insert a callout whose text box is outlined by a revision cloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud callout'**
+  String get tbNameCloudCallout;
+
   /// Tool name: draw a cloud-outline polygon.
   ///
   /// In en, this message translates to:
@@ -3521,6 +3545,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Callout - drag from the point to where the box goes'**
   String get tbTipCallout;
+
+  /// Tooltip for the cloud callout tool, explaining the drag gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud callout - drag a cloud around the area, then type the note'**
+  String get tbTipCloudCallout;
 
   /// Tooltip for the page-content editing tool.
   ///

@@ -724,6 +724,15 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get propLineType => 'ชนิดเส้น';
 
   @override
+  String get propRegion => 'พื้นที่ที่ทำเครื่องหมาย';
+
+  @override
+  String get propRegionPolygon => 'รูปหลายเหลี่ยม';
+
+  @override
+  String get propRegionCloud => 'ก้อนเมฆ';
+
+  @override
   String get propLoadFont => 'โหลดฟอนต์…';
 
   @override
@@ -1683,6 +1692,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'คำบรรยาย';
 
   @override
+  String get tbNameCloudCallout => 'คำบรรยายแบบก้อนเมฆ';
+
+  @override
   String get tbNameCloudPolygon => 'รูปหลายเหลี่ยมแบบก้อนเมฆ';
 
   @override
@@ -1887,6 +1899,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'คำบรรยาย - ลากจากจุดไปยังตำแหน่งที่กล่องจะไป';
+
+  @override
+  String get tbTipCloudCallout =>
+      'คำบรรยายแบบก้อนเมฆ - ลากก้อนเมฆรอบพื้นที่ แล้วพิมพ์บันทึก';
 
   @override
   String get tbTipContent => 'แก้ไขเนื้อหาหน้า';

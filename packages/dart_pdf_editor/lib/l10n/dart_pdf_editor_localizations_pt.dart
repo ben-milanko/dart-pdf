@@ -727,6 +727,15 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo de linha';
 
   @override
+  String get propRegion => 'Área marcada';
+
+  @override
+  String get propRegionPolygon => 'Polígono';
+
+  @override
+  String get propRegionCloud => 'Nuvem';
+
+  @override
   String get propLoadFont => 'Carregar fonte…';
 
   @override
@@ -1691,6 +1700,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Chamada';
 
   @override
+  String get tbNameCloudCallout => 'Chamada em nuvem';
+
+  @override
   String get tbNameCloudPolygon => 'Polígono em nuvem';
 
   @override
@@ -1898,6 +1910,10 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Chamada - arraste do ponto até onde a caixa ficará';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Chamada em nuvem - arraste uma nuvem ao redor da área e digite a nota';
 
   @override
   String get tbTipContent => 'Editar conteúdo da página';

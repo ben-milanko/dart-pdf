@@ -722,6 +722,15 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get propLineType => '线型';
 
   @override
+  String get propRegion => '标记区域';
+
+  @override
+  String get propRegionPolygon => '多边形';
+
+  @override
+  String get propRegionCloud => '云形';
+
+  @override
   String get propLoadFont => '加载字体…';
 
   @override
@@ -1672,6 +1681,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbNameCallout => '标注';
 
   @override
+  String get tbNameCloudCallout => '云形标注';
+
+  @override
   String get tbNameCloudPolygon => '云形多边形';
 
   @override
@@ -1875,6 +1887,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '标注 - 从指示点拖动到文本框的位置';
+
+  @override
+  String get tbTipCloudCallout => '云形标注 - 拖动云形框住区域，然后输入备注';
 
   @override
   String get tbTipContent => '编辑页面内容';
@@ -3215,6 +3230,15 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get propLineType => '線條類型';
 
   @override
+  String get propRegion => '標記區域';
+
+  @override
+  String get propRegionPolygon => '多邊形';
+
+  @override
+  String get propRegionCloud => '雲形';
+
+  @override
   String get propLoadFont => '載入字型…';
 
   @override
@@ -4165,6 +4189,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbNameCallout => '圖說文字';
 
   @override
+  String get tbNameCloudCallout => '雲形圖說文字';
+
+  @override
   String get tbNameCloudPolygon => '雲形多邊形';
 
   @override
@@ -4368,6 +4395,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbTipCallout => '圖說文字 - 從點拖曳至方塊要放置的位置';
+
+  @override
+  String get tbTipCloudCallout => '雲形圖說文字 - 拖曳雲形框住區域，然後輸入備註';
 
   @override
   String get tbTipContent => '編輯頁面內容';

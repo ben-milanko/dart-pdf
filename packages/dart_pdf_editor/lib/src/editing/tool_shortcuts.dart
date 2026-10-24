@@ -58,6 +58,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
       return PdfEditToolGroup.shapes;
     case PdfEditTool.freeText:
     case PdfEditTool.callout:
+    case PdfEditTool.cloudCallout:
     case PdfEditTool.note:
     case PdfEditTool.stamp:
     case PdfEditTool.count:
@@ -187,9 +188,12 @@ const Map<PdfEditTool, PdfToolShortcut> pdfEditToolShortcuts = {
       PdfToolShortcut(LogicalKeyboardKey.keyW, shift: true),
   PdfEditTool.calibrate: PdfToolShortcut(LogicalKeyboardKey.keyM, shift: true),
 
-  // Insert group: text box, callout, note, stamp, count, signature, image.
+  // Insert group: text box, callout (Shift for the cloud callout), note,
+  // stamp, count, signature, image.
   PdfEditTool.freeText: PdfToolShortcut(LogicalKeyboardKey.keyT),
   PdfEditTool.callout: PdfToolShortcut(LogicalKeyboardKey.keyQ),
+  PdfEditTool.cloudCallout:
+      PdfToolShortcut(LogicalKeyboardKey.keyQ, shift: true),
   PdfEditTool.note: PdfToolShortcut(LogicalKeyboardKey.keyN),
   PdfEditTool.stamp: PdfToolShortcut(LogicalKeyboardKey.keyS),
   PdfEditTool.count: PdfToolShortcut(LogicalKeyboardKey.keyT, shift: true),

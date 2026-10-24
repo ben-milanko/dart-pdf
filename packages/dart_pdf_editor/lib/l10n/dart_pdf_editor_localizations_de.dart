@@ -726,6 +726,15 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get propLineType => 'Linientyp';
 
   @override
+  String get propRegion => 'Markierter Bereich';
+
+  @override
+  String get propRegionPolygon => 'Polygon';
+
+  @override
+  String get propRegionCloud => 'Wolke';
+
+  @override
   String get propLoadFont => 'Schriftart laden…';
 
   @override
@@ -1692,6 +1701,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Sprechblase';
 
   @override
+  String get tbNameCloudCallout => 'Wolken-Sprechblase';
+
+  @override
   String get tbNameCloudPolygon => 'Wolkenpolygon';
 
   @override
@@ -1899,6 +1911,10 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Sprechblase - vom Punkt zur gewünschten Position des Feldes ziehen';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Wolken-Sprechblase - eine Wolke um den Bereich ziehen, dann die Notiz eingeben';
 
   @override
   String get tbTipContent => 'Seiteninhalt bearbeiten';

@@ -736,6 +736,15 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get propLineType => 'Тип лінії';
 
   @override
+  String get propRegion => 'Позначена область';
+
+  @override
+  String get propRegionPolygon => 'Багатокутник';
+
+  @override
+  String get propRegionCloud => 'Хмара';
+
+  @override
   String get propLoadFont => 'Завантажити шрифт…';
 
   @override
@@ -1713,6 +1722,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Виноска';
 
   @override
+  String get tbNameCloudCallout => 'Хмароподібна виноска';
+
+  @override
   String get tbNameCloudPolygon => 'Хмароподібний багатокутник';
 
   @override
@@ -1922,6 +1934,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Виноска — перетягніть від точки туди, де має бути поле';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Хмароподібна виноска — обведіть область хмарою, потім введіть нотатку';
 
   @override
   String get tbTipContent => 'Редагувати вміст сторінки';

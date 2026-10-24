@@ -723,6 +723,15 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get propLineType => '線の種類';
 
   @override
+  String get propRegion => 'マークした範囲';
+
+  @override
+  String get propRegionPolygon => '多角形';
+
+  @override
+  String get propRegionCloud => '雲形';
+
+  @override
   String get propLoadFont => 'フォントを読み込む…';
 
   @override
@@ -1675,6 +1684,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbNameCallout => '引き出し';
 
   @override
+  String get tbNameCloudCallout => '雲形引き出し';
+
+  @override
   String get tbNameCloudPolygon => '雲形多角形';
 
   @override
@@ -1879,6 +1891,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '引き出し - 起点からボックスの位置までドラッグ';
+
+  @override
+  String get tbTipCloudCallout => '雲形引き出し - 範囲を雲で囲むようにドラッグしてから、メモを入力';
 
   @override
   String get tbTipContent => 'ページコンテンツを編集';

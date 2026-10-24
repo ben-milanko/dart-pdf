@@ -737,6 +737,15 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get propLineType => 'Typ linii';
 
   @override
+  String get propRegion => 'Zaznaczony obszar';
+
+  @override
+  String get propRegionPolygon => 'Wielokąt';
+
+  @override
+  String get propRegionCloud => 'Chmurka';
+
+  @override
   String get propLoadFont => 'Wczytaj czcionkę…';
 
   @override
@@ -1714,6 +1723,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Objaśnienie';
 
   @override
+  String get tbNameCloudCallout => 'Objaśnienie chmurkowe';
+
+  @override
   String get tbNameCloudPolygon => 'Wielokąt chmurkowy';
 
   @override
@@ -1923,6 +1935,10 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Objaśnienie - przeciągnij od punktu do miejsca pola';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Objaśnienie chmurkowe - przeciągnij chmurkę wokół obszaru, a potem wpisz notatkę';
 
   @override
   String get tbTipContent => 'Edytuj treść strony';
