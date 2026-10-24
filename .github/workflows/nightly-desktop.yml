@@ -254,12 +254,30 @@ jobs:
         # "DartPDF Nightly". The bundle stays DartPDF.app with the same bundle
         # id, so settings, file associations and the in-app DMG hand-off carry
         # over between channels. Runs before the ad-hoc re-sign below.
+        #
+        # Finder (the DMG window, /Applications, Spotlight) shows the file
+        # name, not CFBundleDisplayName, unless the bundle has a localized
+        # display name: LSHasLocalizedDisplayName plus an InfoPlist.strings
+        # entry, honoured only while the plain CFBundleDisplayName matches
+        # the file name ("DartPDF"). That is what makes the installer and
+        # the Applications folder read "DartPDF Nightly" without renaming
+        # the bundle.
         run: |
           set -euo pipefail
-          plist=build/macos/Build/Products/Release/DartPDF.app/Contents/Info.plist
+          app=build/macos/Build/Products/Release/DartPDF.app
+          plist="$app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName DartPDF Nightly" "$plist"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string DartPDF Nightly" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string DartPDF" "$plist"
+          /usr/libexec/PlistBuddy -c "Delete :LSHasLocalizedDisplayName" "$plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :LSHasLocalizedDisplayName bool true" "$plist"
+          for lproj in en.lproj Base.lproj; do
+            mkdir -p "$app/Contents/Resources/$lproj"
+            printf '%s\n' \
+              '"CFBundleName" = "DartPDF Nightly";' \
+              '"CFBundleDisplayName" = "DartPDF Nightly";' \
+              > "$app/Contents/Resources/$lproj/InfoPlist.strings"
+          done
 
       - uses: actions/download-artifact@v8
         with:
