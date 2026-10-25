@@ -2632,7 +2632,7 @@ class _PdfViewerState extends State<PdfViewer>
   Timer? _noteShowTimer;
 
   /// Delays hiding it, so the pointer can cross the gap onto the card to
-  /// scroll or copy its text.
+  /// scroll it.
   Timer? _noteHideTimer;
 
   /// Whether the pointer is over the popup card itself.

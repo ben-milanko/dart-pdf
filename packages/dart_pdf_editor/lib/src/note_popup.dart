@@ -1,7 +1,9 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'design/viewer_tokens.dart';
 import 'l10n/pdf_l10n.dart';
+import 'theme.dart';
 
 /// Whether [annotation] is a sticky note whose text the viewer should
 /// surface in a [PdfNotePopupCard]: a /Text annotation that is a thread's
@@ -73,78 +75,86 @@ class PdfNotePopupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final textTheme = theme.textTheme;
+    final viewerTheme = PdfViewerTheme.of(context);
+    final background = viewerTheme.chip;
+    final foreground = viewerTheme.chipForeground;
+    final muted = foreground.withValues(alpha: 0.7);
+    final rule = foreground.withValues(alpha: 0.25);
     final rgb = note.color;
-    final accent = rgb == null ? cs.primary : Color(0xFF000000 | rgb);
+    final accent = rgb == null ? foreground : Color(0xFF000000 | rgb);
     final header =
         _header(note.author, note.modificationDate ?? note.creationDate);
     final contents = note.contents ?? '';
-    final muted = textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant);
+    final base = DefaultTextStyle.of(context)
+        .style
+        .copyWith(color: foreground, fontSize: 14, height: 1.35);
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
-      child: Material(
+      child: DecoratedBox(
         key: const ValueKey('pdf-note-popup'),
-        elevation: 6,
-        color: cs.surfaceContainerHigh,
-        shadowColor: Colors.black54,
-        borderRadius: BorderRadius.circular(10),
-        clipBehavior: Clip.antiAlias,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border(left: BorderSide(color: accent, width: 4)),
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.sticky_note_2_outlined, size: 16, color: accent),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: accent, width: 4)),
+            ),
+            child: DefaultTextStyle(
+              style: base,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
                       header.isEmpty ? pdfL10n(context).annotText : header,
-                      style: textTheme.labelMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: base.copyWith(
+                          fontSize: 12, fontWeight: FontWeight.w600),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ]),
-                if (contents.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  SelectableText(contents,
-                      key: const ValueKey('pdf-note-popup-text'),
-                      style: textTheme.bodyMedium),
-                ],
-                for (final (reply, depth) in replies) ...[
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: EdgeInsets.only(left: (depth - 1) * 12.0),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.only(left: 8),
-                      decoration: BoxDecoration(
-                        border: Border(
-                            left:
-                                BorderSide(color: cs.outlineVariant, width: 2)),
+                    if (contents.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(contents,
+                          key: const ValueKey('pdf-note-popup-text')),
+                    ],
+                    for (final (reply, depth) in replies) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: EdgeInsets.only(left: (depth - 1) * 12.0),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.only(left: 8),
+                          decoration: BoxDecoration(
+                            border:
+                                Border(left: BorderSide(color: rule, width: 2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_header(reply.author, reply.createdAt)
+                                  case final h when h.isNotEmpty)
+                                Text(h,
+                                    style: base.copyWith(
+                                        fontSize: 11, color: muted)),
+                              Text(reply.text,
+                                  style: base.copyWith(fontSize: 13)),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_header(reply.author, reply.createdAt)
-                              case final h when h.isNotEmpty)
-                            Text(h, style: muted),
-                          SelectableText(reply.text,
-                              style: textTheme.bodySmall),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),
