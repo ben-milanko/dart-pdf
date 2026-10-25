@@ -95,6 +95,131 @@ class PdfPath {
   PdfPathCursor cursor() => PdfPathCursor._(this);
 }
 
+/// The axis-aligned rectangles [path] is made of, as `left, bottom, right,
+/// top` quadruples in page space, or null when any subpath is something
+/// else (a curve, a slanted edge, anything but four corners).
+///
+/// Producers draw rules and table borders as filled rectangles (`re f`)
+/// rather than strokes - Word's table borders are 0.5 pt fills - and a fill
+/// gets no stroke's one-device-pixel floor, so zoomed out those borders fade
+/// to nothing. The devices use this to give thin rectangle fills the same
+/// floor ([pdfThinRectFillMaxThickness]).
+List<double>? pdfPathAxisAlignedRects(PdfPath path) {
+  const eps = 1e-4;
+  final rects = <double>[];
+  // corners of the open subpath; a fifth point may repeat the first
+  final xs = List<double>.filled(5, 0), ys = List<double>.filled(5, 0);
+  var n = 0;
+  bool finish() {
+    if (n == 0) return true;
+    if (n == 5) {
+      if ((xs[4] - xs[0]).abs() > eps || (ys[4] - ys[0]).abs() > eps) {
+        return false;
+      }
+      n = 4;
+    }
+    if (n != 4) return false;
+    bool sameX(int a, int b) => (xs[a] - xs[b]).abs() <= eps;
+    bool sameY(int a, int b) => (ys[a] - ys[b]).abs() <= eps;
+    final horizontalFirst =
+        sameY(0, 1) && sameX(1, 2) && sameY(2, 3) && sameX(3, 0);
+    final verticalFirst =
+        sameX(0, 1) && sameY(1, 2) && sameX(2, 3) && sameY(3, 0);
+    if (!horizontalFirst && !verticalFirst) return false;
+    final x0 = xs[0], y0 = ys[0], x2 = xs[2], y2 = ys[2];
+    rects
+      ..add(x0 < x2 ? x0 : x2)
+      ..add(y0 < y2 ? y0 : y2)
+      ..add(x0 < x2 ? x2 : x0)
+      ..add(y0 < y2 ? y2 : y0);
+    n = 0;
+    return true;
+  }
+
+  final cursor = path.cursor();
+  var closed = false;
+  while (cursor.moveNext()) {
+    switch (cursor.verb) {
+      case PdfPathVerb.moveTo:
+        if (!finish()) return null;
+        n = 0;
+        closed = false;
+        xs[n] = cursor.x1;
+        ys[n++] = cursor.y1;
+      case PdfPathVerb.lineTo:
+        // a line after `h` opens a new subpath at the old start: not a rect
+        if (closed || n == 0 || n == 5) return null;
+        xs[n] = cursor.x1;
+        ys[n++] = cursor.y1;
+      case PdfPathVerb.close:
+        if (!finish()) return null;
+        closed = true;
+      case PdfPathVerb.cubicTo:
+        return null;
+    }
+  }
+  if (!finish()) return null;
+  return rects.isEmpty ? null : rects;
+}
+
+/// How thin, in device pixels at the scale a device records for, a filled
+/// rectangle has to be before devices floor it like a stroke.
+///
+/// Below one pixel is where the fill fades; the margin above it is for a
+/// picture recorded at one scale and replayed smaller (the canvas device's
+/// hairline only ever *adds* ink, so a generous threshold costs nothing at
+/// the scales where the fill already covers it).
+const pdfThinRectFillMaxThickness = 2.0;
+
+/// Whether a [w] x [h] filled rectangle is a rule - clearly longer than it
+/// is thick - rather than a speck, which devices leave exact even when it is
+/// thin: there is no direction to floor it along, and a traced bitmap's
+/// near-square cells (Ghent GWG080's checkmarks, one `re f` per cell) must
+/// not each grow a line.
+bool pdfRectIsRule(double w, double h) =>
+    w > h ? w >= 3 * h && w > 0 : h >= 3 * w && h > 0;
+
+/// The rectangles of [path] (as [pdfPathAxisAlignedRects]) when the fill is
+/// rules a device may floor to one pixel, or null when it must stay exact.
+///
+/// Every rectangle must be at most [maxThickness] across its short side: a
+/// thick one may be the outside of a nonzero/even-odd frame whose thin
+/// "rectangle" is really a hole. And no two parallel ones may touch across
+/// their short sides - stacked rows like that are an *area* drawn as a
+/// mosaic (a bitmap traced to vectors, e.g. the Ghent GWG080 checkmarks), and
+/// flooring each row would embolden it. Specks (not [pdfRectIsRule]) may be
+/// included; devices leave them exact.
+List<double>? pdfThinRectFill(PdfPath path, double maxThickness) {
+  const eps = 1e-4;
+  // the pairwise mosaic check is quadratic; a path this busy is not rules
+  const maxRects = 64;
+  final rects = pdfPathAxisAlignedRects(path);
+  if (rects == null || rects.length > maxRects * 4) return null;
+  for (var i = 0; i < rects.length; i += 4) {
+    final w = rects[i + 2] - rects[i], h = rects[i + 3] - rects[i + 1];
+    if ((w < h ? w : h) > maxThickness) return null;
+    if (!pdfRectIsRule(w, h)) continue;
+    // axis 1: a horizontal rule, thin in y; axis 0: vertical, thin in x
+    final thin = w > h ? 1 : 0, long = 1 - thin;
+    for (var j = i + 4; j < rects.length; j += 4) {
+      final wj = rects[j + 2] - rects[j], hj = rects[j + 3] - rects[j + 1];
+      if (!pdfRectIsRule(wj, hj) || (wj > hj) != (w > h)) continue;
+      final overlapLong = (rects[i + long + 2] < rects[j + long + 2]
+              ? rects[i + long + 2]
+              : rects[j + long + 2]) -
+          (rects[i + long] > rects[j + long]
+              ? rects[i + long]
+              : rects[j + long]);
+      if (overlapLong <= eps) continue;
+      if (rects[j + thin] <= rects[i + thin + 2] + eps &&
+          rects[j + thin + 2] >= rects[i + thin] - eps) {
+        return null;
+      }
+    }
+  }
+  return rects;
+}
+
 /// The operation exposed by [PdfPathCursor].
 enum PdfPathVerb { moveTo, lineTo, cubicTo, close }
 

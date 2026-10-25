@@ -4,25 +4,35 @@ extension PdfAnnotationGrouping on PdfEditor {
   /// Applies one page-space transform to an annotation set, including its
   /// appearances and point geometry. Text and strokes scale with the artwork.
   /// Validates the complete set before changing any member.
+  /// [preserveGroupRotation] keeps the selection axes when resizing or
+  /// mirroring in an existing group's local frame.
   bool transformAnnotations(
-      int pageIndex, Iterable<PdfAnnotation> annotations, PdfMatrix transform) {
+      int pageIndex, Iterable<PdfAnnotation> annotations, PdfMatrix transform,
+      {bool preserveGroupRotation = false}) {
     if (transform.toList().any((n) => !n.isFinite) ||
         transform.inverted() == null) {
       return false;
     }
     final page = document.page(pageIndex);
+    final groups = PdfAnnotationGroups.ofPage(page);
+    final pageSlots = Map<CosDictionary, int>.identity();
+    for (var i = 0; i < page.annotations.length; i++) {
+      pageSlots[page.annotations[i].dict] = i;
+    }
     final specs = <({
       PdfAnnotation a,
       CosStream form,
       PdfRect bbox,
       PdfMatrix matrix,
       PdfRect? box,
+      double? groupRotation,
       Uint8List bytes
     })>[];
     final seen = Set<CosDictionary>.identity();
     for (final a in annotations) {
       if (!seen.add(a.dict)) continue;
-      if (!page.annotations.any((p) => identical(p.dict, a.dict))) return false;
+      final slot = pageSlots[a.dict];
+      if (slot == null) return false;
       final form = a.normalAppearance;
       final bbox = form == null
           ? null
@@ -62,6 +72,9 @@ extension PdfAnnotationGrouping on PdfEditor {
           bbox: bbox,
           matrix: matrix,
           box: box,
+          groupRotation: groups.slotsFor(slot).length > 1
+              ? groups.rotationFor(slot)
+              : null,
           bytes: document.cos.decodeStreamData(form)
         ));
       } catch (_) {
@@ -96,13 +109,26 @@ extension PdfAnnotationGrouping on PdfEditor {
       dict['AP'] = ap;
       dict['Rect'] = _rectArray(boundsUnderMatrix(spec.matrix, spec.bbox));
       dict[kPdfAppearanceFrameKey] = const CosBoolean(true);
+      if (spec.groupRotation case final angle?) {
+        if (preserveGroupRotation) {
+          dict[kPdfAnnotationGroupRotationKey] = CosReal(angle);
+        } else {
+          _transformGroupRotation(dict, transform, angle);
+        }
+      }
       if (spec.box case final box?) {
         dict[kPdfCalloutRDFrameKey] = const CosBoolean(true);
         dict[kPdfCalloutLocalRDKey] = _rdArray(spec.bbox, box);
         dict['RD'] = _rdArray(boundsUnderMatrix(spec.matrix, spec.bbox),
             boundsUnderMatrix(spec.matrix, box));
       }
-      for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+      for (final key in const [
+        'QuadPoints',
+        'L',
+        'Vertices',
+        'CL',
+        kPdfCalloutRegionKey
+      ]) {
         final points = _mapPointPairs(dict[key], transform.apply);
         if (points != null) dict[key] = points;
       }
@@ -123,7 +149,10 @@ extension PdfAnnotationGrouping on PdfEditor {
   /// Groups page markups using the standard /RT /Group and /IRT entries.
   /// Existing groups touched by [annotations] are merged in full. Appearances,
   /// geometry, annotation names, and page paint order are preserved.
-  bool groupAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations) {
+  /// [preserveRotation] retains a copied group's saved selection orientation;
+  /// a newly assembled or merged group otherwise starts square to the page.
+  bool groupAnnotations(int pageIndex, Iterable<PdfAnnotation> annotations,
+      {bool preserveRotation = false}) {
     final page = document.page(pageIndex);
     final groups = PdfAnnotationGroups.ofPage(page);
     final slots = _annotationGroupTargets(page, groups, annotations);
@@ -133,18 +162,32 @@ extension PdfAnnotationGrouping on PdfEditor {
       return false;
     }
     final targets = [for (final slot in slots) page.annotations[slot]];
-    _writeAnnotationGroupMembers(pageIndex, targets);
+    final raw = document.cos
+        .resolve(targets.first.dict[kPdfAnnotationGroupRotationKey]);
+    final angle = preserveRotation
+        ? switch (raw) {
+            CosInteger(:final value) => value.toDouble(),
+            CosReal(:final value) when value.isFinite => value,
+            _ => 0.0,
+          }
+        : 0.0;
+    _writeAnnotationGroupMembers(pageIndex, targets, rotation: angle);
     return true;
   }
 
-  void _writeAnnotationGroupMembers(
-      int pageIndex, List<PdfAnnotation> targets) {
+  void _writeAnnotationGroupMembers(int pageIndex, List<PdfAnnotation> targets,
+      {double? rotation}) {
     if (targets.isEmpty) return;
     final parent = targets.first;
     final parentRef = targets.length > 1
         ? _PdfPageAnnotationList(this, pageIndex).makeIndirect(parent.dict)
         : null;
     for (final annotation in targets) {
+      if (targets.length == 1) {
+        annotation.dict.entries.remove(kPdfAnnotationGroupRotationKey);
+      } else if (rotation != null) {
+        annotation.dict[kPdfAnnotationGroupRotationKey] = CosReal(rotation);
+      }
       if (targets.length > 1 && annotation.name == null) {
         annotation.dict['NM'] = CosString.fromText(_generateAnnotationName());
       }
@@ -195,6 +238,11 @@ extension PdfAnnotationGrouping on PdfEditor {
     var changed = false;
     for (final slot in slots) {
       final annotation = page.annotations[slot];
+      if (annotation.dict.entries.remove(kPdfAnnotationGroupRotationKey) !=
+          null) {
+        _markAnnotationChanged(pageIndex, annotation.dict, visual: false);
+        changed = true;
+      }
       if (annotation.replyType != 'Group') continue;
       annotation.dict.entries
         ..remove('IRT')
@@ -203,6 +251,22 @@ extension PdfAnnotationGrouping on PdfEditor {
       changed = true;
     }
     return changed;
+  }
+
+  /// Carries the group's local horizontal axis through the artwork transform.
+  void _transformGroupRotation(CosDictionary dict, PdfMatrix transform,
+      [double? initialAngle]) {
+    final raw = document.cos.resolve(dict[kPdfAnnotationGroupRotationKey]);
+    final angle = initialAngle ??
+        switch (raw) {
+          CosInteger(:final value) => value.toDouble(),
+          CosReal(:final value) when value.isFinite => value,
+          _ => null,
+        };
+    if (angle == null) return;
+    final c = math.cos(angle), s = math.sin(angle);
+    dict[kPdfAnnotationGroupRotationKey] = CosReal(math.atan2(
+        transform.b * c + transform.d * s, transform.a * c + transform.c * s));
   }
 
   List<int> _annotationGroupTargets(PdfPage page, PdfAnnotationGroups groups,

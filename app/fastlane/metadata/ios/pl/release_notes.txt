@@ -1,6 +1,3 @@
-Nowości w 8.1.0
+11.0.0
 
-- Zmieniaj czcionkę i styl pól listy oraz list rozwijanych.
-- Nowe menu telefonu do tworzenia, otwierania, drukowania i podpisywania.
-- Edycja tekstu zachowuje czcionkę i podział wierszy. Ulepszenia klawiatury i menu zaznaczania w iOS.
-- Pełna paleta kolorów pióra i zakreślacza na urządzeniach mobilnych.
+Twórz edytowalne tabele i kopiuj komórki z arkuszy kalkulacyjnych i do nich. Wznawiaj przerwane rozpoznawanie tekstu. Zamieniaj kolory w migawkach i adnotacjach. Wyrównuj tekst w pionie i powielaj zapisane stemple. Poprawiono zawijanie tekstu, zapamiętywanie czcionek i obrócone migawki.

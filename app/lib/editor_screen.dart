@@ -490,7 +490,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    if (widget.ownsApplicationSession) unawaited(_restoreSession());
+    if (widget.ownsApplicationSession) {
+      unawaited(_restoreSession().then((_) {
+        if (mounted) _recoverOcr();
+      }));
+    }
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -790,6 +794,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && widget.ownsApplicationSession) {
+      _recoverOcr();
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
@@ -811,7 +818,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Re-opens the file-backed documents that were open when the app last closed.
   /// Runs once at startup, then enables session persistence so this run's open
   /// set is captured for next time. Documents whose file has since moved or been
-  /// deleted are dropped silently rather than surfacing an error tab.
+  /// deleted are dropped with a warning toast rather than an error tab, and the
+  /// rest of the session restores without waiting on them.
   Future<void> _restoreSession() async {
     // Unsaved work comes back first, so a document recovered with its edits
     // wins over the same file restored flat from disk below (the loop skips
@@ -825,6 +833,7 @@ class _EditorScreenState extends State<EditorScreen>
       // start opening. Only the tab left active when restore finishes should
       // materialize (see _buildBody / _materializeDeferredPath).
       _restoringSession = true;
+      final unavailable = <String>[];
       try {
         for (final doc in documents) {
           // Skip anything already open (e.g. an OS file-open that arrived first).
@@ -833,12 +842,13 @@ class _EditorScreenState extends State<EditorScreen>
               _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
             continue;
           }
-          await _reopenSessionDocument(doc);
+          if (!await _reopenSessionDocument(doc)) unavailable.add(doc.title);
           if (!mounted) return;
         }
       } finally {
         _restoringSession = false;
       }
+      if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
       // Let the tab left active materialize now that restore is done.
       if (mounted) setState(() {});
     }
@@ -902,9 +912,29 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
-  Future<void> _reopenSessionDocument(SessionDocument doc) async {
+  /// Warns (without blocking anything) that the documents named by [titles]
+  /// could not be reopened because their file is gone - moved, renamed or
+  /// deleted since it was opened. Deferred a frame so it lands on a mounted
+  /// scaffold during startup restore.
+  void _warnFilesUnavailable(List<String> titles) {
+    if (titles.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _toast(
+        appL10n(context).editorReopenFilesUnavailable(
+            titles.length, pdfDisplayName(titles.first)),
+        duration: const Duration(seconds: 5),
+      );
+    });
+  }
+
+  /// Re-adds one session document. Returns false when its file could not be
+  /// read (moved or deleted) so the caller can warn; a path-only tab reads
+  /// nothing here, so its failure surfaces later, when it is first shown (see
+  /// [_materializeDeferredPath]).
+  Future<bool> _reopenSessionDocument(SessionDocument doc) async {
     final readPath = doc.readPath;
-    if (readPath == null) return;
+    if (readPath == null) return true;
     // Desktop restores by its writable origin; a mobile pick has none and
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
@@ -930,7 +960,7 @@ class _EditorScreenState extends State<EditorScreen>
           path: originPath,
           cachePath: doc.cachePath,
           bookmark: doc.bookmark);
-      return;
+      return true;
     }
 
     // Snapshot-only restore (mobile private cache, or a platform without
@@ -945,7 +975,7 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
+      if (!mounted) return true;
       // Reading the bytes already confirmed the file is still there (a gone
       // file threw and dropped its placeholder above); defer the parse so a
       // multi-document session doesn't open every file at once on launch. The
@@ -967,11 +997,14 @@ class _EditorScreenState extends State<EditorScreen>
             cachePath: doc.cachePath,
             bookmark: doc.bookmark);
       }
+      return true;
     } catch (e) {
-      // The file is gone (moved/deleted): drop the placeholder quietly.
+      // The file is gone (moved/deleted): drop the placeholder and let the
+      // caller warn once for the whole restore.
       AppDevTools.instance.addLog('deferred open failed (file moved?): $e',
           level: DevLogLevel.error);
       if (mounted) await _closeTabs([loading]);
+      return false;
     }
   }
 
@@ -1450,10 +1483,13 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: tab.cachePath,
         into: tab,
         // Session restoration is best-effort. A source that disappeared since
-        // the previous run should vanish quietly rather than leave a permanent
-        // error tab. The fallback closes this clean placeholder when the
-        // callback reports that it handled the failure.
-        onOpenFailed: (_) => true,
+        // the previous run (moved, renamed, deleted) gets a warning toast
+        // rather than a permanent error tab: the fallback closes this clean
+        // placeholder when the callback reports that it handled the failure.
+        onOpenFailed: (_) {
+          _warnFilesUnavailable([tab.title]);
+          return true;
+        },
       );
     });
   }
@@ -2775,9 +2811,28 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Adds an invisible, selectable/searchable OCR text layer over the active
   /// document, running entirely on-device (pdf_ocr_ondevice). The model
-  /// downloads once on first use; OCR runs in the **background** (progress in
+  /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
+  void _recoverOcr() {
+    unawaited(_ocr.recover(context, onToast: (message) {
+      if (mounted) _toast(message);
+    }, onComplete: (result, title) {
+      if (mounted) unawaited(_openOcrResult(result, title));
+    }));
+  }
+
+  Future<void> _openOcrResult(Uint8List result, String title) async {
+    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    final tab = _active;
+    if (tab == null) return;
+    await _snapshotOpenedDocument(tab, result);
+    await _persistSession();
+    // Never discard a completed job just because its tab was displayed. The
+    // result stays recoverable until the replacement snapshot is saved.
+    if (mounted && tab.cachePath != null) await _ocr.acknowledgeResult(result);
+  }
+
   Future<void> _runOcr() async {
     final tab = _active;
     final bytes = tab?.session?.bytes;
@@ -2789,14 +2844,16 @@ class _EditorScreenState extends State<EditorScreen>
     final title = tab.title;
     await _ocr.start(
       context,
-      bytes: bytes,
+      // A session byte view may be overwritten by undo + a later edit while
+      // the first-use model prompt is open. Freeze the requested revision.
+      bytes: Uint8List.fromList(bytes),
       title: title,
       onToast: (message) {
         if (mounted) _toast(message);
       },
       onComplete: (result) {
         if (mounted) {
-          _openBytes(result, appL10n(context).editorOcrTitle(title));
+          unawaited(_openOcrResult(result, title));
         }
       },
     );
@@ -2856,10 +2913,50 @@ class _EditorScreenState extends State<EditorScreen>
         if (written == null) {
           _toast(l10n.ocrAutoDocumentChanged);
         } else if (written > 0) {
-          _toast(l10n.ocrAutoResult);
+          if (_autoOcr.offered) {
+            _toast(l10n.ocrAutoResult);
+          } else {
+            unawaited(_offerAutoOcrChoice());
+          }
         }
       },
     );
+  }
+
+  /// After the first automatic OCR, asks once whether to keep doing it for
+  /// every scan or turn it off. Dismissing the dialog keeps it on; either way
+  /// the question is not asked again (Settings still has the switch).
+  Future<void> _offerAutoOcrChoice() async {
+    unawaited(_autoOcr.markOffered());
+    final keep = await showPdfDialog<bool>(
+      context: context,
+      builder: (context) {
+        final l10n = appL10n(context);
+        return AlertDialog(
+          key: const ValueKey('auto-ocr-offer'),
+          title: Text(l10n.ocrAutoOfferTitle),
+          content: Text(l10n.ocrAutoOfferMessage),
+          actions: [
+            TextButton(
+              key: const ValueKey('auto-ocr-offer-off'),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.ocrAutoOfferTurnOff),
+            ),
+            PdfDialogSubmit.action(
+                onSubmit: () => Navigator.of(context).pop(true),
+                child: FilledButton(
+                  key: const ValueKey('auto-ocr-offer-keep'),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text(l10n.ocrAutoOfferKeepOn),
+                )),
+          ],
+        );
+      },
+    );
+    if (keep == false) {
+      await _autoOcr.save(false);
+      if (mounted) _toast(appL10n(context).ocrAutoTurnedOff);
+    }
   }
 
   /// Closes the tab at [index], confirming first when it has unsaved edits.
@@ -3062,8 +3159,11 @@ class _EditorScreenState extends State<EditorScreen>
     FocusManager.instance.primaryFocus?.unfocus();
     FocusManager.instance.applyFocusChangesIfNeeded();
     tab.session?.finishInk();
-    final bytes = tab.session?.bytes;
-    if (bytes == null) return;
+    final session = tab.session;
+    if (session == null) return;
+    // the file on disk may carry the page colour; the session never does,
+    // so the next save bakes over the same base again
+    final bytes = _withBakedPageColor(session.bytes, source: session.document);
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
@@ -3075,7 +3175,16 @@ class _EditorScreenState extends State<EditorScreen>
         : await _saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (inPlace && !result.succeeded) {
-      // The origin couldn't be written (moved, read-only) - offer save-as.
+      // The origin couldn't be written (moved, read-only) - say so, then offer
+      // save-as rather than stopping at the error. The edits stay in the tab
+      // either way.
+      AppDevTools.instance.addLog(
+          'in-place save failed: ${tab.title} - ${result.message}',
+          level: DevLogLevel.error);
+      _toast(
+        appL10n(context).editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
+        duration: const Duration(seconds: 5),
+      );
       result = await _saveAsDocument(context, bytes, tab.title);
       if (!mounted) return;
     }
@@ -3118,6 +3227,27 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  /// [bytes] as they should reach a file: with the page colour painted
+  /// behind every page when View options' "Save page color into file" is on,
+  /// so other PDF readers show it too. A signed document is written as it
+  /// is (with a toast) - repainting its pages would invalidate the
+  /// signatures. [source] is the revision [bytes] came from, so an encrypted
+  /// document reopens with its keys; a bake that fails for any reason saves
+  /// the document unbaked rather than not at all.
+  Uint8List _withBakedPageColor(Uint8List bytes, {PdfDocument? source}) {
+    final color = _prefs.pageColor;
+    if (!_prefs.bakePageColor || !pdfPageColorNeedsBaking(color)) return bytes;
+    try {
+      if (pdfPageColorBakeBlocked(source ?? PdfDocument.open(bytes))) {
+        _toast(pdfL10n(context).pageColorNotBakedSigned);
+        return bytes;
+      }
+      return pdfBakePageColor(bytes, color, source: source);
+    } catch (_) {
+      return bytes;
+    }
+  }
+
   /// The Save As backend: the host/test seam when one is injected, otherwise
   /// the platform's own save dialog, browser download, or share sheet.
   Future<SaveResult> _saveAsDocument(
@@ -3139,6 +3269,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// path to adopt, so the tab opens over the exported bytes alone and its
   /// first Save asks where they should go.
   Future<void> _exportPages(DocumentTab tab, Uint8List bytes) async {
+    bytes = _withBakedPageColor(bytes);
     final result = await _saveAsDocument(context, bytes, tab.title);
     if (!mounted) return;
     if (result.succeeded) {
@@ -3447,6 +3578,9 @@ class _EditorScreenState extends State<EditorScreen>
         session.document.page(pageIndex),
         format: options.format.rasterFormat,
         dpi: options.dpi,
+        // the image carries the page colour when saved PDFs do
+        pageColor:
+            _prefs.bakePageColor ? _prefs.pageColor : const Color(0xFFFFFFFF),
       );
       if (!mounted) return;
       final name =

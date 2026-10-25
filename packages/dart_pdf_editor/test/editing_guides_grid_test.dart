@@ -302,6 +302,49 @@ void main() {
     expect(painter.cursor.dy, closeTo(view(220, 700).dy, 0.1));
   });
 
+  testWidgets('page rulers follow the visible slice when zoomed in',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    editing.preferences.showPageRulers = true;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          controller: viewer,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // fit-width: the whole page width is on screen, rulers at its edges
+    final pageSize = tester.getSize(find.byKey(const ValueKey(
+      'pdf-page-rulers',
+    )));
+    var visible = rulerPainter(tester).visibleRectFor(pageSize)!;
+    expect(visible.left, closeTo(0, 0.5));
+    expect(visible.top, closeTo(0, 0.5));
+
+    // zoomed 3x around the viewport centre the page's top-left corner is
+    // off screen: the rulers must hang from the visible slice instead
+    viewer.setZoom(3 * scale);
+    await tester.pump();
+    final region = viewer.visiblePageRegion(0)!;
+    expect(region.left, greaterThan(0.1));
+    expect(region.top, greaterThan(0.1));
+    final zoomedSize = tester.getSize(find.byKey(const ValueKey(
+      'pdf-page-rulers',
+    )));
+    visible = rulerPainter(tester).visibleRectFor(zoomedSize)!;
+    expect(visible.left, closeTo(region.left * zoomedSize.width, 0.5));
+    expect(visible.top, closeTo(region.top * zoomedSize.height, 0.5));
+    // the step still adapts to the on-screen zoom
+    expect(rulerPainter(tester).majorStepFor(zoomedSize), lessThan(50));
+  });
+
   testWidgets('editor settings exposes persistent guide and grid controls',
       (tester) async {
     final preferences = PdfEditingPreferences();

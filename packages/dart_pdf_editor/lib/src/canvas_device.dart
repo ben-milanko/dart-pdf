@@ -710,6 +710,57 @@ class CanvasPdfDevice
       _cachedUiPath(path, rule),
       _solidFillPaint(color, alpha),
     );
+    _floorThinRectFill(path, color, alpha);
+  }
+
+  /// Gives a thin filled rectangle - a rule or table border drawn as `re f`
+  /// - the one-device-pixel floor [strokeWidthFor] gives a stroke.
+  ///
+  /// The fill above stays exact; this adds a Skia hairline down the middle
+  /// of each thin rectangle, which is one device pixel at full alpha at
+  /// *any* replay scale. Where the fill is wider than a pixel the hairline
+  /// lies inside it and changes nothing, so - unlike widening the rectangle
+  /// at record time - it is right for every ratio a picture is replayed at.
+  /// Only opaque, idempotent paint qualifies: painting the same colour twice
+  /// must not change a pixel the fill already covers.
+  void _floorThinRectFill(PdfPath path, PdfColor color, double alpha) {
+    if (pixelRatio <= 0 || alpha < 1) return;
+    final blend = _fillElementBlend;
+    if (blend != BlendMode.srcOver &&
+        blend != BlendMode.src &&
+        blend != BlendMode.darken) {
+      return;
+    }
+    final rects =
+        pdfThinRectFill(path, pdfThinRectFillMaxThickness / pixelRatio);
+    if (rects == null) return;
+    final lines = ui.Path();
+    var any = false;
+    for (var i = 0; i < rects.length; i += 4) {
+      final l = rects[i], b = rects[i + 1], r = rects[i + 2], t = rects[i + 3];
+      final w = r - l, h = t - b;
+      if (!pdfRectIsRule(w, h)) continue; // a speck stays exact
+      any = true;
+      if (w > h) {
+        final y = (b + t) / 2;
+        lines
+          ..moveTo(l, y)
+          ..lineTo(r, y);
+      } else {
+        final x = (l + r) / 2;
+        lines
+          ..moveTo(x, b)
+          ..lineTo(x, t);
+      }
+    }
+    if (!any) return;
+    canvas.drawPath(
+        lines,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0
+          ..color = _toColor(color, alpha)
+          ..blendMode = blend);
   }
 
   @override
@@ -1406,6 +1457,21 @@ class CanvasPdfDevice
   /// difference is invisible where it is tolerated.
   static const double _placementToleranceEm = 0.02;
 
+  /// The most [_buildPlacedLayout] widens a substitute's glyph shapes to meet
+  /// the PDF's advances. A narrower substitute is drawn at (nearly) its own
+  /// proportions instead, and its pieces are placed - centred in their slots -
+  /// at the PDF's offsets like any other disagreement.
+  ///
+  /// Impeller rasterizes a glyph at the transform's *larger* axis scale and
+  /// maps it back down the other one, which snaps each glyph's vertical extent
+  /// on its own: under a horizontal stretch the baseline of a stemmed `l`
+  /// lands a device pixel away from an `n` beside it, and a heading reads as
+  /// bouncing (Arial-Black drawn in TeX Gyre Heros, ~1.2x). Measured with
+  /// `flutter test --enable-impeller` at 1 px/pt: 1.04 already shows it at
+  /// some sub-pixel baselines, 1.02 and below never did, and compression
+  /// (scale < 1) is exact - the larger axis is then the vertical one.
+  static const double _maxPlacedShapeStretch = 1.02;
+
   /// A run laid out at the PDF's own pen offsets (#649) instead of at the
   /// substitute's cumulative advances, served from the run cache. The key
   /// carries the offsets as well as everything [_styleFor] reads, because the
@@ -1448,7 +1514,9 @@ class CanvasPdfDevice
   /// that follows it ([PdfTextRun.glyphWidthAt]), because spacing is a gap to
   /// open, never a shape to stretch. A `( 3)Tj` under a `15.137 Tc` - a CAD
   /// export reaching the next table column - is a digit in a 2.24 em step, and
-  /// scaling it to that step drew it four times too wide.
+  /// scaling it to that step drew it four times too wide. The scale only
+  /// narrows freely; it widens by at most [_maxPlacedShapeStretch], and a
+  /// substitute narrower than that is placed piece by piece instead.
   ///
   /// A uniform scale only matches the substitute to the PDF on average. Where
   /// a face's proportions differ - Helvetica standing in for an unembedded
@@ -1497,7 +1565,10 @@ class CanvasPdfDevice
       return glyphs[i] = _glyphLayout(_runeAt(text, i), run, suffix);
     }
 
-    final k = natural / advance; // layout units per em
+    // Layout units per em: the glyph layouts are shaped at 100 per em
+    // ([_styleFor]), so k below 100 stretches the shapes - capped at
+    // [_maxPlacedShapeStretch].
+    final k = math.max(natural / advance, 100 / _maxPlacedShapeStretch);
     final parts = <_GlyphRun>[];
     double? baseline;
     TextStyle? style;

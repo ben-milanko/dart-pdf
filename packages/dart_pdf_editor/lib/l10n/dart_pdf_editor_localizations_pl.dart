@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPl([String locale = 'pl']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Wyrównanie w pionie';
+
+  @override
+  String get textAlignTop => 'Wyrównaj tekst do góry';
+
+  @override
+  String get textAlignMiddle => 'Wyśrodkuj tekst w pionie';
+
+  @override
+  String get textAlignBottom => 'Wyrównaj tekst do dołu';
+
+  @override
   String get add => 'Dodaj';
 
   @override
@@ -350,7 +362,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Głębokość objętości';
 
   @override
+  String get measCustomValueTitle => 'Wartość pomiaru';
+
+  @override
   String get menuAddNode => 'Dodaj węzeł';
+
+  @override
+  String get menuEditMeasurementValue => 'Edytuj wartość pomiaru';
 
   @override
   String get menuAddLeader => 'Dodaj linię odniesienia';
@@ -441,6 +459,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Usuń linię odniesienia';
+
+  @override
+  String get menuAddNoteHere => 'Dodaj notatkę tutaj';
 
   @override
   String get menuSaveToStamps => 'Zapisz w stemplach';
@@ -716,6 +737,15 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get propLineType => 'Typ linii';
 
   @override
+  String get propRegion => 'Zaznaczony obszar';
+
+  @override
+  String get propRegionPolygon => 'Wielokąt';
+
+  @override
+  String get propRegionCloud => 'Chmurka';
+
+  @override
   String get propLoadFont => 'Wczytaj czcionkę…';
 
   @override
@@ -955,6 +985,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       few: 'Zamieniono $count dopasowania',
       one: 'Zamieniono 1 dopasowanie',
       zero: 'Nic nie zamieniono',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Oznacz do utajnienia';
+
+  @override
+  String get searchRedactMark => 'Oznacz';
+
+  @override
+  String get searchRedactMarkAll => 'Oznacz wszystkie';
+
+  @override
+  String get searchRedactHint =>
+      'Oznaczenia można przejrzeć, dopóki nie zastosujesz utajnienia';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Oznaczono $count dopasowania do utajnienia',
+      many: 'Oznaczono $count dopasowań do utajnienia',
+      few: 'Oznaczono $count dopasowania do utajnienia',
+      one: 'Oznaczono 1 dopasowanie do utajnienia',
+      zero: 'Już oznaczono',
     );
     return '$_temp0';
   }
@@ -1461,6 +1518,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Zastosuj wymazania (nieodwracalne)';
 
   @override
+  String get tbFindToRedact => 'Znajdź tekst do utajnienia';
+
+  @override
   String get tbAutosizeTextBox =>
       'Automatyczny rozmiar pola tekstowego (Alt+Z)';
 
@@ -1693,6 +1753,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Objaśnienie';
 
   @override
+  String get tbNameCloudCallout => 'Objaśnienie chmurkowe';
+
+  @override
   String get tbNameCloudPolygon => 'Wielokąt chmurkowy';
 
   @override
@@ -1727,6 +1790,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Zmierz długość łuku';
+
+  @override
+  String get tbNameMeasureCustom => 'Własny wymiar (wpisz wartość)';
 
   @override
   String get tbNameMeasureArea => 'Zmierz powierzchnię';
@@ -1899,6 +1965,10 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Objaśnienie - przeciągnij od punktu do miejsca pola';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Objaśnienie chmurkowe - przeciągnij chmurkę wokół obszaru, a potem wpisz notatkę';
 
   @override
   String get tbTipContent => 'Edytuj treść strony';
@@ -2509,4 +2579,67 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Wstaw';
+
+  @override
+  String get shellBakePageColor => 'Zapisz kolor strony w pliku';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Kolor strony nie został zapisany w pliku: zmiana stron unieważniłaby jego podpisy.';
+
+  @override
+  String get table => 'Tabela';
+
+  @override
+  String get tableEdit => 'Edytuj tabelę';
+
+  @override
+  String get tableRows => 'Wiersze';
+
+  @override
+  String get tableColumns => 'Kolumny';
+
+  @override
+  String get tableStyle => 'Styl tabeli';
+
+  @override
+  String get tableStyleHint => 'Dotyczy całej tabeli.';
+
+  @override
+  String get tableBackgroundColor => 'Kolor tła';
+
+  @override
+  String get tableHeaderColor => 'Kolor nagłówka';
+
+  @override
+  String get tableTextColor => 'Kolor czcionki';
+
+  @override
+  String get tableGridLines => 'Linie siatki';
+
+  @override
+  String get tableGridColor => 'Kolor siatki';
+
+  @override
+  String get tableGridWidth => 'Grubość siatki';
+
+  @override
+  String get tableHeaderRow => 'Wiersz nagłówka';
+
+  @override
+  String get tableColumnWidth => 'Szerokość kolumny';
+
+  @override
+  String get tableRowHeight => 'Wysokość wiersza';
+
+  @override
+  String get tableSelectionHint =>
+      'Kliknij komórkę, aby edytować; Shift i kliknięcie zaznacza zakres. Kopiuj i Wklej wymieniają wartości komórek z Excelem.';
+
+  @override
+  String get tableClipboardError =>
+      'Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek.';
+
+  @override
+  String get duplicate => 'Duplikuj';
 }

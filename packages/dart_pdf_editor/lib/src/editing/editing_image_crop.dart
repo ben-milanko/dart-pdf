@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -12,9 +14,9 @@ import 'handle_layout.dart';
 /// pointer over the page so it never entangles the main editing overlay's
 /// gesture machine. Drag a handle to resize the crop, drag the interior to
 /// move it, both clamped to [bounds] (the image's full on-screen rectangle).
-/// The area of the image outside the crop is dimmed; a rule-of-thirds grid and
-/// eight handles mark the crop. Confirm (✓) and cancel (✕) chips float below
-/// the rectangle.
+/// The area of the image outside the crop is dimmed; a rule-of-thirds grid,
+/// corner brackets and edge bars mark the crop. Confirm (✓) and cancel (✕)
+/// chips float below the rectangle at a constant on-screen size.
 ///
 /// The crop is tracked internally as fractions of [bounds] so it survives a
 /// zoom or scroll (which changes [bounds]) mid-crop, and reported back out in
@@ -67,8 +69,14 @@ class _PdfImageCropOverlayState extends State<PdfImageCropOverlay> {
   // Fractions captured at drag start.
   late double _sl, _st, _sr, _sb;
 
-  static const double _handleSize = 10;
   static const double _minSpanPx = 16;
+
+  // On-screen chip metrics (logical pixels before the zoom counter-scale):
+  // the gap to the crop edge and a generous estimate of the chip pair's size,
+  // used only to decide which side of the crop has room.
+  static const double _chipGap = 12;
+  static const double _chipHeightEstimate = 44;
+  static const double _chipHalfWidthEstimate = 48;
 
   @override
   void initState() {
@@ -175,46 +183,82 @@ class _PdfImageCropOverlayState extends State<PdfImageCropOverlay> {
   @override
   Widget build(BuildContext context) {
     final crop = _cropRect;
-    // Confirm/cancel chips ride just below the crop, nudged back inside the
-    // image when the crop hugs the bottom edge.
-    final chipY = (crop.bottom + 10 * widget.chromeScale)
-        .clamp(widget.bounds.top, widget.bounds.bottom - 4);
-    final chipCenter =
-        crop.center.dx.clamp(widget.bounds.left + 44, widget.bounds.right - 44);
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            // start the drag at the press point (not where the recognizer won
-            // the arena) so a handle grab hit-tests against the down position
-            dragStartBehavior: DragStartBehavior.down,
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            child: CustomPaint(
-              painter: _CropPainter(
-                bounds: widget.bounds,
-                crop: crop,
-                accent: widget.accentColor,
-                chromeScale: widget.chromeScale,
-                handleSize: _handleSize,
+    final scale = widget.chromeScale;
+    return LayoutBuilder(builder: (context, constraints) {
+      // The overlay lives inside the viewer's zoom transform, so the chips
+      // counter-scale by [chromeScale] to stay a constant on-screen size, like
+      // the selection chip. They ride just below the crop, flip above it when
+      // the page runs out underneath, and tuck inside its bottom edge when
+      // there is no room either side.
+      final gap = _chipGap * scale;
+      final chipHeight = _chipHeightEstimate * scale;
+      final pageHeight = constraints.maxHeight.isFinite
+          ? constraints.maxHeight
+          : crop.bottom + gap + chipHeight;
+      final pageWidth =
+          constraints.maxWidth.isFinite ? constraints.maxWidth : crop.right;
+      final double top;
+      final Alignment alignment;
+      final double dy;
+      if (crop.bottom + gap + chipHeight <= pageHeight) {
+        top = crop.bottom + gap;
+        alignment = Alignment.topCenter;
+        dy = 0;
+      } else if (crop.top - gap - chipHeight >= 0) {
+        top = crop.top - gap;
+        alignment = Alignment.bottomCenter;
+        dy = -1;
+      } else {
+        top = crop.bottom - gap;
+        alignment = Alignment.bottomCenter;
+        dy = -1;
+      }
+      final halfChip = _chipHalfWidthEstimate * scale;
+      final centerX = pageWidth <= 2 * halfChip
+          ? pageWidth / 2
+          : crop.center.dx.clamp(halfChip, pageWidth - halfChip);
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // start the drag at the press point (not where the recognizer
+              // won the arena) so a handle grab hit-tests against the down
+              // position
+              dragStartBehavior: DragStartBehavior.down,
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+              child: CustomPaint(
+                painter: _CropPainter(
+                  bounds: widget.bounds,
+                  crop: crop,
+                  accent: widget.accentColor,
+                  chromeScale: scale,
+                ),
+                size: Size.infinite,
               ),
-              size: Size.infinite,
             ),
           ),
-        ),
-        Positioned(
-          left: chipCenter - 44,
-          top: chipY,
-          child: _CropActions(
-            accent: widget.accentColor,
-            onCommit: widget.onCommit,
-            onCancel: widget.onCancel,
+          Positioned(
+            left: centerX,
+            top: top,
+            child: FractionalTranslation(
+              translation: Offset(-0.5, dy),
+              child: Transform.scale(
+                scale: scale,
+                alignment: alignment,
+                child: _CropActions(
+                  accent: widget.accentColor,
+                  onCommit: widget.onCommit,
+                  onCancel: widget.onCancel,
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 }
 
@@ -332,60 +376,114 @@ class _CropPainter extends CustomPainter {
     required this.crop,
     required this.accent,
     required this.chromeScale,
-    required this.handleSize,
   });
 
   final Rect bounds;
   final Rect crop;
   final Color accent;
   final double chromeScale;
-  final double handleSize;
+
+  /// Corner bracket arm length and edge bar length (screen pixels).
+  static const double _armLength = 18;
+  static const double _barLength = 22;
+
+  /// Bracket/bar stroke thickness (screen pixels).
+  static const double _thickness = 4;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Dim the image outside the crop (even-odd: image minus crop).
+    final s = chromeScale;
+
+    // Dim the image outside the crop (image minus crop).
     final scrim = Path.combine(
       PathOperation.difference,
       Path()..addRect(bounds),
       Path()..addRect(crop),
     );
     canvas.drawPath(
-        scrim, Paint()..color = Colors.black.withValues(alpha: 0.45));
+        scrim, Paint()..color = Colors.black.withValues(alpha: 0.5));
 
-    // Rule-of-thirds grid inside the crop.
+    // Rule-of-thirds grid inside the crop, haloed so it reads on light and
+    // dark artwork alike.
+    final gridHalo = Paint()
+      ..color = Colors.black.withValues(alpha: 0.25)
+      ..strokeWidth = 2 * s;
     final grid = Paint()
-      ..color = Colors.white.withValues(alpha: 0.5)
-      ..strokeWidth = 0.75 * chromeScale;
-    for (var i = 1; i < 3; i++) {
-      final x = crop.left + crop.width * i / 3;
-      final y = crop.top + crop.height * i / 3;
-      canvas.drawLine(Offset(x, crop.top), Offset(x, crop.bottom), grid);
-      canvas.drawLine(Offset(crop.left, y), Offset(crop.right, y), grid);
+      ..color = Colors.white.withValues(alpha: 0.75)
+      ..strokeWidth = 1 * s;
+    for (final paint in [gridHalo, grid]) {
+      for (var i = 1; i < 3; i++) {
+        final x = crop.left + crop.width * i / 3;
+        final y = crop.top + crop.height * i / 3;
+        canvas.drawLine(Offset(x, crop.top), Offset(x, crop.bottom), paint);
+        canvas.drawLine(Offset(crop.left, y), Offset(crop.right, y), paint);
+      }
     }
 
-    // Crop border.
+    // Crop frame: a thin line with a white halo.
     canvas.drawRect(
       crop,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5 * chromeScale
+        ..strokeWidth = 3 * s
+        ..color = Colors.white.withValues(alpha: 0.9),
+    );
+    canvas.drawRect(
+      crop,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5 * s
         ..color = accent,
     );
 
-    // Eight handles.
-    final layout = HandleLayout(rect: crop, chromeScale: chromeScale);
-    final fill = Paint()..color = Colors.white;
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5 * chromeScale
-      ..color = accent;
-    final r = handleSize / 2 * chromeScale;
-    for (final handle in selectionHandles) {
-      final c = layout.handleCenter(handle);
-      final rect = Rect.fromCircle(center: c, radius: r);
-      canvas.drawRect(rect, fill);
-      canvas.drawRect(rect, stroke);
+    // Crop handles: L-shaped brackets at the corners and short bars at the
+    // edge midpoints, drawn just inside the frame so they hug the crop line.
+    // Arms shrink on a tiny crop so the corners never overlap.
+    final t = _thickness * s;
+    final arm = math
+        .min(_armLength * s, math.min(crop.width, crop.height) / 2 - t / 2)
+        .clamp(t, double.infinity);
+    final bar = math.min(_barLength * s, math.max(t, crop.width / 3 - t));
+    final barV = math.min(_barLength * s, math.max(t, crop.height / 3 - t));
+    final handles = Path();
+    // a stroke centred on the frame line's inner half
+    final inset = crop.deflate(t / 2 - 0.75 * s);
+    for (final (dx, dy) in const [(-1, -1), (1, -1), (-1, 1), (1, 1)]) {
+      final corner = Offset(
+          dx < 0 ? inset.left : inset.right, dy < 0 ? inset.top : inset.bottom);
+      handles
+        ..moveTo(corner.dx - dx * arm, corner.dy)
+        ..lineTo(corner.dx, corner.dy)
+        ..lineTo(corner.dx, corner.dy - dy * arm);
     }
+    final mid = inset.center;
+    handles
+      ..moveTo(mid.dx - bar / 2, inset.top)
+      ..lineTo(mid.dx + bar / 2, inset.top)
+      ..moveTo(mid.dx - bar / 2, inset.bottom)
+      ..lineTo(mid.dx + bar / 2, inset.bottom)
+      ..moveTo(inset.left, mid.dy - barV / 2)
+      ..lineTo(inset.left, mid.dy + barV / 2)
+      ..moveTo(inset.right, mid.dy - barV / 2)
+      ..lineTo(inset.right, mid.dy + barV / 2);
+    canvas.drawPath(
+      handles,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = t + 2 * s
+        ..strokeCap = StrokeCap.square
+        ..strokeJoin = StrokeJoin.miter
+        ..color = Colors.white,
+    );
+    canvas.drawPath(
+      handles,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = t
+        ..strokeCap = StrokeCap.square
+        ..strokeJoin = StrokeJoin.miter
+        ..color = accent,
+    );
   }
 
   @override

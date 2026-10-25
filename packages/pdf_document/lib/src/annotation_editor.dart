@@ -649,7 +649,9 @@ extension PdfAnnotationEditing on PdfEditor {
   /// for linking existing text). Pass [underlineColor] to draw a hyperlink
   /// underline beneath each quad, or [borderColor] (with [borderWidth]) to
   /// stroke a box around the region; either one generates an appearance
-  /// stream so the decoration shows in every viewer.
+  /// stream so the decoration shows in every viewer. [iconColor] adds a
+  /// small chain-link badge in the region's top-right corner, so a link
+  /// over a bare box reads as a link rather than an empty rectangle.
   void addLinkToUri(
     int pageIndex,
     List<PdfRect> quads, {
@@ -657,6 +659,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -674,6 +677,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -693,6 +697,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -707,6 +712,7 @@ extension PdfAnnotationEditing on PdfEditor {
       underlineColor: underlineColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
+      iconColor: iconColor,
       contents: contents,
       name: name,
     );
@@ -723,6 +729,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) =>
@@ -733,6 +740,7 @@ extension PdfAnnotationEditing on PdfEditor {
         underlineColor: underlineColor,
         borderColor: borderColor,
         borderWidth: borderWidth,
+        iconColor: iconColor,
         contents: contents,
         name: name,
       );
@@ -751,6 +759,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? underlineColor,
     int? borderColor,
     double borderWidth = 1,
+    int? iconColor,
     String? contents,
     String? name,
   }) {
@@ -775,7 +784,7 @@ extension PdfAnnotationEditing on PdfEditor {
     if (contents != null) dict['Contents'] = CosString.fromText(contents);
     dict['NM'] = CosString.fromText(name ?? _generateAnnotationName());
 
-    if (underlineColor != null || hasBorder) {
+    if (underlineColor != null || hasBorder || iconColor != null) {
       final w = ContentWriter();
       if (underlineColor != null) {
         w.strokeColor(underlineColor);
@@ -799,10 +808,55 @@ extension PdfAnnotationEditing on PdfEditor {
             ..stroke();
         }
       }
+      if (iconColor != null) {
+        _linkBadge(w, rect, iconColor, inset: hasBorder ? borderWidth : 0);
+      }
       dict['AP'] = CosDictionary({'N': _updater.addObject(_form(rect, w))});
     }
 
     _linkAnnotation(pageIndex, _updater.addObject(dict));
+  }
+
+  /// Draws the chain-link badge [_addLink]'s `iconColor` asks for: two
+  /// interlocking rounded links at 45 degrees on a white rounded tile,
+  /// tucked into [rect]'s top-right corner (inside a border of width
+  /// [inset]). It scales with the region - up to 18pt, so it stays a badge
+  /// on a large box - and is left out of a region too small to fit one.
+  static void _linkBadge(
+    ContentWriter w,
+    PdfRect rect,
+    int color, {
+    double inset = 0,
+  }) {
+    final room = math.min(rect.width, rect.height) - 2 * inset;
+    final size = math.min(18.0, room * 0.6);
+    if (size < 7) return;
+    final pad = math.min(3.0, size * 0.2);
+    final left = rect.right - inset - pad - size;
+    final bottom = rect.top - inset - pad - size;
+    w
+      ..save()
+      ..fillColor(0xFFFFFF)
+      ..strokeColor(color)
+      ..lineWidth(size * 0.05)
+      ..roundedRect(left, bottom, size, size, size * 0.22)
+      ..fillAndStroke()
+      // a unit cell centred on the tile, turned 45 degrees
+      ..concatMatrix(
+          size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          -size * math.sqrt1_2,
+          size * math.sqrt1_2,
+          left + size / 2,
+          bottom + size / 2)
+      ..roundLines()
+      ..lineWidth(0.085);
+    for (final dx in const [-0.17, 0.17]) {
+      w.roundedRect(dx - 0.22, -0.12, 0.44, 0.24, 0.12);
+    }
+    w
+      ..stroke()
+      ..restore();
   }
 
   /// The indirect reference to page [index], for a /GoTo destination array.
@@ -1403,7 +1457,7 @@ extension PdfAnnotationEditing on PdfEditor {
       ..['BS'] = _borderStyle(strokeWidth, dashPattern: dashPattern);
     if (cloudy) {
       dict['BE'] = CosDictionary({
-        'S': const CosName('Cloudy'),
+        'S': const CosName('C'),
         'I': CosReal(cloudScale),
       });
     }
@@ -1502,8 +1556,11 @@ extension PdfAnnotationEditing on PdfEditor {
   /// through [measure] (or the document default set by [setMeasurementScale]),
   /// stamped into /Contents, and drawn as a caption at the geometry's
   /// anchor. [depth] feeds a volume, [holes] cut a net-area polygon,
-  /// [label] buckets the running total. Throws a [StateError] when no scale
-  /// is available (count needs none).
+  /// [label] buckets the running total. [valueText] is a value the user
+  /// wrote: it becomes the caption and /Contents in place of the computed
+  /// one, is kept in /Takeoff /Value, and survives later reshapes (see
+  /// [setMeasurementValue]). Throws a [StateError] when no scale is
+  /// available (count, and a measurement given a [valueText], need none).
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -1522,11 +1579,18 @@ extension PdfAnnotationEditing on PdfEditor {
     double? depth,
     List<List<(double, double)>> holes = const [],
     String? label,
+    String? valueText,
     String? author,
     String? name,
   }) {
     final m = measure ?? _defaultMeasure;
-    if (m == null && kind != PdfMeasurementKind.count) {
+    // a count marker has no caption to carry a written value
+    final written = valueText == null ||
+            valueText.trim().isEmpty ||
+            kind == PdfMeasurementKind.count
+        ? null
+        : valueText.trim();
+    if (m == null && written == null && kind != PdfMeasurementKind.count) {
       throw StateError(
         'no measurement scale set - call setMeasurementScale '
         'or pass a measure',
@@ -1612,6 +1676,7 @@ extension PdfAnnotationEditing on PdfEditor {
       m,
       depth: depth,
       holes: holes,
+      valueText: written,
     );
     final PdfRect captionBox;
     if (caption.isEmpty) {
@@ -1674,12 +1739,13 @@ extension PdfAnnotationEditing on PdfEditor {
         '/${captionFont.resourceName} ${ContentWriter.fmt(captionSize)} Tf',
       );
     if (m != null) dict['Measure'] = m.toCosDictionary();
-    if (!classic || label != null) {
+    if (!classic || label != null || written != null) {
       dict['Takeoff'] = PdfTakeoffData(
         kind: kind,
         depth: depth,
         holes: holes,
         label: label,
+        valueText: written,
       ).toCosDictionary();
     }
     final leArray = CosArray([
@@ -1789,14 +1855,27 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The caption string and its page-space anchor for any takeoff kind. The
   /// anchor is the segment midpoint (distance/slope), the angle/arc vertex,
   /// or the centroid (perimeter/area/volume/cutout). Count returns an empty
-  /// caption (the marker speaks for itself).
+  /// caption (the marker speaks for itself). A written [valueText] is the
+  /// caption as-is, at the same anchor, and needs no [m].
   (String, (double, double)) _takeoffCaption(
     PdfMeasurementKind kind,
     List<(double, double)> points,
     PdfMeasure? m, {
     double? depth,
     List<List<(double, double)>> holes = const [],
+    String? valueText,
   }) {
+    if (valueText != null && kind != PdfMeasurementKind.count) {
+      final anchor = switch (kind) {
+        PdfMeasurementKind.distance || PdfMeasurementKind.slope => (
+            (points.first.$1 + points.last.$1) / 2,
+            (points.first.$2 + points.last.$2) / 2,
+          ),
+        PdfMeasurementKind.angle || PdfMeasurementKind.arc => points[1],
+        _ => _centroid(points),
+      };
+      return (valueText, anchor);
+    }
     String angle(double deg) =>
         m?.formatAngle(deg) ??
         const PdfNumberFormat(unit: '°', precision: 10).format(deg);
@@ -1930,16 +2009,20 @@ extension PdfAnnotationEditing on PdfEditor {
     final kind = annotation.measurementKind;
     if (kind == null) return (rect, null);
     final measure = annotation.measure;
-    if (measure == null && kind != PdfMeasurementKind.count) {
+    final takeoff = annotation.takeoff;
+    final written = takeoff?.valueText;
+    if (measure == null &&
+        written == null &&
+        kind != PdfMeasurementKind.count) {
       return (rect, null);
     }
-    final takeoff = annotation.takeoff;
     final (caption, anchor) = _takeoffCaption(
       kind,
       points,
       measure,
       depth: takeoff?.depth,
       holes: takeoff?.holes ?? const [],
+      valueText: written,
     );
     if (caption.isEmpty) return (rect, null); // count marker: no label
     final (font, size, color) = _measurementCaptionStyle(annotation);
@@ -1987,6 +2070,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int color = 0x000000,
     int? fillColor,
     int? borderColor,
@@ -2026,6 +2110,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2050,6 +2135,7 @@ extension PdfAnnotationEditing on PdfEditor {
             (textDirection.resolve(text) == PdfTextDirection.rtl ? 2 : 0),
       );
     _writeFreeTextSpacing(dict,
+        verticalAlign: verticalAlign,
         lineSpacing: lineSpacing,
         charSpacing: charSpacing,
         horizontalScale: horizontalScale,
@@ -2089,6 +2175,12 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [strokeColor], [strokeWidth], and [leaderDash] style the leaders;
   /// [outlineColor], [outlineWidth], and [outlineDash] style the box separately.
   /// Pass `outlineColor: (null,)` or an outline width of zero for no outline.
+  ///
+  /// A [region] makes a cloud callout (Bluebeam's Cloud+): the callout marks
+  /// that area - drawn as a revision cloud or a plain polygon in the leader's
+  /// colour and width - and the first leader runs from the box to the
+  /// region's outline, so [target] is unused. [reshapeCallout] moves or
+  /// reshapes the region and [restyleCalloutRegion] restyles it.
   void addCallout(
     int pageIndex,
     PdfRect boxRect,
@@ -2100,6 +2192,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfTextFont font = PdfStandardFont.helvetica,
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int color = 0x000000,
     int? fillColor,
     int strokeColor = 0xD02020,
@@ -2108,6 +2201,7 @@ extension PdfAnnotationEditing on PdfEditor {
     (int?,)? outlineColor,
     double? outlineWidth,
     List<double>? outlineDash,
+    PdfCalloutRegion? region,
     double opacity = 1,
     PdfLineEnding ending = PdfLineEnding.openArrow,
     double lineSpacing = _defaultLineSpacing,
@@ -2140,6 +2234,7 @@ extension PdfAnnotationEditing on PdfEditor {
       ending,
       strokeWidth,
       pad: math.max(strokeWidth, borderWidth),
+      region: region,
     );
     final rect = geometry.rect;
 
@@ -2152,6 +2247,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2160,6 +2256,7 @@ extension PdfAnnotationEditing on PdfEditor {
       lineColor: strokeColor,
       lineWidth: strokeWidth,
       lineDash: leaderDash,
+      region: region,
       ending: ending,
       hasAlpha: gs != null,
       lineSpacing: lineSpacing,
@@ -2186,8 +2283,10 @@ extension PdfAnnotationEditing on PdfEditor {
       );
     _writeCalloutLeaders(dict, geometry.lines);
     _writeCalloutLeaderStyle(dict, strokeColor, strokeWidth, leaderDash);
+    _writeCalloutRegion(dict, region);
     _writeFreeTextSpacing(
       dict,
+      verticalAlign: verticalAlign,
       lineSpacing: lineSpacing,
       charSpacing: charSpacing,
       horizontalScale: horizontalScale,
@@ -2212,18 +2311,28 @@ extension PdfAnnotationEditing on PdfEditor {
   /// The leader polylines of a callout whose text box is [box], one per
   /// entry of [leaders], and the /Rect enclosing the box, every leader, and
   /// each arrowhead (so the markup survives §12.5.5 appearance fitting).
+  ///
+  /// With a [region] the first leader's target is its outline (see
+  /// [_calloutRegionTip]) and /Rect also encloses the region's outline.
   ({List<List<(double, double)>> lines, PdfRect rect}) _calloutGeometry(
     PdfRect box,
     List<PdfCalloutLeader> leaders,
     PdfLineEnding ending,
     double strokeWidth, {
     double? pad,
+    PdfCalloutRegion? region,
   }) {
     final lines = [
-      for (final leader in leaders)
-        _calloutLine(box, leader.target, attach: leader.attach),
+      for (var i = 0; i < leaders.length; i++)
+        _calloutLine(
+            box,
+            i == 0 && region != null
+                ? _calloutRegionTip(region, box, strokeWidth)
+                : leaders[i].target,
+            attach: leaders[i].attach),
     ];
-    return _calloutPolylineGeometry(box, lines, ending, strokeWidth, pad: pad);
+    return _calloutPolylineGeometry(box, lines, ending, strokeWidth,
+        pad: pad, region: region);
   }
 
   ({List<List<(double, double)>> lines, PdfRect rect}) _calloutPolylineGeometry(
@@ -2232,6 +2341,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfLineEnding ending,
     double strokeWidth, {
     double? pad,
+    PdfCalloutRegion? region,
   }) {
     final rect = _pointBounds([
       (box.left, box.bottom),
@@ -2240,8 +2350,140 @@ extension PdfAnnotationEditing on PdfEditor {
         ...line,
         ..._endingExtent(ending, line.first, line[1], strokeWidth),
       ],
-    ], pad ?? strokeWidth);
+      ...?region?.vertices,
+    ], math.max(pad ?? strokeWidth, _calloutRegionPad(region, strokeWidth)));
     return (lines: lines, rect: rect);
+  }
+
+  /// The /Rect padding a callout's [region] outline needs: room for the
+  /// cloud's puffs (or the pen of a plain polygon); 0 without a region.
+  double _calloutRegionPad(PdfCalloutRegion? region, double strokeWidth) =>
+      switch (region?.shape) {
+        null => 0,
+        PdfCalloutRegionShape.cloud =>
+          _cloudPadding(strokeWidth, region!.cloudScale),
+        PdfCalloutRegionShape.polygon => _linePadding(strokeWidth),
+      };
+
+  /// Where a cloud callout's leader meets its [region]: the point of the
+  /// region's outline nearest the text [box]'s centre - on a cloud, out on
+  /// the scallop over that point (or in the cusp between two), so the leader
+  /// touches the drawn outline rather than the polygon under the puffs.
+  (double, double) _calloutRegionTip(
+    PdfCalloutRegion region,
+    PdfRect box,
+    double strokeWidth,
+  ) {
+    final points = region.vertices;
+    final cx = (box.left + box.right) / 2, cy = (box.bottom + box.top) / 2;
+    var best = points.first;
+    var bestDistance = double.infinity;
+    var bestEdge = 0;
+    var bestT = 0.0;
+    for (var i = 0; i < points.length; i++) {
+      final a = points[i];
+      final b = points[(i + 1) % points.length];
+      final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+      final len2 = dx * dx + dy * dy;
+      final t = len2 == 0
+          ? 0.0
+          : (((cx - a.$1) * dx + (cy - a.$2) * dy) / len2)
+              .clamp(0.0, 1.0)
+              .toDouble();
+      final p = (a.$1 + dx * t, a.$2 + dy * t);
+      final d = math.pow(p.$1 - cx, 2) + math.pow(p.$2 - cy, 2);
+      if (d < bestDistance) {
+        bestDistance = d.toDouble();
+        best = p;
+        bestEdge = i;
+        bestT = t;
+      }
+    }
+    if (region.shape != PdfCalloutRegionShape.cloud) return best;
+    final a = points[bestEdge];
+    final b = points[(bestEdge + 1) % points.length];
+    final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+    final length = math.sqrt(dx * dx + dy * dy);
+    if (length < 0.01) return best;
+    // the outward normal, as _appendCloudPath bulges it
+    final clockwise = _signedArea(points) < 0;
+    final ux = dx / length, uy = dy / length;
+    final nx = clockwise ? -uy : uy;
+    final ny = clockwise ? ux : -ux;
+    final h = _cloudOutlineHeight(
+        length, bestT * length, strokeWidth, region.cloudScale);
+    return (best.$1 + nx * h, best.$2 + ny * h);
+  }
+
+  /// How far the cloud outline [_appendCloudPath] draws along an edge of
+  /// [length] stands out past the edge at distance [s] along it: the scallop
+  /// over that point, approximated as a half-ellipse from foot to apex - the
+  /// apex height mid-puff, dipping to the inset cusp between two.
+  double _cloudOutlineHeight(
+    double length,
+    double s,
+    double strokeWidth,
+    double cloudScale,
+  ) {
+    final arc = _cloudArcRadius(strokeWidth, cloudScale);
+    final scallops = math.max(1, (length / (2 * arc)).round());
+    final chord = length / scallops;
+    final r = chord / 2;
+    final bulge = math.min(r, arc) * _cloudBulgeFactor;
+    final inset = bulge * _cloudNeckInset;
+    final j = (s / chord).floor().clamp(0, scallops - 1);
+    final u = ((s - (j + 0.5) * chord) / r).clamp(-1.0, 1.0);
+    return -inset + (bulge + inset) * math.sqrt(1 - u * u);
+  }
+
+  /// Persists a cloud callout's [region] ([kPdfCalloutRegionKey] and its
+  /// style), or removes it when null.
+  void _writeCalloutRegion(CosDictionary dict, PdfCalloutRegion? region) {
+    if (region == null) {
+      dict.entries
+        ..remove(kPdfCalloutRegionKey)
+        ..remove(kPdfCalloutRegionStyleKey);
+      return;
+    }
+    final dash = region.dash;
+    dict[kPdfCalloutRegionKey] = _pointArray(region.vertices);
+    dict[kPdfCalloutRegionStyleKey] = CosDictionary({
+      'S': CosName(
+          region.shape == PdfCalloutRegionShape.cloud ? 'Cloud' : 'Polygon'),
+      'I': CosReal(region.cloudScale),
+      if (dash != null && dash.isNotEmpty)
+        'D': CosArray([for (final n in dash) CosReal(n)]),
+    });
+  }
+
+  /// A cloud callout's region outline: its cloud or polygon, stroked with the
+  /// leader [color] and [width] (and the region's own dash), unfilled.
+  ContentWriter _calloutRegionContent(
+    PdfCalloutRegion region,
+    int color,
+    double width,
+  ) {
+    final w = ContentWriter()
+      ..strokeColor(color)
+      ..lineWidth(width)
+      ..lineCap(1)
+      ..lineJoin(1);
+    final dash = region.dash;
+    final dashed = dash != null && dash.isNotEmpty;
+    if (dashed) w.dash(dash);
+    final points = region.vertices;
+    if (region.shape == PdfCalloutRegionShape.cloud) {
+      _appendCloudPath(w, points, width, region.cloudScale);
+    } else {
+      w.moveTo(points.first.$1, points.first.$2);
+      for (final p in points.skip(1)) {
+        w.lineTo(p.$1, p.$2);
+      }
+      w.closePath();
+    }
+    w.stroke();
+    if (dashed) w.dash(const []);
+    return w;
   }
 
   /// Persists a callout's leader polylines: the first in the standard /CL,
@@ -2340,11 +2582,17 @@ extension PdfAnnotationEditing on PdfEditor {
   /// unchanged.
   static void _writeFreeTextSpacing(
     CosDictionary dict, {
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required double lineSpacing,
     required double charSpacing,
     required double horizontalScale,
     required bool underline,
   }) {
+    if (verticalAlign == PdfTextVerticalAlign.top) {
+      dict.entries.remove(kPdfFreeTextVerticalAlignKey);
+    } else {
+      dict[kPdfFreeTextVerticalAlignKey] = CosName(verticalAlign.name);
+    }
     if (lineSpacing != _defaultLineSpacing) {
       dict[kPdfFreeTextLineSpacingKey] = CosReal(lineSpacing);
     } else {
@@ -2380,7 +2628,8 @@ extension PdfAnnotationEditing on PdfEditor {
       ]);
 
   /// Builds a callout's appearance: each leader line with its arrowhead
-  /// (drawn first, in page space) and the text box on top.
+  /// (drawn first, in page space), a cloud callout's region outline, and the
+  /// text box on top.
   ContentWriter _calloutContent(
     PdfRect boxRect,
     List<List<(double, double)>> leaders,
@@ -2389,6 +2638,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required PdfTextFont font,
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -2397,6 +2647,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required int lineColor,
     required double lineWidth,
     List<double>? lineDash,
+    PdfCalloutRegion? region,
     required PdfLineEnding ending,
     bool hasAlpha = false,
     double lineSpacing = _defaultLineSpacing,
@@ -2412,6 +2663,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: font,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       borderColor: borderColor,
@@ -2437,6 +2689,9 @@ extension PdfAnnotationEditing on PdfEditor {
         endEnding: PdfLineEnding.none,
         hasAlpha: false,
       ));
+    }
+    if (region != null) {
+      w.append(_calloutRegionContent(region, lineColor, lineWidth));
     }
     return w..append(box);
   }
@@ -2468,6 +2723,11 @@ extension PdfAnnotationEditing on PdfEditor {
   /// ending; regenerates /CL, the extra leaders, /RD, /Rect, and the
   /// appearance. Returns false when [annotation] is not a callout this
   /// editor can reproduce, or has no leader [leader].
+  ///
+  /// [region] gives a cloud callout's marked area new corners (page space);
+  /// its leader follows. A cloud callout's first leader always runs from the
+  /// box's facing edge to the region, so its [target] and [attach] are not
+  /// pinned - they are recomputed from the box and region on every rebuild.
   bool reshapeCallout(
     int pageIndex,
     PdfAnnotation annotation, {
@@ -2475,23 +2735,31 @@ extension PdfAnnotationEditing on PdfEditor {
     (double, double)? target,
     (double, double)? attach,
     int leader = 0,
+    List<(double, double)>? region,
   }) {
     final info = _calloutInfo(annotation);
     if (info == null) return false;
     if (leader < 0 || leader >= info.leaders.length) return false;
+    if (region != null && region.length < 3) return false;
+    final oldRegion = annotation.calloutRegion;
+    if (region != null && oldRegion == null) return false;
     final oldBox = _boxFromRd(annotation);
     final newBox = box ?? oldBox;
     final leaders = <PdfCalloutLeader>[
       for (var i = 0; i < info.leaders.length; i++)
-        (
-          target:
-              i == leader && target != null ? target : info.leaders[i].first,
-          attach: i == leader && attach != null
-              ? attach
-              : _carryCalloutAttach(info.leaders[i].last, oldBox, box),
-        ),
+        if (i == 0 && oldRegion != null)
+          (target: info.leaders[0].first, attach: null)
+        else
+          (
+            target:
+                i == leader && target != null ? target : info.leaders[i].first,
+            attach: i == leader && attach != null
+                ? attach
+                : _carryCalloutAttach(info.leaders[i].last, oldBox, box),
+          ),
     ];
-    return _rebuildCallout(pageIndex, annotation, newBox, leaders, info.ending);
+    return _rebuildCallout(pageIndex, annotation, newBox, leaders, info.ending,
+        region: region == null ? null : oldRegion!.copyWith(vertices: region));
   }
 
   /// Adds another leader to [annotation]'s callout box, pointing at [target]
@@ -2575,8 +2843,12 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfLineEnding ending, {
     List<List<(double, double)>>? preservedLines,
     PdfMatrix? appearanceToPage,
+    PdfCalloutRegion? region,
   }) {
     if (leaders.isEmpty) return false;
+    // a cloud callout's region, in the same frame as [box] and [leaders]
+    // (callers rebuilding in a rotated appearance's local frame pass it)
+    region ??= annotation.calloutRegion;
     final style = annotation.freeTextStyle;
     if (style == null) return false;
     final stdFont = PdfStandardFont.tryFromName(style.fontName);
@@ -2600,9 +2872,11 @@ extension PdfAnnotationEditing on PdfEditor {
     final leaderStyle = annotation.calloutLeaderStyle!;
     final leaderColor = leaderStyle.color;
     final leaderWidth = leaderStyle.width;
-    final geometry = preservedLines == null
+    // a cloud callout's leader is re-seated on its region whatever the
+    // restyle, since the tip follows the region outline
+    final geometry = preservedLines == null || region != null
         ? _calloutGeometry(box, leaders, ending, leaderWidth,
-            pad: math.max(style.borderWidth, leaderWidth))
+            pad: math.max(style.borderWidth, leaderWidth), region: region)
         : _calloutPolylineGeometry(box, preservedLines, ending, leaderWidth,
             pad: math.max(style.borderWidth, leaderWidth));
     final rect = geometry.rect;
@@ -2617,6 +2891,7 @@ extension PdfAnnotationEditing on PdfEditor {
       font: effectiveFont,
       textDirection: PdfTextDirection.auto,
       align: style.alignment,
+      verticalAlign: style.verticalAlignment,
       color: style.color,
       fillColor: style.fillColor,
       borderColor: style.borderColor,
@@ -2625,6 +2900,7 @@ extension PdfAnnotationEditing on PdfEditor {
       lineColor: leaderColor,
       lineWidth: leaderWidth,
       lineDash: leaderStyle.dash,
+      region: region,
       ending: ending,
       hasAlpha: gs != null,
       lineSpacing: style.lineSpacing,
@@ -2637,6 +2913,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final dict = annotation.dict;
     dict['Rect'] = _rectArray(rect);
     _writeCalloutLeaders(dict, geometry.lines);
+    _writeCalloutRegion(dict, region);
     dict['RD'] = _rdArray(rect, box);
     dict.entries
       ..remove(kPdfCalloutRDFrameKey)
@@ -2680,6 +2957,14 @@ extension PdfAnnotationEditing on PdfEditor {
         for (final line in geometry.lines)
           [for (final p in line) appearanceToPage.apply(p.$1, p.$2)],
       ]);
+      if (region != null) {
+        _writeCalloutRegion(
+            dict,
+            region.copyWith(vertices: [
+              for (final p in region.vertices)
+                appearanceToPage.apply(p.$1, p.$2),
+            ]));
+      }
     }
     _markAnnotationChanged(pageIndex, dict);
     return true;
@@ -2712,49 +2997,121 @@ extension PdfAnnotationEditing on PdfEditor {
         (width != null && (!width.isFinite || width <= 0))) {
       return false;
     }
-    var box = annotation.calloutBox!;
-    var lines = info.leaders;
-    PdfMatrix? appearanceToPage;
-    final currentForm = annotation.normalAppearance;
-    final currentTransform = currentForm == null
-        ? null
-        : _bakedFormMatrix(currentForm, annotation.rect);
-    if (currentTransform != null && currentTransform != PdfMatrix.identity) {
-      final form = annotation.normalAppearance;
-      final bbox = form == null
-          ? null
-          : pdfRectFrom(document.cos, form.dictionary['BBox']);
-      appearanceToPage =
-          form == null ? null : _bakedFormMatrix(form, annotation.rect);
-      final inverse = appearanceToPage?.inverted();
-      if (bbox == null || inverse == null) return false;
-      lines = [
-        for (final line in info.leaders)
-          [for (final p in line) inverse.apply(p.$1, p.$2)],
-      ];
-      // /RD belongs to the authored appearance frame. Rotated page-space
-      // leader points must return to that frame before redrawing, otherwise
-      // a style-only change scales and rotates the arrow a second time.
-      final local = CosDictionary({...annotation.dict.entries})
-        ..entries.remove(kPdfCalloutRDFrameKey)
-        ..['Rect'] = _rectArray(bbox)
-        ..['CL'] = _pointArray(lines.first);
-      if (annotation.dict[kPdfCalloutLocalRDKey] case final localRd?) {
-        local['RD'] = localRd;
-      }
-      box = PdfAnnotation.fromDict(document, local).calloutBox!;
-    }
+    final frame = _calloutLocalFrame(annotation, info.leaders);
+    if (frame == null) return false;
     _writeCalloutLeaderStyle(annotation.dict, color ?? old.color,
         width ?? old.width, dash == null ? old.dash : dash.$1);
     if (ending != null) annotation.dict['LE'] = CosName(ending.pdfName);
+    return _rebuildCallout(pageIndex, annotation, frame.box,
+        _framedLeaders(frame), ending ?? info.ending,
+        preservedLines: frame.lines,
+        appearanceToPage: frame.appearanceToPage,
+        region: frame.region);
+  }
+
+  /// Restyles a cloud callout's marked region: [shape] switches between a
+  /// revision cloud and the plain polygon (a rectangle as dragged out),
+  /// [cloudScale] resizes the cloud's scallops, and [dash] dashes the outline
+  /// (`(null,)` for solid). The text, box and leader style stay; the leader
+  /// re-seats on the new outline. False when [annotation] is not a cloud
+  /// callout this editor can reproduce.
+  bool restyleCalloutRegion(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    PdfCalloutRegionShape? shape,
+    double? cloudScale,
+    (List<double>?,)? dash,
+  }) {
+    final info = _calloutInfo(annotation);
+    if (info == null ||
+        annotation.calloutRegion == null ||
+        annotation.freeTextStyle == null ||
+        annotation.calloutLeaderStyle == null ||
+        (cloudScale != null && (!cloudScale.isFinite || cloudScale <= 0))) {
+      return false;
+    }
+    final frame = _calloutLocalFrame(annotation, info.leaders);
+    if (frame == null) return false;
     return _rebuildCallout(
-        pageIndex,
-        annotation,
-        box,
-        [for (final line in lines) (target: line.first, attach: line.last)],
-        ending ?? info.ending,
-        preservedLines: lines,
-        appearanceToPage: appearanceToPage);
+      pageIndex,
+      annotation,
+      frame.box,
+      _framedLeaders(frame),
+      info.ending,
+      appearanceToPage: frame.appearanceToPage,
+      region: frame.region!
+          .copyWith(shape: shape, cloudScale: cloudScale, dash: dash),
+    );
+  }
+
+  /// The leaders to rebuild a [frame] with: each keeps its tip and base,
+  /// except a cloud callout's first, which re-seats on the region.
+  List<PdfCalloutLeader> _framedLeaders(
+    ({
+      PdfRect box,
+      List<List<(double, double)>> lines,
+      PdfCalloutRegion? region,
+      PdfMatrix? appearanceToPage,
+    }) frame,
+  ) =>
+      [
+        for (var i = 0; i < frame.lines.length; i++)
+          (
+            target: frame.lines[i].first,
+            attach: i == 0 && frame.region != null ? null : frame.lines[i].last,
+          ),
+      ];
+
+  /// [annotation]'s callout box, [leaders] and region in the frame its
+  /// appearance is authored in: page space normally, or - for a rotated
+  /// callout whose form carries a baked matrix - the form's local frame, with
+  /// the matrix that maps it back to the page. Null when that frame can't be
+  /// recovered.
+  ({
+    PdfRect box,
+    List<List<(double, double)>> lines,
+    PdfCalloutRegion? region,
+    PdfMatrix? appearanceToPage,
+  })? _calloutLocalFrame(
+    PdfAnnotation annotation,
+    List<List<(double, double)>> leaders,
+  ) {
+    var box = annotation.calloutBox!;
+    var lines = leaders;
+    var region = annotation.calloutRegion;
+    final form = annotation.normalAppearance;
+    final appearanceToPage =
+        form == null ? null : _bakedFormMatrix(form, annotation.rect);
+    if (appearanceToPage == null || appearanceToPage == PdfMatrix.identity) {
+      return (box: box, lines: lines, region: region, appearanceToPage: null);
+    }
+    final bbox = pdfRectFrom(document.cos, form!.dictionary['BBox']);
+    final inverse = appearanceToPage.inverted();
+    if (bbox == null || inverse == null) return null;
+    lines = [
+      for (final line in leaders)
+        [for (final p in line) inverse.apply(p.$1, p.$2)],
+    ];
+    region = region?.copyWith(vertices: [
+      for (final p in region.vertices) inverse.apply(p.$1, p.$2),
+    ]);
+    // /RD belongs to the authored appearance frame. Rotated page-space
+    // leader points must return to that frame before redrawing, otherwise
+    // a style-only change scales and rotates the arrow a second time.
+    final local = CosDictionary({...annotation.dict.entries})
+      ..entries.remove(kPdfCalloutRDFrameKey)
+      ..['Rect'] = _rectArray(bbox)
+      ..['CL'] = _pointArray(lines.first);
+    if (annotation.dict[kPdfCalloutLocalRDKey] case final localRd?) {
+      local['RD'] = localRd;
+    }
+    box = PdfAnnotation.fromDict(document, local).calloutBox!;
+    return (
+      box: box,
+      lines: lines,
+      region: region,
+      appearanceToPage: appearanceToPage,
+    );
   }
 
   /// Adds a rich free-text annotation whose appearance can switch font,
@@ -2770,6 +3127,7 @@ extension PdfAnnotationEditing on PdfEditor {
     List<PdfFreeTextRun> runs, {
     PdfTextDirection textDirection = PdfTextDirection.auto,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     int? fillColor,
     int? borderColor,
     double borderWidth = 1,
@@ -2815,6 +3173,7 @@ extension PdfAnnotationEditing on PdfEditor {
       effective,
       textDirection: textDirection,
       align: align,
+      verticalAlign: verticalAlign,
       fillColor: fillColor,
       borderColor: borderColor,
       borderWidth: borderWidth,
@@ -2847,6 +3206,7 @@ extension PdfAnnotationEditing on PdfEditor {
     // a whole-box underline (every run underlined) is also mirrored in the
     // box-level flag so a flat re-read still shows it
     _writeFreeTextSpacing(dict,
+        verticalAlign: verticalAlign,
         lineSpacing: lineSpacing,
         charSpacing: charSpacing,
         horizontalScale: horizontalScale,
@@ -2995,6 +3355,7 @@ extension PdfAnnotationEditing on PdfEditor {
     required PdfTextFont font,
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -3049,6 +3410,12 @@ extension PdfAnnotationEditing on PdfEditor {
       align: effectiveAlign,
       padding: pad,
       lineHeight: fontSize * lineSpacing,
+      vAlign: switch (verticalAlign) {
+        PdfTextVerticalAlign.top => PdfTextBoxVAlign.top,
+        PdfTextVerticalAlign.center => PdfTextBoxVAlign.centerBlock,
+        PdfTextVerticalAlign.bottom => PdfTextBoxVAlign.bottomBlock,
+      },
+      clampVerticalAlign: true,
       leading: true,
       measureLine: (s) => _advanceWidth(font, s, fontSize,
           charSpacing: charSpacing, horizontalScale: horizontalScale),
@@ -3086,6 +3453,7 @@ extension PdfAnnotationEditing on PdfEditor {
     List<PdfFreeTextRun> runs, {
     required PdfTextDirection textDirection,
     PdfTextAlign? align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int? fillColor,
     required int? borderColor,
     required double borderWidth,
@@ -3126,7 +3494,26 @@ extension PdfAnnotationEditing on PdfEditor {
     final effectiveAlign = align ?? _alignForDirection(resolvedDirection);
     final lines = _wrapRich(runs, vr.width - 2 * pad,
         charSpacing: charSpacing, horizontalScale: horizontalScale);
-    var top = vr.top - pad;
+    // Count every wrapped line, including blank lines, using its largest
+    // run. Trailing leading is not part of the visible block.
+    double emHeight(_RichTextLine line) => line.runs.isEmpty
+        ? 12
+        : line.runs.fold<double>(
+            0, (height, run) => math.max(height, run.style.fontSize));
+    final blockHeight = verticalAlign == PdfTextVerticalAlign.top ||
+            lines.isEmpty
+        ? 0.0
+        : lines.take(lines.length - 1).fold<double>(
+                0, (height, line) => height + emHeight(line) * lineSpacing) +
+            emHeight(lines.last);
+    final spare = math.max(0.0, vr.height - 2 * pad - blockHeight);
+    var top = vr.top -
+        pad -
+        switch (verticalAlign) {
+          PdfTextVerticalAlign.top => 0.0,
+          PdfTextVerticalAlign.center => spare / 2,
+          PdfTextVerticalAlign.bottom => spare,
+        };
     var prevX = 0.0;
     var prevY = 0.0;
     final underlines = <PdfTextUnderline>[];
@@ -4227,7 +4614,13 @@ extension PdfAnnotationEditing on PdfEditor {
     dict['Rect'] = _rectArray(
       PdfRect(rect.left + dx, rect.bottom + dy, rect.right + dx, rect.top + dy),
     );
-    for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+    for (final key in const [
+      'QuadPoints',
+      'L',
+      'Vertices',
+      'CL',
+      kPdfCalloutRegionKey
+    ]) {
       final shifted = _shiftPoints(dict[key], dx, dy);
       if (shifted != null) dict[key] = shifted;
     }
@@ -4349,6 +4742,71 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotationChanged(pageIndex, dict);
   }
 
+  /// Writes [valueText] as the value of a measurement annotation (a /Line,
+  /// /PolyLine, or /Polygon that [PdfAnnotation.measurementKind] reads as
+  /// one), in place: the caption and /Contents show it instead of the value
+  /// computed from the geometry, it is kept in /Takeoff /Value, and later
+  /// reshapes keep it. Null or blank clears it back to the computed value,
+  /// which needs the annotation's own /Measure - without one there is
+  /// nothing to fall back to, so the clear is refused. Returns false (and
+  /// changes nothing) for a non-measurement, a count marker, a refused
+  /// clear, or when the value is unchanged.
+  bool setMeasurementValue(
+    int pageIndex,
+    PdfAnnotation annotation,
+    String? valueText,
+  ) {
+    final subtype = annotation.subtype;
+    if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
+      return false;
+    }
+    final kind = annotation.measurementKind;
+    if (kind == null || kind == PdfMeasurementKind.count) return false;
+    final written =
+        valueText == null || valueText.trim().isEmpty ? null : valueText.trim();
+    final current = annotation.takeoff;
+    if (written == current?.valueText) return false;
+    if (written == null && annotation.measure == null) return false;
+    final List<(double, double)> points;
+    if (subtype == 'Line') {
+      final line = annotation.line;
+      if (line == null) return false;
+      points = [line.$1, line.$2];
+    } else {
+      final vertices = annotation.vertices;
+      if (vertices == null || vertices.length < 2) return false;
+      points = vertices;
+    }
+    final takeoff = PdfTakeoffData(
+      kind: kind,
+      depth: current?.depth,
+      holes: current?.holes ?? const [],
+      label: current?.label,
+      valueText: written,
+    );
+    // the classic three are recognised by subtype + /Measure, so a cleared
+    // value with nothing else to record drops /Takeoff altogether
+    final classic = kind == PdfMeasurementKind.distance ||
+        kind == PdfMeasurementKind.perimeter ||
+        kind == PdfMeasurementKind.area;
+    final dict = annotation.dict;
+    if (classic &&
+        written == null &&
+        (current?.label == null || current!.label!.isEmpty)) {
+      dict.entries.remove('Takeoff');
+    } else {
+      dict['Takeoff'] = takeoff.toCosDictionary();
+    }
+    // re-wrap: the dict's /Takeoff just changed under the caller's instance,
+    // and reshape reads the caption back through a fresh parse
+    final fresh = PdfAnnotation.fromDict(document, dict);
+    reshapeLineAnnotation(pageIndex, fresh, points);
+    final caption = fresh.measurementText;
+    if (caption != null) dict['Contents'] = CosString.fromText(caption);
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
+  }
+
   /// Sets the /LE line endings of a /Line or /PolyLine in place, keeping
   /// the annotation's object number and /Annots slot. The appearance,
   /// /Rect, and BBox regenerate from the current geometry with the new
@@ -4407,7 +4865,9 @@ extension PdfAnnotationEditing on PdfEditor {
     if (subtype != 'Line' && subtype != 'PolyLine' && subtype != 'Polygon') {
       return false;
     }
-    if (annotation.measure == null) return false;
+    if (annotation.measure == null && annotation.takeoff?.valueText == null) {
+      return false;
+    }
     final (curFont, curSize, color) = _measurementCaptionStyle(annotation);
     final newFont = font ?? curFont;
     final newSize = size ?? curSize;
@@ -4595,7 +5055,13 @@ extension PdfAnnotationEditing on PdfEditor {
       return flipY ? to.top - t : to.bottom + t;
     }
 
-    for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+    for (final key in const [
+      'QuadPoints',
+      'L',
+      'Vertices',
+      'CL',
+      kPdfCalloutRegionKey
+    ]) {
       final scaled = _mapPoints(dict[key], mapX, mapY);
       if (scaled != null) dict[key] = scaled;
     }
@@ -4706,6 +5172,7 @@ extension PdfAnnotationEditing on PdfEditor {
       cy - (cx * sinT + cy * cosT),
     );
     final matrix = baked.concat(rotation);
+    _transformGroupRotation(annotDict, rotation);
     form.dictionary['Matrix'] =
         CosArray([for (final v in matrix.toList()) CosReal(v)]);
 
@@ -4719,7 +5186,13 @@ extension PdfAnnotationEditing on PdfEditor {
           cx + (x - cx) * cosT - (y - cy) * sinT,
           cy + (x - cx) * sinT + (y - cy) * cosT,
         );
-    for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+    for (final key in const [
+      'QuadPoints',
+      'L',
+      'Vertices',
+      'CL',
+      kPdfCalloutRegionKey
+    ]) {
       final rotated = _mapPointPairs(annotDict[key], rotate);
       if (rotated != null) annotDict[key] = rotated;
     }
@@ -4861,7 +5334,13 @@ extension PdfAnnotationEditing on PdfEditor {
     }
 
     (double, double) map(double x, double y) => local.apply(x, y);
-    for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+    for (final key in const [
+      'QuadPoints',
+      'L',
+      'Vertices',
+      'CL',
+      kPdfCalloutRegionKey
+    ]) {
       final mapped = _mapPointPairs(dict[key], map);
       if (mapped != null) dict[key] = mapped;
     }
@@ -4885,7 +5364,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    return angle.abs() < 0.005 ? 0 : angle;
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   /// Regenerates the appearance of a Square, Circle, FreeText, Line,
@@ -4907,6 +5386,9 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final form = annotation.normalAppearance;
     if (form == null) return false;
+    if (behavior.resizeBehavior == PdfAnnotationResizeBehavior.reflowTable) {
+      return _regenerateTableAppearance(annotation, to, pageRotation);
+    }
     final dict = annotation.dict;
     switch (annotation.subtype) {
       case 'Square' || 'Circle':
@@ -4978,6 +5460,7 @@ extension PdfAnnotationEditing on PdfEditor {
             effective,
             textDirection: PdfTextDirection.auto,
             align: style.alignment,
+            verticalAlign: style.verticalAlignment,
             fillColor: style.fillColor,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth,
@@ -5011,6 +5494,12 @@ extension PdfAnnotationEditing on PdfEditor {
             final leaders = [
               for (final line in callout.leaders) [for (final p in line) map(p)]
             ];
+            final region = annotation.calloutRegion;
+            final mappedRegion = region
+                ?.copyWith(vertices: [for (final p in region.vertices) map(p)]);
+            if (mappedRegion != null) {
+              _writeCalloutRegion(dict, mappedRegion);
+            }
             final oldBox = _boxFromRd(annotation);
             final box = PdfRect(
               to.left + (oldBox.left - from.left) * sx,
@@ -5030,6 +5519,7 @@ extension PdfAnnotationEditing on PdfEditor {
               font: effectiveFont,
               textDirection: PdfTextDirection.auto,
               align: style.alignment,
+              verticalAlign: style.verticalAlignment,
               color: style.color,
               fillColor: style.fillColor,
               borderColor: style.borderColor,
@@ -5038,6 +5528,7 @@ extension PdfAnnotationEditing on PdfEditor {
               lineColor: annotation.calloutLeaderStyle!.color,
               lineWidth: annotation.calloutLeaderStyle!.width,
               lineDash: annotation.calloutLeaderStyle!.dash,
+              region: mappedRegion,
               ending: callout.ending,
               hasAlpha: gs != null,
               lineSpacing: style.lineSpacing,
@@ -5055,6 +5546,7 @@ extension PdfAnnotationEditing on PdfEditor {
               // direction follows the text; /Q carries the explicit alignment
               textDirection: PdfTextDirection.auto,
               align: style.alignment,
+              verticalAlign: style.verticalAlignment,
               color: style.color,
               fillColor: style.fillColor,
               borderColor: style.borderColor,
@@ -5449,7 +5941,13 @@ extension PdfAnnotationEditing on PdfEditor {
         local['RD'] = localRd;
       }
       void mapPoints(CosDictionary target, PdfMatrix transform) {
-        for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+        for (final key in const [
+          'QuadPoints',
+          'L',
+          'Vertices',
+          'CL',
+          kPdfCalloutRegionKey
+        ]) {
           final points = _mapPointPairs(target[key], transform.apply);
           if (points != null) target[key] = points;
         }
@@ -6623,8 +7121,8 @@ extension PdfAnnotationEditing on PdfEditor {
     return rect;
   }
 
-  /// Greedy word wrap with [font]'s metrics; a single word longer than
-  /// [maxWidth] overflows (and is clipped by the appearance).
+  /// Word wrap with [font]'s metrics, splitting overlong words at grapheme
+  /// boundaries so CJK paragraphs and long tokens remain visible.
   List<String> _wrap(
     String text,
     double fontSize,
@@ -6639,6 +7137,7 @@ extension PdfAnnotationEditing on PdfEditor {
         (candidate) => _advanceWidth(font, candidate, fontSize,
             charSpacing: charSpacing, horizontalScale: horizontalScale),
         tolerance: _wrapTolerance,
+        breakLongWords: true,
       );
 
   /// The horizontal advance of [text] at [fontSize] in [font], including the

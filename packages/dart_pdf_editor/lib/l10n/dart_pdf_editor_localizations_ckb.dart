@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
+
+  @override
+  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
+
+  @override
+  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
+
+  @override
+  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+
+  @override
   String get add => 'زیادکردن';
 
   @override
@@ -345,7 +357,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'قووڵیی قەبارە';
 
   @override
+  String get measCustomValueTitle => 'بەهای پێوان';
+
+  @override
   String get menuAddNode => 'زیادکردنی گرێ';
+
+  @override
+  String get menuEditMeasurementValue => 'دەستکاریکردنی بەهای پێوان';
 
   @override
   String get menuAddLeader => 'زیادکردنی هێڵی ئاماژە';
@@ -435,6 +453,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'لابردنی هێڵی ئاماژە';
+
+  @override
+  String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
@@ -705,6 +726,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get propLineType => 'جۆری هێڵ';
 
   @override
+  String get propRegion => 'ناوچەی دیاریکراو';
+
+  @override
+  String get propRegionPolygon => 'فرەگۆشە';
+
+  @override
+  String get propRegionCloud => 'هەور';
+
+  @override
   String get propLoadFont => 'بارکردنی فۆنت…';
 
   @override
@@ -940,6 +970,31 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       other: '$count هاوتا جێگۆڕکێ کران',
       one: 'یەک هاوتا جێگۆڕکێ کرا',
       zero: 'هیچ نەگۆڕدرا',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'نیشانکردن بۆ شاردنەوە';
+
+  @override
+  String get searchRedactMark => 'نیشانکردن';
+
+  @override
+  String get searchRedactMarkAll => 'نیشانکردنی هەموو';
+
+  @override
+  String get searchRedactHint =>
+      'نیشانەکان تا جێبەجێکردنی شاردنەوەکان دەتوانرێن پێداچوونەوەیان بۆ بکرێت';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count هاوتا بۆ شاردنەوە نیشانکران',
+      one: 'یەک هاوتا بۆ شاردنەوە نیشانکرا',
+      zero: 'پێشتر نیشانکراوە',
     );
     return '$_temp0';
   }
@@ -1442,6 +1497,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'جێبەجێکردنی سانسۆرکردن (ناگەڕێتەوە)';
 
   @override
+  String get tbFindToRedact => 'دۆزینەوەی دەق بۆ شاردنەوە';
+
+  @override
   String get tbAutosizeTextBox => 'قەبارەی خۆکاری چوارگۆشەی دەق (Alt+Z)';
 
   @override
@@ -1671,6 +1729,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'دەرخەری تێبینی';
 
   @override
+  String get tbNameCloudCallout => 'دەرخەری تێبینی هەوری';
+
+  @override
   String get tbNameCloudPolygon => 'فرەگۆشەی هەوری';
 
   @override
@@ -1705,6 +1766,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'پێوانەکردنی درێژیی کەوانە';
+
+  @override
+  String get tbNameMeasureCustom => 'پێوانی تایبەت (بەها بنووسە)';
 
   @override
   String get tbNameMeasureArea => 'پێوانەکردنی ڕووبەر';
@@ -1876,6 +1940,10 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'دەرخەری تێبینی - لە خاڵەکەوە ڕایبکێشە بۆ شوێنی چوارگۆشەکە';
+
+  @override
+  String get tbTipCloudCallout =>
+      'دەرخەری تێبینی هەوری - هەورێک بە دەوری ناوچەکەدا ڕابکێشە، پاشان تێبینییەکە بنووسە';
 
   @override
   String get tbTipContent => 'دەستکاریکردنی ناوەڕۆکی پەڕە';
@@ -2464,4 +2532,67 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'خستنەناو';
+
+  @override
+  String get shellBakePageColor => 'پاشەکەوتکردنی ڕەنگی پەڕە لە فایلدا';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
+
+  @override
+  String get table => 'خشتە';
+
+  @override
+  String get tableEdit => 'دەستکاری خشتە';
+
+  @override
+  String get tableRows => 'ڕیزەکان';
+
+  @override
+  String get tableColumns => 'ستوونەکان';
+
+  @override
+  String get tableStyle => 'شێوازی خشتە';
+
+  @override
+  String get tableStyleHint => 'بۆ هەموو خشتەکە جێبەجێ دەبێت.';
+
+  @override
+  String get tableBackgroundColor => 'ڕەنگی پاشبنەما';
+
+  @override
+  String get tableHeaderColor => 'ڕەنگی سەردێڕ';
+
+  @override
+  String get tableTextColor => 'ڕەنگی فۆنت';
+
+  @override
+  String get tableGridLines => 'هێڵەکانی تۆڕ';
+
+  @override
+  String get tableGridColor => 'ڕەنگی تۆڕ';
+
+  @override
+  String get tableGridWidth => 'ئەستووری تۆڕ';
+
+  @override
+  String get tableHeaderRow => 'ڕیزی سەردێڕ';
+
+  @override
+  String get tableColumnWidth => 'پانی ستوون';
+
+  @override
+  String get tableRowHeight => 'بەرزی ڕیز';
+
+  @override
+  String get tableSelectionHint =>
+      'بۆ دەستکاری کرتە لە خانەیەک بکە؛ بۆ دیاریکردنی مەودا Shift بگرە و کرتە بکە. بە کۆپیکردن و لکاندن بەهای خانەکان لەگەڵ Excel بگوازەوە.';
+
+  @override
+  String get tableClipboardError =>
+      'خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.';
+
+  @override
+  String get duplicate => 'دووبارەکردنەوە';
 }

@@ -171,6 +171,7 @@ const pdfToolGroups = <PdfToolGroup>[
       [
         PdfToolEntry.tool(PdfEditTool.freeText, Icons.text_fields),
         PdfToolEntry.tool(PdfEditTool.callout, Icons.chat_bubble_outline),
+        PdfToolEntry.tool(PdfEditTool.cloudCallout, Icons.cloud_queue),
         PdfToolEntry.tool(PdfEditTool.note, Icons.sticky_note_2_outlined),
         PdfToolEntry.tool(PdfEditTool.stamp, Icons.approval),
         PdfToolEntry.tool(PdfEditTool.count, Icons.task_alt),
@@ -191,6 +192,7 @@ const pdfToolGroups = <PdfToolGroup>[
         PdfToolEntry.tool(PdfEditTool.measureSlope, Icons.trending_up),
         PdfToolEntry.tool(PdfEditTool.measureAngle, Icons.architecture),
         PdfToolEntry.tool(PdfEditTool.measureArc, Icons.gesture),
+        PdfToolEntry.tool(PdfEditTool.measureCustom, Icons.edit_note),
       ],
       kind: PdfEditToolGroup.measure),
   PdfToolGroup(
@@ -249,9 +251,11 @@ String pdfEditToolLabel(BuildContext context, PdfEditTool tool) {
     PdfEditTool.measureSlope => l.tbNameMeasureSlope,
     PdfEditTool.measureAngle => l.tbNameMeasureAngle,
     PdfEditTool.measureArc => l.tbNameMeasureArc,
+    PdfEditTool.measureCustom => l.tbNameMeasureCustom,
     PdfEditTool.calibrate => l.measCalibrate,
     PdfEditTool.freeText => l.tbNameTextBox,
     PdfEditTool.callout => l.tbNameCallout,
+    PdfEditTool.cloudCallout => l.tbNameCloudCallout,
     PdfEditTool.note => l.tbNameNote,
     PdfEditTool.stamp => l.tbNameStamp,
     PdfEditTool.count => l.tbNameCount,
@@ -274,6 +278,7 @@ String pdfEditToolTooltip(BuildContext context, PdfEditTool tool) {
   return switch (tool) {
     PdfEditTool.highlight => l.tbTipHighlightDraw,
     PdfEditTool.callout => l.tbTipCallout,
+    PdfEditTool.cloudCallout => l.tbTipCloudCallout,
     PdfEditTool.count => l.tbTipCount,
     PdfEditTool.image => l.tbTipImage,
     PdfEditTool.signature => l.tbTipSignature,

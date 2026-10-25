@@ -3,14 +3,18 @@ import 'dart:js_interop';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show pdfPageLooksScanned;
 import 'package:pdf_ocr_ondevice/pp_ocr.dart';
 
 import 'l10n/app_l10n.dart';
-import 'ocr_pages.dart';
+import 'ocr_jobs.dart';
+import 'ocr_lifecycle.dart';
+import 'ocr_job_store.dart';
 import 'ocr_status.dart';
+import 'ocr_web_budget.dart';
 
 export 'ocr_status.dart';
 
@@ -30,6 +34,58 @@ class OnDeviceOcr {
   final ValueNotifier<OcrJobStatus?> status = ValueNotifier(null);
 
   bool _cancelled = false;
+  bool _disposed = false;
+  String? _jobId;
+  bool _recovering = false;
+  final OcrJobs _jobs = OcrJobs(openOcrJobStorage());
+  late final OcrResultDelivery _delivery = OcrResultDelivery(_jobs);
+
+  void _status(OcrJobStatus? value) {
+    if (!_disposed) status.value = value;
+  }
+
+  Future<void> acknowledgeResult(Uint8List result) async {
+    await _delivery.acknowledge(result);
+  }
+
+  Future<void> recover(
+    BuildContext context, {
+    required void Function(String) onToast,
+    required void Function(Uint8List, String) onComplete,
+  }) async {
+    if (isBusy || _disposed || _recovering || ocrShouldPause) return;
+    _recovering = true;
+    try {
+      for (final job in await _jobs.list()) {
+        if (_disposed || !context.mounted) return;
+        if (job.state == OcrJobState.cancelled ||
+            await _jobs.isCancelled(job.id)) {
+          await _jobs.delete(job.id);
+          continue;
+        }
+        if (job.state == OcrJobState.failed) continue;
+        {
+          final source = await _jobs.source(job);
+          if (!context.mounted) return;
+          await _start(context,
+              bytes: source,
+              title: job.title,
+              automatic: job.automatic,
+              resume: job,
+              onToast: onToast,
+              onComplete: (bytes) => onComplete(bytes, job.title));
+        }
+      }
+    } on MissingPluginException {
+      // Hosts without the app storage plugin have no persisted jobs.
+    } catch (e) {
+      if (!_disposed && context.mounted) {
+        onToast(appL10n(context).ocrFailed(e.toString()));
+      }
+    } finally {
+      _recovering = false;
+    }
+  }
 
   /// Whether the user started browser OCR this session - an automatic run
   /// then goes ahead without asking again. [_autoDeclined] is the opposite:
@@ -41,14 +97,22 @@ class OnDeviceOcr {
   static bool get isSupported => true;
 
   /// Whether a job is in flight (only one runs at a time).
-  bool get isBusy => status.value != null;
+  bool get isBusy => status.value != null || _recovering;
 
-  void dispose() => status.dispose();
+  void dispose() {
+    _disposed = true;
+    _delivery.dispose();
+    status.dispose();
+  }
 
   /// Asks the running job to stop. It finishes the current page request and
   /// then bails without producing a result.
   void cancel() {
-    if (isBusy) _cancelled = true;
+    if (isBusy) {
+      _cancelled = true;
+      final id = _jobId;
+      if (id != null) unawaited(_jobs.cancel(id));
+    }
   }
 
   /// Starts OCR over [bytes]. The first run confirms the model download, then
@@ -65,8 +129,27 @@ class OnDeviceOcr {
     void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
     bool automatic = false,
   }) async {
+    return _start(context,
+        bytes: bytes,
+        title: title,
+        onToast: onToast,
+        onComplete: onComplete,
+        onRecognized: onRecognized,
+        automatic: automatic);
+  }
+
+  Future<void> _start(
+    BuildContext context, {
+    required Uint8List bytes,
+    required String title,
+    required void Function(String message) onToast,
+    void Function(Uint8List result)? onComplete,
+    void Function(Map<int, List<PdfOcrSpan>> spans)? onRecognized,
+    bool automatic = false,
+    OcrSavedJob? resume,
+  }) async {
     final l10n = appL10n(context);
-    if (isBusy) {
+    if (status.value != null || (_recovering && resume == null)) {
       if (!automatic) onToast(l10n.ocrAlreadyRunning);
       return;
     }
@@ -75,24 +158,50 @@ class OnDeviceOcr {
       return;
     }
 
-    if (!automatic || !_approved) {
-      if (automatic && _autoDeclined) return;
+    _status(OcrJobStatus(phase: OcrPhase.preparing, title: title));
+    if (resume == null && (!automatic || !_approved)) {
+      if (automatic && _autoDeclined) {
+        _status(null);
+        return;
+      }
       final approved = await showPdfDialog<bool>(
         context: context,
         builder: (_) => const _WebOcrConfirmDialog(),
       );
       if (approved != true) {
         if (automatic) _autoDeclined = true;
+        _status(null);
         return;
       }
       _approved = true;
     }
     _cancelled = false;
 
-    final pipeline = PpOcrPipeline(_BrowserOcrInference());
-    final engine = OcrRunnerEngine(pipeline);
+    OcrRunnerEngine? engine;
+    OcrJobLease? lease;
     try {
-      status.value = OcrJobStatus(phase: OcrPhase.downloading, title: title);
+      var job =
+          resume ?? await _jobs.create(bytes, title, automatic: automatic);
+      _jobId = job.id;
+      lease = await _jobs.storage.claim(job.id);
+      if (lease == null) return;
+      // The list/create snapshot can become stale while another tab finishes
+      // or adopts the result. Ownership must precede the canonical read.
+      final current = await _jobs.read(job.id);
+      if (current == null) return;
+      job = current;
+      if (job.state == OcrJobState.cancelled) {
+        await _jobs.delete(job.id);
+        onToast(l10n.ocrCancelled);
+        return;
+      }
+      if (job.state == OcrJobState.complete) {
+        final result = await _delivery.take(job);
+        if (result == null) return;
+        onComplete?.call(result);
+        return;
+      }
+      _status(OcrJobStatus(phase: OcrPhase.downloading, title: title));
       // Feed the bridge's model-download progress into the chip. The bridge
       // counts only the weight files and reports 'preparing' once their last
       // byte is in (cache write + session setup follow, with no progress);
@@ -100,23 +209,28 @@ class OnDeviceOcr {
       var shownFraction = 0.0;
       _setProgressListener((String stage, num loaded, num total) {
         if (stage == 'preparing') {
-          status.value = OcrJobStatus(phase: OcrPhase.preparing, title: title);
+          _status(OcrJobStatus(phase: OcrPhase.preparing, title: title));
           return;
         }
         if (total <= 0) return;
         final fraction = (loaded / total).clamp(0.0, 1.0);
         if (fraction > shownFraction) shownFraction = fraction;
-        status.value = OcrJobStatus(
+        _status(OcrJobStatus(
           phase: OcrPhase.downloading,
           title: title,
           downloadFraction: shownFraction,
-        );
+        ));
       });
       try {
-        await pipeline.load();
+        await _ocrLoad().toDart;
       } finally {
         _setProgressListener(null);
       }
+      // The bridge is up, so the heap it got is known; size the work to it.
+      final pipeline = browserOcrPipeline(_BrowserOcrInference(),
+          heapBytes: _ocrHeapLimitHook == null ? 0 : _ocrHeapLimit().toDartInt);
+      engine = OcrRunnerEngine(pipeline);
+      await pipeline.load();
       if (_cancelled) {
         onToast(l10n.ocrCancelled);
         return;
@@ -124,52 +238,61 @@ class OnDeviceOcr {
 
       final editor = PdfEditor(PdfDocument.open(bytes));
       void onPage(int i, int count) {
-        void report([double? pageFraction]) => status.value = OcrJobStatus(
+        void report([double? pageFraction]) => _status(OcrJobStatus(
               phase: OcrPhase.recognising,
               title: title,
               page: i + 1,
               pageCount: count,
               pageFraction: pageFraction,
-            );
+            ));
         report();
         pipeline.onProgress = report;
       }
 
-      if (onRecognized != null) {
-        final recognized = await recognizeAllPages(
-          editor,
-          engine,
-          isCancelled: () => _cancelled,
-          onPage: onPage,
-          includePage:
-              automatic ? (i) => pdfPageLooksScanned(editor.document, i) : null,
-        );
-        if (_cancelled) {
-          onToast(l10n.ocrCancelled);
-          return;
-        }
-        onRecognized(recognized);
-        return;
-      }
-      final spans = await ocrAllPages(
-        editor,
-        engine,
-        isCancelled: () => _cancelled,
-        onPage: onPage,
+      await _jobs.run(
+        job,
+        shouldPause: () => _disposed || ocrShouldPause,
+        onProgress: (j) =>
+            onPage(j.nextPage.clamp(0, j.pageCount - 1), j.pageCount),
+        recognize: (i) async {
+          if (automatic && !pdfPageLooksScanned(editor.document, i)) return [];
+          return editor.recognizeOcr(i, engine!,
+              pixelRatio:
+                  OcrRunnerEngine.pixelRatioFor(editor.document.page(i)));
+        },
+        finish: (recognized) async {
+          for (final entry in recognized.entries) {
+            editor.injectTextLayer(entry.key, entry.value);
+          }
+          return editor.save();
+        },
       );
-      if (_cancelled) {
-        onToast(l10n.ocrCancelledAfterSpans(spans));
+      if (_disposed) return;
+      if (job.state == OcrJobState.cancelled) {
+        onToast(l10n.ocrCancelled);
+        await _jobs.delete(job.id);
         return;
       }
-      status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
-      final result = editor.save();
-      onToast(l10n.ocrResult(spans));
-      onComplete?.call(result);
+      if (job.state != OcrJobState.complete) return;
+      if (onRecognized != null) {
+        onRecognized(await _jobs.recognized(job));
+        await _jobs.delete(job.id);
+      } else {
+        final result = await _delivery.take(job);
+        if (result == null) return;
+        final spans = (await _jobs.recognized(job))
+            .values
+            .fold<int>(0, (n, s) => n + s.length);
+        onToast(l10n.ocrResult(spans));
+        onComplete?.call(result);
+      }
     } catch (e) {
-      onToast(l10n.ocrFailed(e.toString()));
+      if (!_disposed) onToast(l10n.ocrFailed(e.toString()));
     } finally {
-      await engine.dispose();
-      status.value = null;
+      await engine?.dispose();
+      await lease?.release();
+      _jobId = null;
+      _status(null);
     }
   }
 
@@ -201,6 +324,14 @@ external void _registerOcrProgress(JSFunction? listener);
 
 @JS('__dartPdfOcrRun')
 external JSAny? get _ocrBridge;
+
+/// The OCR wasm heap's maximum when the bridge had to cap it, else 0. Null
+/// against an older cached `index.html` without the hook.
+@JS('__dartPdfOcrHeapLimit')
+external JSAny? get _ocrHeapLimitHook;
+
+@JS('__dartPdfOcrHeapLimit')
+external JSNumber _ocrHeapLimit();
 
 @JS('__dartPdfOcrLoad')
 external JSPromise<JSString> _ocrLoad();

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
+
+  @override
   String get add => '添加';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '体积深度';
 
   @override
+  String get measCustomValueTitle => '测量值';
+
+  @override
   String get menuAddNode => '添加节点';
+
+  @override
+  String get menuEditMeasurementValue => '编辑测量值';
 
   @override
   String get menuAddLeader => '添加引线';
@@ -433,6 +451,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => '移除引线';
+
+  @override
+  String get menuAddNoteHere => '在此添加注释';
 
   @override
   String get menuSaveToStamps => '保存到图章';
@@ -701,6 +722,15 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get propLineType => '线型';
 
   @override
+  String get propRegion => '标记区域';
+
+  @override
+  String get propRegionPolygon => '多边形';
+
+  @override
+  String get propRegionCloud => '云形';
+
+  @override
   String get propLoadFont => '加载字体…';
 
   @override
@@ -933,6 +963,30 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
       other: '已替换 $count 个匹配项',
       one: '已替换 1 个匹配项',
       zero: '未替换任何内容',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '标记为涂黑';
+
+  @override
+  String get searchRedactMark => '标记';
+
+  @override
+  String get searchRedactMarkAll => '全部标记';
+
+  @override
+  String get searchRedactHint => '应用涂黑前，标记仍可检查';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已将 $count 个匹配项标记为涂黑',
+      one: '已将 1 个匹配项标记为涂黑',
+      zero: '已标记',
     );
     return '$_temp0';
   }
@@ -1428,6 +1482,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => '应用密文遮盖（不可逆）';
 
   @override
+  String get tbFindToRedact => '查找要涂黑的文本';
+
+  @override
   String get tbAutosizeTextBox => '自动调整文本框大小 (Alt+Z)';
 
   @override
@@ -1651,6 +1708,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbNameCallout => '标注';
 
   @override
+  String get tbNameCloudCallout => '云形标注';
+
+  @override
   String get tbNameCloudPolygon => '云形多边形';
 
   @override
@@ -1685,6 +1745,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => '测量弧长';
+
+  @override
+  String get tbNameMeasureCustom => '自定义测量（输入数值）';
 
   @override
   String get tbNameMeasureArea => '测量面积';
@@ -1851,6 +1914,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '标注 - 从指示点拖动到文本框的位置';
+
+  @override
+  String get tbTipCloudCallout => '云形标注 - 拖动云形框住区域，然后输入备注';
 
   @override
   String get tbTipContent => '编辑页面内容';
@@ -2410,11 +2476,84 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '将页面颜色保存到文件';
+
+  @override
+  String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
+
+  @override
+  String get table => '表格';
+
+  @override
+  String get tableEdit => '编辑表格';
+
+  @override
+  String get tableRows => '行';
+
+  @override
+  String get tableColumns => '列';
+
+  @override
+  String get tableStyle => '表格样式';
+
+  @override
+  String get tableStyleHint => '应用于整个表格。';
+
+  @override
+  String get tableBackgroundColor => '背景颜色';
+
+  @override
+  String get tableHeaderColor => '表头颜色';
+
+  @override
+  String get tableTextColor => '字体颜色';
+
+  @override
+  String get tableGridLines => '网格线';
+
+  @override
+  String get tableGridColor => '网格颜色';
+
+  @override
+  String get tableGridWidth => '网格线宽度';
+
+  @override
+  String get tableHeaderRow => '标题行';
+
+  @override
+  String get tableColumnWidth => '列宽';
+
+  @override
+  String get tableRowHeight => '行高';
+
+  @override
+  String get tableSelectionHint =>
+      '点击单元格进行编辑；按住 Shift 点击可选择区域。复制和粘贴可与 Excel 交换单元格值。';
+
+  @override
+  String get tableClipboardError => '剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。';
+
+  @override
+  String get duplicate => '复制副本';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
 
   @override
   String get add => '新增';
@@ -2751,7 +2890,13 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get measVolumeDepth => '體積深度';
 
   @override
+  String get measCustomValueTitle => '測量值';
+
+  @override
   String get menuAddNode => '新增節點';
+
+  @override
+  String get menuEditMeasurementValue => '編輯測量值';
 
   @override
   String get menuAddLeader => '新增引線';
@@ -2841,6 +2986,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRemoveLeader => '移除引線';
+
+  @override
+  String get menuAddNoteHere => '在此新增註解';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';
@@ -3109,6 +3257,15 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get propLineType => '線條類型';
 
   @override
+  String get propRegion => '標記區域';
+
+  @override
+  String get propRegionPolygon => '多邊形';
+
+  @override
+  String get propRegionCloud => '雲形';
+
+  @override
   String get propLoadFont => '載入字型…';
 
   @override
@@ -3341,6 +3498,30 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
       other: '已取代 $count 個相符項目',
       one: '已取代 1 個相符項目',
       zero: '未取代任何項目',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '標記為塗黑';
+
+  @override
+  String get searchRedactMark => '標記';
+
+  @override
+  String get searchRedactMarkAll => '全部標記';
+
+  @override
+  String get searchRedactHint => '套用塗黑前，標記仍可檢查';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已將 $count 個相符項目標記為塗黑',
+      one: '已將 1 個相符項目標記為塗黑',
+      zero: '已標記',
     );
     return '$_temp0';
   }
@@ -3836,6 +4017,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbApplyRedactionsTooltip => '套用塗黑（無法復原）';
 
   @override
+  String get tbFindToRedact => '尋找要塗黑的文字';
+
+  @override
   String get tbAutosizeTextBox => '自動調整文字方塊大小 (Alt+Z)';
 
   @override
@@ -4059,6 +4243,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbNameCallout => '圖說文字';
 
   @override
+  String get tbNameCloudCallout => '雲形圖說文字';
+
+  @override
   String get tbNameCloudPolygon => '雲形多邊形';
 
   @override
@@ -4093,6 +4280,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbNameMeasureArc => '測量弧長';
+
+  @override
+  String get tbNameMeasureCustom => '自訂測量（輸入數值）';
 
   @override
   String get tbNameMeasureArea => '測量面積';
@@ -4259,6 +4449,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbTipCallout => '圖說文字 - 從點拖曳至方塊要放置的位置';
+
+  @override
+  String get tbTipCloudCallout => '雲形圖說文字 - 拖曳雲形框住區域，然後輸入備註';
 
   @override
   String get tbTipContent => '編輯頁面內容';
@@ -4818,4 +5011,65 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get insertPagesConfirm => '插入';
+
+  @override
+  String get shellBakePageColor => '將頁面顏色儲存至檔案';
+
+  @override
+  String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
+
+  @override
+  String get table => '表格';
+
+  @override
+  String get tableEdit => '編輯表格';
+
+  @override
+  String get tableRows => '列';
+
+  @override
+  String get tableColumns => '欄';
+
+  @override
+  String get tableStyle => '表格樣式';
+
+  @override
+  String get tableStyleHint => '套用至整個表格。';
+
+  @override
+  String get tableBackgroundColor => '背景顏色';
+
+  @override
+  String get tableHeaderColor => '表頭顏色';
+
+  @override
+  String get tableTextColor => '字型顏色';
+
+  @override
+  String get tableGridLines => '格線';
+
+  @override
+  String get tableGridColor => '格線顏色';
+
+  @override
+  String get tableGridWidth => '格線寬度';
+
+  @override
+  String get tableHeaderRow => '標題列';
+
+  @override
+  String get tableColumnWidth => '欄寬';
+
+  @override
+  String get tableRowHeight => '列高';
+
+  @override
+  String get tableSelectionHint =>
+      '點擊儲存格進行編輯；按住 Shift 點擊可選取範圍。複製和貼上可與 Excel 交換儲存格值。';
+
+  @override
+  String get tableClipboardError => '剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。';
+
+  @override
+  String get duplicate => '製作副本';
 }

@@ -1,6 +1,3 @@
-Baru di 8.1.0
+11.0.0
 
-- Ubah font dan gaya kolom formulir dropdown dan daftar.
-- Menu ponsel baru untuk membuat, membuka, mencetak dan menandatangani.
-- Pengeditan teks mempertahankan font dan pembungkusan baris. Papan ketik dan menu pilihan iOS diperbaiki.
-- Palet warna lengkap untuk pena dan penyorot seluler.
+Buat tabel yang dapat diedit dan salin sel dari dan ke spreadsheet. Lanjutkan pengenalan teks yang terputus. Ganti warna pada cuplikan dan anotasi. Ratakan teks secara vertikal dan duplikasikan stempel tersimpan. Perbaikan pembungkusan teks, font yang diingat, dan cuplikan yang diputar.

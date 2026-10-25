@@ -79,12 +79,14 @@ void main() {
       final columns = await _inkColumns(_run('AA', [0, 1.6, 2.6], 2.6));
       expect(columns, isNotEmpty);
 
-      // 2.6 em of PDF advance across 2 em of natural glyph = a 1.3x stretch,
-      // so each glyph draws 20 * 1.3 = 26pt wide. Each is then fitted to the
-      // slot the PDF gives it (pdfFitSubstitutedPiece): the first A, 26pt in a
-      // 32pt slot, is centred there - 20 + 3 = 23 to 49; the second, 26pt in a
-      // 20pt slot starting at 20 + 1.6 * 20 = 52, is squeezed to end at 72.
-      expect(columns.first, closeTo(23, 2));
+      // 2.6 em of PDF advance across 2 em of natural glyph would be a 1.3x
+      // stretch, but shapes widen by at most 2% (Impeller's baseline snapping,
+      // see the next test), so each glyph draws 20 * 1.02 = 20.4pt wide. Each
+      // is then fitted to the slot the PDF gives it (pdfFitSubstitutedPiece):
+      // the first A, 20.4pt in a 32pt slot, is centred there - 25.8 to 46.2;
+      // the second, 20.4pt in a 20pt slot starting at 20 + 1.6 * 20 = 52, is
+      // squeezed to end at 72.
+      expect(columns.first, closeTo(26, 1.5));
       expect(columns.last, closeTo(72, 2));
       // The gap between them is real ink-free space, which the whole-run path
       // cannot produce.
@@ -93,8 +95,8 @@ void main() {
           if (!columns.contains(x)) x,
       ];
       expect(gap, isNotEmpty, reason: 'the second glyph must start at 1.6 em');
-      expect(gap.first, closeTo(49, 3)); // 23 + 26
-      expect(gap.last, closeTo(52, 3));
+      expect(gap.first, closeTo(46, 2)); // 25.8 + 20.4
+      expect(gap.last, closeTo(52, 2));
 
       // The whole-run path, for contrast: one solid block from 20 to the run's
       // 2.6 em end at 72. Both endpoints are exact and every interior boundary
@@ -107,6 +109,34 @@ void main() {
       expect(whole.last, closeTo(72, 2));
       expect(whole.length, whole.last - whole.first + 1,
           reason: 'whole-run shaping leaves no gap to find the drift by');
+    });
+  });
+
+  testWidgets('a narrower substitute is placed, not stretched to fit',
+      (tester) async {
+    await tester.runAsync(() async {
+      // The PDF gives each A 1.3 em - an unembedded Arial-Black heading drawn
+      // in TeX Gyre Heros is that far apart. Widening the glyph shapes to match
+      // is what Impeller cannot draw: it rasterizes at the transform's larger
+      // axis scale and snaps each glyph's vertical extent on its own, so the
+      // baselines of neighbouring letters land a device pixel apart. The
+      // shapes keep (within 2%) their own width and each is centred in its
+      // 26pt slot instead: 22.8 to 43.2, then 48.8 to 69.2.
+      final columns = await _inkColumns(_run('AA', [0, 1.3, 2.6], 2.6));
+      final gap = [
+        for (var x = columns.first; x <= columns.last; x++)
+          if (!columns.contains(x)) x,
+      ];
+      expect(gap, isNotEmpty, reason: 'the shapes must not be stretched flush');
+      expect(columns.first, closeTo(23, 1.5));
+      // 22.8 to 43.2 touches columns 22 through 43: whether the 0.2px of
+      // coverage at each edge counts as ink is the rasterizer's call (Skia on
+      // Linux drops it, macOS keeps it), so allow both edge columns. A glyph
+      // stretched to its 26pt slot would still read 26 or more.
+      expect(gap.first - columns.first, lessThanOrEqualTo(22),
+          reason: 'a 20pt glyph may widen by 2% at most');
+      expect(columns.last - gap.last, lessThanOrEqualTo(22));
+      expect(columns.last, closeTo(69, 1.5));
     });
   });
 

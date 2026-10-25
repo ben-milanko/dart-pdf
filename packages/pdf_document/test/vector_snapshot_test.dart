@@ -45,9 +45,9 @@ Uint8List _coloredPagePdf() {
 /// A one-page PDF whose content draws a **nested** Form XObject (/Fm0) that
 /// sets its own blue fill - so a recolour has to recurse into the nested form,
 /// not just rewrite the top-level content.
-Uint8List _nestedFormPagePdf() {
-  const pageContent = '/Fm0 Do';
-  const formContent = '0 0 1 rg 0 0 50 50 re f';
+Uint8List _nestedFormPagePdf(
+    {String pageContent = '/Fm0 Do',
+    String formContent = '0 0 1 rg 0 0 50 50 re f'}) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -91,6 +91,123 @@ double _num(CosObject o) => switch (o) {
     };
 
 void main() {
+  test('find/replace in one shared snapshot preserves the other ink and paste',
+      () {
+    var doc = PdfDocument.open(_coloredPagePdf());
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    final shared =
+        editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 100, 100), snap);
+    editor.pasteVectorSnapshot(0, const PdfRect(100, 100, 200, 200), snap,
+        sharedObject: shared);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.first)
+            .map((c) => c.rgb)
+            .toSet(),
+        {0xFF0000, 0x00FF00});
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.first,
+            find: 0xFF0000, replace: 0x0000FF),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    final first = _capContent(doc, doc.page(0).annotations.first);
+    final second = _capContent(doc, doc.page(0).annotations.last);
+    expect(first, contains('0 0 1 rg'));
+    expect(first, contains('0 1 0 RG'));
+    expect(first, isNot(contains('1 0 0 rg')));
+    expect(second, contains('1 0 0 rg'));
+    expect(second, contains('0 1 0 RG'));
+    expect(latin1.decode(doc.page(0).contentBytes()), contains('1 0 0 rg'));
+  });
+
+  test('find/replace reaches nested forms with inherited resources', () {
+    var doc = PdfDocument.open(_nestedFormPagePdf());
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0x0000FF]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0x0000FF, replace: 0x00FF00),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    expect(
+        PdfEditor(doc)
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0x00FF00]);
+  });
+
+  test('find/replace finds default-black snapshot text without explicit colour',
+      () {
+    var doc = PdfDocument.open(buildMultiPagePdf(1));
+    var editor = PdfEditor(doc);
+    final snap =
+        editor.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 160, 40), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0, replace: 0x0000FF),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    expect(
+        _capContent(doc, doc.page(0).annotations.single), contains('0 0 1 rg'));
+    expect(_capContent(doc, doc.page(0).annotations.single),
+        contains('(Page 1) Tj'));
+  });
+
+  test('transparent replacement follows inherited colour into a nested form',
+      () {
+    var doc = PdfDocument.open(_nestedFormPagePdf(
+        pageContent: '1 0 0 rg /Fm0 Do', formContent: '0 0 10 10 re f'));
+    var editor = PdfEditor(doc);
+    final snap = editor.captureVectorSnapshot(0, const PdfRect(0, 0, 200, 200));
+    editor.pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+    doc = PdfDocument.open(editor.save());
+    editor = PdfEditor(doc);
+    expect(
+        editor
+            .annotationColors(0, doc.page(0).annotations.single)
+            .map((c) => c.rgb),
+        [0xFF0000]);
+    expect(
+        editor.replaceAnnotationColors(0, doc.page(0).annotations.single,
+            find: 0xFF0000, transparent: true),
+        greaterThan(0));
+    doc = PdfDocument.open(editor.save());
+    final res = doc.cos.resolve(doc
+        .page(0)
+        .annotations
+        .single
+        .normalAppearance!
+        .dictionary['Resources']) as CosDictionary;
+    final xo = doc.cos.resolve(res['XObject']) as CosDictionary;
+    final cap = doc.cos.resolve(xo['Cap']) as CosStream;
+    final capRes =
+        doc.cos.resolve(cap.dictionary['Resources']) as CosDictionary;
+    final childXo = doc.cos.resolve(capRes['XObject']) as CosDictionary;
+    final child = doc.cos.resolve(childXo['Fm0']) as CosStream;
+    final ops = ContentStreamParser.parse(doc.cos.decodeStreamData(child));
+    expect(ops.map((o) => o.operator), contains('n'));
+    expect(ops.map((o) => o.operator), isNot(contains('f')));
+  });
+
   group('PdfVectorSnapshot', () {
     test('capture detaches the region, content, and resources', () {
       final doc = PdfDocument.open(buildMultiPagePdf(2));

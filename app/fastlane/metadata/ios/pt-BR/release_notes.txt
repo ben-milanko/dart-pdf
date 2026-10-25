@@ -1,6 +1,3 @@
-Novidades da 8.1.0
+11.0.0
 
-- Altere a fonte e o estilo de campos de lista e menus suspensos.
-- Novo menu no celular para criar, abrir, imprimir e assinar.
-- A edição de texto preserva a fonte e a quebra de linha. Melhorias no teclado e nos menus de seleção do iOS.
-- Paleta completa para caneta e marca-texto no celular.
+Crie tabelas editáveis e copie células de e para planilhas. Retome o reconhecimento de texto interrompido. Substitua cores em capturas e anotações. Alinhe o texto verticalmente e duplique carimbos salvos. Melhorias na quebra de texto, nas fontes lembradas e nas capturas giradas.

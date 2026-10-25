@@ -1,3 +1,15 @@
+## 0.8.0
+
+- Require the 11.0.0 package suite; no additional public API changes.
+
+## 0.7.0
+
+- Update dependency constraints for the dart-pdf 10.0.0 suite. No public API changes.
+
+## 0.6.0
+
+- Update dependency constraints for the dart-pdf 9.0.0 suite. No public API changes.
+
 ## 0.5.1
 
 - Update dependency constraints for the compatible dart-pdf 8.1.0 suite. No public API changes.

@@ -10,6 +10,7 @@ import 'matrix_geometry.dart';
 import 'rect.dart';
 import 'stamp_template.dart';
 import 'takeoff.dart';
+import 'table_data.dart';
 
 part 'annotation_behavior.dart';
 
@@ -107,6 +108,11 @@ class PdfAnnotation {
   String? get contents {
     final c = document.cos.resolve(dict['Contents']);
     return c is CosString ? c.text : null;
+  }
+
+  PdfTableData? get table {
+    final value = document.cos.resolve(dict['DartPdfTable']);
+    return value is CosString ? PdfTableData.decode(value.text) : null;
   }
 
   /// The author: /T, "the text label … by convention … the annotation's
@@ -353,12 +359,14 @@ class PdfAnnotation {
   }
 
   /// Whether the annotation asks conforming viewers to render its border as
-  /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
+  /// a cloudy border effect (`/BE << /S /C ... >>`, §12.5.4 Table 167). The
+  /// non-standard `/S /Cloudy` older builds of this package wrote reads the
+  /// same.
   bool get hasCloudyBorder {
     final be = document.cos.resolve(dict['BE']);
     if (be is! CosDictionary) return false;
     final style = document.cos.resolve(be['S']);
-    return style is CosName && style.value == 'Cloudy';
+    return style is CosName && (style.value == 'C' || style.value == 'Cloudy');
   }
 
   /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
@@ -454,6 +462,42 @@ class PdfAnnotation {
       }
     }
     return leaders;
+  }
+
+  /// The area a cloud callout marks (Bluebeam's Cloud+): the region its
+  /// leader runs to, drawn as a revision cloud or a plain polygon. Null when
+  /// this is not a callout or marks no region (an ordinary callout points at
+  /// a single spot).
+  PdfCalloutRegion? get calloutRegion {
+    if (!isCallout) return null;
+    final raw = document.cos.resolve(dict[kPdfCalloutRegionKey]);
+    if (raw is! CosArray) return null;
+    final points = <(double, double)>[];
+    for (var i = 0; i + 1 < raw.items.length; i += 2) {
+      final x = _number(document.cos.resolve(raw.items[i]));
+      final y = _number(document.cos.resolve(raw.items[i + 1]));
+      if (x == null || y == null) return null;
+      points.add((x, y));
+    }
+    if (points.length < 3) return null;
+    final style = document.cos.resolve(dict[kPdfCalloutRegionStyleKey]);
+    final s = style is CosDictionary ? style : CosDictionary({});
+    final shape = document.cos.resolve(s['S']);
+    final scale = _number(document.cos.resolve(s['I']));
+    final dash = document.cos.resolve(s['D']);
+    return PdfCalloutRegion(
+      points,
+      shape: shape is CosName && shape.value == 'Polygon'
+          ? PdfCalloutRegionShape.polygon
+          : PdfCalloutRegionShape.cloud,
+      cloudScale: scale != null && scale > 0 ? scale : 1,
+      dash: dash is CosArray
+          ? [
+              for (final item in dash.items)
+                if (_number(document.cos.resolve(item)) case final n?) n,
+            ]
+          : null,
+    );
   }
 
   /// Leader styling independent of the text-box outline. Older callouts
@@ -573,7 +617,8 @@ class PdfAnnotation {
   PdfMeasure? get measure => PdfMeasure.fromDict(document, dict['Measure']);
 
   /// The takeoff metadata (/Takeoff) carried by a count/volume/angle/arc/
-  /// slope/area-cutout measurement, or null for a plain annotation. See
+  /// slope/area-cutout measurement or one with a written value, or null for
+  /// a plain annotation. See
   /// [PdfTakeoffData].
   PdfTakeoffData? get takeoff => PdfTakeoffData.read(this);
 
@@ -619,6 +664,20 @@ class PdfAnnotation {
     final m = measure;
     final t = takeoff;
     final pts = _measurementPoints;
+
+    // a written value stands in for the computed one, scale or not
+    final written = t?.valueText;
+    if (written != null && kind != PdfMeasurementKind.count) {
+      final (value, unit) = pdfParseMeasurementValue(written);
+      return PdfMeasurementResult(
+          kind: kind,
+          value: value ?? 0,
+          unit: value == null || unit.isNotEmpty
+              ? unit
+              : _measurementUnit(kind, m),
+          text: written,
+          isCustom: true);
+    }
 
     switch (kind) {
       case PdfMeasurementKind.count:
@@ -694,6 +753,23 @@ class PdfAnnotation {
                 const PdfNumberFormat(unit: '°', precision: 10).format(deg));
     }
   }
+
+  /// The unit a computed [kind] measurement reports through [m] - what a
+  /// bare written number (`12.5`) is taken to be in.
+  static String _measurementUnit(PdfMeasurementKind kind, PdfMeasure? m) =>
+      switch (kind) {
+        PdfMeasurementKind.angle || PdfMeasurementKind.slope => '°',
+        PdfMeasurementKind.count => '',
+        PdfMeasurementKind.area ||
+        PdfMeasurementKind.areaCutout =>
+          m?.area.first.unit ?? '',
+        PdfMeasurementKind.volume =>
+          (m?.volume?.first ?? m?.area.first)?.unit ?? '',
+        PdfMeasurementKind.distance ||
+        PdfMeasurementKind.perimeter ||
+        PdfMeasurementKind.arc =>
+          m?.distance.first.unit ?? '',
+      };
 
   /// The real-world measurement this annotation represents, formatted
   /// through its /Measure: a distance for /Line, a perimeter (the sum of
@@ -853,6 +929,13 @@ class PdfAnnotation {
       alignment: q is CosInteger
           ? PdfTextAlign.fromQuadding(q.value)
           : cssAlign ?? PdfTextAlign.left,
+      verticalAlignment: switch (
+          cos.resolve(dict[kPdfFreeTextVerticalAlignKey])) {
+        CosName(:final value) =>
+          PdfTextVerticalAlign.values.asNameMap()[value] ??
+              PdfTextVerticalAlign.top,
+        _ => PdfTextVerticalAlign.top,
+      },
       lineSpacing: number(kPdfFreeTextLineSpacingKey) ??
           cssLineSpacing ??
           kPdfFreeTextDefaultLineSpacing,
@@ -1013,8 +1096,8 @@ class PdfAnnotation {
     final dy = quad[1].$2 - quad[0].$2;
     if (dx == 0 && dy == 0) return 0;
     final angle = math.atan2(dy, dx);
-    // numeric noise within ~0.3° reads as unrotated
-    return angle.abs() < 0.005 ? 0 : angle;
+    // Ignore floating point noise, without flattening deliberate small turns.
+    return angle.abs() < 1e-7 ? 0 : angle;
   }
 
   static PdfGoToAction? _destAsGoTo(PdfDocument document, CosObject? raw) {
@@ -1111,6 +1194,7 @@ const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
 const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
 const String kPdfFreeTextHScaleKey = 'HScale';
 const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+const String kPdfFreeTextVerticalAlignKey = 'DartPdfTextVerticalAlignment';
 
 /// One leader of a callout: the page-space point its arrow points at, and
 /// optionally where it meets the text box (snapped onto the box perimeter;
@@ -1127,6 +1211,77 @@ typedef PdfCalloutLeader = ({
 /// of them, so other viewers still show every arrow. Non-standard, written
 /// and read back only by this package.
 const String kPdfCalloutLeadersKey = 'CalloutLeaders';
+
+/// Dictionary key holding a cloud callout's marked region - a point array
+/// shaped like /Vertices, page space (see [PdfAnnotation.calloutRegion]).
+/// /CL cannot describe an area, so it lives here and the appearance stream
+/// draws it, so other viewers still show the cloud. Non-standard, written and
+/// read back only by this package; every edit that moves a callout's points
+/// moves these with them.
+const String kPdfCalloutRegionKey = 'DartPdfCalloutRegion';
+
+/// Dictionary key holding how a cloud callout's region is drawn: `/S` (`/Cloud`
+/// or `/Polygon`), `/I` (the cloud's scallop scale) and `/D` (a dash array).
+const String kPdfCalloutRegionStyleKey = 'DartPdfCalloutRegionStyle';
+
+/// How a cloud callout outlines the area it marks.
+enum PdfCalloutRegionShape {
+  /// A revision cloud: scalloped puffs along every edge.
+  cloud,
+
+  /// The plain straight-edged polygon (a rectangle when dragged out as one).
+  polygon,
+}
+
+/// The area a cloud callout marks and how it is outlined. The outline is
+/// stroked with the callout's leader colour and width.
+class PdfCalloutRegion {
+  const PdfCalloutRegion(
+    this.vertices, {
+    this.shape = PdfCalloutRegionShape.cloud,
+    this.cloudScale = 1,
+    this.dash,
+  });
+
+  /// A rectangle region, the shape a drag lays down.
+  factory PdfCalloutRegion.rect(
+    PdfRect rect, {
+    PdfCalloutRegionShape shape = PdfCalloutRegionShape.cloud,
+    double cloudScale = 1,
+    List<double>? dash,
+  }) =>
+      PdfCalloutRegion([
+        (rect.left, rect.bottom),
+        (rect.right, rect.bottom),
+        (rect.right, rect.top),
+        (rect.left, rect.top),
+      ], shape: shape, cloudScale: cloudScale, dash: dash);
+
+  /// The region's corners, page space (3 or more).
+  final List<(double, double)> vertices;
+
+  final PdfCalloutRegionShape shape;
+
+  /// The cloud's scallop size, a multiplier (1 = the cloud tool's default
+  /// puff); unused for a polygon.
+  final double cloudScale;
+
+  /// The outline's dash pattern, or null for a solid line.
+  final List<double>? dash;
+
+  PdfCalloutRegion copyWith({
+    List<(double, double)>? vertices,
+    PdfCalloutRegionShape? shape,
+    double? cloudScale,
+    (List<double>?,)? dash,
+  }) =>
+      PdfCalloutRegion(
+        vertices ?? this.vertices,
+        shape: shape ?? this.shape,
+        cloudScale: cloudScale ?? this.cloudScale,
+        dash: dash == null ? this.dash : dash.$1,
+      );
+}
 
 /// Marks /RD insets that remain in a transformed appearance's local frame.
 const String kPdfCalloutRDFrameKey = 'DartPdfCalloutRDInAppearance';
@@ -1164,6 +1319,7 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.verticalAlignment = PdfTextVerticalAlign.top,
     this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
     this.charSpacing = 0,
     this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
@@ -1187,6 +1343,11 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// Placement of the wrapped block within the padded box. The generated
+  /// appearance preserves this in other PDF viewers; the private dictionary
+  /// preference lets later dart-pdf edits regenerate the same placement.
+  final PdfTextVerticalAlign verticalAlignment;
 
   /// The line-height multiplier (baseline-to-baseline distance is
   /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].

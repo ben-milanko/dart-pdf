@@ -102,6 +102,12 @@ ci:
   repository: ben-milanko/dart-pdf
   ref: main
   repository_token_secret: STOREFLIGHT_REPOSITORY_TOKEN
+  # The CLI lives in its own private repository; the generated jobs check it
+  # out with the read-only deploy key rather than the release repository token.
+  cli:
+    repository: ben-milanko/storeflight
+    ref: main
+    ssh_key_secret: STOREFLIGHT_DEPLOY_KEY
   # flutter_secure_storage_linux needs libsecret and the GTK plugin layer
   # needs jsoncpp; neither is in Flutter's documented prerequisites, so a
   # runner without them fails at pkg_check_modules rather than at configure.
@@ -122,6 +128,9 @@ profiles:
         # Deliberate copy updates use the separate `storeflight metadata` command.
         release_listing_policy: preserve
         protect_product_page_tests: true
+        # Verify live controls, treatment assets and allocation before review.
+        # Never stop/reset experiments or replace them with repository assets.
+        product_page_test_policy: preserve_active_experiments
         bundle_id_ios: dev.milanko.dartpdf
         bundle_id_macos: dev.milanko.dartpdf
         platforms: [ios, macos]

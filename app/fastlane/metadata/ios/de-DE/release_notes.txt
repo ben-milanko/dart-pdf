@@ -1,6 +1,3 @@
-Neu in 8.1.0
+11.0.0
 
-- Schrift und Stil von Dropdown- und Listenfeldern ändern.
-- Neues Telefonmenü zum Erstellen, Öffnen, Drucken und Signieren.
-- Textbearbeitung bewahrt Schrift und Zeilenumbruch. Verbesserte iOS-Tastatur und Auswahlmenüs.
-- Vollständige Farbpalette für Stift und Textmarker auf Mobilgeräten.
+Erstellen Sie bearbeitbare Tabellen und kopieren Sie Zellen aus und in Tabellenkalkulationen. Setzen Sie unterbrochene Texterkennung fort. Ersetzen Sie Farben in Schnappschüssen und Anmerkungen. Richten Sie Text vertikal aus und duplizieren Sie gespeicherte Stempel. Verbesserter Textumbruch, gespeicherte Schriftarten und gedrehte Schnappschüsse.

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get textVerticalAlign => '세로 맞춤';
+
+  @override
+  String get textAlignTop => '텍스트 위쪽 맞춤';
+
+  @override
+  String get textAlignMiddle => '텍스트 가운데 맞춤';
+
+  @override
+  String get textAlignBottom => '텍스트 아래쪽 맞춤';
+
+  @override
   String get add => '추가';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get measVolumeDepth => '부피 깊이';
 
   @override
+  String get measCustomValueTitle => '측정값';
+
+  @override
   String get menuAddNode => '노드 추가';
+
+  @override
+  String get menuEditMeasurementValue => '측정값 편집';
 
   @override
   String get menuAddLeader => '지시선 추가';
@@ -433,6 +451,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => '지시선 제거';
+
+  @override
+  String get menuAddNoteHere => '여기에 메모 추가';
 
   @override
   String get menuSaveToStamps => '스탬프에 저장';
@@ -702,6 +723,15 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get propLineType => '선 유형';
 
   @override
+  String get propRegion => '표시한 영역';
+
+  @override
+  String get propRegionPolygon => '다각형';
+
+  @override
+  String get propRegionCloud => '구름';
+
+  @override
   String get propLoadFont => '글꼴 불러오기…';
 
   @override
@@ -935,6 +965,30 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       other: '일치 $count개 바꿈',
       one: '일치 1개 바꿈',
       zero: '바꾼 항목 없음',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '교정용으로 표시';
+
+  @override
+  String get searchRedactMark => '표시';
+
+  @override
+  String get searchRedactMarkAll => '모두 표시';
+
+  @override
+  String get searchRedactHint => '교정을 적용하기 전까지 표시는 검토할 수 있습니다';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '일치 $count개를 교정용으로 표시함',
+      one: '일치 1개를 교정용으로 표시함',
+      zero: '이미 표시됨',
     );
     return '$_temp0';
   }
@@ -1432,6 +1486,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => '교정 적용(되돌릴 수 없음)';
 
   @override
+  String get tbFindToRedact => '교정할 텍스트 찾기';
+
+  @override
   String get tbAutosizeTextBox => '텍스트 상자 자동 크기 조정 (Alt+Z)';
 
   @override
@@ -1655,6 +1712,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbNameCallout => '콜아웃';
 
   @override
+  String get tbNameCloudCallout => '구름 콜아웃';
+
+  @override
   String get tbNameCloudPolygon => '구름 다각형';
 
   @override
@@ -1689,6 +1749,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => '호 길이 측정';
+
+  @override
+  String get tbNameMeasureCustom => '사용자 지정 측정 (값 입력)';
 
   @override
   String get tbNameMeasureArea => '면적 측정';
@@ -1856,6 +1919,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '콜아웃 - 지점에서 상자가 놓일 위치로 드래그하세요';
+
+  @override
+  String get tbTipCloudCallout => '구름 콜아웃 - 영역 둘레로 구름을 드래그한 다음 메모를 입력하세요';
 
   @override
   String get tbTipContent => '페이지 콘텐츠 편집';
@@ -2420,4 +2486,67 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => '삽입';
+
+  @override
+  String get shellBakePageColor => '페이지 색상을 파일에 저장';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
+
+  @override
+  String get table => '표';
+
+  @override
+  String get tableEdit => '표 편집';
+
+  @override
+  String get tableRows => '행';
+
+  @override
+  String get tableColumns => '열';
+
+  @override
+  String get tableStyle => '표 스타일';
+
+  @override
+  String get tableStyleHint => '표 전체에 적용됩니다.';
+
+  @override
+  String get tableBackgroundColor => '배경색';
+
+  @override
+  String get tableHeaderColor => '머리글 색';
+
+  @override
+  String get tableTextColor => '글꼴 색';
+
+  @override
+  String get tableGridLines => '격자선';
+
+  @override
+  String get tableGridColor => '격자선 색';
+
+  @override
+  String get tableGridWidth => '격자선 두께';
+
+  @override
+  String get tableHeaderRow => '머리글 행';
+
+  @override
+  String get tableColumnWidth => '열 너비';
+
+  @override
+  String get tableRowHeight => '행 높이';
+
+  @override
+  String get tableSelectionHint =>
+      '셀을 클릭하여 편집하고 Shift 키를 누른 채 클릭하여 범위를 선택하세요. 복사와 붙여넣기로 Excel과 셀 값을 주고받을 수 있습니다.';
+
+  @override
+  String get tableClipboardError =>
+      '클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.';
+
+  @override
+  String get duplicate => '복제';
 }

@@ -263,12 +263,13 @@ no magic local file. Five workload kinds ship:
 | `open` | cold-open profile: bytes → `PdfDocument.open` → `pageCount` → first painted content and a visually settled target page | `openBytesMs`, `openDocMs`, `openPageCountMs`, `openFirstContentMs`, `openVisualSettleMs` |
 | `search` | full-document text search latency + hit count (best-of-N) | `searchMs`, `searchMatches` |
 | `edit` | apply a batch of annotations through the real `PdfEditingController`: incremental-save + appearance-gen cost | `editApplyMs`, `editApplyMsPerOp`, `editRevisions`, `editBufferGrowthKb` |
+| `resize` | start six mouse resize drags on a selected text box, undoing each commit | `resizeStartDispatchMsP50/P95` (synchronous slop-crossing event dispatch, excluding deferred clean rendering and save), `resizeMissedCommits` (must be 0) |
 | `hover` | mouse-move over a page with an editing tool armed: what following the painted cursor costs per pointer event | `hoverBuildMsTotal`, `hoverBuildMsPerEvent`, `hoverBuildMsP50/P95/Max`, `hoverFrames` |
 | `toolbar` | mounts the full `PdfEditorView` and arms tools through the stock toolbar with synthesized mouse clicks (group chips + strip buttons): the toolbar, `PdfEditorCommands`, and the rebuilds an armed tool triggers | `toolbarArmMsP50/P95/Max` (click → end of frame), `toolbarBuildMsPerArm`, `toolbarBuildMsTotal`, `toolbarMisses` (must be 0) |
 | `warm` | idle for a fixed window, then arrive on a far page: what the idle full-raster warm (#614) buys and what it spent | `warmArriveMs`, `warmCompletions`, `warmRetainedMb`, `warmEvictions`, `warmHits/warmMisses` |
 
 Stock scenarios: `scroll-plan`, `scroll-scan`, `scroll-diagram`, `open-plan`,
-`open-text`, `search-text`, `edit-annotate`, `toolbar-arm`, `hover-ink`, `hover-eraser`,
+`open-text`, `search-text`, `edit-annotate`, `resize-text-plan`, `toolbar-arm`, `hover-ink`, `hover-eraser`,
 `warm-plan-off`, `warm-plan-document`, `warm-scan-off`, `warm-scan-document`
 (default `scroll-plan`).
 

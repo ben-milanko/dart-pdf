@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextMatch;
 
 import '../page_geometry.dart';
 import '../renderer.dart';
@@ -40,15 +41,31 @@ Map<String, Object?> _replaceDocumentColorsOnWorker(
     password: message['password']! as String,
   );
   final editor = PdfEditor(document);
-  final count = editor.replaceColorsOnPages(
-    (message['pages']! as List).cast<int>(),
-    finds: (message['finds']! as List).cast<int>(),
-    replace: message['replace']! as int,
-    tolerance: message['tolerance']! as int,
-    fill: message['fill']! as bool,
-    stroke: message['stroke']! as bool,
-    transparent: message['transparent']! as bool,
-  );
+  var count = message['includePageContent'] == false
+      ? 0
+      : editor.replaceColorsOnPages(
+          (message['pages']! as List).cast<int>(),
+          finds: (message['finds']! as List).cast<int>(),
+          replace: message['replace']! as int,
+          tolerance: message['tolerance']! as int,
+          fill: message['fill']! as bool,
+          stroke: message['stroke']! as bool,
+          transparent: message['transparent']! as bool,
+        );
+  for (final slot in (message['annotations'] as List? ?? const [])) {
+    final page = (slot as List)[0] as int;
+    final annotation = document.page(page).annotations[slot[1] as int];
+    count += editor.replaceAnnotationColors(
+      page,
+      annotation,
+      finds: (message['finds']! as List).cast<int>(),
+      replace: message['replace']! as int,
+      tolerance: message['tolerance']! as int,
+      fill: message['fill']! as bool,
+      stroke: message['stroke']! as bool,
+      transparent: message['transparent']! as bool,
+    );
+  }
   if (count == 0 || !editor.hasChanges) {
     return const {'count': 0};
   }
@@ -172,6 +189,14 @@ enum PdfEditTool {
   /// depth.
   measureVolume,
 
+  /// Drag a dimension line, then type the value it reads - `12'-6"`,
+  /// `3.2 m`, `TYP.` - instead of the one computed from the scale. Stamped
+  /// as a /Line measurement whose caption is that value (kept in /Takeoff
+  /// /Value), so it works on an uncalibrated sheet and totals like any
+  /// other measurement. With a [PdfEditingController.measurementScale] the
+  /// prompt starts at the scaled length.
+  measureCustom,
+
   /// Drag a straight segment of known real-world length to calibrate the
   /// [PdfEditingController.measurementScale]. On release the editor asks
   /// how long the drawn segment is and derives the scale from it (the
@@ -185,6 +210,13 @@ enum PdfEditTool {
   /// then type the text (a /FreeText callout with a leader line and arrow,
   /// like Bluebeam's Callout tool).
   callout,
+
+  /// Drag a revision cloud around the area to mark, then type the note
+  /// (Bluebeam's Cloud+): one callout whose leader runs from the note to the
+  /// cloud. Scallops are sized by [PdfEditingPreferences.lineScale]; the
+  /// properties panel switches the cloud to a plain polygon (and dashes it)
+  /// and back. Drag the note to move it alone, the cloud to move both.
+  cloudCallout,
 
   /// Tap to place a sticky note (/Text).
   note,
@@ -1050,7 +1082,8 @@ class PdfEditingController extends ChangeNotifier {
   /// Whether the document or its visible draft ink differs from the opened one.
   bool get isModified => hasPendingInk || _cursor > 0 || _hardModified;
 
-  bool get canUndo => hasPendingInk || _cursor > _undoFloor;
+  bool get canUndo =>
+      hasPlacementDraft || hasPendingInk || _cursor > _undoFloor;
   bool get canRedo => _undoneInk.isNotEmpty || _cursor < _revisions.length - 1;
 
   /// Diagnostics: how many revisions the session buffer retains (every one is
@@ -1064,7 +1097,34 @@ class PdfEditingController extends ChangeNotifier {
   /// audit notes); watch it when chasing memory growth during editing.
   int get sessionBufferBytes => _used;
 
+  /// The step-back for a multi-click placement still in progress - a
+  /// polyline or polygon whose vertices are on screen but not committed yet.
+  /// [undo] calls it first, so Ctrl+Z drops the last placed vertex instead
+  /// of reverting a document revision the user isn't looking at. The page
+  /// overlay that owns the draft registers it ([setPlacementDraftUndo]) and
+  /// clears it once the draft commits or is dropped.
+  bool Function()? _placementDraftUndo;
+  Object? _placementDraftOwner;
+
+  /// Whether a multi-click placement draft is in progress ([undo] steps it
+  /// back before the document history).
+  bool get hasPlacementDraft => _placementDraftUndo != null;
+
+  /// Registers [undo] as [owner]'s in-progress placement draft, or - with a
+  /// null [undo] - clears it if [owner] still holds it. [undo] returns
+  /// whether it stepped anything back.
+  void setPlacementDraftUndo(Object owner, bool Function()? undo) {
+    if (undo != null) {
+      _placementDraftOwner = owner;
+      _placementDraftUndo = undo;
+    } else if (identical(_placementDraftOwner, owner)) {
+      _placementDraftOwner = null;
+      _placementDraftUndo = null;
+    }
+  }
+
   void undo() {
+    if (_placementDraftUndo?.call() ?? false) return;
     if (hasPendingInk) {
       _inkTimer?.cancel();
       _inkTimer = null;
@@ -2483,10 +2543,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfStandardFont get fontFamily => preferences.fontFamily;
 
   set fontFamily(PdfStandardFont value) {
-    if (_activeFont != null) {
-      _activeFont = null;
-      notifyListeners();
-    }
+    preferences.embeddedFont = null;
     preferences.fontFamily = value;
   }
 
@@ -2535,22 +2592,17 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PdfEmbeddedFont? _activeFont;
-
   /// An embedded TrueType/OpenType font selected for new free text, taking
   /// precedence over [fontFamily] so authored text can use any font (not
   /// just the base-14 faces). Null means a standard family.
   ///
-  /// Not persisted - the font program is large, and recovering it from a
-  /// box's own appearance keeps editing lossless regardless. A session
-  /// starts on the standard fonts; reselect a bundled or custom font to
-  /// use it again.
-  PdfEmbeddedFont? get activeFont => _activeFont;
+  /// Persisted with [preferences] as a compressed font program, so new
+  /// documents and app sessions keep the chosen face. Selecting a standard
+  /// [fontFamily] clears this embedded default.
+  PdfEmbeddedFont? get activeFont => preferences.embeddedFont;
 
   set activeFont(PdfEmbeddedFont? value) {
-    if (value == _activeFont) return;
-    _activeFont = value;
-    notifyListeners();
+    preferences.embeddedFont = value;
   }
 
   /// A human label for the font the font controls currently target - a
@@ -2558,7 +2610,7 @@ class PdfEditingController extends ChangeNotifier {
   /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
       selectedMeasurementCaptionStyle?.font.family.label ??
-      _activeFont?.displayName ??
+      activeFont?.displayName ??
       preferences.fontFamily.family.label;
 
   /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and
@@ -3212,6 +3264,76 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Marks each search hit in [matches] for redaction - one /Redact
+  /// annotation per hit (fill black), so every mark can be reviewed on the
+  /// page, and a false positive deleted, before [applyRedactions] burns
+  /// them. Find-to-redact (#1160): the search panel's "Mark all" hands it
+  /// [PdfViewerController.searchResults]' page-text hits.
+  ///
+  /// A hit already covered by a /Redact mark - from an earlier pass, or an
+  /// overlapping hit earlier in [matches] - is skipped, so marking the same
+  /// search twice adds nothing. Everything lands as one undo step. Returns
+  /// how many marks were added.
+  int markMatchesForRedaction(Iterable<PdfTextMatch> matches) {
+    final covered = <int, List<PdfRect>>{};
+    List<PdfRect> coveredOn(int page) => covered.putIfAbsent(
+          page,
+          () => [
+            for (final a in pageAt(page).annotations)
+              if (a.subtype == 'Redact') a.rect,
+          ],
+        );
+    final marks = <({int page, List<PdfRect> rects})>[];
+    for (final match in matches) {
+      if (match.rects.isEmpty) continue;
+      if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+        continue;
+      }
+      final existing = coveredOn(match.pageIndex);
+      if (match.rects.every((r) => existing.any((c) => _covers(c, r)))) {
+        continue;
+      }
+      marks.add((page: match.pageIndex, rects: match.rects));
+      existing.add(_boundsOfRects(match.rects));
+    }
+    if (marks.isEmpty) return 0;
+    final applied = apply((editor) {
+      for (final mark in marks) {
+        editor.addRedaction(mark.page, mark.rects, author: preferences.author);
+      }
+    });
+    return applied ? marks.length : 0;
+  }
+
+  /// Whether every run of [match] already sits under a /Redact mark on its
+  /// page - what the search panel shows beside a hit that "Mark" would skip.
+  bool isMarkedForRedaction(PdfTextMatch match) {
+    if (match.rects.isEmpty) return false;
+    if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final marks = [
+      for (final a in pageAt(match.pageIndex).annotations)
+        if (a.subtype == 'Redact') a.rect,
+    ];
+    return match.rects.every((r) => marks.any((c) => _covers(c, r)));
+  }
+
+  /// Whether [outer] contains [inner], give or take half a point of
+  /// rounding in the stored /Rect.
+  static bool _covers(PdfRect outer, PdfRect inner) =>
+      inner.left >= outer.left - 0.5 &&
+      inner.bottom >= outer.bottom - 0.5 &&
+      inner.right <= outer.right + 0.5 &&
+      inner.top <= outer.top + 0.5;
+
+  static PdfRect _boundsOfRects(List<PdfRect> rects) => PdfRect(
+        rects.map((r) => r.left).reduce(math.min),
+        rects.map((r) => r.bottom).reduce(math.min),
+        rects.map((r) => r.right).reduce(math.max),
+        rects.map((r) => r.top).reduce(math.max),
+      );
+
   // ---------------------------------------------------------------------
   // links
 
@@ -3219,17 +3341,20 @@ class PdfEditingController extends ChangeNotifier {
   /// external URI or an in-document jump (see [PdfLinkTarget]). [quads] is
   /// one rectangle per line of a text run, or a single box.
   ///
-  /// By default a link over a dragged box is drawn with a visible border so
-  /// it can be seen, while a link over selected text is drawn with a subtle
-  /// underline; override with [borderColor] / [underlineColor] (pass a
-  /// negative value to suppress that decoration and leave the region
-  /// invisible, the Acrobat convention for linking existing text).
+  /// By default a link over a dragged box is drawn with a visible border and
+  /// a chain-link badge in its corner, so it reads as a link rather than an
+  /// empty rectangle, while a link over selected text is drawn with a subtle
+  /// underline; override with [borderColor] / [underlineColor] /
+  /// [iconColor] (pass a negative value to suppress that decoration and
+  /// leave the region invisible, the Acrobat convention for linking existing
+  /// text).
   void addLink(
     int pageIndex,
     List<PdfRect> quads,
     PdfLinkTarget target, {
     int? borderColor,
     int? underlineColor,
+    int? iconColor,
   }) {
     if (quads.isEmpty) return;
     apply((e) => _emitLink(
@@ -3239,6 +3364,7 @@ class PdfEditingController extends ChangeNotifier {
           target,
           borderColor: borderColor,
           underlineColor: underlineColor,
+          iconColor: iconColor,
         ));
   }
 
@@ -3268,9 +3394,10 @@ class PdfEditingController extends ChangeNotifier {
     });
   }
 
-  /// Emits one link annotation for [target] over [quads]. When neither
-  /// decoration is specified a border is drawn (so a bare box link is
-  /// visible); a negative colour clears that decoration.
+  /// Emits one link annotation for [target] over [quads]. When no
+  /// decoration is specified a border and a link badge are drawn (so a bare
+  /// box link is visible and recognisable); a negative colour clears that
+  /// decoration.
   void _emitLink(
     PdfEditor editor,
     int pageIndex,
@@ -3278,12 +3405,18 @@ class PdfEditingController extends ChangeNotifier {
     PdfLinkTarget target, {
     int? borderColor,
     int? underlineColor,
+    int? iconColor,
   }) {
-    final resolvedBorder = borderColor == null && underlineColor == null
+    final bare =
+        borderColor == null && underlineColor == null && iconColor == null;
+    final resolvedBorder = bare
         ? PdfAnnotationEditing.defaultLinkColor
         : (borderColor != null && borderColor >= 0 ? borderColor : null);
     final resolvedUnderline =
         underlineColor != null && underlineColor >= 0 ? underlineColor : null;
+    final resolvedIcon = bare
+        ? PdfAnnotationEditing.defaultLinkColor
+        : (iconColor != null && iconColor >= 0 ? iconColor : null);
     final uri = target.uri;
     if (uri != null) {
       editor.addLinkToUri(
@@ -3292,6 +3425,7 @@ class PdfEditingController extends ChangeNotifier {
         uri: uri,
         borderColor: resolvedBorder,
         underlineColor: resolvedUnderline,
+        iconColor: resolvedIcon,
       );
       return;
     }
@@ -3303,6 +3437,7 @@ class PdfEditingController extends ChangeNotifier {
       destination: destination,
       borderColor: resolvedBorder,
       underlineColor: resolvedUnderline,
+      iconColor: resolvedIcon,
     );
   }
 
@@ -3588,7 +3723,9 @@ class PdfEditingController extends ChangeNotifier {
   /// Adds a measurement annotation of [kind] through [points] using the
   /// active [preferences.measurementScale] (count needs none). [depth] feeds a volume,
   /// [holes] cut a net-area polygon, [label] buckets the running total.
-  /// A no-op for a scaled kind without a scale.
+  /// [valueText] is a value the user wrote, shown and totalled in place of
+  /// the computed one ([PdfEditTool.measureCustom]); it needs no scale.
+  /// A no-op for a scaled kind with neither a scale nor a written value.
   void addMeasurement(
     int pageIndex,
     PdfMeasurementKind kind,
@@ -3596,9 +3733,13 @@ class PdfEditingController extends ChangeNotifier {
     double? depth,
     List<List<(double, double)>> holes = const [],
     String? label,
+    String? valueText,
   }) {
     final scale = preferences.measurementScale;
-    if (scale == null && kind != PdfMeasurementKind.count) return;
+    final written = valueText?.trim() ?? '';
+    if (scale == null && written.isEmpty && kind != PdfMeasurementKind.count) {
+      return;
+    }
     apply(
       (e) => e.addMeasurement(
         pageIndex,
@@ -3608,6 +3749,7 @@ class PdfEditingController extends ChangeNotifier {
         depth: depth,
         holes: holes,
         label: label,
+        valueText: written.isEmpty ? null : written,
         strokeColor: _colorValue,
         strokeWidth: preferences.strokeWidth,
         fillColor: _rgbOf(preferences.shapeFillColor),
@@ -3734,8 +3876,9 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           text,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
@@ -3766,14 +3909,52 @@ class PdfEditingController extends ChangeNotifier {
           text,
           target,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
           fillColor: _rgbOf(preferences.textFillColor),
           // the box outline and leader share one stroke; fall back to the
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
+          pageRotation: _page(pageIndex).rotation,
+          author: preferences.author,
+        ),
+      );
+
+  /// Places a cloud callout ([PdfEditTool.cloudCallout]): a revision cloud
+  /// around [region] and the [text] note at [rect], joined by a plain leader
+  /// from the note to the cloud (all page space). The note is borderless
+  /// text in the tool's colour, over [PdfEditingPreferences.textFillColor];
+  /// the cloud and leader share the stroke ([PdfEditingPreferences.
+  /// textBorderColor], else the text colour) and the scallops follow
+  /// [PdfEditingPreferences.lineScale].
+  void addCloudCallout(
+    int pageIndex,
+    PdfRect region,
+    PdfRect rect,
+    String text,
+  ) =>
+      apply(
+        (e) => e.addCallout(
+          pageIndex,
+          rect,
+          text,
+          (region.left, region.top),
+          region:
+              PdfCalloutRegion.rect(region, cloudScale: preferences.lineScale),
+          fontSize: preferences.fontSize,
+          font: activeFont ?? preferences.fontFamily,
+          align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
+          color: _colorValue,
+          fillColor: _rgbOf(preferences.textFillColor),
+          strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          outlineColor: (null,),
+          ending: PdfLineEnding.none,
           opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
@@ -3791,6 +3972,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
@@ -3815,6 +3997,13 @@ class PdfEditingController extends ChangeNotifier {
     String text, {
     double width = 220,
   }) {
+    if (text.contains('\t')) {
+      try {
+        return placeTable(pageIndex, x, y, PdfTableData.fromTsv(text));
+      } on FormatException {
+        return false;
+      }
+    }
     final value = text.trimRight();
     if (value.trim().isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
@@ -3833,8 +4022,9 @@ class PdfEditingController extends ChangeNotifier {
         rect,
         value,
         fontSize: fontSize,
-        font: _activeFont ?? preferences.fontFamily,
+        font: activeFont ?? preferences.fontFamily,
         align: preferences.textAlign,
+        verticalAlign: preferences.textVerticalAlign,
         color: _colorValue,
         fillColor: _rgbOf(preferences.textFillColor),
         borderColor: _rgbOf(preferences.textBorderColor),
@@ -3852,6 +4042,51 @@ class PdfEditingController extends ChangeNotifier {
       ..add((pageIndex, total - 1));
     notifyListeners();
     return true;
+  }
+
+  /// Copies cell values for Excel. Old PDF-specific clipboards must not win
+  /// over this newer text copy when Paste returns to a PDF page.
+  Future<void> copyTableCellsText(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    annotationClipboard.clear();
+    snapshotClipboard.clear();
+    pageClipboard.clear();
+  }
+
+  /// Inserts one movable, resizable table annotation. Cell values remain
+  /// editable after saving and reopening; ordinary viewers see its vector AP.
+  bool placeTable(int pageIndex, double x, double y, PdfTableData table) {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final scale = math.min(
+        1.0,
+        math.min(_visualPageWidth(pageIndex) * .9 / table.width,
+            _visualPageHeight(pageIndex) * .9 / table.height));
+    final rect = _pageRectForVisualSize(pageIndex, x, y,
+        width: table.width * scale, height: table.height * scale);
+    if (!apply((e) =>
+        e.addTable(pageIndex, rect, table, author: preferences.author))) {
+      return false;
+    }
+    tool = PdfEditTool.select;
+    _selected
+      ..clear()
+      ..add((pageIndex, _page(pageIndex).annotations.length - 1));
+    notifyListeners();
+    return true;
+  }
+
+  bool updateTable(int pageIndex, int slot, PdfTableData table,
+      {required int expectedRevision}) {
+    if (_disposed || expectedRevision != revisionId) return false;
+    final annotation = annotationAt(pageIndex, slot);
+    if (annotation == null ||
+        !isAnnotationEditable(annotation) ||
+        annotation.isLockedContents) {
+      return false;
+    }
+    return apply((e) => e.updateTable(pageIndex, annotation, table));
   }
 
   void addStamp(int pageIndex, PdfRect rect, String text, {int? color}) =>
@@ -4269,6 +4504,25 @@ class PdfEditingController extends ChangeNotifier {
   void saveCustomStamp(PdfCustomStamp stamp) =>
       preferences.customStamps = [...preferences.customStamps, stamp];
 
+  /// Saves an independent copy of a library stamp, preserving its artwork,
+  /// fields and metadata, and selects the copy for placement.
+  PdfCustomStamp duplicateCustomStamp(PdfCustomStamp stamp) {
+    final detached = PdfCustomStamp.decode(stamp.encode())!;
+    final copy = PdfCustomStamp(
+      id: 'copy-${DateTime.now().microsecondsSinceEpoch}-${_stampCopySequence++}',
+      text: detached.text,
+      color: detached.color,
+      template: detached.template,
+      type: detached.type,
+      tags: detached.tags,
+    );
+    saveCustomStamp(copy);
+    activeStamp = copy;
+    return copy;
+  }
+
+  static int _stampCopySequence = 0;
+
   /// Replaces a user-saved stamp with [next]. If [stamp] is active, the
   /// edited stamp remains active. Returns false for app-supplied stamps.
   bool replaceCustomStamp(PdfCustomStamp stamp, PdfCustomStamp next) {
@@ -4389,6 +4643,7 @@ class PdfEditingController extends ChangeNotifier {
     if (active == null) return;
     final rgb = color.toARGB32() & 0xFFFFFF;
     final next = PdfCustomStamp(
+      id: active.id,
       text: active.text,
       color: rgb,
       template: active.template == null
@@ -5176,24 +5431,58 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
-    final targets = (pages ??
-            Iterable<int>.generate(_document.pageCount, (index) => index))
-        .where((index) => index >= 0 && index < _document.pageCount)
+    final targets = (pages ?? Iterable<int>.generate(_document.pageCount))
+        .where((i) => i >= 0 && i < _document.pageCount)
         .toSet()
         .toList()
       ..sort();
-    if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
-    return [
-      for (final color in editor.contentColorsOnPages(
-        targets,
-        fill: fill,
-        stroke: stroke,
-      ))
-        Color(0xFF000000 | color.rgb),
-    ];
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final counts = <int, int>{};
+    for (final page in targets) {
+      final colors = [
+        if (includePageContent)
+          ...editor.contentColors(page, fill: fill, stroke: stroke),
+        for (final slot in slots.where((s) => s.$1 == page))
+          ...editor.annotationColors(page, _annotationAt(slot)!,
+              fill: fill, stroke: stroke),
+      ];
+      for (final color in colors) {
+        counts.update(color.rgb, (n) => n + color.uses,
+            ifAbsent: () => color.uses);
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final uses = b.value.compareTo(a.value);
+        return uses != 0 ? uses : a.key.compareTo(b.key);
+      });
+    return [for (final entry in entries) Color(0xFF000000 | entry.key)];
   }
+
+  List<(int, int)> _colorProcessingSlots(
+          List<int> pages, Iterable<(int, int)>? slots) =>
+      [
+        for (final slot in (slots ??
+                [
+                  for (final page in pages)
+                    for (var i = 0; i < _page(page).annotations.length; i++)
+                      (page, i),
+                ])
+            .toSet())
+          if (pages.contains(slot.$1))
+            if (_annotationAt(slot) case final a?
+                when isAnnotationEditable(a) &&
+                    !a.isLockedContents &&
+                    !const ['Widget', 'Popup', 'Link'].contains(a.subtype))
+              slot,
+      ];
 
   /// Asynchronously scans page-content colors, yielding between pages.
   ///
@@ -5205,6 +5494,9 @@ class PdfEditingController extends ChangeNotifier {
     Iterable<int>? pages,
     bool fill = true,
     bool stroke = true,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
     bool Function()? isCancelled,
     void Function(int completed, int total)? onProgress,
     Future<void> Function()? yieldAfterPage,
@@ -5217,14 +5509,21 @@ class PdfEditingController extends ChangeNotifier {
       ..sort();
     if (targets.isEmpty || (!fill && !stroke)) return const [];
     final editor = PdfEditor(_document);
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final annotations = {for (final slot in slots) slot: _annotationAt(slot)!};
     final uses = <int, List<int>>{};
     for (var i = 0; i < targets.length; i++) {
       if (isCancelled?.call() ?? false) return const [];
-      final pageColors = editor.contentColors(
-        targets[i],
-        fill: fill,
-        stroke: stroke,
-      );
+      final pageColors = [
+        if (includePageContent)
+          ...editor.contentColors(targets[i], fill: fill, stroke: stroke),
+        for (final entry
+            in annotations.entries.where((e) => e.key.$1 == targets[i]))
+          ...editor.annotationColors(targets[i], entry.value,
+              fill: fill, stroke: stroke),
+      ];
       for (final color in pageColors) {
         final counts = uses.putIfAbsent(color.rgb, () => [0, 0]);
         counts[0] += color.fillUses;
@@ -5281,8 +5580,10 @@ class PdfEditingController extends ChangeNotifier {
   /// ignored. Pass [findColors] to replace several source colors in one pass.
   /// [replace] may be omitted only when [transparent] is true. [tolerance] is
   /// an 8-bit per-channel tolerance. This is an undoable edit over page
-  /// content streams (text/vector colors), not annotation styling or raster
-  /// image pixel editing.
+  /// content streams (text/vector colors), optionally including annotation
+  /// styles and appearances with [includeAnnotations]. Raster pixels are not
+  /// edited. [annotationSlots] limits annotation processing to those slots;
+  /// protected annotations are always skipped.
   int replaceDocumentColors({
     Color? find,
     Iterable<Color>? findColors,
@@ -5292,6 +5593,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5310,17 +5614,31 @@ class PdfEditingController extends ChangeNotifier {
     if (!transparent && replace == null) {
       throw ArgumentError.notNull('replace');
     }
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
     var count = 0;
     final changed = apply((editor) {
-      count = editor.replaceColorsOnPages(
-        targets,
-        finds: finds,
-        replace: replace?.toARGB32() ?? 0,
-        tolerance: tolerance,
-        fill: fill,
-        stroke: stroke,
-        transparent: transparent,
-      );
+      count = !includePageContent
+          ? 0
+          : editor.replaceColorsOnPages(
+              targets,
+              finds: finds,
+              replace: replace?.toARGB32() ?? 0,
+              tolerance: tolerance,
+              fill: fill,
+              stroke: stroke,
+              transparent: transparent,
+            );
+      for (final slot in slots) {
+        count += editor.replaceAnnotationColors(slot.$1, _annotationAt(slot)!,
+            finds: finds,
+            replace: replace?.toARGB32() ?? 0,
+            tolerance: tolerance,
+            fill: fill,
+            stroke: stroke,
+            transparent: transparent);
+      }
     });
     return changed ? count : 0;
   }
@@ -5342,6 +5660,9 @@ class PdfEditingController extends ChangeNotifier {
     bool fill = true,
     bool stroke = true,
     bool transparent = false,
+    bool includePageContent = true,
+    bool includeAnnotations = false,
+    Iterable<(int, int)>? annotationSlots,
   }) async {
     final targets = (pages ??
             Iterable<int>.generate(_document.pageCount, (index) => index))
@@ -5361,6 +5682,11 @@ class PdfEditingController extends ChangeNotifier {
       throw ArgumentError.notNull('replace');
     }
 
+    final slots = includeAnnotations
+        ? _colorProcessingSlots(targets, annotationSlots)
+        : <(int, int)>[];
+    final beforeRevision = _revisionId;
+    final beforePredicate = _canEditAnnotation;
     final beforeCursor = _cursor;
     final beforeLength = _revisions[_cursor];
     final result = await compute<Map<String, Object?>, Map<String, Object?>>(
@@ -5375,13 +5701,22 @@ class PdfEditingController extends ChangeNotifier {
         'fill': fill,
         'stroke': stroke,
         'transparent': transparent,
+        'includePageContent': includePageContent,
+        'annotations': [
+          for (final slot in slots) [slot.$1, slot.$2]
+        ],
       },
       debugLabel: 'PDF color processing',
     );
     final count = result['count'] as int? ?? 0;
     final saved = result['bytes'] as Uint8List?;
     if (count == 0 || saved == null) return 0;
-    if (_cursor != beforeCursor || _revisions[_cursor] != beforeLength) {
+    if (_disposed ||
+        _revisionId != beforeRevision ||
+        _colorProcessingSlots(targets, slots).length != slots.length ||
+        !identical(_canEditAnnotation, beforePredicate) ||
+        _cursor != beforeCursor ||
+        _revisions[_cursor] != beforeLength) {
       return 0;
     }
 
@@ -5712,14 +6047,18 @@ class PdfEditingController extends ChangeNotifier {
   /// The rects match the chrome the overlay draws: a text markup's first
   /// quad, a callout's text box, otherwise /Rect.
   bool selectionGrabAt(int pageIndex, double x, double y, {double margin = 0}) {
-    final group = selectedGroupBounds;
-    if (selectedPage == pageIndex &&
-        group != null &&
-        x >= group.left - margin &&
-        x <= group.right + margin &&
-        y >= group.bottom - margin &&
-        y <= group.top + margin) {
-      return true;
+    final group = primarySelectedGroupQuad;
+    if (selectedPage == pageIndex && selectedIsSingleGroup && group != null) {
+      final angle = primarySelectedGroupRotation;
+      final c = math.cos(angle), s = math.sin(angle);
+      final local = boundsOfPoints([
+        for (final (px, py) in group) (c * px + s * py, -s * px + c * py),
+      ])!;
+      final lx = c * x + s * y, ly = -s * x + c * y;
+      return lx >= local.left - margin &&
+          lx <= local.right + margin &&
+          ly >= local.bottom - margin &&
+          ly <= local.top + margin;
     }
     for (final slot in _selected) {
       if (slot.$1 != pageIndex) continue;
@@ -5761,6 +6100,19 @@ class PdfEditingController extends ChangeNotifier {
   PdfRect? get primarySelectedGroupBounds => _selected.isEmpty
       ? null
       : annotationGroupBounds(_selected.last.$1, _selected.last.$2);
+
+  /// The primary group's oriented selection frame, including in a mixed
+  /// selection. Its edge lengths remain constant when the group rotates.
+  List<(double, double)>? get primarySelectedGroupQuad => _selected.isEmpty
+      ? null
+      : annotationGroupSelectionQuad(_selected.last.$1, _selected.last.$2);
+
+  List<(double, double)>? annotationGroupSelectionQuad(int page, int index) =>
+      _annotationGroups(page).selectionQuadFor(index);
+
+  double get primarySelectedGroupRotation => _selected.isEmpty
+      ? 0
+      : _annotationGroups(_selected.last.$1).rotationFor(_selected.last.$2);
 
   List<int> annotationGroupSlots(int page, int index) =>
       _annotationGroups(page).slotsFor(index);
@@ -6763,14 +7115,23 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   void _restorePastedGroups(PdfEditor editor, int page, List<List<int>> groups,
-      Map<int, int> pastedSlots) {
+      Map<int, int> pastedSlots,
+      {List<double>? rotations}) {
     final annotations = editor.document.page(page).annotations;
-    for (final group in groups) {
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i];
       final members = [
         for (final index in group)
           if (pastedSlots[index] case final slot?) annotations[slot],
       ];
-      if (members.length > 1) editor.groupAnnotations(page, members);
+      if (members.length > 1) {
+        if (rotations != null) {
+          for (final member in members) {
+            member.dict[kPdfAnnotationGroupRotationKey] = CosReal(rotations[i]);
+          }
+        }
+        editor.groupAnnotations(page, members, preserveRotation: true);
+      }
     }
   }
 
@@ -7104,22 +7465,37 @@ class PdfEditingController extends ChangeNotifier {
     }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
-    double left, bottom;
+    final page = _page(pageIndex);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize:
+          ui.Size(_visualPageWidth(pageIndex), _visualPageHeight(pageIndex)),
+    );
+    final ui.Rect visualTarget;
     if (at != null) {
-      left = at.$1 - w / 2;
-      bottom = at.$2 - h / 2;
+      visualTarget = ui.Rect.fromCenter(
+        center: geometry.toViewOffset(at.$1, at.$2),
+        width: w,
+        height: h,
+      );
     } else {
       final cascade = 12.0 * _snapshotPasteCount;
-      left = snapshot.region.left + cascade;
-      bottom = snapshot.region.bottom - cascade;
+      final anchor = geometry.toViewRect(snapshot.region).topLeft;
+      visualTarget =
+          ui.Rect.fromLTWH(anchor.dx + cascade, anchor.dy + cascade, w, h);
     }
+    final pageTarget = geometry.toPageRect(visualTarget);
+    var left = pageTarget.left, bottom = pageTarget.bottom;
     if (at == null) {
       // as in [pasteAnnotations]: only the point-less cascade is tethered
-      final box = _page(pageIndex).cropBox;
-      left += _tetherShift(left, left + w, box.left, box.right);
-      bottom += _tetherShift(bottom, bottom + h, box.bottom, box.top);
+      final box = page.cropBox;
+      left += _tetherShift(left, left + pageTarget.width, box.left, box.right);
+      bottom +=
+          _tetherShift(bottom, bottom + pageTarget.height, box.bottom, box.top);
     }
-    final target = PdfRect(left, bottom, left + w, bottom + h);
+    final target = PdfRect(
+        left, bottom, left + pageTarget.width, bottom + pageTarget.height);
     int? captured;
     final pasted = apply(
       (e) {
@@ -7255,6 +7631,7 @@ class PdfEditingController extends ChangeNotifier {
   double? get selectedLineScale {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
+    if (annotation.calloutRegion case final region?) return region.cloudScale;
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
   }
 
@@ -7292,9 +7669,10 @@ class PdfEditingController extends ChangeNotifier {
       case 'Ink':
         return PdfEditTool.ink;
       case 'FreeText':
-        return annotation.isCallout
-            ? PdfEditTool.callout
-            : PdfEditTool.freeText;
+        if (!annotation.isCallout) return PdfEditTool.freeText;
+        return annotation.calloutRegion != null
+            ? PdfEditTool.cloudCallout
+            : PdfEditTool.callout;
       case 'Text':
         return PdfEditTool.note;
       case 'Stamp':
@@ -7340,6 +7718,8 @@ class PdfEditingController extends ChangeNotifier {
       // shapes bake their pattern scale into the dash array; only a cloud
       // exposes a readable scallop scale to seed
       if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      if (annotation.calloutRegion case final region?)
+        'lineScale': region.cloudScale,
       'shapeFillColor': argb(style.fillColor),
       if (endings != null) 'lineStartEnding': endings.$1.name,
       if (endings != null) 'lineEndEnding': endings.$2.name,
@@ -7350,6 +7730,8 @@ class PdfEditingController extends ChangeNotifier {
       values['fontFamily'] = text.font.name;
       final align = annotation.freeTextStyle?.alignment;
       values['textAlign'] = align?.name;
+      values['textVerticalAlign'] =
+          annotation.freeTextStyle?.verticalAlignment.name;
       // for a text box /C is the background and /DA border colour is separate;
       // the box's tint is its text colour, already captured as `color`
       values['textFillColor'] = argb(style.fillColor);
@@ -7377,6 +7759,9 @@ class PdfEditingController extends ChangeNotifier {
     if (annotation == null) return false;
     final target = _defaultStyleTargetFor(annotation);
     if (target == null) return false;
+    if (annotation.subtype == 'FreeText') {
+      preferences.embeddedFont = PdfEmbeddedFont.fromFreeText(annotation);
+    }
     preferences.writeScopedStyle(
         target.scope, target.fields, _capturedStyleOf(annotation));
     notifyListeners();
@@ -7572,14 +7957,19 @@ class PdfEditingController extends ChangeNotifier {
   /// Translates every selected annotation by ([dx], [dy]) in page space,
   /// as one revision. The selection survives: annotations keep their
   /// /Annots slots across a move.
-  void moveSelected(double dx, double dy) {
+  ///
+  /// A callout moves only its text box (see [_moveAnnotationIn]) unless
+  /// [wholeCallout] - a cloud callout dragged by its cloud moves note, leader
+  /// and cloud together.
+  void moveSelected(double dx, double dy, {bool wholeCallout = false}) {
     final targets = <(int, PdfAnnotation, bool)>[
       for (final slot in _selected)
         if (_annotationAt(slot) case final annotation?)
           (
             slot.$1,
             annotation,
-            _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
+            wholeCallout ||
+                _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
           ),
     ];
     if (targets.isEmpty) return;
@@ -7756,7 +8146,8 @@ class PdfEditingController extends ChangeNotifier {
           e.pasteAnnotation(targetPage, snapshot!, dx: dx, dy: dy);
         }
         e.groupAnnotations(
-            targetPage, e.document.page(targetPage).annotations.skip(first));
+            targetPage, e.document.page(targetPage).annotations.skip(first),
+            preserveRotation: true);
       })) {
         return false;
       }
@@ -7827,7 +8218,8 @@ class PdfEditingController extends ChangeNotifier {
           to.bottom - sy * from.bottom + (flipY ? to.height : 0));
       final page = _selected.first.$1;
       final targets = [for (final s in _selected) _annotationAt(s)!];
-      apply((e) => e.transformAnnotations(page, targets, matrix));
+      apply((e) => e.transformAnnotations(page, targets, matrix,
+          preserveGroupRotation: primarySelectedGroupRotation.abs() < 1e-7));
       return;
     }
     final annotation = selectedAnnotation;
@@ -8052,6 +8444,47 @@ class PdfEditingController extends ChangeNotifier {
     });
   }
 
+  /// Restyles the marked region of every selected cloud callout: [shape]
+  /// switches between the revision cloud and the plain polygon, [lineStyle]
+  /// dashes its outline, and [cloudScale] resizes the cloud's scallops. One
+  /// revision, one undo. Returns whether anything changed.
+  bool restyleSelectedCalloutRegion({
+    PdfCalloutRegionShape? shape,
+    PdfLineStyle? lineStyle,
+    double? cloudScale,
+  }) {
+    if (shape == null && lineStyle == null && cloudScale == null) return false;
+    final targets = [
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final a?
+            when a.calloutRegion != null && isAnnotationEditable(a))
+          (slot.$1, a),
+    ];
+    if (targets.isEmpty) return false;
+    return apply((e) {
+      for (final (page, a) in targets) {
+        final width = a.calloutLeaderStyle?.width ?? 1;
+        e.restyleCalloutRegion(page, a,
+            shape: shape,
+            cloudScale: cloudScale,
+            dash: lineStyle == null
+                ? null
+                : (lineStyle.dashArray(width, scale: 1),));
+      }
+    });
+  }
+
+  /// Gives the selected cloud callout's region new corners (page space) - a
+  /// dragged vertex handle. The note stays and the leader follows. A no-op
+  /// unless one cloud callout is selected.
+  void reshapeSelectedCalloutRegion(List<(double, double)> vertices) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.calloutRegion == null) return;
+    apply(
+      (e) => e.reshapeCallout(_selected.last.$1, annotation, region: vertices),
+    );
+  }
+
   /// Whether [addSelectedCalloutLeader] can act: one editable callout is
   /// selected.
   bool get canAddSelectedCalloutLeader {
@@ -8202,7 +8635,32 @@ class PdfEditingController extends ChangeNotifier {
     bool flipY = false,
   }) {
     if (selectedIsSingleGroup) {
-      resizeSelected(localTo, flipX: flipX, flipY: flipY);
+      if (!canResizeSelected ||
+          localTo.width < 1 ||
+          localTo.height < 1 ||
+          !localTo.width.isFinite ||
+          !localTo.height.isFinite) {
+        return;
+      }
+      final quad = primarySelectedGroupQuad!;
+      final cx = (quad[0].$1 + quad[2].$1) / 2;
+      final cy = (quad[0].$2 + quad[2].$2) / 2;
+      double length((double, double) a, (double, double) b) =>
+          math.sqrt(math.pow(a.$1 - b.$1, 2) + math.pow(a.$2 - b.$2, 2));
+      final sx = localTo.width / length(quad[0], quad[1]) * (flipX ? -1 : 1);
+      final sy = localTo.height / length(quad[0], quad[3]) * (flipY ? -1 : 1);
+      final angle = primarySelectedGroupRotation;
+      final c = math.cos(angle), s = math.sin(angle);
+      final transform = PdfMatrix.translation(-cx, -cy)
+          .concat(PdfMatrix(c, -s, s, c, 0, 0))
+          .concat(PdfMatrix.scaled(sx, sy))
+          .concat(PdfMatrix(c, s, -s, c, 0, 0))
+          .concat(PdfMatrix.translation((localTo.left + localTo.right) / 2,
+              (localTo.bottom + localTo.top) / 2));
+      final page = _selected.first.$1;
+      final targets = [for (final slot in _selected) _annotationAt(slot)!];
+      apply((e) => e.transformAnnotations(page, targets, transform,
+          preserveGroupRotation: true));
       return;
     }
     final annotation = selectedAnnotation;
@@ -8417,13 +8875,14 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Whether the single selected annotation is a measurement (a /Line,
-  /// /PolyLine, or /Polygon carrying a /Measure) whose caption font and
-  /// size can be restyled in place ([setSelectedMeasurementCaption]).
+  /// /PolyLine, or /Polygon carrying a /Measure or a written value) whose
+  /// caption font and size can be restyled in place
+  /// ([setSelectedMeasurementCaption]).
   bool get canRestyleMeasurementCaption {
     final annotation = selectedAnnotation;
     return _selected.length == 1 &&
         annotation != null &&
-        annotation.measure != null &&
+        (annotation.measure != null || annotation.takeoff?.valueText != null) &&
         annotation.normalAppearance != null &&
         const {'Line', 'PolyLine', 'Polygon'}.contains(annotation.subtype);
   }
@@ -8434,6 +8893,51 @@ class PdfEditingController extends ChangeNotifier {
   ({PdfStandardFont font, double size})? get selectedMeasurementCaptionStyle {
     if (!canRestyleMeasurementCaption) return null;
     return _freeTextStyleOf(selectedAnnotation!);
+  }
+
+  /// Whether the single selected annotation is a measurement whose value
+  /// can be written over ([setSelectedMeasurementValue]): a /Line,
+  /// /PolyLine, or /Polygon that reads as a measurement, not a count marker.
+  bool get canEditSelectedMeasurementValue {
+    final annotation = selectedAnnotation;
+    if (_selected.length != 1 || annotation == null) return false;
+    if (annotation.isLocked || annotation.normalAppearance == null) {
+      return false;
+    }
+    final kind = annotation.measurementKind;
+    return kind != null &&
+        kind != PdfMeasurementKind.count &&
+        const {'Line', 'PolyLine', 'Polygon'}.contains(annotation.subtype);
+  }
+
+  /// The value the selected measurement shows - the one the user wrote,
+  /// else the computed one - or null when [canEditSelectedMeasurementValue]
+  /// is false. What a value prompt starts from.
+  String? get selectedMeasurementValue {
+    if (!canEditSelectedMeasurementValue) return null;
+    return selectedAnnotation!.measurementText;
+  }
+
+  /// Whether the selected measurement's value was written by the user
+  /// rather than computed from the scale.
+  bool get selectedMeasurementValueIsCustom =>
+      canEditSelectedMeasurementValue &&
+      selectedAnnotation!.takeoff?.valueText != null;
+
+  /// Writes [valueText] as the selected measurement's value - its caption
+  /// and total then read that instead of the computed value - in place: one
+  /// revision, one undo, same /Annots slot. Null or blank goes back to the
+  /// computed value, which only a measurement with its own scale (/Measure)
+  /// has; for one without, that is a no-op.
+  void setSelectedMeasurementValue(String? valueText) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canEditSelectedMeasurementValue) return;
+    final page = _selected.last.$1;
+    final written = valueText?.trim() ?? '';
+    final current = annotation.takeoff?.valueText;
+    if ((written.isEmpty ? null : written) == current) return;
+    if (written.isEmpty && annotation.measure == null) return;
+    apply((e) => e.setMeasurementValue(page, annotation, written));
   }
 
   /// Restyles the selected measurement's caption font and/or size in
@@ -8469,9 +8973,9 @@ class PdfEditingController extends ChangeNotifier {
     final angle = degrees * math.pi / 180;
     final c = math.cos(angle), s = math.sin(angle);
     if (selectedIsSingleGroup) {
-      final bounds = selectedGroupBounds!;
-      final cx = (bounds.left + bounds.right) / 2;
-      final cy = (bounds.bottom + bounds.top) / 2;
+      final quad = primarySelectedGroupQuad!;
+      final cx = (quad[0].$1 + quad[2].$1) / 2;
+      final cy = (quad[0].$2 + quad[2].$2) / 2;
       final transform =
           PdfMatrix(c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy);
       final page = _selected.first.$1;
@@ -8485,13 +8989,12 @@ class PdfEditingController extends ChangeNotifier {
             if (unit.length == 1) {
               e.rotateAnnotation(entry.key, unit.single, degrees);
             } else {
-              final bounds = unit.map((a) => a.rect).reduce((a, b) => PdfRect(
-                  math.min(a.left, b.left),
-                  math.min(a.bottom, b.bottom),
-                  math.max(a.right, b.right),
-                  math.max(a.top, b.top)));
-              final cx = (bounds.left + bounds.right) / 2;
-              final cy = (bounds.bottom + bounds.top) / 2;
+              final slot = _page(entry.key)
+                  .annotations
+                  .indexWhere((a) => identical(a.dict, unit.first.dict));
+              final quad = _annotationGroups(entry.key).selectionQuadFor(slot)!;
+              final cx = (quad[0].$1 + quad[2].$1) / 2;
+              final cy = (quad[0].$2 + quad[2].$2) / 2;
               e.transformAnnotations(
                   entry.key,
                   unit,
@@ -8508,7 +9011,16 @@ class PdfEditingController extends ChangeNotifier {
             math.max(a.top, b.top)));
         final cx = (bounds.left + bounds.right) / 2;
         final cy = (bounds.bottom + bounds.top) / 2;
-        for (final a in entry.value) {
+        for (final unit in _selectedUnitsOn(entry.key)) {
+          if (unit.length > 1) {
+            e.transformAnnotations(
+                entry.key,
+                unit,
+                PdfMatrix(
+                    c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy));
+            continue;
+          }
+          final a = unit.single;
           final ax = (a.rect.left + a.rect.right) / 2;
           final ay = (a.rect.bottom + a.rect.top) / 2;
           e.rotateAnnotation(entry.key, a, degrees);
@@ -8727,7 +9239,16 @@ class PdfEditingController extends ChangeNotifier {
     // leader + arrow: anchor at the box's top-left so the arrow stays put.
     // The anchor is where the user left the box, so a box sitting at (or
     // over) the page edge grows from there rather than sliding inward.
-    final anchor = annotation.calloutBox ?? annotation.rect;
+    // Measure and anchor in displayed page points: /Rotate 90 and 270 swap
+    // the text box's width/height, and 180 reverses its top-left corner.
+    final page = _page(_selected.last.$1);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: PdfPageRenderer.pageSize(page),
+    );
+    final anchor =
+        geometry.toViewRect(annotation.calloutBox ?? annotation.rect);
     var lines = normalized.split('\n');
     final double width;
     // Text that already wraps inside the box is a paragraph laid out at the
@@ -8762,13 +9283,14 @@ class PdfEditingController extends ChangeNotifier {
           size * (_freeTextAscent(font) + _freeTextDescent(font)) / 1000 +
           math.max(0, lines.length - 1) * size * lineSpacing,
     );
-    return PdfRect(
-        anchor.left, anchor.top - height, anchor.left + width, anchor.top);
+    return geometry
+        .toPageRect(ui.Rect.fromLTWH(anchor.left, anchor.top, width, height));
   }
 
   /// Shrinks or grows the selected free-text annotation to the natural
   /// bounds of its contents. Explicit newlines are preserved and the box is
-  /// anchored at its current top-left corner - it grows off the page edge
+  /// anchored at its current visible top-left corner, including on rotated
+  /// pages - it grows off the page edge
   /// rather than sliding inward to fit. Text that already wraps at the box's
   /// width keeps that width and only the height is fitted to the wrapped
   /// lines; otherwise the box takes the width of its longest line.
@@ -8914,6 +9436,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfStandardFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -8922,6 +9445,7 @@ class PdfEditingController extends ChangeNotifier {
       font: font,
       size: size,
       align: align,
+      verticalAlign: verticalAlign,
       fill: fill,
       border: border,
       borderWidth: borderWidth,
@@ -8971,6 +9495,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfTextFont? font,
     double? size,
     PdfTextAlign? align,
+    PdfTextVerticalAlign? verticalAlign,
     (int?,)? fill,
     (int?,)? border,
     double? borderWidth,
@@ -8984,6 +9509,7 @@ class PdfEditingController extends ChangeNotifier {
     if (font == null &&
         size == null &&
         align == null &&
+        verticalAlign == null &&
         fill == null &&
         border == null &&
         borderWidth == null &&
@@ -9043,6 +9569,11 @@ class PdfEditingController extends ChangeNotifier {
     }
     final oldSelection = List<(int, int)>.of(_selected);
     final selectedGroups = _snapshotGroups(oldSelection);
+    final selectedGroupRotations = [
+      for (final group in selectedGroups)
+        _annotationGroups(oldSelection[group.first].$1)
+            .rotationFor(oldSelection[group.first].$2),
+    ];
     final nextSelection = <(int, int)>[];
     for (final slot in oldSelection) {
       final replacement = replacementSlots[slot];
@@ -9104,6 +9635,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9132,6 +9666,9 @@ class PdfEditingController extends ChangeNotifier {
                 ),
             ],
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
             borderWidth: effectiveBorderWidth,
@@ -9151,6 +9688,9 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: size ?? spec.textFont.size,
             font: styledFont(spec.textFont.font),
             align: effectiveAlign,
+            verticalAlign: verticalAlign ??
+                parsed?.verticalAlignment ??
+                PdfTextVerticalAlign.top,
             color: parsed?.color ?? annotation.color ?? 0x000000,
             fillColor: effectiveFill,
             borderColor: effectiveBorder,
@@ -9180,10 +9720,15 @@ class PdfEditingController extends ChangeNotifier {
         }
       }
       for (final page in oldSelection.map((slot) => slot.$1).toSet()) {
-        _restorePastedGroups(e, page, selectedGroups, {
-          for (var i = 0; i < oldSelection.length; i++)
-            if (oldSelection[i].$1 == page) i: nextSelection[i].$2,
-        });
+        _restorePastedGroups(
+            e,
+            page,
+            selectedGroups,
+            {
+              for (var i = 0; i < oldSelection.length; i++)
+                if (oldSelection[i].$1 == page) i: nextSelection[i].$2,
+            },
+            rotations: selectedGroupRotations);
       }
     });
     if (!changed) {
@@ -9200,6 +9745,17 @@ class PdfEditingController extends ChangeNotifier {
   void setSelectedTextAlign(PdfTextAlign align) {
     preferences.textAlign = align; // the new default either way
     if (canRestyleSelectedText) restyleSelectedText(align: align);
+  }
+
+  /// The selected text box's vertical placement, or null without a text box.
+  PdfTextVerticalAlign? get selectedTextVerticalAlign =>
+      selectedFreeTextStyle?.verticalAlignment;
+
+  /// Applies vertical placement to selected text boxes in one undo step and
+  /// remembers it for new boxes. Horizontal alignment is unchanged.
+  void setSelectedTextVerticalAlign(PdfTextVerticalAlign align) {
+    preferences.textVerticalAlign = align;
+    if (canRestyleSelectedText) restyleSelectedText(verticalAlign: align);
   }
 
   /// Rewrites every selected free-text annotation in [font] - a base-14 face
@@ -9415,6 +9971,9 @@ class PdfEditingController extends ChangeNotifier {
         dict[kPdfCalloutLeadersKey] =
             CosArray([for (final line in lines.skip(1)) local(line)]);
       }
+      if (annotation.calloutRegion case final region?) {
+        dict[kPdfCalloutRegionKey] = local(region.vertices);
+      }
     }
     return (
       annotation: PdfAnnotation.fromDict(_document, dict),
@@ -9427,7 +9986,8 @@ class PdfEditingController extends ChangeNotifier {
     List<PdfCalloutLeader> leaders,
     PdfLineEnding ending,
     PdfCalloutLeaderStyle style,
-    List<double>? outlineDash
+    List<double>? outlineDash,
+    PdfCalloutRegion? region
   })? _calloutShapeOf(PdfAnnotation annotation) {
     final box = annotation.calloutBox;
     final lines = annotation.calloutLeaders;
@@ -9440,6 +10000,7 @@ class PdfEditingController extends ChangeNotifier {
       ],
       style: annotation.calloutLeaderStyle!,
       outlineDash: annotation.borderDash,
+      region: annotation.calloutRegion,
       ending: le is CosName
           ? PdfLineEnding.fromName(le.value)
           : PdfLineEnding.openArrow,
@@ -9458,12 +10019,14 @@ class PdfEditingController extends ChangeNotifier {
       List<PdfCalloutLeader> leaders,
       PdfLineEnding ending,
       PdfCalloutLeaderStyle style,
-      List<double>? outlineDash
+      List<double>? outlineDash,
+      PdfCalloutRegion? region
     }) shape,
     String text, {
     required double fontSize,
     required PdfTextFont font,
     required PdfTextAlign align,
+    PdfTextVerticalAlign verticalAlign = PdfTextVerticalAlign.top,
     required int color,
     required int? fillColor,
     required int? borderColor,
@@ -9487,6 +10050,7 @@ class PdfEditingController extends ChangeNotifier {
       fontSize: fontSize,
       font: font,
       align: align,
+      verticalAlign: verticalAlign,
       color: color,
       fillColor: fillColor,
       strokeColor: shape.style.color,
@@ -9495,6 +10059,7 @@ class PdfEditingController extends ChangeNotifier {
       outlineColor: (borderColor,),
       outlineWidth: borderWidth,
       outlineDash: shape.outlineDash,
+      region: shape.region,
       opacity: opacity,
       ending: shape.ending,
       lineSpacing: lineSpacing,
@@ -9552,6 +10117,8 @@ class PdfEditingController extends ChangeNotifier {
               fontSize: size ?? style.size,
               font: font ?? style.font,
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9588,6 +10155,8 @@ class PdfEditingController extends ChangeNotifier {
               font: font ?? style.font,
               // keep the box's own alignment unless this edit changes it
               align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+              verticalAlign:
+                  parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
               color: textColor ?? parsed?.color ?? color ?? 0x000000,
               fillColor: fill != null ? fill.$1 : parsed?.fillColor,
               borderColor: border != null ? border.$1 : parsed?.borderColor,
@@ -9687,6 +10256,8 @@ class PdfEditingController extends ChangeNotifier {
             fontSize: first.fontSize,
             font: first.font,
             align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+            verticalAlign:
+                parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
             color: first.color,
             fillColor: parsed?.fillColor,
             borderColor: parsed?.borderColor,
@@ -9711,6 +10282,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           runs,
           align: align ?? parsed?.alignment ?? PdfTextAlign.left,
+          verticalAlign: parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: parsed?.borderWidth ?? 1,
@@ -9803,6 +10375,44 @@ class PdfEditingController extends ChangeNotifier {
       selectedElement?.kind == PdfElementKind.text &&
       (selectedElement?.text?.isNotEmpty ?? false);
 
+  /// The text elements that together draw the word the selected content
+  /// element belongs to, in content order. Usually just the element itself;
+  /// a page that draws a word as several show operators - one per glyph is
+  /// common in generated PDFs - yields all of them, so a tap on one letter
+  /// still edits the whole word. Empty when no text element is selected.
+  List<PdfContentElement> get selectedElementWord {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return const [];
+    }
+    return _textWordAround(elementsOn(selected.$1).elements, element);
+  }
+
+  /// The text the content tool's text edits start from: the whole
+  /// [selectedElementWord], or null when no text element is selected.
+  String? get selectedElementEditText {
+    final word = selectedElementWord;
+    return word.isEmpty ? null : word.map((e) => e.text!).join();
+  }
+
+  /// The page-space box of [selectedElementWord] when it spans more than the
+  /// selected element - painted so the user sees what a text edit covers.
+  PdfRect? get selectedElementWordBounds {
+    final word = selectedElementWord;
+    if (word.length < 2) return null;
+    PdfRect? box;
+    for (final element in word) {
+      final b = element.bounds;
+      if (b == null) continue;
+      box = box == null
+          ? b
+          : PdfRect(math.min(box.left, b.left), math.min(box.bottom, b.bottom),
+              math.max(box.right, b.right), math.max(box.top, b.top));
+    }
+    return box;
+  }
+
   /// Resolves a viewer text selection to the one editable page-content text
   /// element underneath all of its [rects]. Returns null for multi-run text,
   /// text inside a Form XObject, or ambiguous overlapping text layers.
@@ -9835,6 +10445,156 @@ class PdfEditingController extends ChangeNotifier {
       });
     }).toList(growable: false);
     return candidates.length == 1 ? candidates.single : null;
+  }
+
+  /// Resolves a single-line viewer text selection to the page-content text
+  /// it covers, as one `(element, find)` part per show operator: the
+  /// [textElementForSelection] run when one run holds it all, otherwise the
+  /// consecutive runs the selected word or phrase is split across (a page
+  /// that draws text a glyph or a fragment at a time). Each part's `find` is
+  /// the slice of the selection that element draws. Whitespace in [text]
+  /// may be absent from the runs - such pages usually space words by
+  /// positioning, not by a space glyph.
+  ///
+  /// Returns null when the selection cannot be pinned to exactly one
+  /// stretch of runs, or a slice occurs twice in its run - the same
+  /// conservative promise as [textElementForSelection]: an edit changes the
+  /// text the user selected or nothing.
+  List<PdfContentTextPart>? textPartsForSelection(
+    int pageIndex,
+    List<PdfRect> rects,
+    String text,
+  ) {
+    final single = textElementForSelection(pageIndex, rects, text);
+    if (single != null) return [(element: single, find: text)];
+    if (text.trim().isEmpty || rects.isEmpty || text.contains('\n')) {
+      return null;
+    }
+    final touched = [
+      for (final element in elementsOn(pageIndex).elements)
+        if (element.kind == PdfElementKind.text &&
+            (element.text?.isNotEmpty ?? false) &&
+            element.bounds != null &&
+            rects.any((rect) {
+              final overlap = element.bounds!.intersect(rect);
+              return overlap.width > 0 && overlap.height > 0;
+            }))
+          element,
+    ];
+    if (touched.length < 2 || touched.length > _maxSelectionParts) return null;
+    final joined = StringBuffer();
+    final owner = <int>[];
+    for (var i = 0; i < touched.length; i++) {
+      final t = touched[i].text!;
+      joined.write(t);
+      owner.addAll(List.filled(t.length, i));
+    }
+    final haystack = joined.toString();
+    (int, int)? match;
+    for (var start = 0; start < haystack.length; start++) {
+      final end = _alignSelection(haystack, start, text);
+      if (end == null) continue;
+      if (match != null) return null; // ambiguous
+      match = (start, end);
+    }
+    if (match == null) return null;
+    final parts = <PdfContentTextPart>[];
+    var from = match.$1;
+    while (from < match.$2) {
+      var to = from;
+      while (to < match.$2 && owner[to] == owner[from]) {
+        to++;
+      }
+      final element = touched[owner[from]];
+      final find = haystack.substring(from, to);
+      final t = element.text!;
+      if (t.indexOf(find) != t.lastIndexOf(find)) return null;
+      parts.add((element: element, find: find));
+      from = to;
+    }
+    return parts;
+  }
+
+  static const int _maxSelectionParts = 256;
+
+  /// Where [text] ends when laid over [haystack] from [start], or null when it
+  /// doesn't fit there. A space in [text] may be missing from [haystack]
+  /// (word gaps drawn by positioning); every other character must match.
+  static int? _alignSelection(String haystack, int start, String text) {
+    var i = start;
+    var j = 0;
+    while (j < text.length) {
+      if (i < haystack.length && haystack.codeUnitAt(i) == text.codeUnitAt(j)) {
+        i++;
+        j++;
+      } else if (i > start && _isSpaceUnit(text.codeUnitAt(j))) {
+        j++;
+      } else {
+        return null;
+      }
+    }
+    return i > start ? i : null;
+  }
+
+  static bool _isSpaceUnit(int unit) =>
+      unit == 0x20 || unit == 0x09 || unit == 0xA0;
+
+  /// Replaces the text [parts] (from [textPartsForSelection] or
+  /// [selectedElementWord], all on [pageIndex] and from the current
+  /// revision's elements) with [replace] as one undoable edit: the first part
+  /// takes the whole replacement, styled with [style], and the rest of the
+  /// parts are removed. Following text holds its position, as with any
+  /// in-line replacement. Returns how many runs changed - 0 when the first
+  /// run's font cannot draw [replace], in which case nothing is touched.
+  int replaceTextInParts(
+    int pageIndex,
+    List<PdfContentTextPart> parts,
+    String replace, {
+    PdfTextStyle? style,
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    if (parts.isEmpty) return 0;
+    final snapshot = elementsOn(pageIndex);
+    for (final part in parts) {
+      final id = part.element.id;
+      if (id < 0 ||
+          id >= snapshot.elements.length ||
+          !identical(snapshot.elements[id], part.element)) {
+        return 0;
+      }
+    }
+    var count = 0;
+    apply((editor) {
+      final first = parts.first;
+      // read before the edit: rewriting a run can splice the snapshot's own
+      // operation list in place
+      final opsBefore = snapshot.operations.length;
+      count = editor.replaceElementText(
+        snapshot,
+        first.element,
+        first.find,
+        replace,
+        fallbackFonts: fallbackFonts,
+        style: style,
+      );
+      if (count == 0 || parts.length == 1) return;
+      // The rewrite of the first run may change how many operations it
+      // takes; everything after it shifts by that much. Remove the other
+      // slices last-first, so each removal leaves the ranges of the ones
+      // still to come untouched.
+      final after = PdfPageElements.of(editor.document, pageIndex);
+      final shift = after.operations.length - opsBefore;
+      final byStart = {
+        for (final element in after.elements)
+          if (element.kind == PdfElementKind.text) element.start: element,
+      };
+      for (final part in parts.skip(1).toList().reversed) {
+        final moved = byStart[part.element.start + shift];
+        if (moved == null || moved.text != part.element.text) continue;
+        count += editor.replaceElementText(after, moved, part.find, '');
+      }
+    });
+    return count;
   }
 
   /// Whether [element]'s current font can accept rich style overrides.
@@ -10151,18 +10911,14 @@ class PdfEditingController extends ChangeNotifier {
         !identical(elements.elements[element.id], element)) {
       return 0;
     }
-    var count = 0;
-    apply(
-      (e) => count = e.replaceElementText(
-        elements,
-        element,
-        element.text!,
-        text,
-        fallbackFonts: fallbackFonts,
-        style: style,
-      ),
+    final word = _textWordAround(elements.elements, element);
+    return replaceTextInParts(
+      selected.$1,
+      [for (final e in word) (element: e, find: e.text!)],
+      text,
+      style: style,
+      fallbackFonts: fallbackFonts,
     );
-    return count;
   }
 
   /// Rewrites [find] only inside [element], the occurrence resolved from a
@@ -10200,10 +10956,10 @@ class PdfEditingController extends ChangeNotifier {
   /// [pageIndex] - with [replace], leaving identical text elsewhere alone.
   ///
   /// Backs the search panel's single "Replace". Returns the number of runs
-  /// rewritten, which is 0 when the hit cannot be pinned to exactly one
-  /// content element (text split across runs, a hit inside a Form XObject,
-  /// overlapping text layers) or when the run's font cannot draw [replace] -
-  /// the same conservative gate [textElementForSelection] applies to the
+  /// rewritten, which is 0 when the hit cannot be pinned to one stretch of
+  /// content runs (a hit inside a Form XObject, overlapping text layers) or
+  /// when the run's font cannot draw [replace] - the same conservative gate
+  /// [textPartsForSelection] applies to the
   /// selection menu, so a replace either lands on the hit the user is looking
   /// at or does nothing at all.
   int replaceMatchText(
@@ -10213,14 +10969,12 @@ class PdfEditingController extends ChangeNotifier {
     String replace, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
   }) {
-    final element = textElementForSelection(pageIndex, rects, find);
-    if (element == null) return 0;
-    return replaceTextInElement(
+    final parts = textPartsForSelection(pageIndex, rects, find);
+    if (parts == null) return 0;
+    return replaceTextInParts(
       pageIndex,
-      element,
-      find,
+      parts,
       replace,
-      const PdfTextStyle(),
       fallbackFonts: fallbackFonts,
     );
   }
@@ -11305,4 +12059,69 @@ class _SignatureCoreJob {
   final int length;
   bool valid = true;
   final Completer<void> done = Completer<void>();
+}
+
+/// One slice of a text edit: the [find] text that page-content text
+/// [element] draws. See [PdfEditingController.textPartsForSelection].
+typedef PdfContentTextPart = ({PdfContentElement element, String find});
+
+/// The run of text [elements] that draws the word [element] is part of, in
+/// content order: [element] plus any neighbouring show operators that sit on
+/// the same line and butt up against it with no space glyph or word gap
+/// between them. Pages that place each glyph (or a few) with its own
+/// operator draw words this way; anywhere else this is just `[element]`.
+List<PdfContentElement> _textWordAround(
+  List<PdfContentElement> elements,
+  PdfContentElement element,
+) {
+  final id = element.id;
+  if (id < 0 || id >= elements.length || !identical(elements[id], element)) {
+    return [element];
+  }
+  var first = id;
+  var last = id;
+  while (first > 0 &&
+      last - first < _maxWordElements &&
+      _textJoins(elements[first - 1], elements[first])) {
+    first--;
+  }
+  while (last + 1 < elements.length &&
+      last - first < _maxWordElements &&
+      _textJoins(elements[last], elements[last + 1])) {
+    last++;
+  }
+  return elements.sublist(first, last + 1);
+}
+
+const int _maxWordElements = 64;
+
+/// Whether text element [b] continues the word [a] ends, on the page: both
+/// text, no whitespace at the seam, on one line, [b] starting where [a] ends
+/// (a gap well under a word space, or a slight kerned overlap).
+bool _textJoins(PdfContentElement a, PdfContentElement b) {
+  final at = a.text;
+  final bt = b.text;
+  final ab = a.bounds;
+  final bb = b.bounds;
+  if (a.kind != PdfElementKind.text ||
+      b.kind != PdfElementKind.text ||
+      at == null ||
+      bt == null ||
+      at.isEmpty ||
+      bt.isEmpty ||
+      ab == null ||
+      bb == null) {
+    return false;
+  }
+  bool space(int unit) =>
+      unit == 0x20 || unit == 0x09 || unit == 0xA0 || unit == 0x0A;
+  if (space(at.codeUnitAt(at.length - 1)) || space(bt.codeUnitAt(0))) {
+    return false;
+  }
+  final height = math.min(ab.height, bb.height);
+  if (height <= 0) return false;
+  final overlap = math.min(ab.top, bb.top) - math.max(ab.bottom, bb.bottom);
+  if (overlap < height * 0.6) return false;
+  final gap = bb.left - ab.right;
+  return bb.left > ab.left && gap > -height * 0.3 && gap < height * 0.15;
 }

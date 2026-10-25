@@ -357,7 +357,13 @@ extension PdfAnnotationClipboard on PdfEditor {
     dict['Rect'] = _rectArray(
       PdfRect(rect.left + dx, rect.bottom + dy, rect.right + dx, rect.top + dy),
     );
-    for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+    for (final key in const [
+      'QuadPoints',
+      'L',
+      'Vertices',
+      'CL',
+      kPdfCalloutRegionKey
+    ]) {
       final shifted = _shiftPoints(dict[key], dx, dy);
       if (shifted != null) dict[key] = shifted;
     }

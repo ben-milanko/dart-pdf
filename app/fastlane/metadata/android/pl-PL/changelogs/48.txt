@@ -1,0 +1,3 @@
+11.0.0
+
+Twórz edytowalne tabele i kopiuj komórki z arkuszy kalkulacyjnych i do nich. Wznawiaj przerwane rozpoznawanie tekstu. Zamieniaj kolory w migawkach i adnotacjach. Wyrównuj tekst w pionie i powielaj zapisane stemple. Poprawiono zawijanie tekstu, zapamiętywanie czcionek i obrócone migawki.

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Вертикальне вирівнювання';
+
+  @override
+  String get textAlignTop => 'Вирівняти текст за верхнім краєм';
+
+  @override
+  String get textAlignMiddle => 'Вирівняти текст по центру';
+
+  @override
+  String get textAlignBottom => 'Вирівняти текст за нижнім краєм';
+
+  @override
   String get add => 'Додати';
 
   @override
@@ -349,7 +361,13 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Глибина об’єму';
 
   @override
+  String get measCustomValueTitle => 'Значення вимірювання';
+
+  @override
   String get menuAddNode => 'Додати вузол';
+
+  @override
+  String get menuEditMeasurementValue => 'Змінити значення вимірювання';
 
   @override
   String get menuAddLeader => 'Додати лінію виноски';
@@ -440,6 +458,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Вилучити лінію виноски';
+
+  @override
+  String get menuAddNoteHere => 'Додати нотатку тут';
 
   @override
   String get menuSaveToStamps => 'Зберегти у штампи';
@@ -715,6 +736,15 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get propLineType => 'Тип лінії';
 
   @override
+  String get propRegion => 'Позначена область';
+
+  @override
+  String get propRegionPolygon => 'Багатокутник';
+
+  @override
+  String get propRegionCloud => 'Хмара';
+
+  @override
   String get propLoadFont => 'Завантажити шрифт…';
 
   @override
@@ -954,6 +984,33 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       few: 'Замінено $count збіги',
       one: 'Замінено 1 збіг',
       zero: 'Нічого не замінено',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Позначити для приховування';
+
+  @override
+  String get searchRedactMark => 'Позначити';
+
+  @override
+  String get searchRedactMarkAll => 'Позначити всі';
+
+  @override
+  String get searchRedactHint =>
+      'Позначки можна переглянути, доки ви не застосуєте приховування';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Позначено для приховування $count збігу',
+      many: 'Позначено для приховування $count збігів',
+      few: 'Позначено для приховування $count збіги',
+      one: 'Позначено для приховування 1 збіг',
+      zero: 'Уже позначено',
     );
     return '$_temp0';
   }
@@ -1460,6 +1517,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Застосувати редагування (незворотно)';
 
   @override
+  String get tbFindToRedact => 'Знайти текст для приховування';
+
+  @override
   String get tbAutosizeTextBox => 'Автопідбір розміру текстового поля (Alt+Z)';
 
   @override
@@ -1692,6 +1752,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Виноска';
 
   @override
+  String get tbNameCloudCallout => 'Хмароподібна виноска';
+
+  @override
   String get tbNameCloudPolygon => 'Хмароподібний багатокутник';
 
   @override
@@ -1726,6 +1789,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Виміряти довжину дуги';
+
+  @override
+  String get tbNameMeasureCustom => 'Власний розмір (ввести значення)';
 
   @override
   String get tbNameMeasureArea => 'Виміряти площу';
@@ -1898,6 +1964,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Виноска — перетягніть від точки туди, де має бути поле';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Хмароподібна виноска — обведіть область хмарою, потім введіть нотатку';
 
   @override
   String get tbTipContent => 'Редагувати вміст сторінки';
@@ -2509,4 +2579,67 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Вставити';
+
+  @override
+  String get shellBakePageColor => 'Зберігати колір сторінки у файлі';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Колір сторінки не збережено у файлі: зміна сторінок зробить його підписи недійсними.';
+
+  @override
+  String get table => 'Таблиця';
+
+  @override
+  String get tableEdit => 'Змінити таблицю';
+
+  @override
+  String get tableRows => 'Рядки';
+
+  @override
+  String get tableColumns => 'Стовпці';
+
+  @override
+  String get tableStyle => 'Стиль таблиці';
+
+  @override
+  String get tableStyleHint => 'Застосовується до всієї таблиці.';
+
+  @override
+  String get tableBackgroundColor => 'Колір тла';
+
+  @override
+  String get tableHeaderColor => 'Колір заголовка';
+
+  @override
+  String get tableTextColor => 'Колір шрифту';
+
+  @override
+  String get tableGridLines => 'Лінії сітки';
+
+  @override
+  String get tableGridColor => 'Колір сітки';
+
+  @override
+  String get tableGridWidth => 'Товщина сітки';
+
+  @override
+  String get tableHeaderRow => 'Рядок заголовків';
+
+  @override
+  String get tableColumnWidth => 'Ширина стовпця';
+
+  @override
+  String get tableRowHeight => 'Висота рядка';
+
+  @override
+  String get tableSelectionHint =>
+      'Натисніть клітинку для редагування; Shift і клацання виділяють діапазон. Копіювання та вставлення обмінюються значеннями клітинок з Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Таблиця в буфері обміну некоректна або перевищує 500 рядків, 100 стовпців чи 20 000 клітинок.';
+
+  @override
+  String get duplicate => 'Дублювати';
 }

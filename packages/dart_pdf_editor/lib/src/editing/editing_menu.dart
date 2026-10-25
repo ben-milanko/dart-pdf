@@ -6,6 +6,8 @@ import 'package:pdf_document/pdf_document.dart';
 import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
+import 'editing_table.dart';
+import 'editing_color_processing.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'text_prompt.dart';
@@ -261,9 +263,11 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 /// [pagePoint] is where on the page the menu was opened (page space) -
 /// Paste centers the clipboard there; without it the paste falls back
 /// to [PdfEditingController.pasteAnnotations]' cascade. With nothing
-/// selected the menu still opens when the clipboard has content (the
-/// empty-area right-click), offering Paste alone. [entriesBuilder] rewrites
-/// the rows last (see [PdfAnnotationMenuEntriesBuilder]).
+/// selected - the empty-area right-click or long-press - the menu offers
+/// page actions instead: Paste when the clipboard has content, and, when
+/// [pagePoint] is known, Add note here plus Select all (when
+/// [onSelectAllText] is given). [entriesBuilder] rewrites the rows last (see
+/// [PdfAnnotationMenuEntriesBuilder]).
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
@@ -277,6 +281,7 @@ Future<void> showPdfAnnotationMenu({
   VoidCallback? onPaste,
   (double, double)? pagePoint,
   (int page, int slot)? unlockTarget,
+  VoidCallback? onSelectAllText,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
@@ -288,7 +293,14 @@ Future<void> showPdfAnnotationMenu({
   // A locked annotation can't be selected, so a right-click on one opens
   // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
   // selection/paste entries.
-  if (!hasSelection && !canPaste && unlockTarget == null) return;
+  //
+  // A press on empty page area always has somewhere to go: the page actions
+  // below. Without them a long-press there looked like it did nothing.
+  final onEmptyPage =
+      !hasSelection && unlockTarget == null && pagePoint != null;
+  if (!hasSelection && !canPaste && !onEmptyPage && unlockTarget == null) {
+    return;
+  }
 
   // The stock entries are grouped so [_menuRowsWithDividers] can rule off
   // each cluster: unlock, clipboard, z-order arrange, node editing,
@@ -305,7 +317,40 @@ Future<void> showPdfAnnotationMenu({
             .setAnnotationLocked(unlockTarget.$1, unlockTarget.$2, false),
       ),
   ];
+  final selectedTable = controller.selectedAnnotation?.table;
   final clipboard = <PdfAnnotationMenuItem>[
+    if (hasSelection &&
+        selectedTable != null &&
+        controller.selectedAnnotationSlots.length == 1)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-edit-table'),
+          label: pdfL10n(context).tableEdit,
+          icon: Icons.table_chart_outlined,
+          enabled:
+              controller.isAnnotationEditable(controller.selectedAnnotation!) &&
+                  !controller.selectedAnnotation!.isLockedContents,
+          onSelected: (request) => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: request.slots.single.$1,
+              annotationSlot: request.slots.single.$2)),
+    if (hasSelection &&
+        selectedTable != null &&
+        controller.selectedAnnotationSlots.length == 1)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-copy-table-cells'),
+          label: '${pdfL10n(context).copy} (Excel)',
+          icon: Icons.copy,
+          onSelected: (_) =>
+              controller.copyTableCellsText(selectedTable.toTsv())),
+    if (onEmptyPage)
+      PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-insert-table'),
+          label: pdfL10n(context).table,
+          icon: Icons.table_chart_outlined,
+          onSelected: (_) => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: pageIndex,
+              position: pagePoint)),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-copy'),
@@ -362,6 +407,30 @@ Future<void> showPdfAnnotationMenu({
           }
         },
       ),
+  ];
+  final notePoint = onEmptyPage ? pagePoint : null;
+  final page = <PdfAnnotationMenuItem>[
+    if (notePoint != null) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-add-note'),
+        label: pdfL10n(context).menuAddNoteHere,
+        icon: Icons.sticky_note_2_outlined,
+        onSelected: (request) async {
+          final text = await textPrompt(context,
+              title: pdfL10n(context).overlayNote, multiline: true);
+          if (text == null || text.isEmpty) return;
+          request.controller
+              .addNote(pageIndex, notePoint.$1, notePoint.$2, text);
+        },
+      ),
+      if (onSelectAllText != null)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-select-all-text'),
+          label: pdfL10n(context).viewerSelectAll,
+          icon: Icons.select_all,
+          onSelected: (_) => onSelectAllText(),
+        ),
+    ],
   ];
   final arrange = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
@@ -440,6 +509,25 @@ Future<void> showPdfAnnotationMenu({
             request.controller.removeSelectedVertexNear(pagePoint),
       ),
     ],
+    // A measurement takes the value the drawing says, typed over the one
+    // the scale computes; a blank answer goes back to the computed value.
+    if (hasSelection && controller.canEditSelectedMeasurementValue)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-measurement-value'),
+        label: pdfL10n(context).menuEditMeasurementValue,
+        icon: Icons.edit_note,
+        onSelected: (request) async {
+          final value = await textPrompt(
+            context,
+            title: pdfL10n(context).measCustomValueTitle,
+            initial: request.controller.selectedMeasurementValue ?? '',
+            multiline: false,
+          );
+          if (value != null) {
+            request.controller.setSelectedMeasurementValue(value);
+          }
+        },
+      ),
     // A callout grows another arrow from the same box (aimed just off the
     // box, ready to drag by its tip) or drops the one nearest the click -
     // the last one when the menu has no click point. One always stays.
@@ -463,24 +551,25 @@ Future<void> showPdfAnnotationMenu({
     ],
   ];
   final recolor = <PdfAnnotationMenuItem>[
+    if (hasSelection && controller.canCropSelected)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-crop-snapshot'),
+        label: pdfL10n(context).tbCropImage,
+        icon: Icons.crop,
+        onSelected: (request) => request.controller.beginImageCrop(),
+      ),
     if (hasSelection && controller.canRecolorSnapshotSelected)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
         label: pdfL10n(context).menuRecolour,
         icon: Icons.palette_outlined,
         onSelected: (request) async {
-          final picked = await pdfPresentColor(
+          await showPdfColorProcessingDialog(
             context,
-            PdfColorRequest(
-              initial: request.controller.color,
-              format: request.controller.preferences.colorPickerFormat,
-              onFormatChanged: (format) =>
-                  request.controller.preferences.colorPickerFormat = format,
-            ),
+            controller: request.controller,
+            preferences: request.controller.preferences,
+            annotationSlots: request.slots,
           );
-          if (picked != null) {
-            request.controller.recolorSnapshotSelected(picked);
-          }
         },
       ),
     if (hasSelection && controller.canApplySelectedStyleAsDefault)
@@ -556,7 +645,7 @@ Future<void> showPdfAnnotationMenu({
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
   var entries = _menuRowsWithDividers(
-      [unlock, clipboard, arrange, nodes, recolor, destructive, custom]);
+      [unlock, clipboard, page, arrange, nodes, recolor, destructive, custom]);
   if (entriesBuilder != null) {
     entries = entriesBuilder(context, request, entries);
     if (entries.isEmpty) return;

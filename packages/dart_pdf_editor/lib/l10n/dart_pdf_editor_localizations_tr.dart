@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Dikey hizalama';
+
+  @override
+  String get textAlignTop => 'Metni üste hizala';
+
+  @override
+  String get textAlignMiddle => 'Metni dikey ortala';
+
+  @override
+  String get textAlignBottom => 'Metni alta hizala';
+
+  @override
   String get add => 'Ekle';
 
   @override
@@ -343,7 +355,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Hacim derinliği';
 
   @override
+  String get measCustomValueTitle => 'Ölçü değeri';
+
+  @override
   String get menuAddNode => 'Düğüm ekle';
+
+  @override
+  String get menuEditMeasurementValue => 'Ölçü değerini düzenle';
 
   @override
   String get menuAddLeader => 'Gösterge çizgisi ekle';
@@ -433,6 +451,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Gösterge çizgisini kaldır';
+
+  @override
+  String get menuAddNoteHere => 'Buraya not ekle';
 
   @override
   String get menuSaveToStamps => 'Damgalara kaydet';
@@ -703,6 +724,15 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get propLineType => 'Çizgi türü';
 
   @override
+  String get propRegion => 'İşaretli alan';
+
+  @override
+  String get propRegionPolygon => 'Çokgen';
+
+  @override
+  String get propRegionCloud => 'Bulut';
+
+  @override
   String get propLoadFont => 'Yazı tipi yükle…';
 
   @override
@@ -938,6 +968,31 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       other: '$count eşleşme değiştirildi',
       one: '1 eşleşme değiştirildi',
       zero: 'Hiçbir şey değiştirilmedi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Karartma için işaretle';
+
+  @override
+  String get searchRedactMark => 'İşaretle';
+
+  @override
+  String get searchRedactMarkAll => 'Tümünü işaretle';
+
+  @override
+  String get searchRedactHint =>
+      'İşaretler, karartmaları uygulayana kadar gözden geçirilebilir';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count eşleşme karartma için işaretlendi',
+      one: '1 eşleşme karartma için işaretlendi',
+      zero: 'Zaten işaretli',
     );
     return '$_temp0';
   }
@@ -1438,6 +1493,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Karartmaları uygula (geri alınamaz)';
 
   @override
+  String get tbFindToRedact => 'Karartılacak metni bul';
+
+  @override
   String get tbAutosizeTextBox => 'Metin kutusunu otomatik boyutlandır (Alt+Z)';
 
   @override
@@ -1666,6 +1724,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Belirtme çizgisi';
 
   @override
+  String get tbNameCloudCallout => 'Bulut belirtme çizgisi';
+
+  @override
   String get tbNameCloudPolygon => 'Bulut çokgeni';
 
   @override
@@ -1700,6 +1761,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Yay uzunluğunu ölç';
+
+  @override
+  String get tbNameMeasureCustom => 'Özel ölçü (değeri yazın)';
 
   @override
   String get tbNameMeasureArea => 'Alan ölç';
@@ -1869,6 +1933,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Belirtme çizgisi - noktadan kutunun geleceği yere sürükleyin';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Bulut belirtme çizgisi - alanın etrafına bir bulut sürükleyin, ardından notu yazın';
 
   @override
   String get tbTipContent => 'Sayfa içeriğini düzenle';
@@ -2460,4 +2528,67 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Ekle';
+
+  @override
+  String get shellBakePageColor => 'Sayfa rengini dosyaya kaydet';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Sayfa rengi dosyaya kaydedilmedi: sayfaları değiştirmek imzalarını geçersiz kılar.';
+
+  @override
+  String get table => 'Tablo';
+
+  @override
+  String get tableEdit => 'Tabloyu düzenle';
+
+  @override
+  String get tableRows => 'Satırlar';
+
+  @override
+  String get tableColumns => 'Sütunlar';
+
+  @override
+  String get tableStyle => 'Tablo stili';
+
+  @override
+  String get tableStyleHint => 'Tablonun tamamına uygulanır.';
+
+  @override
+  String get tableBackgroundColor => 'Arka plan rengi';
+
+  @override
+  String get tableHeaderColor => 'Başlık rengi';
+
+  @override
+  String get tableTextColor => 'Yazı rengi';
+
+  @override
+  String get tableGridLines => 'Izgara çizgileri';
+
+  @override
+  String get tableGridColor => 'Izgara rengi';
+
+  @override
+  String get tableGridWidth => 'Izgara kalınlığı';
+
+  @override
+  String get tableHeaderRow => 'Başlık satırı';
+
+  @override
+  String get tableColumnWidth => 'Sütun genişliği';
+
+  @override
+  String get tableRowHeight => 'Satır yüksekliği';
+
+  @override
+  String get tableSelectionHint =>
+      'Düzenlemek için hücreye tıklayın; aralık seçmek için Shift ile tıklayın. Kopyala ve Yapıştır, Excel ile hücre değerlerini aktarır.';
+
+  @override
+  String get tableClipboardError =>
+      'Pano tablosu geçersiz veya 500 satır, 100 sütun ya da 20.000 hücre sınırını aşıyor.';
+
+  @override
+  String get duplicate => 'Çoğalt';
 }

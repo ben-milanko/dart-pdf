@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get textVerticalAlign => 'Căn dọc';
+
+  @override
+  String get textAlignTop => 'Căn văn bản lên trên';
+
+  @override
+  String get textAlignMiddle => 'Căn giữa văn bản theo chiều dọc';
+
+  @override
+  String get textAlignBottom => 'Căn văn bản xuống dưới';
+
+  @override
   String get add => 'Thêm';
 
   @override
@@ -344,7 +356,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get measVolumeDepth => 'Độ sâu thể tích';
 
   @override
+  String get measCustomValueTitle => 'Giá trị đo';
+
+  @override
   String get menuAddNode => 'Thêm nút';
+
+  @override
+  String get menuEditMeasurementValue => 'Sửa giá trị đo';
 
   @override
   String get menuAddLeader => 'Thêm đường dẫn chú thích';
@@ -434,6 +452,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get menuRemoveLeader => 'Xóa đường dẫn chú thích';
+
+  @override
+  String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
@@ -705,6 +726,15 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get propLineType => 'Kiểu đường';
 
   @override
+  String get propRegion => 'Vùng được đánh dấu';
+
+  @override
+  String get propRegionPolygon => 'Đa giác';
+
+  @override
+  String get propRegionCloud => 'Đám mây';
+
+  @override
   String get propLoadFont => 'Tải phông chữ…';
 
   @override
@@ -940,6 +970,31 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       other: 'Đã thay thế $count kết quả khớp',
       one: 'Đã thay thế 1 kết quả khớp',
       zero: 'Không thay thế gì',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Đánh dấu để biên tập ẩn';
+
+  @override
+  String get searchRedactMark => 'Đánh dấu';
+
+  @override
+  String get searchRedactMarkAll => 'Đánh dấu tất cả';
+
+  @override
+  String get searchRedactHint =>
+      'Các dấu vẫn có thể xem lại cho đến khi bạn áp dụng biên tập ẩn';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã đánh dấu $count kết quả khớp để biên tập ẩn',
+      one: 'Đã đánh dấu 1 kết quả khớp để biên tập ẩn',
+      zero: 'Đã được đánh dấu',
     );
     return '$_temp0';
   }
@@ -1440,6 +1495,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Áp dụng che thông tin (không thể đảo ngược)';
 
   @override
+  String get tbFindToRedact => 'Tìm văn bản để biên tập ẩn';
+
+  @override
   String get tbAutosizeTextBox => 'Tự động cỡ hộp văn bản (Alt+Z)';
 
   @override
@@ -1667,6 +1725,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Chú dẫn';
 
   @override
+  String get tbNameCloudCallout => 'Chú dẫn đám mây';
+
+  @override
   String get tbNameCloudPolygon => 'Đa giác đám mây';
 
   @override
@@ -1701,6 +1762,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbNameMeasureArc => 'Đo chiều dài cung';
+
+  @override
+  String get tbNameMeasureCustom => 'Số đo tùy chỉnh (nhập giá trị)';
 
   @override
   String get tbNameMeasureArea => 'Đo diện tích';
@@ -1869,6 +1933,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'Chú dẫn - kéo từ điểm đến nơi đặt hộp';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Chú dẫn đám mây - kéo đám mây quanh vùng, rồi nhập ghi chú';
 
   @override
   String get tbTipContent => 'Chỉnh sửa nội dung trang';
@@ -2453,4 +2521,67 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get insertPagesConfirm => 'Chèn';
+
+  @override
+  String get shellBakePageColor => 'Lưu màu trang vào tệp';
+
+  @override
+  String get pageColorNotBakedSigned =>
+      'Màu trang chưa được lưu vào tệp: thay đổi các trang sẽ làm mất hiệu lực chữ ký.';
+
+  @override
+  String get table => 'Bảng';
+
+  @override
+  String get tableEdit => 'Sửa bảng';
+
+  @override
+  String get tableRows => 'Hàng';
+
+  @override
+  String get tableColumns => 'Cột';
+
+  @override
+  String get tableStyle => 'Kiểu bảng';
+
+  @override
+  String get tableStyleHint => 'Áp dụng cho toàn bộ bảng.';
+
+  @override
+  String get tableBackgroundColor => 'Màu nền';
+
+  @override
+  String get tableHeaderColor => 'Màu tiêu đề';
+
+  @override
+  String get tableTextColor => 'Màu chữ';
+
+  @override
+  String get tableGridLines => 'Đường lưới';
+
+  @override
+  String get tableGridColor => 'Màu lưới';
+
+  @override
+  String get tableGridWidth => 'Độ dày lưới';
+
+  @override
+  String get tableHeaderRow => 'Hàng tiêu đề';
+
+  @override
+  String get tableColumnWidth => 'Độ rộng cột';
+
+  @override
+  String get tableRowHeight => 'Chiều cao hàng';
+
+  @override
+  String get tableSelectionHint =>
+      'Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.';
+
+  @override
+  String get duplicate => 'Nhân bản';
 }

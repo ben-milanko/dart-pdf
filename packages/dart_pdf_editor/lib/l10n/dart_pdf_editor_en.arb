@@ -1,4 +1,8 @@
 {
+  "textVerticalAlign": "Vertical alignment",
+  "textAlignTop": "Align text to top",
+  "textAlignMiddle": "Align text to middle",
+  "textAlignBottom": "Align text to bottom",
   "@@locale": "en",
   "add": "Add",
   "@add": {
@@ -446,9 +450,17 @@
   "@measVolumeDepth": {
     "description": "Title of the dialog asking for the extrusion depth of a volume measurement."
   },
+  "measCustomValueTitle": "Measurement value",
+  "@measCustomValueTitle": {
+    "description": "Title of the prompt asking for the value a measurement shows (a written value such as 12'-6\" replacing the computed one)."
+  },
   "menuAddNode": "Add node",
   "@menuAddNode": {
     "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
+  },
+  "menuEditMeasurementValue": "Edit measurement value",
+  "@menuEditMeasurementValue": {
+    "description": "Annotation context-menu item that opens a prompt to type the value a measurement shows; leaving it blank returns to the computed value."
   },
   "menuAddLeader": "Add leader",
   "@menuAddLeader": {
@@ -468,19 +480,33 @@
     "description": "Annotation context-menu item that copies the selected annotation(s) to a range of pages."
   },
   "propLeader": "Leader",
-  "@propLeader": {"description": "Properties section for independently styling callout leader lines."},
+  "@propLeader": {
+    "description": "Properties section for independently styling callout leader lines."
+  },
   "propOutlineWidth": "Outline width",
-  "@propOutlineWidth": {"description": "Properties control for the callout text box outline width; zero removes it."},
+  "@propOutlineWidth": {
+    "description": "Properties control for the callout text box outline width; zero removes it."
+  },
   "menuRotateSelection": "Rotate around selection center…",
-  "@menuRotateSelection": {"description": "Annotation menu: rotate multiple annotations around their shared centre."},
+  "@menuRotateSelection": {
+    "description": "Annotation menu: rotate multiple annotations around their shared centre."
+  },
   "menuRotateEach": "Rotate each annotation…",
-  "@menuRotateEach": {"description": "Annotation menu: rotate multiple annotations around their individual centres."},
+  "@menuRotateEach": {
+    "description": "Annotation menu: rotate multiple annotations around their individual centres."
+  },
   "rotationAngleTitle": "Rotation (degrees, counterclockwise)",
-  "@rotationAngleTitle": {"description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."},
+  "@rotationAngleTitle": {
+    "description": "Prompt for a signed rotation angle in degrees; positive rotates counterclockwise."
+  },
   "menuGroup": "Group",
-  "@menuGroup": {"description": "Annotation context menu: make the selected annotations one persistent group."},
+  "@menuGroup": {
+    "description": "Annotation context menu: make the selected annotations one persistent group."
+  },
   "menuUngroup": "Ungroup",
-  "@menuUngroup": {"description": "Annotation context menu: dissolve selected groups while retaining their annotations."},
+  "@menuUngroup": {
+    "description": "Annotation context menu: dissolve selected groups while retaining their annotations."
+  },
   "menuBringToFront": "Bring to front",
   "@menuBringToFront": {
     "description": "Annotation context-menu item that raises the selected annotation to the top of the z-order."
@@ -548,6 +574,10 @@
   "menuRemoveLeader": "Remove leader",
   "@menuRemoveLeader": {
     "description": "Annotation context-menu item that removes the leader line nearest the click point from the selected callout."
+  },
+  "menuAddNoteHere": "Add note here",
+  "@menuAddNoteHere": {
+    "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
   },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
@@ -897,6 +927,18 @@
   "@propLineType": {
     "description": "Row label for the line-style (solid/dashed) dropdown."
   },
+  "propRegion": "Marked area",
+  "@propRegion": {
+    "description": "Properties panel group title: the area a cloud callout marks (its cloud or polygon outline)."
+  },
+  "propRegionPolygon": "Polygon",
+  "@propRegionPolygon": {
+    "description": "Cloud callout outline option: a plain straight-edged polygon (a rectangle when dragged out as one)."
+  },
+  "propRegionCloud": "Cloud",
+  "@propRegionCloud": {
+    "description": "Cloud callout outline option: a scalloped revision cloud."
+  },
   "propLoadFont": "Load font…",
   "@propLoadFont": {
     "description": "Font picker entry that opens a file picker to load a custom font."
@@ -1207,6 +1249,31 @@
   "searchReplaced": "{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}",
   "@searchReplaced": {
     "description": "Confirmation after replacing search matches.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchRedact": "Mark for redaction",
+  "@searchRedact": {
+    "description": "Tooltip on the search panel toggle that shows the find-to-redact controls (mark search hits for redaction)."
+  },
+  "searchRedactMark": "Mark",
+  "@searchRedactMark": {
+    "description": "Label on the search panel button that marks the current match for redaction."
+  },
+  "searchRedactMarkAll": "Mark all",
+  "@searchRedactMarkAll": {
+    "description": "Label on the search panel button that marks every page-text match for redaction."
+  },
+  "searchRedactHint": "Marks stay reviewable until you apply redactions",
+  "@searchRedactHint": {
+    "description": "Note under the find-to-redact buttons: marking only flags the text; nothing is removed until redactions are applied."
+  },
+  "searchRedactMarked": "{count, plural, =0{Already marked} =1{1 match marked for redaction} other{{count} matches marked for redaction}}",
+  "@searchRedactMarked": {
+    "description": "Confirmation after marking search matches for redaction; 0 means every hit was already marked.",
     "placeholders": {
       "count": {
         "type": "int"
@@ -1872,6 +1939,10 @@
   "@tbApplyRedactionsTooltip": {
     "description": "Tooltip for the button that permanently applies marked redactions."
   },
+  "tbFindToRedact": "Find text to redact",
+  "@tbFindToRedact": {
+    "description": "Tooltip on the redact tool's toolbar button that opens the search panel to find text to mark for redaction."
+  },
   "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
@@ -2159,6 +2230,10 @@
   "@tbNameCallout": {
     "description": "Tool name: insert a callout (text box with a leader line)."
   },
+  "tbNameCloudCallout": "Cloud callout",
+  "@tbNameCloudCallout": {
+    "description": "Tool name: insert a callout whose text box is outlined by a revision cloud."
+  },
   "tbNameCloudPolygon": "Cloud polygon",
   "@tbNameCloudPolygon": {
     "description": "Tool name: draw a cloud-outline polygon."
@@ -2206,6 +2281,10 @@
   "tbNameMeasureArc": "Measure arc length",
   "@tbNameMeasureArc": {
     "description": "Tool name: measure an arc length."
+  },
+  "tbNameMeasureCustom": "Custom measurement (type value)",
+  "@tbNameMeasureCustom": {
+    "description": "Tool name: drag a dimension line and type the value it shows instead of the one computed from the drawing scale."
   },
   "tbNameMeasureArea": "Measure area",
   "@tbNameMeasureArea": {
@@ -2424,6 +2503,10 @@
   "tbTipCallout": "Callout - drag from the point to where the box goes",
   "@tbTipCallout": {
     "description": "Tooltip for the callout tool, explaining the drag gesture."
+  },
+  "tbTipCloudCallout": "Cloud callout - drag a cloud around the area, then type the note",
+  "@tbTipCloudCallout": {
+    "description": "Tooltip for the cloud callout tool, explaining the drag gesture."
   },
   "tbTipContent": "Edit page content",
   "@tbTipContent": {
@@ -3142,5 +3225,34 @@
   "insertPagesConfirm": "Insert",
   "@insertPagesConfirm": {
     "description": "Confirm button of the insert-pages dialog."
+  },
+  "shellBakePageColor": "Save page color into file",
+  "@shellBakePageColor": {
+    "description": "Toggle in View options: when on, saving or exporting paints the chosen page (paper) color into the file so other PDF readers show it too."
+  },
+  "pageColorNotBakedSigned": "The page color wasn't saved into the file: changing the pages would invalidate its signatures.",
+  "@pageColorNotBakedSigned": {
+    "description": "Toast after saving a digitally signed document while the save-page-color option is on: the color was left out to keep the signatures valid."
+  },
+  "table": "Table",
+  "tableEdit": "Edit table",
+  "tableRows": "Rows",
+  "tableColumns": "Columns",
+  "tableStyle": "Table style",
+  "tableStyleHint": "Applies to the whole table.",
+  "tableBackgroundColor": "Background color",
+  "tableHeaderColor": "Header color",
+  "tableTextColor": "Font color",
+  "tableGridLines": "Grid lines",
+  "tableGridColor": "Grid color",
+  "tableGridWidth": "Grid width",
+  "tableHeaderRow": "Header row",
+  "tableColumnWidth": "Column width",
+  "tableRowHeight": "Row height",
+  "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
+  "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.",
+  "duplicate": "Duplicate",
+  "@duplicate": {
+    "description": "Duplicate a library item or selected annotation as an independent copy."
   }
 }

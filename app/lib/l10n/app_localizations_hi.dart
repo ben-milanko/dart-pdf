@@ -352,6 +352,24 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'आपके पिछले सत्र के $count दस्तावेज़ अब उपलब्ध नहीं हैं। हो सकता है उन्हें स्थानांतरित, पुनर्नामित या हटा दिया गया हो।',
+      one:
+          '$title अब उपलब्ध नहीं है। हो सकता है इसे स्थानांतरित, पुनर्नामित या हटा दिया गया हो।',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return '$title को उसके मूल स्थान पर सहेजा नहीं जा सका। हो सकता है इसे स्थानांतरित या हटा दिया गया हो। सहेजने का स्थान चुनें।';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'डिजिटल रूप से हस्ताक्षर नहीं कर सके: $error';
   }
@@ -946,6 +964,12 @@ class AppLocalizationsHi extends AppLocalizations {
   String get settingsViewSource => 'GitHub पर स्रोत देखें';
 
   @override
+  String get settingsReportIssue => 'GitHub पर समस्या रिपोर्ट करें';
+
+  @override
+  String get settingsEmailFeedback => 'ईमेल से प्रतिक्रिया भेजें';
+
+  @override
   String get undo => 'पूर्ववत करें';
 
   @override
@@ -1265,6 +1289,25 @@ class AppLocalizationsHi extends AppLocalizations {
       'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '$version के बाद के टिकट';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '$version के बाद कोई नया टिकट नहीं।';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'इस बिल्ड से नए नाइटली ($commit) से।';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'इस नाइटली के टिकट लोड नहीं हो सके। अपना कनेक्शन जाँचें और फिर से प्रयास करें।';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1336,4 +1379,21 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

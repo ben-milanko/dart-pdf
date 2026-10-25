@@ -451,6 +451,71 @@ void main() {
       gate = Completer<void>()..complete();
     });
 
+    for (final clicked in [false, true]) {
+      testWidgets(
+          'a moved annotation stays painted when deselected before the page '
+          'catches up (${clicked ? 'clicked with no tool' : 'select tool'})',
+          (tester) async {
+        // The layer re-renders a moved mark in a paced pass; until it lands
+        // only the overlay paints it. Hold that pass and deselect meanwhile.
+        var gate = Completer<void>()..complete();
+        PdfViewer.debugAnnotationAppearancePicturesRendererOverride =
+            (page, annotation, rotation) async {
+          await gate.future;
+          return PdfPageRenderer.renderAnnotationPictures(page, annotation,
+              rotation: rotation);
+        };
+        addTearDown(() =>
+            PdfViewer.debugAnnotationAppearancePicturesRendererOverride = null);
+        final (editing, boundary) = await pumpViewer(tester);
+        Future<void> settle() async {
+          for (var i = 0; i < 5; i++) {
+            await tester.runAsync(
+                () => Future<void>.delayed(const Duration(milliseconds: 10)));
+            await tester.pump(const Duration(milliseconds: 50));
+          }
+        }
+
+        bool edge(ByteData data, double x, double y) => patchHas(
+            data, 800, 600, view(x, y).dx, view(x, y).dy, 4, strongRed);
+        editing
+          ..color = const Color(0xFFFF0000)
+          ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+        await settle();
+        var data = await capture(tester, boundary);
+        expect(edge(data, 100, 700), isTrue, reason: 'drawn before the move');
+
+        gate = Completer<void>();
+        if (clicked) {
+          // the default mode: a mouse click selects without arming a tool
+          // (what the viewer's tap does), so a deselect leaves the overlay
+          // no reason of its own to stay mounted
+          editing.tool = null;
+          await tester.pump();
+          editing.selectAnnotationAt(0, 100, 700);
+          expect(editing.tool, isNull);
+        } else {
+          editing.selectAnnotation(0, 0);
+        }
+        await tester.pump();
+        expect(editing.hasAnnotationSelection, isTrue);
+        editing.moveSelected(0, -200);
+        await settle();
+
+        editing.clearAnnotationSelection();
+        await settle();
+        data = await capture(tester, boundary);
+        expect(edge(data, 100, 500), isTrue,
+            reason: 'deselecting must not hide the moved annotation');
+
+        gate.complete();
+        await settle();
+        data = await capture(tester, boundary);
+        expect(edge(data, 100, 500), isTrue, reason: 'the layer draws it');
+        expect(edge(data, 100, 700), isFalse, reason: 'nothing left behind');
+      });
+    }
+
     testWidgets('signature hover previews without committing, click places',
         (tester) async {
       final (editing, boundary) = await pumpViewer(tester);

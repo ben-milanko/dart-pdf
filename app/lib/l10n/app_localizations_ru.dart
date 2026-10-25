@@ -356,6 +356,28 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String editorReopenFilesUnavailable(int count, String title) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count документа из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      many:
+          '$count документов из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      few:
+          '$count документа из прошлого сеанса больше недоступны. Возможно, они перемещены, переименованы или удалены.',
+      one:
+          '$title больше недоступен. Возможно, файл перемещён, переименован или удалён.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String editorSaveOriginUnavailable(String title) {
+    return 'Не удалось сохранить $title в исходное место. Возможно, файл перемещён или удалён. Выберите, куда сохранить.';
+  }
+
+  @override
   String editorCouldNotSign(String error) {
     return 'Не удалось поставить цифровую подпись: $error';
   }
@@ -960,6 +982,12 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settingsViewSource => 'Посмотреть исходный код на GitHub';
 
   @override
+  String get settingsReportIssue => 'Сообщить о проблеме на GitHub';
+
+  @override
+  String get settingsEmailFeedback => 'Отправить отзыв по электронной почте';
+
+  @override
   String get undo => 'Отменить';
 
   @override
@@ -1284,6 +1312,25 @@ class AppLocalizationsRu extends AppLocalizations {
       'Примечания к выпуску недоступны в этой сборке.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Задачи с версии $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Новых задач с версии $version нет.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Из более новой ночной сборки ($commit), чем эта.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Не удалось загрузить задачи этой ночной сборки. Проверьте подключение и повторите попытку.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1355,4 +1402,21 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get ocrAutoDocumentChanged =>
       'The pages changed while OCR was running, so no text layer was added. Choose OCR… from the menu to run it again.';
+
+  @override
+  String get ocrAutoOfferTitle => 'Keep automatic OCR on?';
+
+  @override
+  String get ocrAutoOfferMessage =>
+      'This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.';
+
+  @override
+  String get ocrAutoOfferKeepOn => 'Keep on';
+
+  @override
+  String get ocrAutoOfferTurnOff => 'Turn off';
+
+  @override
+  String get ocrAutoTurnedOff =>
+      'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
 }

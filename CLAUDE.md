@@ -2,7 +2,7 @@
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
-`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.47.7/bin/`.
+`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.47.8/bin/`.
 
 ## Commands
 
@@ -440,6 +440,13 @@ UI control seams (non-breaking, ahead of the 7.0 material_ui switch): tokens
 runs under `CupertinoApp`/`WidgetsApp`; new widgets-only code goes in
 `lib/src/design/`, and `tool/check_design_imports.dart` ratchets Material use
 down. See doc/dev-log/2026-10-02-editor-ui-control-seams.md.
+Foldables (iPhone Duo, Android): `design/fold.dart`'s `pdfSeparatingFoldOf`
+reads a half-open fold/hinge from `MediaQuery.displayFeatures`;
+`PdfShellPanelLayout` keeps the viewer in one pane via `PdfFoldAvoid` (an
+always-present `Padding`, so posture changes never remount it) and toasts stay
+on the trailing pane. Flutter does not yet report the Duo's fold on iOS.
+`screenshots.sh duo` captures the two Duo App Store slots. See
+doc/dev-log/2026-10-16-iphone-duo-and-foldables.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

@@ -418,8 +418,17 @@ class PdfEditorCommands extends ChangeNotifier {
   /// when it is already armed - never to no tool at all, so tapping the
   /// active tool off leaves things selectable. Clears the text selection.
   void toggleToolNow(PdfEditTool tool) {
+    // arming Redact over a text selection marks it, as a markup tool does
+    if (tool == PdfEditTool.redact &&
+        _controller.tool != tool &&
+        viewerController.hasSelection) {
+      redactSelection();
+    }
     _controller.tool = _controller.tool == tool ? PdfEditTool.select : tool;
     viewerController.clearSelection();
+    // The toolbar/menu may own focus. Re-arm the viewer's Escape and tool
+    // shortcuts immediately, without requiring a click that could place it.
+    viewerController.requestKeyboardFocus();
   }
 
   /// Arms the stamp tool for its picker menu (no toggle).
@@ -501,6 +510,18 @@ class PdfEditorCommands extends ChangeNotifier {
         page: viewerController.selectionRectsOn(page),
     };
     _controller.addMarkup(kind, quadsByPage);
+  }
+
+  /// Marks the viewer's current text selection for redaction (one /Redact
+  /// mark per page over the selected glyphs). Nothing is removed until the
+  /// marks are applied.
+  void redactSelection() {
+    // capture before the edit: the document swap clears the selection
+    final quadsByPage = {
+      for (final page in viewerController.selectionPages)
+        page: viewerController.selectionRectsOn(page),
+    };
+    _controller.addRedactionQuads(quadsByPage);
   }
 
   /// Sets the creation colour - and recolours the selection in place when

@@ -46,6 +46,27 @@ void main() {
     return latin1.decode(doc.cos.decodeStreamData(stream!));
   }
 
+  test('free-text saved appearances wrap CJK and unbroken tokens', () {
+    for (final text in ['LONGUNBROKENANNOTATIONTEXT', '日本語中国語韓国語']) {
+      final doc = roundTrip((e) =>
+          e.addFreeText(0, const PdfRect(20, 20, 56, 200), text, fontSize: 12));
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.contents, text);
+      final operations = ContentStreamParser.parse(
+          doc.cos.decodeStreamData(annotation.normalAppearance!));
+      expect(
+          operations.where((o) => o.operator == 'Tj').length, greaterThan(1));
+      final resized = PdfEditor(doc)
+        ..resizeAnnotation(0, annotation, const PdfRect(20, 20, 68, 200));
+      final reopened = PdfDocument.open(resized.save());
+      final after = reopened.page(0).annotations.single;
+      expect(after.contents, text);
+      final afterOps = ContentStreamParser.parse(
+          reopened.cos.decodeStreamData(after.normalAppearance!));
+      expect(afterOps.where((o) => o.operator == 'Tj').length, greaterThan(1));
+    }
+  });
+
   test('an annotation survives a reopen when /Size is past 2^32', () {
     // New objects take their numbers from /Size, so a junk one hands the
     // edit numbers past what the object cache's packed key holds.
@@ -176,8 +197,7 @@ void main() {
           d.cos.resolve(a.normalAppearance!.dictionary['Resources'])
               as CosDictionary;
       final xObjects = d.cos.resolve(resources['XObject']) as CosDictionary;
-      final inner =
-          d.cos.resolve(xObjects.entries.values.single) as CosStream;
+      final inner = d.cos.resolve(xObjects.entries.values.single) as CosStream;
       return latin1.decode(d.cos.decodeStreamData(inner));
     }
 
@@ -226,8 +246,7 @@ void main() {
 
     // restyling recovers the pressures through the group wrapper, so a
     // recolor stays per-segment instead of collapsing to a uniform pen
-    final editor = PdfEditor(doc)
-      ..restyleAnnotation(0, ink, color: 0x1E88E5);
+    final editor = PdfEditor(doc)..restyleAnnotation(0, ink, color: 0x1E88E5);
     final out = PdfDocument.open(editor.save());
     final after = out.page(0).annotations.single;
     expect(after.color, 0x1E88E5);
@@ -1410,7 +1429,7 @@ void main() {
       (100.0, 180.0),
     ]);
     final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
-    expect((doc.cos.resolve(be['S']) as CosName).value, 'Cloudy');
+    expect((doc.cos.resolve(be['S']) as CosName).value, 'C');
     expect(annotation.rect.left, lessThan(100));
     expect(annotation.rect.right, greaterThan(220));
     final content = appearanceText(doc, annotation);
@@ -2276,6 +2295,36 @@ void main() {
       expect((doc.cos.resolve(border[2]) as CosReal).value, 2);
       final content = appearanceText(doc, link);
       expect(content, contains('re'));
+    });
+
+    test('iconColor badges the region with a chain-link icon', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 640, 272, 712)],
+            uri: 'https://example.com',
+            borderColor: 0x0563C1,
+            iconColor: 0x0563C1,
+          ));
+      final link = doc.page(0).annotations.single;
+      final content = appearanceText(doc, link);
+      // white tile, then the two links drawn in a rotated unit cell
+      expect(content, contains('1 1 1 rg'));
+      expect(content, contains(' cm'));
+      expect(content, contains('\nB\n'));
+      // the clickable /Rect is unchanged by the badge
+      expect(link.rect.right, 272);
+      expect(link.rect.top, 712);
+    });
+
+    test('a region too small for the badge leaves it out', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 708)],
+            uri: 'https://example.com',
+            iconColor: 0x0563C1,
+          ));
+      final content = appearanceText(doc, doc.page(0).annotations.single);
+      expect(content, isNot(contains(' cm')));
     });
 
     test('an empty URI is rejected', () {

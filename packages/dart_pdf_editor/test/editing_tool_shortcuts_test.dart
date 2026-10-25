@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
@@ -104,8 +107,13 @@ void main() {
     Future<PdfEditingController> pumpEditor(
       WidgetTester tester, {
       Map<PdfEditTool, PdfToolShortcut> toolShortcuts = pdfEditToolShortcuts,
+      int pageRotation = 0,
+      Map<ShortcutActivator, Intent>? viewerShortcuts,
     }) async {
-      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final document = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)))
+        ..rotatePages([0], pageRotation);
+      final editing = PdfEditingController(document.save(),
+          snapshotClipboard: PdfSnapshotClipboard());
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -119,6 +127,7 @@ void main() {
               controller: viewer,
               editing: editing,
               toolShortcuts: toolShortcuts,
+              shortcuts: viewerShortcuts,
             ),
           ),
         ),
@@ -133,6 +142,107 @@ void main() {
       await tester.tapAt(empty, kind: PointerDeviceKind.mouse);
       await tester.pump();
     }
+
+    void pasteSnapshot(PdfEditingController editing) {
+      editing.copyVectorSnapshot(0, const PdfRect(100, 200, 220, 260));
+      expect(editing.pasteSnapshot(0, at: (300, 400)), isTrue);
+    }
+
+    for (final rotation in [0, 90, 180, 270]) {
+      testWidgets('R rotates a pasted snapshot on a $rotation° page',
+          (tester) async {
+        final editing = await pumpEditor(tester, pageRotation: rotation);
+        await focusViewer(tester);
+        pasteSnapshot(editing);
+        await tester.pump();
+        final before = editing.selectedAnnotation!;
+        final rect = before.rect;
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.pump();
+        final turned = editing.selectedAnnotation!;
+        expect(editing.tool, PdfEditTool.select);
+        expect(turned.name, before.name);
+        expect(turned.rect.width, closeTo(rect.height, 1e-6));
+        expect(turned.rect.height, closeTo(rect.width, 1e-6));
+        expect(turned.rect.left + turned.rect.right,
+            closeTo(rect.left + rect.right, 1e-6));
+        expect(turned.rect.bottom + turned.rect.top,
+            closeTo(rect.bottom + rect.top, 1e-6));
+        expect(turned.appearanceRotation, closeTo(-math.pi / 2, 1e-6));
+
+        editing.undo();
+        expect(
+            editing.document.page(0).annotations.single.appearanceRotation, 0);
+        editing.redo();
+        final saved =
+            PdfDocument.open(editing.bytes).page(0).annotations.single;
+        expect(saved.appearanceRotation, closeTo(-math.pi / 2, 1e-6));
+        editing.selectAnnotation(0, 0);
+        await tester.pump();
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.pump();
+        expect(
+            editing.selectedAnnotation!.appearanceRotation, closeTo(0, 1e-6));
+        expect(
+            editing.selectedAnnotation!.rect.width, closeTo(rect.width, 1e-6));
+
+        // Rebuild the cached bindings after selection goes away.
+        editing.clearAnnotationSelection();
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.pump();
+        expect(editing.tool, PdfEditTool.rectangle);
+      });
+    }
+
+    testWidgets('disabling viewer commands keeps the configured rectangle key',
+        (tester) async {
+      final editing = await pumpEditor(tester, viewerShortcuts: const {});
+      await focusViewer(tester);
+      pasteSnapshot(editing);
+      await tester.pump();
+      final before = editing.bytes.toList();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.rectangle);
+      expect(editing.bytes, before);
+    });
+
+    testWidgets('a custom R tool binding wins over selection rotation',
+        (tester) async {
+      final editing = await pumpEditor(tester, toolShortcuts: const {
+        PdfEditTool.ink: PdfToolShortcut(LogicalKeyboardKey.keyR),
+      });
+      await focusViewer(tester);
+      pasteSnapshot(editing);
+      await tester.pump();
+      final before = editing.bytes.toList();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.ink);
+      expect(editing.bytes, before);
+    });
+
+    testWidgets('R and Shift+R leave a selected snapshot alone while typing',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      await focusViewer(tester);
+      pasteSnapshot(editing);
+      editing.setEditingText(true);
+      await tester.pump();
+      final before = editing.bytes.toList();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.select);
+      expect(editing.bytes, before);
+    });
 
     testWidgets('a single key arms its tool', (tester) async {
       final editing = await pumpEditor(tester);

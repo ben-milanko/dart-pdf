@@ -1,5 +1,18 @@
 # Changelog
 
+## 11.0.0
+
+- Update dependency constraints for the 11.0.0 suite.
+
+## 10.0.0
+
+- Regenerate the bundled web render worker for the 10.0.0 suite.
+- Update dependency constraints for the 10.0.0 suite.
+
+## 9.0.0
+
+- Align dependency constraints with the dart-pdf 9.0.0 suite.
+
 ## 8.1.0
 
 - Align dependency constraints with the dart-pdf 8.1.0 suite.

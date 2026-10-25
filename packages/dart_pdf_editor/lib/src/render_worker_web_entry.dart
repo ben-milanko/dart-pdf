@@ -1702,16 +1702,15 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           continue;
         }
         // Region records eventually pass through serializeCommands, whose
-        // imageDecodeRegion path replaces an axis-aligned off-region draw with
+        // imageDecodeRegion path replaces an off-region draw with
         // one transparent pixel. Do not predecode that draw first. The native
         // Flate acceleration used to inflate and colour-convert every image on
         // the page here, only for the serializer to throw almost all of those
         // pixels away. A tiled CAD sheet with 52 requests consequently spent
         // ~8.5 s per small pan and queued newer viewport regions behind stale
-        // work. Unsupported rotated/skewed transforms deliberately keep the
-        // general path: the serializer cannot region-retarget those either.
+        // work.
         if (imageDecodeRegion != null &&
-            _axisAlignedImageOutsideRegion(request, imageDecodeRegion)) {
+            _imageOutsideRegion(request, imageDecodeRegion)) {
           tally?.regionSkip();
           out.add(command);
           continue;
@@ -1925,26 +1924,23 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   return changed ? out : commands;
 }
 
-bool _axisAlignedImageOutsideRegion(
+/// Whether the page-space bounds of [request]'s image miss [region] - the same
+/// test serializeCommands' region plan uses to ship a transparent pixel
+/// instead (any invertible placement, rotated or skewed included).
+bool _imageOutsideRegion(
   PdfImageRequest request,
   PdfRect region,
 ) {
-  final transform = request.transform;
+  final t = request.transform;
   const epsilon = 1e-9;
-  if (transform.a.abs() <= epsilon ||
-      transform.d.abs() <= epsilon ||
-      transform.b.abs() > epsilon ||
-      transform.c.abs() > epsilon) {
-    return false;
-  }
-  final left = math.min(transform.e, transform.e + transform.a);
-  final right = math.max(transform.e, transform.e + transform.a);
-  final bottom = math.min(transform.f, transform.f + transform.d);
-  final top = math.max(transform.f, transform.f + transform.d);
-  return right <= region.left ||
-      left >= region.right ||
-      top <= region.bottom ||
-      bottom >= region.top;
+  final det = t.a * t.d - t.b * t.c;
+  if (!(det.abs() > epsilon) || !det.isFinite) return false;
+  final xs = [t.e, t.e + t.a, t.e + t.c, t.e + t.a + t.c];
+  final ys = [t.f, t.f + t.b, t.f + t.d, t.f + t.b + t.d];
+  return xs.reduce(math.max) <= region.left ||
+      xs.reduce(math.min) >= region.right ||
+      ys.reduce(math.max) <= region.bottom ||
+      ys.reduce(math.min) >= region.top;
 }
 
 (int, int)? _browserFlateTarget(

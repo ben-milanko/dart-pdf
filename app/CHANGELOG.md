@@ -1,5 +1,39 @@
 # Changelog
 
+## 11.0.0+48
+
+- Create editable tables and exchange cells with spreadsheets.
+- Resume text recognition from saved-page checkpoints after an interruption.
+- Replace colours in snapshots and annotations, align text vertically and duplicate library stamps.
+- Pan with Space-drag or the middle mouse button.
+- Fix text wrapping, remembered fonts, rotated snapshots and annotation resize previews.
+- Fix detection of a running 64-bit app by the Windows installer.
+
+## 10.0.0
+
+- Type the value shown on a drawing into a measurement, even without setting a scale.
+- Edit whole words when a PDF stores their letters separately. Links over empty regions now have a link badge, and a long press on an empty page offers note and text-selection actions.
+- Keep reading controls clear of display folds. On phones, the header and toolbar hide while reading and return when needed. Documents now open in Hand mode on mobile.
+- Choose whether to keep automatic OCR after its first run, and fix an image-lifetime crash when recognising large scans.
+- Keep edited annotations visible after deselection, improve image-crop handles and simplify callout selection.
+- Add GitHub and email feedback links under Settings > About and improve the welcome panel layout.
+- Speed up Indexed image decoding.
+- Update to the 10.0.0 package suite and app build 47.
+
+## 9.0.0
+
+- Group annotations so they move, resize, rotate, copy and paste together, and rotate a selection around its shared centre or each object's own centre.
+- Automatically OCR scanned documents so their text can be selected and searched, unless turned off in Settings. Scans are named after their capture date.
+- Optionally save the page colour into saved and exported PDFs.
+- Bold, italic and underline shortcuts for selected text, and separate styling for callout arrows.
+- Polyline placement with middle-button pan, edge scroll and Ctrl+Z to remove a vertex. The page grid shows drop markers, auto-scrolls and animates reordering.
+- Touch: long-press-drag draws a selection box, selection happens on lift, and tool-sheet tabs arm their first tool.
+- Unembedded serif fonts draw in a serif face, substituted text keeps level baselines, and rotated images sharpen on deep zoom.
+- Fixes for documents showing another document's images, OCR and Sigstore sign-in on iOS, iOS Recents after updates, first launch in unsupported languages and the mobile web status bar.
+- Warn when a recent document's file has moved. The Windows installer offers to close and relaunch a running DartPDF.
+- Smoother scrolling past neighbouring pages.
+- Update to the 9.0.0 package suite and app build 46.
+
 ## 8.1.0
 
 - Change dropdown and list-box form fonts, size, colour and alignment.

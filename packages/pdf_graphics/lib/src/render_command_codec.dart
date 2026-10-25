@@ -151,10 +151,10 @@ class _UnserializableImage implements Exception {
 /// [decodeImages] is true.
 ///
 /// [imageDecodeRegion], when supplied, is a PDF page-space rectangle for the
-/// visible detail patch. Axis-aligned image draws are decoded only for the
-/// intersecting source pixels and their image transform is retargeted to the
-/// cropped page area; unsupported transforms fall back to the full scaled
-/// decode. The total decoded-image budget is also reduced to the region's own
+/// visible detail patch. Image draws (axis-aligned, rotated, or skewed) are
+/// decoded only for the intersecting source pixels and their image transform
+/// is retargeted to the cropped page area; a degenerate transform falls back
+/// to the full scaled decode. The total decoded-image budget is also reduced to the region's own
 /// raster footprint, rather than the full-page raster budget.
 ///
 /// [compactStateScopes] removes `save`/`restore` pairs whose scope never
@@ -1215,41 +1215,59 @@ _ImageRegionPlan? _imageRegionPlan(
   final imageHeight = size.$2;
   final t = request.transform;
   const eps = 1e-9;
-  if (t.a.abs() <= eps ||
-      t.d.abs() <= eps ||
-      t.b.abs() > eps ||
-      t.c.abs() > eps) {
-    return null;
-  }
+  // Any invertible placement works, not just axis-aligned ones: drawings are
+  // routinely placed rotated 90/270 degrees (a landscape sheet on a portrait
+  // /MediaBox, a scan cut into hundreds of rotated tiles). The crop is taken
+  // in source-pixel space and the cropped transform is the crop concatenated
+  // with [t], so it lands exactly where the full image would.
+  final det = t.a * t.d - t.b * t.c;
+  if (!(det.abs() > eps) || !det.isFinite) return null;
 
-  final imageLeft = math.min(t.e, t.e + t.a);
-  final imageRight = math.max(t.e, t.e + t.a);
-  final imageBottom = math.min(t.f, t.f + t.d);
-  final imageTop = math.max(t.f, t.f + t.d);
-  final visible =
-      PdfRect(imageLeft, imageBottom, imageRight, imageTop).intersect(region);
-  if (visible.width <= eps || visible.height <= eps) {
-    return _ImageRegionPlan(
-      transform: t,
-      sourceX: 0,
-      sourceY: 0,
-      sourceWidth: 1,
-      sourceHeight: 1,
-      targetWidth: 1,
-      targetHeight: 1,
-      outside: true,
-    );
-  }
+  // The page-space bounding box of the unit square under [t].
+  final xs = [t.e, t.e + t.a, t.e + t.c, t.e + t.a + t.c];
+  final ys = [t.f, t.f + t.b, t.f + t.d, t.f + t.b + t.d];
+  final visible = PdfRect(xs.reduce(math.min), ys.reduce(math.min),
+          xs.reduce(math.max), ys.reduce(math.max))
+      .intersect(region);
+  final outsidePlan = _ImageRegionPlan(
+    transform: t,
+    sourceX: 0,
+    sourceY: 0,
+    sourceWidth: 1,
+    sourceHeight: 1,
+    targetWidth: 1,
+    targetHeight: 1,
+    outside: true,
+  );
+  if (visible.width <= eps || visible.height <= eps) return outsidePlan;
 
-  final u0 = ((visible.left - t.e) / t.a).clamp(0.0, 1.0);
-  final u1 = ((visible.right - t.e) / t.a).clamp(0.0, 1.0);
-  final v0 = ((visible.bottom - t.f) / t.d).clamp(0.0, 1.0);
-  final v1 = ((visible.top - t.f) / t.d).clamp(0.0, 1.0);
-  final uMin = math.min(u0, u1);
-  final uMax = math.max(u0, u1);
-  final vMin = math.min(v0, v1);
-  final vMax = math.max(v0, v1);
-  if (uMax <= uMin || vMax <= vMin) return null;
+  // Map the visible box back into unit image space and take its bounds. For
+  // an axis-aligned [t] that is exact; for a rotated or skewed one it is the
+  // smallest axis-aligned source crop that covers everything visible.
+  var uMin = double.infinity;
+  var uMax = double.negativeInfinity;
+  var vMin = double.infinity;
+  var vMax = double.negativeInfinity;
+  for (final (x, y) in [
+    (visible.left, visible.bottom),
+    (visible.right, visible.bottom),
+    (visible.left, visible.top),
+    (visible.right, visible.top),
+  ]) {
+    final dx = x - t.e;
+    final dy = y - t.f;
+    final u = (t.d * dx - t.c * dy) / det;
+    final v = (t.a * dy - t.b * dx) / det;
+    uMin = math.min(uMin, u);
+    uMax = math.max(uMax, u);
+    vMin = math.min(vMin, v);
+    vMax = math.max(vMax, v);
+  }
+  uMin = uMin.clamp(0.0, 1.0);
+  uMax = uMax.clamp(0.0, 1.0);
+  vMin = vMin.clamp(0.0, 1.0);
+  vMax = vMax.clamp(0.0, 1.0);
+  if (uMax <= uMin || vMax <= vMin) return outsidePlan;
 
   final sx0 = (uMin * imageWidth).floor().clamp(0, imageWidth - 1);
   final sx1 = (uMax * imageWidth).ceil().clamp(sx0 + 1, imageWidth);
