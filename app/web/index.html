@@ -521,7 +521,7 @@
         var vv = window.visualViewport;
         log.push(((Date.now() - t0) / 1000).toFixed(2) + ' ' + what +
           (vv ? ' vv=' + Math.round(vv.height) : ''));
-        if (log.length > 8) log.shift();
+        if (log.length > 12) log.shift();
       }
       function r(n) { return Math.round(n); }
       function render() {
@@ -561,6 +561,9 @@
       document.addEventListener('focusout', function (e) {
         note('focusout ' + e.target.tagName.toLowerCase());
       }, true);
+      ['pointerup', 'touchend'].forEach(function (type) {
+        document.addEventListener(type, function () { note(type); }, true);
+      });
       function attach() {
         if (document.body) document.body.appendChild(box);
         else window.setTimeout(attach, 50);

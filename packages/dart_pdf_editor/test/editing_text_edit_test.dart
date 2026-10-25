@@ -494,7 +494,7 @@ void main() {
       var primes = 0;
       var primedBeforeField = true;
       final original = debugPdfPrimeSoftKeyboard;
-      debugPdfPrimeSoftKeyboard = () {
+      debugPdfPrimeSoftKeyboard = ({bool atTouchEnd = false}) {
         primes++;
         primedBeforeField &= find.byKey(editorKey).evaluate().isEmpty;
       };

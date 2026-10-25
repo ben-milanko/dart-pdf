@@ -829,7 +829,8 @@ class _PointerInteractionSession {
 /// Raises the iOS soft keyboard when an inline text editor opens
 /// ([pdfPrimeSoftKeyboard]); tests swap it to observe the call.
 @visibleForTesting
-void Function() debugPdfPrimeSoftKeyboard = pdfPrimeSoftKeyboard;
+void Function({bool atTouchEnd}) debugPdfPrimeSoftKeyboard =
+    pdfPrimeSoftKeyboard;
 
 class _EditingPageOverlayState extends State<EditingPageOverlay>
     with TickerProviderStateMixin {
@@ -5847,7 +5848,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         ? _polyTapDown
         : null;
     if (event.pointer == _polyTapPointer) _clearPolyTap();
-    if (_liftOpensTextEditor(event)) debugPdfPrimeSoftKeyboard();
+    if (_liftOpensTextEditor(event)) {
+      // a touch's focus has to land in its touchend; a mouse has none
+      debugPdfPrimeSoftKeyboard(
+          atTouchEnd: event.kind != PointerDeviceKind.mouse);
+    }
     final selectTap =
         event.pointer == _selectTapPointer && !_pointers.gestureBailed;
     if (event.pointer == _selectTapPointer) _clearSelectTap();

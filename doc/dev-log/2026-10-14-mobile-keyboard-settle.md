@@ -73,3 +73,19 @@ After the fix the emulated run logs `focus() INPUT in:pointerup
 parent:FLUTTER-VIEW`, then `focus() TEXTAREA`, with no view-element focus in
 between, and typing lands in the box. The test now asserts the primer runs on
 the lift of a plain tap, before the editor exists.
+
+## Focus in `touchend`, not `pointerup`
+
+The next device log (Brave, iPhone) showed the primer taking focus at the tap
+(`focusin input`, then `focusin textarea` 40 ms later), but `vv` stayed full
+height: the keyboard never opened, even for the primer. A `focus()` made in
+`pointerup` takes focus, but WebKit didn't raise the keyboard for it. The
+event it reliably treats as the user's gesture is `touchend`, which arrives
+~15 ms after `pointerup`. `pdfPrimeSoftKeyboard(atTouchEnd: true)` (passed for
+any non-mouse lift) prepares the primer in `pointerup` and focuses it from a
+one-shot capture `touchend` listener, with a 250 ms fallback. A plain call
+that arrives while that listener is pending (the drag path opens the editor
+inside the same `pointerup`) defers to it, because a second `focus()` on an
+already-focused input is a no-op and would waste the gesture. Emulated run:
+`focus() INPUT in:touchend`. The `?vpdebug` log now also records `pointerup`
+and `touchend`, and keeps 12 lines.
