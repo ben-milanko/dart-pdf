@@ -276,7 +276,7 @@ void main() {
       final hand = find.byKey(const ValueKey('pdf-mode-hand'));
       final select = find.byKey(const ValueKey('pdf-group-select'));
       expect(modes, findsOneWidget);
-      expect(tester.getSize(modes), const Size(81, 40));
+      expect(tester.getSize(modes), const Size(73, 36));
       // Tool-free reader mode is intentionally distinct from explicit Hand:
       // it still permits text selection and therefore highlights neither.
       expect(tester.getSemantics(hand), isSemantics(isSelected: false));
