@@ -5847,6 +5847,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         ? _polyTapDown
         : null;
     if (event.pointer == _polyTapPointer) _clearPolyTap();
+    if (_liftOpensTextEditor(event)) debugPdfPrimeSoftKeyboard();
     final selectTap =
         event.pointer == _selectTapPointer && !_pointers.gestureBailed;
     if (event.pointer == _selectTapPointer) _clearSelectTap();
@@ -5938,6 +5939,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     _controller.selectAnnotationAt(widget.pageIndex, x, y);
     return true;
+  }
+
+  /// Whether this lift is about to open the inline text editor, on iOS.
+  ///
+  /// The tap that opens a box is only recognized ~300ms after the lift (the
+  /// viewer's double-tap zoom holds it in the arena), and by then WebKit no
+  /// longer counts a focus as part of the gesture, so the keyboard primer in
+  /// [_openTextEditor] comes too late. The raw pointer-up still runs inside
+  /// the touch, so prime from here for every lift that will open an editor.
+  bool _liftOpensTextEditor(PointerUpEvent event) {
+    if (PdfEditorScope.platformOf(context) != TargetPlatform.iOS) return false;
+    if (_pointers.gestureBailed ||
+        _controller.isCroppingImage ||
+        _controller.isPickingColor ||
+        _controller.activeSavedAnnotation != null ||
+        _textEditRect != null) {
+      return false;
+    }
+    if (_tool == PdfEditTool.freeText || _calloutTool) return true;
+    return _selectMode && _tapEditsSelectedFreeText(event.localPosition);
   }
 
   /// Whether a select-mode tap at [local] lands on the one selected free

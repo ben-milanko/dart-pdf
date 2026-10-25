@@ -21,7 +21,13 @@ Timer? _primerTimeout;
 /// nothing has taken over within a second (an editor that never opened).
 void pdfPrimeSoftKeyboard() {
   final input = _primer ??= _createPrimer();
-  if (!input.isConnected) web.document.body?.append(input);
+  // Inside the flutter-view, not beside it: when the framework then focuses
+  // its own node, the engine only moves DOM focus to the view element if
+  // nothing in the view holds it. With the primer outside, that focus()
+  // landed on the view element first and closed the keyboard before
+  // Flutter's textarea could take it over.
+  final host = web.document.querySelector('flutter-view') ?? web.document.body;
+  if (!input.isConnected || input.parentElement != host) host?.append(input);
   input.focus(web.FocusOptions(preventScroll: true));
   _primerTimeout?.cancel();
   _primerTimeout = Timer(const Duration(seconds: 1), () {

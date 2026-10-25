@@ -44,3 +44,32 @@ heights, the focused element, and the last 8 viewport/focus events with
 timestamps. If the canvas is shorter than `client`, Flutter is holding a
 stale size. If `client` itself is short, the browser is misreporting. If
 `scroll`/`top` are non-zero, the page was left scrolled.
+
+## The keyboard primer never ran inside the tap
+
+The `?vpdebug` log from an iPhone (Brave) showed no `focusin input` at all
+when a text box opened: focus went `flutter-view` -> `textarea`, so the
+keyboard never came up and `vv` stayed full height. Reproduced in Chromium
+with iPhone emulation (`navigator.platform` spoofed so Flutter picks iOS) and
+a `focus()` hook. That run found two separate faults in the #1061 primer:
+
+1. **Too late.** The primer's `focus()` ran ~290 ms after `touchend`. The
+   free-text tap goes through `onTapUp`, which the viewer's double-tap zoom
+   holds in the arena for `kDoubleTapTimeout`, so `_openTextEditor` runs from
+   a timer, not from the touch. WebKit then doesn't treat the focus as part
+   of the gesture. Fix: `_liftOpensTextEditor` primes from the overlay's raw
+   `Listener.onPointerUp`, which runs inside the DOM `pointerup`. It covers
+   the free-text/callout tools and a select-mode tap on the selected free
+   text. The late call in `_openTextEditor` stays for paths that already run
+   inside the gesture (the chip's Edit button) and is harmless otherwise.
+2. **Focus stolen in between.** The primer was appended to `<body>`. When
+   the framework focused the editor's node, `ViewFocusBinding.changeViewFocus`
+   saw nothing inside the view holding focus and focused the `flutter-view`
+   element, so focus went input -> div -> textarea, which closes the
+   keyboard. The primer now lives inside `flutter-view`, so the engine leaves
+   DOM focus alone and the textarea takes it straight from the primer.
+
+After the fix the emulated run logs `focus() INPUT in:pointerup
+parent:FLUTTER-VIEW`, then `focus() TEXTAREA`, with no view-element focus in
+between, and typing lands in the box. The test now asserts the primer runs on
+the lift of a plain tap, before the editor exists.

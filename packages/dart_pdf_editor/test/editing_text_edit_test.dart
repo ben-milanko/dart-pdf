@@ -506,17 +506,33 @@ void main() {
       await tester.pump();
       await drag(tester, view(100, 700), view(300, 640));
       expect(find.byKey(editorKey), findsOneWidget);
-      expect(primes, 1);
+      expect(primes, greaterThan(0));
       expect(primedBeforeField, isTrue);
       await tap(tester, view(450, 400)); // commit
+      await settle(tester);
+
+      // a plain tap is recognized only after the double-tap window, too late
+      // for WebKit - the primer has to run on the lift itself
+      primes = 0;
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      final gesture = await tester.startGesture(view(150, 520));
+      await gesture.up();
+      expect(primes, greaterThan(0));
+      expect(find.byKey(editorKey), findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(primedBeforeField, isTrue);
+      await tap(tester, view(450, 500)); // commit
       await settle(tester);
 
       // off iOS the framework's own focus raises the keyboard
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       await tester.pump();
+      primes = 0;
       await drag(tester, view(100, 500), view(300, 440));
       expect(find.byKey(editorKey), findsOneWidget);
-      expect(primes, 1);
+      expect(primes, 0);
       await tap(tester, view(450, 300));
       await settle(tester);
       debugDefaultTargetPlatformOverride = null;
