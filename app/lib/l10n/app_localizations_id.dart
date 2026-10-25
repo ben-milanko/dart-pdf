@@ -1296,6 +1296,25 @@ class AppLocalizationsId extends AppLocalizations {
       'Catatan rilis tidak tersedia di build ini.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Tiket sejak $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Tidak ada tiket baru sejak $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Dari nightly yang lebih baru ($commit) daripada build ini.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Tidak dapat memuat tiket nightly ini. Periksa koneksi Anda dan coba lagi.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

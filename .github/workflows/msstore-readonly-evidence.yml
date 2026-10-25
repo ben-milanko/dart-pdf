@@ -1,0 +1,42 @@
+name: Microsoft Store read-only evidence
+on:
+  workflow_dispatch:
+    inputs:
+      evidence_public_key:
+        description: RSA3072+ PEM public key; private key must remain with requester
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: storeflight-${{ github.repository }}-production
+  cancel-in-progress: false
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: storeflight-production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography==46.0.3
+      - name: Test read-only boundaries without credentials
+        run: python -m unittest discover -s app/packaging/msstore -p 'test_read_evidence.py'
+      - name: Read and encrypt native evidence
+        env:
+          EVIDENCE_PUBLIC_KEY: ${{ inputs.evidence_public_key }}
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
+          MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
+        run: python app/packaging/msstore/read_evidence.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: msstore-encrypted-evidence
+          path: msstore-evidence.encrypted.json
+          if-no-files-found: error
+          retention-days: 7

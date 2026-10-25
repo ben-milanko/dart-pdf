@@ -1,5 +1,14 @@
 # Changelog
 
+## 11.0.0+48
+
+- Create editable tables and exchange cells with spreadsheets.
+- Resume text recognition from saved-page checkpoints after an interruption.
+- Replace colours in snapshots and annotations, align text vertically and duplicate library stamps.
+- Pan with Space-drag or the middle mouse button.
+- Fix text wrapping, remembered fonts, rotated snapshots and annotation resize previews.
+- Fix detection of a running 64-bit app by the Windows installer.
+
 ## 10.0.0
 
 - Type the value shown on a drawing into a measurement, even without setting a scale.

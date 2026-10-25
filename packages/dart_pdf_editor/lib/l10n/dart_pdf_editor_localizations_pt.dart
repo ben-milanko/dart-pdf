@@ -730,6 +730,15 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo de linha';
 
   @override
+  String get propRegion => 'Área marcada';
+
+  @override
+  String get propRegionPolygon => 'Polígono';
+
+  @override
+  String get propRegionCloud => 'Nuvem';
+
+  @override
   String get propLoadFont => 'Carregar fonte…';
 
   @override
@@ -965,6 +974,31 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
       other: '$count ocorrências substituídas',
       one: '1 ocorrência substituída',
       zero: 'Nada substituído',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Marcar para ocultação';
+
+  @override
+  String get searchRedactMark => 'Marcar';
+
+  @override
+  String get searchRedactMarkAll => 'Marcar tudo';
+
+  @override
+  String get searchRedactHint =>
+      'As marcas podem ser revistas até aplicar as ocultações';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ocorrências marcadas para ocultação',
+      one: '1 ocorrência marcada para ocultação',
+      zero: 'Já marcado',
     );
     return '$_temp0';
   }
@@ -1465,6 +1499,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Aplicar tarjas (irreversível)';
 
   @override
+  String get tbFindToRedact => 'Localizar texto para ocultar';
+
+  @override
   String get tbAutosizeTextBox =>
       'Ajustar caixa de texto automaticamente (Alt+Z)';
 
@@ -1694,6 +1731,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Chamada';
 
   @override
+  String get tbNameCloudCallout => 'Chamada em nuvem';
+
+  @override
   String get tbNameCloudPolygon => 'Polígono em nuvem';
 
   @override
@@ -1901,6 +1941,10 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Chamada - arraste do ponto até onde a caixa ficará';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Chamada em nuvem - arraste uma nuvem ao redor da área e digite a nota';
 
   @override
   String get tbTipContent => 'Editar conteúdo da página';
@@ -2499,4 +2543,60 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'A cor da página não foi salva no arquivo: alterar as páginas invalidaria as assinaturas.';
+
+  @override
+  String get table => 'Tabela';
+
+  @override
+  String get tableEdit => 'Editar tabela';
+
+  @override
+  String get tableRows => 'Linhas';
+
+  @override
+  String get tableColumns => 'Colunas';
+
+  @override
+  String get tableStyle => 'Estilo da tabela';
+
+  @override
+  String get tableStyleHint => 'Aplica-se à tabela inteira.';
+
+  @override
+  String get tableBackgroundColor => 'Cor de fundo';
+
+  @override
+  String get tableHeaderColor => 'Cor do cabeçalho';
+
+  @override
+  String get tableTextColor => 'Cor da fonte';
+
+  @override
+  String get tableGridLines => 'Linhas de grade';
+
+  @override
+  String get tableGridColor => 'Cor da grade';
+
+  @override
+  String get tableGridWidth => 'Espessura da grade';
+
+  @override
+  String get tableHeaderRow => 'Linha de cabeçalho';
+
+  @override
+  String get tableColumnWidth => 'Largura da coluna';
+
+  @override
+  String get tableRowHeight => 'Altura da linha';
+
+  @override
+  String get tableSelectionHint =>
+      'Clique numa célula para editar; Shift-clique seleciona um intervalo. Copiar e Colar trocam valores de células com o Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'A tabela da área de transferência é inválida ou excede 500 linhas, 100 colunas ou 20.000 células.';
+
+  @override
+  String get duplicate => 'Duplicar';
 }

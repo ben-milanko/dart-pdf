@@ -729,6 +729,15 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get propLineType => 'Linientyp';
 
   @override
+  String get propRegion => 'Markierter Bereich';
+
+  @override
+  String get propRegionPolygon => 'Polygon';
+
+  @override
+  String get propRegionCloud => 'Wolke';
+
+  @override
   String get propLoadFont => 'Schriftart laden…';
 
   @override
@@ -964,6 +973,31 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       other: '$count Treffer ersetzt',
       one: '1 Treffer ersetzt',
       zero: 'Nichts ersetzt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Zum Schwärzen markieren';
+
+  @override
+  String get searchRedactMark => 'Markieren';
+
+  @override
+  String get searchRedactMarkAll => 'Alle markieren';
+
+  @override
+  String get searchRedactHint =>
+      'Markierungen bleiben prüfbar, bis Sie die Schwärzungen anwenden';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Treffer zum Schwärzen markiert',
+      one: '1 Treffer zum Schwärzen markiert',
+      zero: 'Bereits markiert',
     );
     return '$_temp0';
   }
@@ -1466,6 +1500,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Schwärzungen anwenden (unwiderruflich)';
 
   @override
+  String get tbFindToRedact => 'Text zum Schwärzen suchen';
+
+  @override
   String get tbAutosizeTextBox => 'Textfeld automatisch anpassen (Alt+Z)';
 
   @override
@@ -1695,6 +1732,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Sprechblase';
 
   @override
+  String get tbNameCloudCallout => 'Wolken-Sprechblase';
+
+  @override
   String get tbNameCloudPolygon => 'Wolkenpolygon';
 
   @override
@@ -1902,6 +1942,10 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Sprechblase - vom Punkt zur gewünschten Position des Feldes ziehen';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Wolken-Sprechblase - eine Wolke um den Bereich ziehen, dann die Notiz eingeben';
 
   @override
   String get tbTipContent => 'Seiteninhalt bearbeiten';
@@ -2504,4 +2548,60 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Die Seitenfarbe wurde nicht in die Datei übernommen: Eine Änderung der Seiten würde ihre Signaturen ungültig machen.';
+
+  @override
+  String get table => 'Tabelle';
+
+  @override
+  String get tableEdit => 'Tabelle bearbeiten';
+
+  @override
+  String get tableRows => 'Zeilen';
+
+  @override
+  String get tableColumns => 'Spalten';
+
+  @override
+  String get tableStyle => 'Tabellenstil';
+
+  @override
+  String get tableStyleHint => 'Gilt für die gesamte Tabelle.';
+
+  @override
+  String get tableBackgroundColor => 'Hintergrundfarbe';
+
+  @override
+  String get tableHeaderColor => 'Kopfzeilenfarbe';
+
+  @override
+  String get tableTextColor => 'Schriftfarbe';
+
+  @override
+  String get tableGridLines => 'Gitterlinien';
+
+  @override
+  String get tableGridColor => 'Gitterfarbe';
+
+  @override
+  String get tableGridWidth => 'Linienbreite';
+
+  @override
+  String get tableHeaderRow => 'Kopfzeile';
+
+  @override
+  String get tableColumnWidth => 'Spaltenbreite';
+
+  @override
+  String get tableRowHeight => 'Zeilenhöhe';
+
+  @override
+  String get tableSelectionHint =>
+      'Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.';
+
+  @override
+  String get tableClipboardError =>
+      'Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen.';
+
+  @override
+  String get duplicate => 'Duplizieren';
 }

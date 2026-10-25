@@ -19,6 +19,13 @@ void main() {
       expect(parsePrintPageRange(invalid, 5), isNull, reason: invalid);
     }
   });
+  test('page range formatter round-trips through the parser', () {
+    expect(formatPrintPageRange([0, 1, 2, 4]), '1-3, 5');
+    expect(formatPrintPageRange([3]), '4');
+    expect(formatPrintPageRange([]), '');
+    expect(parsePrintPageRange(formatPrintPageRange([0, 2, 3, 4]), 5),
+        [0, 2, 3, 4]);
+  });
   group('platformProvidesPrintPreview', () {
     test('is false exactly where the OS print flow shows nothing', () {
       expect(platformProvidesPrintPreview(platform: TargetPlatform.windows),
@@ -122,6 +129,32 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(result()!.settings.pages, [3]);
+    });
+
+    testWidgets('the range field shows the pages the chosen chip covers',
+        (tester) async {
+      await openPreview(tester, currentPage: 2);
+      final field = find.byKey(const ValueKey('print-preview-range'));
+      String text() => tester.widget<TextField>(field).controller!.text;
+      Future<void> pick(String name) async {
+        await tester.ensureVisible(find.byKey(ValueKey('print-preview-$name')));
+        await tester.tap(find.byKey(ValueKey('print-preview-$name')));
+        await tester.pumpAndSettle();
+      }
+
+      // All opens on every page, not "current page onwards".
+      expect(text(), '1-5');
+      await pick('current');
+      expect(text(), '3');
+      await tester.ensureVisible(field);
+      await tester.enterText(field, '2, 4');
+      await tester.pumpAndSettle();
+      await pick('all');
+      expect(text(), '1-5');
+      // Range brings back what was typed for it.
+      await pick('custom');
+      expect(text(), '2, 4');
+      expect(find.text('Pages to print: 2'), findsOneWidget);
     });
 
     testWidgets('a typed range prints just that span', (tester) async {

@@ -726,6 +726,15 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get propLineType => '線の種類';
 
   @override
+  String get propRegion => 'マークした範囲';
+
+  @override
+  String get propRegionPolygon => '多角形';
+
+  @override
+  String get propRegionCloud => '雲形';
+
+  @override
   String get propLoadFont => 'フォントを読み込む…';
 
   @override
@@ -959,6 +968,30 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       other: '$count 件を置換しました',
       one: '1 件を置換しました',
       zero: '置換されませんでした',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '墨消し用にマーク';
+
+  @override
+  String get searchRedactMark => 'マーク';
+
+  @override
+  String get searchRedactMarkAll => 'すべてマーク';
+
+  @override
+  String get searchRedactHint => '墨消しを適用するまでマークは確認・変更できます';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 件を墨消し用にマークしました',
+      one: '1 件を墨消し用にマークしました',
+      zero: 'マーク済みです',
     );
     return '$_temp0';
   }
@@ -1455,6 +1488,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => '墨消しを適用（元に戻せません）';
 
   @override
+  String get tbFindToRedact => '墨消しするテキストを検索';
+
+  @override
   String get tbAutosizeTextBox => 'テキストボックスを自動サイズ (Alt+Z)';
 
   @override
@@ -1678,6 +1714,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbNameCallout => '引き出し';
 
   @override
+  String get tbNameCloudCallout => '雲形引き出し';
+
+  @override
   String get tbNameCloudPolygon => '雲形多角形';
 
   @override
@@ -1882,6 +1921,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '引き出し - 起点からボックスの位置までドラッグ';
+
+  @override
+  String get tbTipCloudCallout => '雲形引き出し - 範囲を雲で囲むようにドラッグしてから、メモを入力';
 
   @override
   String get tbTipContent => 'ページコンテンツを編集';
@@ -2453,4 +2495,60 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ページの色はファイルに保存されませんでした。ページを変更すると署名が無効になります。';
+
+  @override
+  String get table => '表';
+
+  @override
+  String get tableEdit => '表を編集';
+
+  @override
+  String get tableRows => '行';
+
+  @override
+  String get tableColumns => '列';
+
+  @override
+  String get tableStyle => '表のスタイル';
+
+  @override
+  String get tableStyleHint => '表全体に適用されます。';
+
+  @override
+  String get tableBackgroundColor => '背景色';
+
+  @override
+  String get tableHeaderColor => '見出しの色';
+
+  @override
+  String get tableTextColor => '文字色';
+
+  @override
+  String get tableGridLines => '罫線';
+
+  @override
+  String get tableGridColor => '罫線の色';
+
+  @override
+  String get tableGridWidth => '罫線の太さ';
+
+  @override
+  String get tableHeaderRow => '見出し行';
+
+  @override
+  String get tableColumnWidth => '列の幅';
+
+  @override
+  String get tableRowHeight => '行の高さ';
+
+  @override
+  String get tableSelectionHint =>
+      'セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。';
+
+  @override
+  String get tableClipboardError =>
+      'クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。';
+
+  @override
+  String get duplicate => '複製';
 }

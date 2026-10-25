@@ -21,6 +21,12 @@ class OnDeviceOcr {
   bool get isBusy => false;
 
   void cancel() {}
+  Future<void> acknowledgeResult(Uint8List result) async {}
+  Future<void> recover(
+    BuildContext context, {
+    required void Function(String) onToast,
+    required void Function(Uint8List, String) onComplete,
+  }) async {}
 
   void dispose() => status.dispose();
 

@@ -122,7 +122,13 @@ extension PdfAnnotationGrouping on PdfEditor {
         dict['RD'] = _rdArray(boundsUnderMatrix(spec.matrix, spec.bbox),
             boundsUnderMatrix(spec.matrix, box));
       }
-      for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
+      for (final key in const [
+        'QuadPoints',
+        'L',
+        'Vertices',
+        'CL',
+        kPdfCalloutRegionKey
+      ]) {
         final points = _mapPointPairs(dict[key], transform.apply);
         if (points != null) dict[key] = points;
       }

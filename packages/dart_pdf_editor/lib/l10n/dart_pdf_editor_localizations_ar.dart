@@ -742,6 +742,15 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get propLineType => 'نوع الخط';
 
   @override
+  String get propRegion => 'المنطقة المحددة';
+
+  @override
+  String get propRegionPolygon => 'مضلّع';
+
+  @override
+  String get propRegionCloud => 'سحابة';
+
+  @override
   String get propLoadFont => 'تحميل خط…';
 
   @override
@@ -981,6 +990,34 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       two: 'تم استبدال تطابقين',
       one: 'تم استبدال تطابق واحد',
       zero: 'لم يتم استبدال أي شيء',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'تحديد للتنقيح';
+
+  @override
+  String get searchRedactMark => 'تحديد';
+
+  @override
+  String get searchRedactMarkAll => 'تحديد الكل';
+
+  @override
+  String get searchRedactHint =>
+      'تبقى التحديدات قابلة للمراجعة حتى تطبّق التنقيحات';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم تحديد $count تطابق للتنقيح',
+      many: 'تم تحديد $count تطابقًا للتنقيح',
+      few: 'تم تحديد $count تطابقات للتنقيح',
+      two: 'تم تحديد تطابقين للتنقيح',
+      one: 'تم تحديد تطابق واحد للتنقيح',
+      zero: 'محدد بالفعل',
     );
     return '$_temp0';
   }
@@ -1489,6 +1526,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'تطبيق التنقيحات (لا يمكن التراجع)';
 
   @override
+  String get tbFindToRedact => 'البحث عن نص لتنقيحه';
+
+  @override
   String get tbAutosizeTextBox => 'تحجيم مربع النص تلقائيًا (Alt+Z)';
 
   @override
@@ -1720,6 +1760,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'وسيلة شرح';
 
   @override
+  String get tbNameCloudCallout => 'وسيلة شرح سحابية';
+
+  @override
   String get tbNameCloudPolygon => 'مضلّع سحابي';
 
   @override
@@ -1924,6 +1967,10 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'وسيلة شرح - اسحب من النقطة إلى موضع المربع';
+
+  @override
+  String get tbTipCloudCallout =>
+      'وسيلة شرح سحابية - اسحب سحابة حول المنطقة، ثم اكتب الملاحظة';
 
   @override
   String get tbTipContent => 'تحرير محتوى الصفحة';
@@ -2543,4 +2590,60 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'لم يُحفظ لون الصفحة في الملف: تغيير الصفحات سيُبطل توقيعاته.';
+
+  @override
+  String get table => 'جدول';
+
+  @override
+  String get tableEdit => 'تحرير الجدول';
+
+  @override
+  String get tableRows => 'الصفوف';
+
+  @override
+  String get tableColumns => 'الأعمدة';
+
+  @override
+  String get tableStyle => 'نمط الجدول';
+
+  @override
+  String get tableStyleHint => 'ينطبق على الجدول بأكمله.';
+
+  @override
+  String get tableBackgroundColor => 'لون الخلفية';
+
+  @override
+  String get tableHeaderColor => 'لون الرأس';
+
+  @override
+  String get tableTextColor => 'لون الخط';
+
+  @override
+  String get tableGridLines => 'خطوط الشبكة';
+
+  @override
+  String get tableGridColor => 'لون الشبكة';
+
+  @override
+  String get tableGridWidth => 'سُمك الشبكة';
+
+  @override
+  String get tableHeaderRow => 'صف العناوين';
+
+  @override
+  String get tableColumnWidth => 'عرض العمود';
+
+  @override
+  String get tableRowHeight => 'ارتفاع الصف';
+
+  @override
+  String get tableSelectionHint =>
+      'انقر على خلية لتحريرها، أو انقر مع Shift لتحديد نطاق. يتيح النسخ واللصق تبادل قيم الخلايا مع Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'جدول الحافظة غير صالح أو يتجاوز 500 صف أو 100 عمود أو 20,000 خلية.';
+
+  @override
+  String get duplicate => 'تكرار';
 }

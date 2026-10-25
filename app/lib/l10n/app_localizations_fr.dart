@@ -1309,6 +1309,25 @@ class AppLocalizationsFr extends AppLocalizations {
       'Les notes de version ne sont pas disponibles dans cette version.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Tickets depuis $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Aucun nouveau ticket depuis $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Issu d\'une version nocturne plus récente ($commit) que celle-ci.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Impossible de charger les tickets de cette version nocturne. Vérifiez votre connexion et réessayez.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

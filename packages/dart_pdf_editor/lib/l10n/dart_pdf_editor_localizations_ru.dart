@@ -739,6 +739,15 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get propLineType => 'Тип линии';
 
   @override
+  String get propRegion => 'Отмеченная область';
+
+  @override
+  String get propRegionPolygon => 'Многоугольник';
+
+  @override
+  String get propRegionCloud => 'Облако';
+
+  @override
   String get propLoadFont => 'Загрузить шрифт…';
 
   @override
@@ -978,6 +987,33 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
       few: 'Заменено $count совпадения',
       one: 'Заменено 1 совпадение',
       zero: 'Ничего не заменено',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Пометить для скрытия';
+
+  @override
+  String get searchRedactMark => 'Пометить';
+
+  @override
+  String get searchRedactMarkAll => 'Пометить все';
+
+  @override
+  String get searchRedactHint =>
+      'Пометки можно проверить, пока вы не примените скрытие';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Помечено для скрытия $count совпадения',
+      many: 'Помечено для скрытия $count совпадений',
+      few: 'Помечено для скрытия $count совпадения',
+      one: 'Помечено для скрытия 1 совпадение',
+      zero: 'Уже помечено',
     );
     return '$_temp0';
   }
@@ -1485,6 +1521,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Применить вымарывания (необратимо)';
 
   @override
+  String get tbFindToRedact => 'Найти текст для скрытия';
+
+  @override
   String get tbAutosizeTextBox => 'Автоподбор размера текстового поля (Alt+Z)';
 
   @override
@@ -1717,6 +1756,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Выноска';
 
   @override
+  String get tbNameCloudCallout => 'Облачная выноска';
+
+  @override
   String get tbNameCloudPolygon => 'Облачный многоугольник';
 
   @override
@@ -1925,6 +1967,10 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Выноска — перетащите от точки к месту размещения поля';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Облачная выноска — обведите область облаком, затем введите заметку';
 
   @override
   String get tbTipContent => 'Редактировать содержимое страницы';
@@ -2542,4 +2588,60 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Цвет страницы не сохранён в файле: изменение страниц сделает его подписи недействительными.';
+
+  @override
+  String get table => 'Таблица';
+
+  @override
+  String get tableEdit => 'Изменить таблицу';
+
+  @override
+  String get tableRows => 'Строки';
+
+  @override
+  String get tableColumns => 'Столбцы';
+
+  @override
+  String get tableStyle => 'Стиль таблицы';
+
+  @override
+  String get tableStyleHint => 'Применяется ко всей таблице.';
+
+  @override
+  String get tableBackgroundColor => 'Цвет фона';
+
+  @override
+  String get tableHeaderColor => 'Цвет заголовка';
+
+  @override
+  String get tableTextColor => 'Цвет шрифта';
+
+  @override
+  String get tableGridLines => 'Линии сетки';
+
+  @override
+  String get tableGridColor => 'Цвет сетки';
+
+  @override
+  String get tableGridWidth => 'Толщина сетки';
+
+  @override
+  String get tableHeaderRow => 'Строка заголовков';
+
+  @override
+  String get tableColumnWidth => 'Ширина столбца';
+
+  @override
+  String get tableRowHeight => 'Высота строки';
+
+  @override
+  String get tableSelectionHint =>
+      'Нажмите на ячейку для редактирования; Shift и щелчок выделяют диапазон. Копирование и вставка обмениваются значениями ячеек с Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек.';
+
+  @override
+  String get duplicate => 'Дублировать';
 }

@@ -62,6 +62,97 @@ void main() {
         (c.document.cos.resolve(f['Subtype']) as CosName?)?.value == 'Type0';
   }
 
+  test('embedded annotation font survives new documents and preferences reload',
+      () async {
+    final store = PdfMemoryPreferencesStore();
+    final preferences = PdfEditingPreferences(store: store);
+    addTearDown(preferences.dispose);
+    await preferences.ready;
+    final first =
+        PdfEditingController(buildClassicPdf(), preferences: preferences);
+    addTearDown(first.dispose);
+    expect(first.setCustomFont(_fontBytes), isTrue);
+    final family = first.activeFont!.postScriptName;
+    final second =
+        PdfEditingController(buildClassicPdf(), preferences: preferences);
+    addTearDown(second.dispose);
+    expect(second.activeFont!.postScriptName, family);
+    second.addFreeText(0, const PdfRect(20, 20, 200, 80), 'Persistent font');
+    expect(isType0(second, second.document.page(0).annotations.single), isTrue);
+
+    final restored = PdfEditingPreferences(store: store);
+    addTearDown(restored.dispose);
+    await restored.ready;
+    final third =
+        PdfEditingController(buildClassicPdf(), preferences: restored);
+    addTearDown(third.dispose);
+    expect(third.activeFont!.postScriptName, family);
+    expect(third.activeFont!.fontBytes, _fontBytes);
+    third.fontFamily = PdfStandardFont.times;
+    expect(third.activeFont, isNull);
+    final cleared = PdfEditingPreferences(store: store);
+    addTearDown(cleared.dispose);
+    await cleared.ready;
+    expect(cleared.embeddedFont, isNull);
+    expect(cleared.fontFamily, PdfStandardFont.times);
+  });
+
+  test('Set as default preserves an embedded face from an annotation',
+      () async {
+    final store = PdfMemoryPreferencesStore();
+    final preferences = PdfEditingPreferences(store: store);
+    addTearDown(preferences.dispose);
+    await preferences.ready;
+    final document = PdfDocument.open(buildClassicPdf());
+    final editor = PdfEditor(document)
+      ..addFreeText(0, const PdfRect(20, 20, 200, 80), 'Embedded font',
+          font: PdfEmbeddedFont.parse(_fontBytes));
+    final controller =
+        PdfEditingController(editor.save(), preferences: preferences)
+          ..selectAnnotation(0, 0);
+    addTearDown(controller.dispose);
+    expect(controller.applySelectedStyleAsDefault(), isTrue);
+    expect(controller.activeFont?.postScriptName, contains('DejaVu'));
+    final restored = PdfEditingPreferences(store: store);
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.embeddedFont?.postScriptName,
+        controller.activeFont!.postScriptName);
+  });
+
+  test('a font chosen before preferences load still persists', () async {
+    final preferences = PdfEditingPreferences();
+    addTearDown(preferences.dispose);
+    final controller =
+        PdfEditingController(buildClassicPdf(), preferences: preferences);
+    addTearDown(controller.dispose);
+    expect(controller.setCustomFont(_fontBytes), isTrue);
+    await preferences.ready;
+    await pumpEventQueue();
+    final restored = PdfEditingPreferences();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.embeddedFont?.postScriptName,
+        controller.activeFont!.postScriptName);
+  });
+
+  test('corrupt saved font falls back without blocking annotation creation',
+      () async {
+    final preferences = PdfEditingPreferences(
+        store: PdfMemoryPreferencesStore({
+      'dart_pdf_editor.editing.embeddedFont': 'not a font',
+    }));
+    addTearDown(preferences.dispose);
+    await preferences.ready;
+    final controller =
+        PdfEditingController(buildClassicPdf(), preferences: preferences);
+    addTearDown(controller.dispose);
+    expect(controller.activeFont, isNull);
+    controller.addFreeText(0, const PdfRect(20, 20, 200, 80), 'Fallback');
+    expect(controller.document.page(0).annotations.single.defaultAppearance,
+        contains('/Helv'));
+  });
+
   group('bundled fallback fonts', () {
     testWidgets('loadFallbackFonts resolves the DejaVu trio from assets',
         (tester) async {

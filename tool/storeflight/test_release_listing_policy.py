@@ -21,6 +21,7 @@ puts JSON.generate({
   schema: c.fetch('schema'),
   apple_policy: d.fetch('apple')['release_listing_policy'],
   apple_test_guard: d.fetch('apple')['protect_product_page_tests'],
+  apple_test_policy: d.fetch('apple')['product_page_test_policy'],
   play_policy: d.fetch('google_play')['release_listing_policy']
 })
 """
@@ -33,6 +34,7 @@ puts JSON.generate({
             "schema": 2,
             "apple_policy": "preserve",
             "apple_test_guard": True,
+            "apple_test_policy": "preserve_active_experiments",
             "play_policy": "preserve",
         })
 
