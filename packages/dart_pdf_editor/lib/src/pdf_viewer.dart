@@ -1409,6 +1409,7 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
+    this.onSaveAnnotationImage,
     this.textMenuBuilder,
     this.annotationMenuEntries,
     this.textMenuEntries,
@@ -1718,6 +1719,13 @@ class PdfViewer extends StatefulWidget {
   /// appear below a divider. Needs [editing] - without a controller
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
+
+  /// Saves an annotation rendered to a picture - the annotation context
+  /// menu's "Save as image…" on a pasted vector snapshot, which renders it
+  /// to a PNG ([PdfEditingController.exportSelectedSnapshotImage]) and hands
+  /// it here to save, share or download. Null hides the entry. Needs
+  /// [editing].
+  final PdfSelectedContentImageHandler? onSaveAnnotationImage;
 
   /// Adds the app's own entries to the text-selection context menu (the
   /// desktop right-click menu over page text - markup, Copy and Select
@@ -7562,6 +7570,7 @@ class _PdfViewerState extends State<PdfViewer>
       entriesBuilder: widget.annotationMenuEntries,
       textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       pagePoint: pagePoint,
+      onSaveImage: widget.onSaveAnnotationImage,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),

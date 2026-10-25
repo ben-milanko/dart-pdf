@@ -447,6 +447,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuRecolour => '重新着色…';
 
   @override
+  String get menuSaveAsImage => '另存为图像…';
+
+  @override
   String get menuRemoveNode => '移除节点';
 
   @override
@@ -2980,6 +2983,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuRecolour => '重新上色…';
+
+  @override
+  String get menuSaveAsImage => '另存為影像…';
 
   @override
   String get menuRemoveNode => '移除節點';

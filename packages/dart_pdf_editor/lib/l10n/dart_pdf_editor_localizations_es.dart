@@ -450,6 +450,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recolorear…';
 
   @override
+  String get menuSaveAsImage => 'Guardar como imagen…';
+
+  @override
   String get menuRemoveNode => 'Quitar nodo';
 
   @override
