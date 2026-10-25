@@ -2516,6 +2516,21 @@ class _PdfViewerState extends State<PdfViewer>
   bool _touchPanning = false;
 
   final _focusNode = FocusNode(debugLabel: 'PdfViewer');
+  bool _claimedInitialFocus = false;
+
+  /// A freshly opened document answers its shortcuts straight away instead
+  /// of waiting for a click on the page. Queued as an autofocus request
+  /// after the frame that first builds the focus node, so it lands only
+  /// when nothing else in the scope holds focus - and behind any host field
+  /// that autofocused in the same frame, which a plain `autofocus: true`
+  /// would beat by being built first.
+  void _claimInitialFocus() {
+    if (_claimedInitialFocus) return;
+    _claimedInitialFocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.enclosingScope?.autofocus(_focusNode);
+    });
+  }
 
   // text selection: (pageIndex, offset into that page's text)
   (int, int)? _selAnchor;
@@ -9838,6 +9853,7 @@ class _PdfViewerState extends State<PdfViewer>
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
       );
+      _claimInitialFocus();
       final keyed = Shortcuts(
         // while an in-place text editor is open every key belongs to it:
         // backspace deletes characters (not the annotation), ⌘C copies
