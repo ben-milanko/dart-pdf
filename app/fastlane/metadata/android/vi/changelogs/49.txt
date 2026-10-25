@@ -1,0 +1,3 @@
+DartPDF 12.0.0
+
+Thêm chú thích đám mây. Tìm văn bản và đánh dấu một hoặc tất cả kết quả để che nội dung, rồi kiểm tra trước khi áp dụng. Lưu ảnh chụp véc-tơ đã dán thành PNG. Giữ thước và đường dẫn con trỏ hiển thị khi điều hướng. Cải thiện thanh công cụ gọn, nhập số trang và phím tắt. Sửa lỗi che nội dung làm mất văn bản lân cận.
