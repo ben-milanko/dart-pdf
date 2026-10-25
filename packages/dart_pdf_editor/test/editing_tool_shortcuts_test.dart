@@ -199,6 +199,37 @@ void main() {
       });
     }
 
+    testWidgets('a freshly opened viewer takes keys before any click',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      await tester.pump();
+      // no focusViewer: the viewer claims focus once it is built
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pump();
+      expect(editing.tool, PdfEditTool.rectangle);
+    });
+
+    testWidgets('a host field autofocused alongside the viewer keeps focus',
+        (tester) async {
+      final field = FocusNode(debugLabel: 'host field');
+      addTearDown(field.dispose);
+      final editing = PdfEditingController(
+          PdfEditor(PdfDocument.open(buildMultiPagePdf(1))).save());
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            Expanded(
+              child: PdfViewer(document: editing.document, editing: editing),
+            ),
+            TextField(focusNode: field, autofocus: true),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      expect(field.hasPrimaryFocus, isTrue);
+    });
+
     testWidgets('disabling viewer commands keeps the configured rectangle key',
         (tester) async {
       final editing = await pumpEditor(tester, viewerShortcuts: const {});
