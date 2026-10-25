@@ -225,6 +225,8 @@ class _ViewerAppState extends State<ViewerApp> {
           PdfThemePreference.light => ThemeMode.light,
           PdfThemePreference.dark => ThemeMode.dark,
         },
+        builder: (context, child) =>
+            PdfDismissKeyboardOnTapOutside(child: child!),
         home: ViewerScreen(
           prefs: _prefs,
           cacheStore: widget.cacheStore,

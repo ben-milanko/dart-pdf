@@ -222,8 +222,9 @@ class _DartPdfWindow extends StatelessWidget {
       prefs: prefs,
       builder: (context) => MaterialApp(
         title: kProductDisplayName,
-        builder: (context, child) =>
-            WebSafeArea(child: KeyboardAvailability(child: child!)),
+        builder: (context, child) => WebSafeArea(
+            child: KeyboardAvailability(
+                child: PdfDismissKeyboardOnTapOutside(child: child!))),
         localizationsDelegates: appLocalizationsDelegates,
         // With no matching platform locale (e.g. Linux's C locale), use
         // English instead of the generated list's first language, Arabic.
