@@ -21,3 +21,26 @@ the same line. Two bugs in `_RedactionBurn._showText`
 
 Rebuilt strings keep their hex/literal form. Tests: the composite and kern
 cases in `test/redaction_test.dart`.
+
+## Follow-up: the line below, and redacting a text selection
+
+Testing the preview turned up a third way to lose text: a box over one line
+took words from the line below. `_glyphCovered` tested each glyph's em box
+(0.2 em below the baseline to a full em above), which overhangs the visible
+glyph by a good part of a line, so on ordinary leading the next line's boxes
+reached up into the redaction rect. A glyph now counts as covered when a
+line through its body (`_glyphBodyHeight` = 0.3 em above the baseline) lies
+inside a region for more than `_minCoveredFraction` (10%) of its advance.
+That fraction also keeps a neighbour that only grazes the box edge. The
+whole-op fallback for non-Identity composite fonts uses the same body line.
+The trade-off: a box over only the top or bottom sliver of a line no longer
+removes that line's glyphs. They were never hidden by such a box anyway.
+
+Text selections can now be redacted. The right-click text menu and the touch
+selection chip have a Redact entry (`pdf-text-menu-redact`,
+`pdf-text-selection-chip-redact`, `_redactTextSelection` in pdf_viewer.dart),
+which marks the selection's quads (`addRedactionQuads`) and arms the Redact
+tool so its Apply button is at hand. Arming Redact while text is selected
+marks the selection first (`PdfEditorCommands.toggleToolNow` /
+`redactSelection`), as the markup tools do. Dragging across text with the
+Redact tool armed still draws a rectangle; it does not select text.

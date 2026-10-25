@@ -175,6 +175,30 @@ void main() {
       expect(text, isNot(contains('Tj')));
     });
 
+    test('a box over one line leaves the tightly-set line below alone', () {
+      // 12pt text on 14pt leading: line 2's em box (baseline + 12) reaches
+      // into the box drawn over line 1, but none of its glyphs' bodies do.
+      final doc = PdfDocument.open(buildRedactPdf(
+          'BT /F1 12 Tf 14 TL 72 700 Td (SECRET) Tj T* (PUBLIC) Tj ET\n'));
+      final editor = PdfEditor(doc)
+        ..addRedaction(0, [const PdfRect(70, 697, 220, 712)]);
+      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      expect(text, isNot(contains('SECRET')));
+      expect(text, contains('(PUBLIC) Tj'));
+    });
+
+    test('a neighbour that only touches the box edge survives', () {
+      // "AB": A spans 72..80.004, B 80.004..88.008 - a box ending a hair
+      // into B (selection rounding) still only takes A.
+      final doc = PdfDocument.open(
+          buildRedactPdf('BT /F1 12 Tf 72 700 Td (AB) Tj ET\n'));
+      final editor = PdfEditor(doc)
+        ..addRedaction(0, [const PdfRect(71, 695, 80.2, 715)]);
+      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      expect(text, contains('(B)'));
+      expect(text, isNot(contains('(A')));
+    });
+
     test('only the covered line is touched', () {
       final doc = PdfDocument.open(buildRedactPdf(content));
       final editor = PdfEditor(doc)

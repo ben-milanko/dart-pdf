@@ -731,18 +731,63 @@ class _RedactionBurn {
   }
 
   /// True when the glyph occupying [glyphWidth] text-space points from the
-  /// current text position intersects any redaction region.
+  /// current text position lies under a redaction region.
+  ///
+  /// The test runs along the glyph's body - a line through it at
+  /// [_glyphBodyHeight] of the font size above the baseline - rather than
+  /// its full em box. The em box (descent to a full em up) overhangs the
+  /// visible glyph by a good fraction of a line, so on ordinary leading a
+  /// box drawn over one line reached into the line below and took glyphs
+  /// that were never under it (#1162). Along the line the glyph must be
+  /// covered by more than [_minCoveredFraction] of its advance, so a
+  /// neighbour that only grazes a box edge (selection rounding) stays.
   bool _glyphCovered(double glyphWidth) {
     final m = _redMul(_tm, _ctm);
-    final y0 = _trise - 0.2 * _tfs;
-    final y1 = _trise + _tfs;
-    final bounds = _hullBounds([
-      _redApply(m, 0, y0),
-      _redApply(m, glyphWidth, y0),
-      _redApply(m, 0, y1),
-      _redApply(m, glyphWidth, y1),
-    ]);
-    return bounds != null && _rectIntersectsAny(bounds);
+    final y = _trise + _glyphBodyHeight * _tfs;
+    final (x0, y0) = _redApply(m, 0, y);
+    final (x1, y1) = _redApply(m, glyphWidth, y);
+    for (final region in _regions) {
+      // a zero-advance glyph is a point: 1 when inside, 0 when not
+      if (_coveredFraction(x0, y0, x1, y1, region) > _minCoveredFraction) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Where a glyph's body sits, as a fraction of the font size above the
+  /// baseline: mid x-height to mid cap-height for Latin text.
+  static const double _glyphBodyHeight = 0.3;
+
+  /// How much of a glyph's advance a region must cover to remove it.
+  static const double _minCoveredFraction = 0.1;
+
+  /// The fraction (0..1) of the segment (x0,y0)-(x1,y1) inside [r]
+  /// (Liang-Barsky clipping).
+  static double _coveredFraction(
+      double x0, double y0, double x1, double y1, PdfRect r) {
+    final dx = x1 - x0, dy = y1 - y0;
+    var t0 = 0.0, t1 = 1.0;
+    for (final (p, q) in [
+      (-dx, x0 - r.left),
+      (dx, r.right - x0),
+      (-dy, y0 - r.bottom),
+      (dy, r.top - y0),
+    ]) {
+      if (p == 0) {
+        if (q < 0) return 0; // parallel to this edge and outside it
+        continue;
+      }
+      final t = q / p;
+      if (p < 0) {
+        if (t > t1) return 0;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return 0;
+        if (t < t1) t1 = t;
+      }
+    }
+    return t1 - t0;
   }
 
   PdfRect? _compositeBounds(List<Object> elements, _RedFont font) {
@@ -761,9 +806,11 @@ class _RedactionBurn {
       final glyphs = string.bytes.length ~/ 2;
       for (var i = 0; i < glyphs; i++) {
         final gw = font.defaultWidth / 1000 * _tfs * _th;
+        // along the glyph body, as [_glyphCovered] tests it
+        final body = _trise + _glyphBodyHeight * _tfs;
         for (final (x, y) in [
-          _redApply(m, cursor, _trise - 0.2 * _tfs),
-          _redApply(m, cursor + gw, _trise + _tfs),
+          _redApply(m, cursor, body),
+          _redApply(m, cursor + gw, body),
         ]) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
