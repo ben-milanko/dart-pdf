@@ -19,6 +19,7 @@ import 'annotation_display_filter.dart';
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
+import 'note_popup.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -1439,6 +1440,7 @@ class PdfViewer extends StatefulWidget {
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.hiddenAnnotationSubtypes = const {},
+    this.showNotePopups = true,
     this.showScrollbarChapters = false,
     this.highlightFormFields = true,
     this.interactiveForms = true,
@@ -1931,6 +1933,14 @@ class PdfViewer extends StatefulWidget {
   /// taps, hover, or editing selection either, so a hidden link can't be
   /// followed. Usually fed from [PdfEditingPreferences.hiddenAnnotationSubtypes].
   final Set<String> hiddenAnnotationSubtypes;
+
+  /// Whether a sticky note's text pops up beside its icon: a
+  /// [PdfNotePopupCard] while the mouse rests on a note (not while a
+  /// drawing tool is armed), and for as long as a single note is selected,
+  /// which is how touch reaches it. A note's icon carries none of its text,
+  /// so without this it can only be read in a properties or annotation
+  /// panel.
+  final bool showNotePopups;
 
   /// Whether outline/bookmark destinations are shown as labelled markers on
   /// the main scrollbar. Off by default to keep the scrollbar uncluttered.
@@ -2609,6 +2619,27 @@ class _PdfViewerState extends State<PdfViewer>
   /// the page below once the drag crosses a page boundary, so the viewer
   /// paints it in list space (above the whole list) instead.
   PdfMoveDragPreview? _movePreview;
+
+  /// The note the mouse rests on, shown in a [PdfNotePopupCard]
+  /// ([PdfViewer.showNotePopups]); null when none is.
+  ({int page, PdfAnnotation note})? _hoveredNote;
+
+  /// The note under the mouse that [_noteShowTimer] will show.
+  ({int page, PdfAnnotation note})? _pendingNote;
+
+  /// Delays showing a hovered note, so a pointer sweeping across the page
+  /// doesn't flash cards.
+  Timer? _noteShowTimer;
+
+  /// Delays hiding it, so the pointer can cross the gap onto the card to
+  /// scroll or copy its text.
+  Timer? _noteHideTimer;
+
+  /// Whether the pointer is over the popup card itself.
+  bool _overNoteCard = false;
+
+  /// Keys the viewport Stack the popup card is positioned in.
+  final GlobalKey _noteLayerKey = GlobalKey();
 
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
@@ -5393,6 +5424,8 @@ class _PdfViewerState extends State<PdfViewer>
     _lifecycle.dispose();
     _renderScheduler.activity.removeListener(_onRenderSchedulerActivity);
     _settleTimer?.cancel();
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
     _gestureQuietTimer?.cancel();
@@ -7761,6 +7794,151 @@ class _PdfViewerState extends State<PdfViewer>
       cursor = grabCursor;
     }
     if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
+    _trackHoveredNote(event.localPosition);
+  }
+
+  /// The sticky note topmost under [local] (list space), or null - only
+  /// while a mouse hover may pop one up ([PdfViewer.showNotePopups], no
+  /// drawing tool armed).
+  ({int page, PdfAnnotation note})? _noteAt(Offset local) {
+    if (!widget.showNotePopups || !widget.showAnnotations) return null;
+    final editing = widget.editing;
+    if (editing != null &&
+        ((editing.tool != null && editing.tool != PdfEditTool.select) ||
+            editing.isPickingColor)) {
+      return null;
+    }
+    final point = _pagePointAt(local);
+    if (point == null) return null;
+    final (i, x, y) = point;
+    final hidden = widget.hiddenAnnotationSubtypes;
+    for (final annotation in _visibleAnnots(i).reversed) {
+      // replies and state records aren't painted, so they can't cover
+      // anything; any other annotation drawn over the note wins
+      if (annotation.isReply ||
+          annotation.isStateAnnotation ||
+          annotation.subtype == 'Popup' ||
+          hidden.contains(annotation.subtype) ||
+          !annotation.rect.contains(x, y)) {
+        continue;
+      }
+      return pdfIsNotePopupTarget(annotation)
+          ? (page: i, note: annotation)
+          : null;
+    }
+    return null;
+  }
+
+  static bool _sameNote(({int page, PdfAnnotation note})? a,
+          ({int page, PdfAnnotation note})? b) =>
+      a != null &&
+      b != null &&
+      a.page == b.page &&
+      identical(a.note.dict, b.note.dict);
+
+  void _trackHoveredNote(Offset local) {
+    final note = _noteAt(local);
+    if (note == null) {
+      _noteShowTimer?.cancel();
+      _pendingNote = null;
+      _scheduleNoteHide();
+      return;
+    }
+    _noteHideTimer?.cancel();
+    if (_sameNote(note, _hoveredNote) || _sameNote(note, _pendingNote)) {
+      return;
+    }
+    _pendingNote = note;
+    _noteShowTimer?.cancel();
+    // already showing one: move straight to the next, no second wait
+    _noteShowTimer =
+        Timer(_hoveredNote == null ? _noteShowDelay : Duration.zero, () {
+      if (!mounted) return;
+      setState(() => _hoveredNote = _pendingNote);
+      _pendingNote = null;
+    });
+  }
+
+  static const _noteShowDelay = Duration(milliseconds: 300);
+  static const _noteHideDelay = Duration(milliseconds: 250);
+
+  void _scheduleNoteHide() {
+    if (_hoveredNote == null || _overNoteCard) return;
+    if (_noteHideTimer?.isActive ?? false) return;
+    _noteHideTimer = Timer(_noteHideDelay, _hideHoveredNote);
+  }
+
+  void _hideHoveredNote() {
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
+    _pendingNote = null;
+    if (_hoveredNote == null || !mounted) return;
+    setState(() => _hoveredNote = null);
+  }
+
+  /// The note the popup card shows: a single selected note wins (it stays
+  /// up while selected, the touch path) over the hovered one.
+  ({int page, PdfAnnotation note, bool pinned})? _notePopupTarget() {
+    if (!widget.showNotePopups || !widget.showAnnotations) return null;
+    final editing = widget.editing;
+    if (editing != null) {
+      final slots = editing.selectedAnnotationSlots;
+      final selected = editing.selectedAnnotation;
+      if (slots.length == 1 &&
+          selected != null &&
+          pdfIsNotePopupTarget(selected) &&
+          !editing.isEditingText) {
+        // a move drag rides a ghost; the card would sit at the old spot
+        if (_movePreview != null) return null;
+        return (page: slots.single.$1, note: selected, pinned: true);
+      }
+    }
+    final hovered = _hoveredNote;
+    if (hovered == null || hovered.page >= _pages.length) return null;
+    return (page: hovered.page, note: hovered.note, pinned: false);
+  }
+
+  /// The popup card layer over the viewport ([PdfViewer.showNotePopups]),
+  /// following the note through scrolls and zooms.
+  Widget _buildNotePopupLayer() {
+    final editing = widget.editing;
+    return ListenableBuilder(
+      listenable:
+          Listenable.merge([_scroll, _transform, if (editing != null) editing]),
+      builder: (context, _) {
+        final target = _notePopupTarget();
+        if (target == null) return const SizedBox.shrink();
+        final layer =
+            _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
+        final global = _globalRectOf(target.page, target.note.rect);
+        if (layer == null || !layer.hasSize || global == null) {
+          return const SizedBox.shrink();
+        }
+        final anchor = layer.globalToLocal(global.topLeft) & global.size;
+        // scrolled out of view: no card floating over the margin
+        if (!anchor.overlaps(Offset.zero & layer.size)) {
+          return const SizedBox.shrink();
+        }
+        return CustomSingleChildLayout(
+          delegate: PdfNotePopupLayout(anchor),
+          child: MouseRegion(
+            onEnter: (_) {
+              _overNoteCard = true;
+              _noteHideTimer?.cancel();
+            },
+            onExit: (_) {
+              _overNoteCard = false;
+              _scheduleNoteHide();
+            },
+            child: PdfNotePopupCard(
+              note: target.note,
+              replies: PdfNotePopupCard.repliesOf(
+                  _document, target.page, target.note),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
@@ -9901,7 +10079,7 @@ class _PdfViewerState extends State<PdfViewer>
               // the canvas color behind the page: visible as margins when
               // zoomed out past fit-width
               color: canvasColor,
-              child: Stack(children: [
+              child: Stack(key: _noteLayerKey, children: [
                 PdfTemporaryPanRegion(
                   wantsPan: _wantsTemporaryPan,
                   cursor: _temporaryPanPointer != null && !_temporaryPanStopped
@@ -10005,6 +10183,9 @@ class _PdfViewerState extends State<PdfViewer>
                           cursor: _hoverCursor,
                           onHover: _onHover,
                           onExit: (_) {
+                            _noteShowTimer?.cancel();
+                            _pendingNote = null;
+                            _scheduleNoteHide();
                             if (_hoverCursor != MouseCursor.defer) {
                               setState(() => _hoverCursor = MouseCursor.defer);
                             }
@@ -10179,6 +10360,8 @@ class _PdfViewerState extends State<PdfViewer>
                   onScrollBy: _scrollbarPanBy,
                   thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
                 )),
+                if (widget.showNotePopups)
+                  Positioned.fill(child: _buildNotePopupLayer()),
               ]),
             ),
           ),
