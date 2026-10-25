@@ -989,6 +989,33 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Позначити для приховування';
+
+  @override
+  String get searchRedactMark => 'Позначити';
+
+  @override
+  String get searchRedactMarkAll => 'Позначити всі';
+
+  @override
+  String get searchRedactHint =>
+      'Позначки можна переглянути, доки ви не застосуєте приховування';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Позначено для приховування $count збігу',
+      many: 'Позначено для приховування $count збігів',
+      few: 'Позначено для приховування $count збіги',
+      one: 'Позначено для приховування 1 збіг',
+      zero: 'Уже позначено',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Результати пошуку';
 
   @override
@@ -1488,6 +1515,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Застосувати редагування (незворотно)';
+
+  @override
+  String get tbFindToRedact => 'Знайти текст для приховування';
 
   @override
   String get tbAutosizeTextBox => 'Автопідбір розміру текстового поля (Alt+Z)';

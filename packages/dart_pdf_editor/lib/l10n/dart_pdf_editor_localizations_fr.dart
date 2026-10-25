@@ -977,6 +977,31 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Marquer pour biffure';
+
+  @override
+  String get searchRedactMark => 'Marquer';
+
+  @override
+  String get searchRedactMarkAll => 'Tout marquer';
+
+  @override
+  String get searchRedactHint =>
+      'Les marques restent modifiables jusqu’à l’application des biffures';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count correspondances marquées pour biffure',
+      one: '1 correspondance marquée pour biffure',
+      zero: 'Déjà marqué',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Résultats de recherche';
 
   @override
@@ -1472,6 +1497,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbApplyRedactionsTooltip =>
       'Appliquer les caviardages (irréversible)';
+
+  @override
+  String get tbFindToRedact => 'Rechercher du texte à biffer';
 
   @override
   String get tbAutosizeTextBox =>

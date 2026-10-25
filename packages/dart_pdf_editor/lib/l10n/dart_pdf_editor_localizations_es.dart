@@ -977,6 +977,31 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Marcar para censurar';
+
+  @override
+  String get searchRedactMark => 'Marcar';
+
+  @override
+  String get searchRedactMarkAll => 'Marcar todo';
+
+  @override
+  String get searchRedactHint =>
+      'Las marcas se pueden revisar hasta que apliques las censuras';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count coincidencias marcadas para censurar',
+      one: '1 coincidencia marcada para censurar',
+      zero: 'Ya marcado',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Resultados de búsqueda';
 
   @override
@@ -1469,6 +1494,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Aplicar censuras (irreversible)';
+
+  @override
+  String get tbFindToRedact => 'Buscar texto para censurar';
 
   @override
   String get tbAutosizeTextBox => 'Autoajustar cuadro de texto (Alt+Z)';

@@ -213,6 +213,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.onExportCustomStamps,
     this.onImportCustomStamps,
     this.onAnnotationLibraryPressed,
+    this.onFindToRedact,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -285,6 +286,12 @@ class PdfEditingToolbar extends StatefulWidget {
   /// the toolbar falls back to the legacy modal library dialog so standalone
   /// toolbars keep a working entry point.
   final VoidCallback? onAnnotationLibraryPressed;
+
+  /// Opens the host's search panel with its find-to-redact controls
+  /// expanded (#1160). When non-null, the redact tool's strip shows a "Find
+  /// text to redact" button beside "Apply redactions"; the stock
+  /// [PdfEditorView] supplies it wherever its search results panel exists.
+  final VoidCallback? onFindToRedact;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -1988,8 +1995,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ];
     }
     if (tool == PdfEditTool.redact) {
+      final findToRedact = widget.onFindToRedact;
       return [
         if (flatten != null) ...[flatten, _MiniDivider(axis: axis)],
+        if (findToRedact != null)
+          IconButton(
+            key: const ValueKey('pdf-find-to-redact'),
+            icon: const Icon(Icons.manage_search),
+            tooltip: pdfL10n(context).tbFindToRedact,
+            onPressed: findToRedact,
+          ),
         IconButton(
           key: const ValueKey('pdf-apply-redactions'),
           icon: const Icon(Icons.check),

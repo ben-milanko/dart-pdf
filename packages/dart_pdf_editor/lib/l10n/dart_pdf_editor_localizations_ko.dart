@@ -970,6 +970,30 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => '교정용으로 표시';
+
+  @override
+  String get searchRedactMark => '표시';
+
+  @override
+  String get searchRedactMarkAll => '모두 표시';
+
+  @override
+  String get searchRedactHint => '교정을 적용하기 전까지 표시는 검토할 수 있습니다';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '일치 $count개를 교정용으로 표시함',
+      one: '일치 1개를 교정용으로 표시함',
+      zero: '이미 표시됨',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '검색 결과';
 
   @override
@@ -1460,6 +1484,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => '교정 적용(되돌릴 수 없음)';
+
+  @override
+  String get tbFindToRedact => '교정할 텍스트 찾기';
 
   @override
   String get tbAutosizeTextBox => '텍스트 상자 자동 크기 조정 (Alt+Z)';

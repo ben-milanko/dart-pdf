@@ -1255,6 +1255,31 @@
       }
     }
   },
+  "searchRedact": "Mark for redaction",
+  "@searchRedact": {
+    "description": "Tooltip on the search panel toggle that shows the find-to-redact controls (mark search hits for redaction)."
+  },
+  "searchRedactMark": "Mark",
+  "@searchRedactMark": {
+    "description": "Label on the search panel button that marks the current match for redaction."
+  },
+  "searchRedactMarkAll": "Mark all",
+  "@searchRedactMarkAll": {
+    "description": "Label on the search panel button that marks every page-text match for redaction."
+  },
+  "searchRedactHint": "Marks stay reviewable until you apply redactions",
+  "@searchRedactHint": {
+    "description": "Note under the find-to-redact buttons: marking only flags the text; nothing is removed until redactions are applied."
+  },
+  "searchRedactMarked": "{count, plural, =0{Already marked} =1{1 match marked for redaction} other{{count} matches marked for redaction}}",
+  "@searchRedactMarked": {
+    "description": "Confirmation after marking search matches for redaction; 0 means every hit was already marked.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "searchResultsTitle": "Search results",
   "@searchResultsTitle": {
     "description": "Title of the docked search results panel."
@@ -1913,6 +1938,10 @@
   "tbApplyRedactionsTooltip": "Apply redactions (irreversible)",
   "@tbApplyRedactionsTooltip": {
     "description": "Tooltip for the button that permanently applies marked redactions."
+  },
+  "tbFindToRedact": "Find text to redact",
+  "@tbFindToRedact": {
+    "description": "Tooltip on the redact tool's toolbar button that opens the search panel to find text to mark for redaction."
   },
   "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
   "@tbAutosizeTextBox": {

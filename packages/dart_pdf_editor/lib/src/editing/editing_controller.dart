@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextMatch;
 
 import '../page_geometry.dart';
 import '../renderer.dart';
@@ -3262,6 +3263,76 @@ class PdfEditingController extends ChangeNotifier {
       },
     );
   }
+
+  /// Marks each search hit in [matches] for redaction - one /Redact
+  /// annotation per hit (fill black), so every mark can be reviewed on the
+  /// page, and a false positive deleted, before [applyRedactions] burns
+  /// them. Find-to-redact (#1160): the search panel's "Mark all" hands it
+  /// [PdfViewerController.searchResults]' page-text hits.
+  ///
+  /// A hit already covered by a /Redact mark - from an earlier pass, or an
+  /// overlapping hit earlier in [matches] - is skipped, so marking the same
+  /// search twice adds nothing. Everything lands as one undo step. Returns
+  /// how many marks were added.
+  int markMatchesForRedaction(Iterable<PdfTextMatch> matches) {
+    final covered = <int, List<PdfRect>>{};
+    List<PdfRect> coveredOn(int page) => covered.putIfAbsent(
+          page,
+          () => [
+            for (final a in pageAt(page).annotations)
+              if (a.subtype == 'Redact') a.rect,
+          ],
+        );
+    final marks = <({int page, List<PdfRect> rects})>[];
+    for (final match in matches) {
+      if (match.rects.isEmpty) continue;
+      if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+        continue;
+      }
+      final existing = coveredOn(match.pageIndex);
+      if (match.rects.every((r) => existing.any((c) => _covers(c, r)))) {
+        continue;
+      }
+      marks.add((page: match.pageIndex, rects: match.rects));
+      existing.add(_boundsOfRects(match.rects));
+    }
+    if (marks.isEmpty) return 0;
+    final applied = apply((editor) {
+      for (final mark in marks) {
+        editor.addRedaction(mark.page, mark.rects, author: preferences.author);
+      }
+    });
+    return applied ? marks.length : 0;
+  }
+
+  /// Whether every run of [match] already sits under a /Redact mark on its
+  /// page - what the search panel shows beside a hit that "Mark" would skip.
+  bool isMarkedForRedaction(PdfTextMatch match) {
+    if (match.rects.isEmpty) return false;
+    if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final marks = [
+      for (final a in pageAt(match.pageIndex).annotations)
+        if (a.subtype == 'Redact') a.rect,
+    ];
+    return match.rects.every((r) => marks.any((c) => _covers(c, r)));
+  }
+
+  /// Whether [outer] contains [inner], give or take half a point of
+  /// rounding in the stored /Rect.
+  static bool _covers(PdfRect outer, PdfRect inner) =>
+      inner.left >= outer.left - 0.5 &&
+      inner.bottom >= outer.bottom - 0.5 &&
+      inner.right <= outer.right + 0.5 &&
+      inner.top <= outer.top + 0.5;
+
+  static PdfRect _boundsOfRects(List<PdfRect> rects) => PdfRect(
+        rects.map((r) => r.left).reduce(math.min),
+        rects.map((r) => r.bottom).reduce(math.min),
+        rects.map((r) => r.right).reduce(math.max),
+        rects.map((r) => r.top).reduce(math.max),
+      );
 
   // ---------------------------------------------------------------------
   // links

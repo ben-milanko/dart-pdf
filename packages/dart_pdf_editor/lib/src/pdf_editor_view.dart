@@ -1811,6 +1811,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         ? () => prefs.showAnnotationLibraryPanel =
                             !prefs.showAnnotationLibraryPanel
                         : null,
+                    onFindToRedact:
+                        features.search && features.searchResultsPanel
+                            ? () => prefs
+                              ..searchRedactExpanded = true
+                              ..showSearchResultsPanel = true
+                            : null,
                     palette: widget.palette,
                     tools: availableTools,
                     groups: features.toolGroups,

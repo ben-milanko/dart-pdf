@@ -975,6 +975,31 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Đánh dấu để biên tập ẩn';
+
+  @override
+  String get searchRedactMark => 'Đánh dấu';
+
+  @override
+  String get searchRedactMarkAll => 'Đánh dấu tất cả';
+
+  @override
+  String get searchRedactHint =>
+      'Các dấu vẫn có thể xem lại cho đến khi bạn áp dụng biên tập ẩn';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã đánh dấu $count kết quả khớp để biên tập ẩn',
+      one: 'Đã đánh dấu 1 kết quả khớp để biên tập ẩn',
+      zero: 'Đã được đánh dấu',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Kết quả tìm kiếm';
 
   @override
@@ -1468,6 +1493,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbApplyRedactionsTooltip =>
       'Áp dụng che thông tin (không thể đảo ngược)';
+
+  @override
+  String get tbFindToRedact => 'Tìm văn bản để biên tập ẩn';
 
   @override
   String get tbAutosizeTextBox => 'Tự động cỡ hộp văn bản (Alt+Z)';

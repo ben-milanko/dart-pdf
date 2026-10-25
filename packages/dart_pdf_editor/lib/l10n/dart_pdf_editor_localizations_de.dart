@@ -975,6 +975,31 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Zum Schwärzen markieren';
+
+  @override
+  String get searchRedactMark => 'Markieren';
+
+  @override
+  String get searchRedactMarkAll => 'Alle markieren';
+
+  @override
+  String get searchRedactHint =>
+      'Markierungen bleiben prüfbar, bis Sie die Schwärzungen anwenden';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Treffer zum Schwärzen markiert',
+      one: '1 Treffer zum Schwärzen markiert',
+      zero: 'Bereits markiert',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Suchergebnisse';
 
   @override
@@ -1470,6 +1495,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tbApplyRedactionsTooltip =>
       'Schwärzungen anwenden (unwiderruflich)';
+
+  @override
+  String get tbFindToRedact => 'Text zum Schwärzen suchen';
 
   @override
   String get tbAutosizeTextBox => 'Textfeld automatisch anpassen (Alt+Z)';

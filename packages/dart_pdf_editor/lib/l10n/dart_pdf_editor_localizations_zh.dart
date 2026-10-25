@@ -968,6 +968,30 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => '标记为涂黑';
+
+  @override
+  String get searchRedactMark => '标记';
+
+  @override
+  String get searchRedactMarkAll => '全部标记';
+
+  @override
+  String get searchRedactHint => '应用涂黑前，标记仍可检查';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已将 $count 个匹配项标记为涂黑',
+      one: '已将 1 个匹配项标记为涂黑',
+      zero: '已标记',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '搜索结果';
 
   @override
@@ -1456,6 +1480,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => '应用密文遮盖（不可逆）';
+
+  @override
+  String get tbFindToRedact => '查找要涂黑的文本';
 
   @override
   String get tbAutosizeTextBox => '自动调整文本框大小 (Alt+Z)';
@@ -3476,6 +3503,30 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   }
 
   @override
+  String get searchRedact => '標記為塗黑';
+
+  @override
+  String get searchRedactMark => '標記';
+
+  @override
+  String get searchRedactMarkAll => '全部標記';
+
+  @override
+  String get searchRedactHint => '套用塗黑前，標記仍可檢查';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已將 $count 個相符項目標記為塗黑',
+      one: '已將 1 個相符項目標記為塗黑',
+      zero: '已標記',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '搜尋結果';
 
   @override
@@ -3964,6 +4015,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbApplyRedactionsTooltip => '套用塗黑（無法復原）';
+
+  @override
+  String get tbFindToRedact => '尋找要塗黑的文字';
 
   @override
   String get tbAutosizeTextBox => '自動調整文字方塊大小 (Alt+Z)';

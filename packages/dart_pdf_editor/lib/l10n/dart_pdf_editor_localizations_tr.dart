@@ -973,6 +973,31 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Karartma için işaretle';
+
+  @override
+  String get searchRedactMark => 'İşaretle';
+
+  @override
+  String get searchRedactMarkAll => 'Tümünü işaretle';
+
+  @override
+  String get searchRedactHint =>
+      'İşaretler, karartmaları uygulayana kadar gözden geçirilebilir';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count eşleşme karartma için işaretlendi',
+      one: '1 eşleşme karartma için işaretlendi',
+      zero: 'Zaten işaretli',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Arama sonuçları';
 
   @override
@@ -1466,6 +1491,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Karartmaları uygula (geri alınamaz)';
+
+  @override
+  String get tbFindToRedact => 'Karartılacak metni bul';
 
   @override
   String get tbAutosizeTextBox => 'Metin kutusunu otomatik boyutlandır (Alt+Z)';

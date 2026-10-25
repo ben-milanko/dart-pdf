@@ -976,6 +976,31 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Contrassegna per l’oscuramento';
+
+  @override
+  String get searchRedactMark => 'Contrassegna';
+
+  @override
+  String get searchRedactMarkAll => 'Contrassegna tutto';
+
+  @override
+  String get searchRedactHint =>
+      'I contrassegni restano rivedibili finché non applichi gli oscuramenti';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count corrispondenze contrassegnate per l’oscuramento',
+      one: '1 corrispondenza contrassegnata per l’oscuramento',
+      zero: 'Già contrassegnato',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Risultati della ricerca';
 
   @override
@@ -1470,6 +1495,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Applica oscuramenti (irreversibile)';
+
+  @override
+  String get tbFindToRedact => 'Trova testo da oscurare';
 
   @override
   String get tbAutosizeTextBox => 'Adatta casella di testo (Alt+Z)';
