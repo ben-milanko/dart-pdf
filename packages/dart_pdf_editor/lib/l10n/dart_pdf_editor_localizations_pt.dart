@@ -976,6 +976,31 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Marcar para ocultação';
+
+  @override
+  String get searchRedactMark => 'Marcar';
+
+  @override
+  String get searchRedactMarkAll => 'Marcar tudo';
+
+  @override
+  String get searchRedactHint =>
+      'As marcas podem ser revistas até aplicar as ocultações';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ocorrências marcadas para ocultação',
+      one: '1 ocorrência marcada para ocultação',
+      zero: 'Já marcado',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Resultados da pesquisa';
 
   @override
@@ -1469,6 +1494,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Aplicar tarjas (irreversível)';
+
+  @override
+  String get tbFindToRedact => 'Localizar texto para ocultar';
 
   @override
   String get tbAutosizeTextBox =>

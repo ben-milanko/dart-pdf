@@ -972,6 +972,31 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'रिडैक्शन के लिए चिह्नित करें';
+
+  @override
+  String get searchRedactMark => 'चिह्नित करें';
+
+  @override
+  String get searchRedactMarkAll => 'सभी चिह्नित करें';
+
+  @override
+  String get searchRedactHint =>
+      'रिडैक्शन लागू करने तक चिह्न समीक्षा योग्य रहते हैं';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count मिलान रिडैक्शन के लिए चिह्नित',
+      one: '1 मिलान रिडैक्शन के लिए चिह्नित',
+      zero: 'पहले से चिह्नित',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'खोज परिणाम';
 
   @override
@@ -1464,6 +1489,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'रिडैक्शन लागू करें (अपरिवर्तनीय)';
+
+  @override
+  String get tbFindToRedact => 'रिडैक्ट करने के लिए टेक्स्ट खोजें';
 
   @override
   String get tbAutosizeTextBox => 'टेक्स्ट बॉक्स स्वतः-आकार दें (Alt+Z)';

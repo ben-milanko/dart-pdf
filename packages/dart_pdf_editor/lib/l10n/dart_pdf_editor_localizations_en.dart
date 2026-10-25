@@ -972,6 +972,31 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Search results';
 
   @override
@@ -1466,6 +1491,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
+
+  @override
+  String get tbFindToRedact => 'Find text to redact';
 
   @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
@@ -3525,6 +3553,31 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   }
 
   @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Search results';
 
   @override
@@ -4019,6 +4072,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
+
+  @override
+  String get tbFindToRedact => 'Find text to redact';
 
   @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
@@ -6078,6 +6134,31 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   }
 
   @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Search results';
 
   @override
@@ -6572,6 +6653,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
+
+  @override
+  String get tbFindToRedact => 'Find text to redact';
 
   @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';

@@ -970,6 +970,30 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => '墨消し用にマーク';
+
+  @override
+  String get searchRedactMark => 'マーク';
+
+  @override
+  String get searchRedactMarkAll => 'すべてマーク';
+
+  @override
+  String get searchRedactHint => '墨消しを適用するまでマークは確認・変更できます';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 件を墨消し用にマークしました',
+      one: '1 件を墨消し用にマークしました',
+      zero: 'マーク済みです',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '検索結果';
 
   @override
@@ -1459,6 +1483,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => '墨消しを適用（元に戻せません）';
+
+  @override
+  String get tbFindToRedact => '墨消しするテキストを検索';
 
   @override
   String get tbAutosizeTextBox => 'テキストボックスを自動サイズ (Alt+Z)';

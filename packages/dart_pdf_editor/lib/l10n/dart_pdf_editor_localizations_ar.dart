@@ -992,6 +992,34 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'تحديد للتنقيح';
+
+  @override
+  String get searchRedactMark => 'تحديد';
+
+  @override
+  String get searchRedactMarkAll => 'تحديد الكل';
+
+  @override
+  String get searchRedactHint =>
+      'تبقى التحديدات قابلة للمراجعة حتى تطبّق التنقيحات';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم تحديد $count تطابق للتنقيح',
+      many: 'تم تحديد $count تطابقًا للتنقيح',
+      few: 'تم تحديد $count تطابقات للتنقيح',
+      two: 'تم تحديد تطابقين للتنقيح',
+      one: 'تم تحديد تطابق واحد للتنقيح',
+      zero: 'محدد بالفعل',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'نتائج البحث';
 
   @override
@@ -1493,6 +1521,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'تطبيق التنقيحات (لا يمكن التراجع)';
+
+  @override
+  String get tbFindToRedact => 'البحث عن نص لتنقيحه';
 
   @override
   String get tbAutosizeTextBox => 'تحجيم مربع النص تلقائيًا (Alt+Z)';

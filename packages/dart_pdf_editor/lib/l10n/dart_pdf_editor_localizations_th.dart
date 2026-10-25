@@ -973,6 +973,30 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'ทำเครื่องหมายเพื่อปกปิด';
+
+  @override
+  String get searchRedactMark => 'ทำเครื่องหมาย';
+
+  @override
+  String get searchRedactMarkAll => 'ทำเครื่องหมายทั้งหมด';
+
+  @override
+  String get searchRedactHint => 'ตรวจทานเครื่องหมายได้จนกว่าจะใช้การปกปิด';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ทำเครื่องหมายเพื่อปกปิดแล้ว $count รายการ',
+      one: 'ทำเครื่องหมายเพื่อปกปิดแล้ว 1 รายการ',
+      zero: 'ทำเครื่องหมายไว้แล้ว',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'ผลการค้นหา';
 
   @override
@@ -1465,6 +1489,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tbApplyRedactionsTooltip =>
       'ใช้การปิดบังข้อมูล (ไม่สามารถย้อนกลับได้)';
+
+  @override
+  String get tbFindToRedact => 'ค้นหาข้อความที่จะปกปิด';
 
   @override
   String get tbAutosizeTextBox => 'ปรับขนาดกล่องข้อความอัตโนมัติ (Alt+Z)';

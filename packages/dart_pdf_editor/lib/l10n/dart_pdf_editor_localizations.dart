@@ -1878,6 +1878,36 @@ abstract class DartPdfEditorLocalizations {
   /// **'{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}'**
   String searchReplaced(int count);
 
+  /// Tooltip on the search panel toggle that shows the find-to-redact controls (mark search hits for redaction).
+  ///
+  /// In en, this message translates to:
+  /// **'Mark for redaction'**
+  String get searchRedact;
+
+  /// Label on the search panel button that marks the current match for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark'**
+  String get searchRedactMark;
+
+  /// Label on the search panel button that marks every page-text match for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all'**
+  String get searchRedactMarkAll;
+
+  /// Note under the find-to-redact buttons: marking only flags the text; nothing is removed until redactions are applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Marks stay reviewable until you apply redactions'**
+  String get searchRedactHint;
+
+  /// Confirmation after marking search matches for redaction; 0 means every hit was already marked.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Already marked} =1{1 match marked for redaction} other{{count} matches marked for redaction}}'**
+  String searchRedactMarked(int count);
+
   /// Title of the docked search results panel.
   ///
   /// In en, this message translates to:
@@ -2741,6 +2771,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Apply redactions (irreversible)'**
   String get tbApplyRedactionsTooltip;
+
+  /// Tooltip on the redact tool's toolbar button that opens the search panel to find text to mark for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Find text to redact'**
+  String get tbFindToRedact;
 
   /// Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut.
   ///

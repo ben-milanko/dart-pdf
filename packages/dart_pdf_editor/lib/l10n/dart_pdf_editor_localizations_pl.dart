@@ -990,6 +990,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Oznacz do utajnienia';
+
+  @override
+  String get searchRedactMark => 'Oznacz';
+
+  @override
+  String get searchRedactMarkAll => 'Oznacz wszystkie';
+
+  @override
+  String get searchRedactHint =>
+      'Oznaczenia można przejrzeć, dopóki nie zastosujesz utajnienia';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Oznaczono $count dopasowania do utajnienia',
+      many: 'Oznaczono $count dopasowań do utajnienia',
+      few: 'Oznaczono $count dopasowania do utajnienia',
+      one: 'Oznaczono 1 dopasowanie do utajnienia',
+      zero: 'Już oznaczono',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Wyniki wyszukiwania';
 
   @override
@@ -1489,6 +1516,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Zastosuj wymazania (nieodwracalne)';
+
+  @override
+  String get tbFindToRedact => 'Znajdź tekst do utajnienia';
 
   @override
   String get tbAutosizeTextBox =>

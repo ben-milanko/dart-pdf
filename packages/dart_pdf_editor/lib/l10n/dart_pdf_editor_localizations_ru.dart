@@ -989,6 +989,33 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Пометить для скрытия';
+
+  @override
+  String get searchRedactMark => 'Пометить';
+
+  @override
+  String get searchRedactMarkAll => 'Пометить все';
+
+  @override
+  String get searchRedactHint =>
+      'Пометки можно проверить, пока вы не примените скрытие';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Помечено для скрытия $count совпадения',
+      many: 'Помечено для скрытия $count совпадений',
+      few: 'Помечено для скрытия $count совпадения',
+      one: 'Помечено для скрытия 1 совпадение',
+      zero: 'Уже помечено',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Результаты поиска';
 
   @override
@@ -1489,6 +1516,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Применить вымарывания (необратимо)';
+
+  @override
+  String get tbFindToRedact => 'Найти текст для скрытия';
 
   @override
   String get tbAutosizeTextBox => 'Автоподбор размера текстового поля (Alt+Z)';

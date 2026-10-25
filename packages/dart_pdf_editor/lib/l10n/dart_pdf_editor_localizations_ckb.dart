@@ -975,6 +975,31 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'نیشانکردن بۆ شاردنەوە';
+
+  @override
+  String get searchRedactMark => 'نیشانکردن';
+
+  @override
+  String get searchRedactMarkAll => 'نیشانکردنی هەموو';
+
+  @override
+  String get searchRedactHint =>
+      'نیشانەکان تا جێبەجێکردنی شاردنەوەکان دەتوانرێن پێداچوونەوەیان بۆ بکرێت';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count هاوتا بۆ شاردنەوە نیشانکران',
+      one: 'یەک هاوتا بۆ شاردنەوە نیشانکرا',
+      zero: 'پێشتر نیشانکراوە',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'ئەنجامەکانی گەڕان';
 
   @override
@@ -1470,6 +1495,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'جێبەجێکردنی سانسۆرکردن (ناگەڕێتەوە)';
+
+  @override
+  String get tbFindToRedact => 'دۆزینەوەی دەق بۆ شاردنەوە';
 
   @override
   String get tbAutosizeTextBox => 'قەبارەی خۆکاری چوارگۆشەی دەق (Alt+Z)';

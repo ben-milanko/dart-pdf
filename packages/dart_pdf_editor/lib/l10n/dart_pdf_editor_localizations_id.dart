@@ -976,6 +976,31 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Tandai untuk disensor';
+
+  @override
+  String get searchRedactMark => 'Tandai';
+
+  @override
+  String get searchRedactMarkAll => 'Tandai semua';
+
+  @override
+  String get searchRedactHint =>
+      'Tanda tetap dapat ditinjau hingga Anda menerapkan sensor';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count kecocokan ditandai untuk disensor',
+      one: '1 kecocokan ditandai untuk disensor',
+      zero: 'Sudah ditandai',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Hasil pencarian';
 
   @override
@@ -1470,6 +1495,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbApplyRedactionsTooltip =>
       'Terapkan redaksi (tidak dapat dibatalkan)';
+
+  @override
+  String get tbFindToRedact => 'Cari teks untuk disensor';
 
   @override
   String get tbAutosizeTextBox => 'Ukuran otomatis kotak teks (Alt+Z)';

@@ -975,6 +975,31 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get searchRedact => 'Markeren voor redactie';
+
+  @override
+  String get searchRedactMark => 'Markeren';
+
+  @override
+  String get searchRedactMarkAll => 'Alles markeren';
+
+  @override
+  String get searchRedactHint =>
+      'Markeringen blijven controleerbaar tot je de redacties toepast';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count overeenkomsten gemarkeerd voor redactie',
+      one: '1 overeenkomst gemarkeerd voor redactie',
+      zero: 'Al gemarkeerd',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Zoekresultaten';
 
   @override
@@ -1469,6 +1494,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get tbApplyRedactionsTooltip => 'Redacties toepassen (onomkeerbaar)';
+
+  @override
+  String get tbFindToRedact => 'Tekst zoeken om te redigeren';
 
   @override
   String get tbAutosizeTextBox => 'Tekstvak automatisch aanpassen (Alt+Z)';
