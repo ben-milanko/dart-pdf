@@ -258,6 +258,15 @@ void main() {
       expect(editing.isMarkedForRedaction(results[2].match), isFalse);
       // review walks on to the next hit
       expect(controller.currentMatch, 2);
+
+      // marking an already-marked hit adds nothing but still steps on
+      controller.goToMatch(1);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(redactOne));
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+      expect(redactCount(editing), 1);
+      expect(find.text('Already marked'), findsOneWidget);
+      expect(controller.currentMatch, 2);
     });
   });
 
