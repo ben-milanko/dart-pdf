@@ -1409,6 +1409,7 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
+    this.onSaveAnnotationImage,
     this.textMenuBuilder,
     this.annotationMenuEntries,
     this.textMenuEntries,
@@ -1718,6 +1719,13 @@ class PdfViewer extends StatefulWidget {
   /// appear below a divider. Needs [editing] - without a controller
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
+
+  /// Saves an annotation rendered to a picture - the annotation context
+  /// menu's "Save as image…" on a pasted vector snapshot, which renders it
+  /// to a PNG ([PdfEditingController.exportSelectedSnapshotImage]) and hands
+  /// it here to save, share or download. Null hides the entry. Needs
+  /// [editing].
+  final PdfSelectedContentImageHandler? onSaveAnnotationImage;
 
   /// Adds the app's own entries to the text-selection context menu (the
   /// desktop right-click menu over page text - markup, Copy and Select
@@ -2516,6 +2524,21 @@ class _PdfViewerState extends State<PdfViewer>
   bool _touchPanning = false;
 
   final _focusNode = FocusNode(debugLabel: 'PdfViewer');
+  bool _claimedInitialFocus = false;
+
+  /// A freshly opened document answers its shortcuts straight away instead
+  /// of waiting for a click on the page. Queued as an autofocus request
+  /// after the frame that first builds the focus node, so it lands only
+  /// when nothing else in the scope holds focus - and behind any host field
+  /// that autofocused in the same frame, which a plain `autofocus: true`
+  /// would beat by being built first.
+  void _claimInitialFocus() {
+    if (_claimedInitialFocus) return;
+    _claimedInitialFocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.enclosingScope?.autofocus(_focusNode);
+    });
+  }
 
   // text selection: (pageIndex, offset into that page's text)
   (int, int)? _selAnchor;
@@ -7283,6 +7306,8 @@ class _PdfViewerState extends State<PdfViewer>
         _markupSubmenuEntry(globalPosition),
         stock(
             'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
+        stock(
+            'redact', l10n.tbToolRedact, Icons.gradient, _redactTextSelection),
       ],
       stock('select-all', l10n.viewerSelectAll, Icons.select_all,
           () => _selectAllTextOn(page),
@@ -7459,6 +7484,22 @@ class _PdfViewerState extends State<PdfViewer>
     _clearSelection();
   }
 
+  /// Marks the current text selection for redaction (one /Redact mark per
+  /// page over the selected glyphs) and arms the Redact tool, whose strip
+  /// carries the Apply button that burns the marks.
+  void _redactTextSelection() {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    editing.addRedactionQuads(quadsByPage);
+    _clearSelection();
+    editing.tool = PdfEditTool.redact;
+  }
+
   /// Turns the current text selection into a hyperlink: collects its quads
   /// per page, asks for the target (an external URL or an in-document page),
   /// and creates one /Link annotation per page over the selected glyphs.
@@ -7544,6 +7585,7 @@ class _PdfViewerState extends State<PdfViewer>
       entriesBuilder: widget.annotationMenuEntries,
       textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       pagePoint: pagePoint,
+      onSaveImage: widget.onSaveAnnotationImage,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
@@ -8723,6 +8765,9 @@ class _PdfViewerState extends State<PdfViewer>
       onAddLink: widget.editing != null && widget.textSelectionMarkup
           ? _addLinkToTextSelection
           : null,
+      onRedact: widget.editing != null && widget.textSelectionMarkup
+          ? _redactTextSelection
+          : null,
     );
   }
 
@@ -9797,6 +9842,8 @@ class _PdfViewerState extends State<PdfViewer>
                     crossPageGhost: _crossPageGhostFor(index),
                     transformScale: _transformScale,
                     transformChanges: _transform,
+                    viewportChanges: _controller.viewportChanges,
+                    visibleRegion: () => _visibleFractionOf(index),
                     renderScheduler: _renderScheduler,
                     previewCache: widget.pagePreviews ? _previews : null,
                     renderWorker: _effectiveRenderWorker,
@@ -9815,6 +9862,7 @@ class _PdfViewerState extends State<PdfViewer>
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
       );
+      _claimInitialFocus();
       final keyed = Shortcuts(
         // while an in-place text editor is open every key belongs to it:
         // backspace deletes characters (not the annotation), ⌘C copies
@@ -10858,6 +10906,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.crossPageGhost,
     required this.transformScale,
     required this.transformChanges,
+    required this.viewportChanges,
+    required this.visibleRegion,
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
@@ -10969,6 +11019,13 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// The complete viewer matrix notifier, including translation-only pans.
   final Listenable transformChanges;
+
+  /// See [PdfViewerController.viewportChanges].
+  final Listenable viewportChanges;
+
+  /// See [PdfViewerController.visiblePageRegion] - this page's visible
+  /// slice as fractions of its displayed area, or null while off-screen.
+  final Rect? Function() visibleRegion;
 
   /// See [PdfPageView.renderScheduler].
   final PdfPageRenderScheduler renderScheduler;
@@ -11349,6 +11406,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                         widget.interactionSession,
                                     rasterCurrent: rasterCurrent,
                                     zoom: zoom,
+                                    viewportChanges: widget.viewportChanges,
+                                    visibleRegion: widget.visibleRegion,
                                     predictStrokes: widget.predictStrokes,
                                     contextMenuEnabled:
                                         widget.contextMenuEnabled,
@@ -11783,6 +11842,7 @@ class _PageTextSelection {
     required this.onEdit,
     required this.onMarkup,
     required this.onAddLink,
+    required this.onRedact,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -11814,6 +11874,10 @@ class _PageTextSelection {
   /// Turns the current selection into a hyperlink (opens the Add-link
   /// dialog), or null when link authoring isn't available.
   final Future<void> Function()? onAddLink;
+
+  /// Marks the current selection for redaction, or null when markup
+  /// authoring isn't available.
+  final VoidCallback? onRedact;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -11959,6 +12023,15 @@ class _TextSelectionChrome extends StatelessWidget {
                     onPressed: selection.onAddLink,
                   ),
                 ],
+                if (selection.onRedact != null) ...[
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                  IconButton(
+                    key: const ValueKey('pdf-text-selection-chip-redact'),
+                    tooltip: pdfL10n(context).tbToolRedact,
+                    icon: const Icon(Icons.gradient, size: 20),
+                    onPressed: selection.onRedact,
+                  ),
+                ],
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
                 TextButton(
                   key: const ValueKey('pdf-text-selection-chip-select-all'),
@@ -12038,6 +12111,12 @@ class _TextSelectionChrome extends StatelessWidget {
                 label: l10n.linkDialogTitle,
                 icon: Icons.link,
                 onPressed: selection.onAddLink),
+          if (selection.onRedact != null)
+            PdfActionBarAction(
+                id: 'pdf-text-selection-chip-redact',
+                label: l10n.tbToolRedact,
+                icon: Icons.gradient,
+                onPressed: selection.onRedact),
           PdfActionBarAction(
               id: 'pdf-text-selection-chip-select-all',
               label: l10n.viewerSelectAll,

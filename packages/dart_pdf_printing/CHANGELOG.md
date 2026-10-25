@@ -1,3 +1,8 @@
+## 0.9.0
+
+- Keep the print-preview range field in sync with the selected page.
+- Require the 12.0.0 package suite.
+
 ## 0.8.0
 
 - Require the 11.0.0 package suite; no additional public API changes.

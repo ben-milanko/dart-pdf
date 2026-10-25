@@ -1,1 +1,3 @@
+11.0.0
+
 Crea tablas editables y copia celdas desde y hacia hojas de cálculo. Reanuda el reconocimiento de texto interrumpido. Sustituye colores en capturas y anotaciones. Alinea el texto verticalmente y duplica sellos guardados. Mejoras en el ajuste de texto, las fuentes recordadas y las capturas giradas.

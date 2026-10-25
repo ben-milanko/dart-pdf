@@ -7,7 +7,7 @@ import 'design/material_host.dart';
 import 'pdf_viewer.dart';
 
 /// The classic "page 3 / 12" indicator, with the page number editable:
-/// type a number and press enter to jump there.
+/// type a number and press enter (or leave the field) to jump there.
 ///
 /// Follows the viewer while it scrolls; out-of-range numbers clamp to
 /// the document, junk input snaps back. Renders nothing while the
@@ -28,6 +28,10 @@ class PdfPageNumberField extends StatefulWidget {
 class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
   final TextEditingController _field = TextEditingController();
   final FocusNode _focus = FocusNode();
+
+  /// What the field last displayed on its own (not typed), so a blur only
+  /// commits a real edit - including the blur [_submit] itself causes.
+  String _shown = '';
 
   @override
   void initState() {
@@ -66,11 +70,26 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
       _field.selection =
           TextSelection(baseOffset: 0, extentOffset: _field.text.length);
     } else {
-      _reset();
+      _commitOnBlur();
     }
   }
 
-  void _reset() => _field.text = _displayFor(widget.controller.currentPage);
+  // Leaving the field commits what was typed, however focus was lost: a
+  // tap outside, the browser's keyboard "Done" (mobile web gives a bare
+  // number pad with no return key, and the blur arrives before any tap
+  // reaches Flutter), or tabbing away. An untouched field just re-syncs
+  // rather than re-jumping (which would snap the scroll to the page top).
+  void _commitOnBlur() {
+    if (_field.text.trim() == _shown) {
+      _reset();
+    } else {
+      _submit(_field.text);
+    }
+  }
+
+  void _reset() => _show(_displayFor(widget.controller.currentPage));
+
+  void _show(String text) => _field.text = _shown = text;
 
   String _displayFor(int index) {
     final controller = widget.controller;
@@ -101,7 +120,7 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
     }();
 
     if (target != null) {
-      _field.text = _displayFor(target);
+      _show(_displayFor(target));
       unawaited(controller.jumpToPage(target));
     } else {
       _reset();
@@ -131,7 +150,14 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
           focusNode: _focus,
           style: style,
           textAlign: TextAlign.center,
-          keyboardType: labelled ? TextInputType.text : TextInputType.number,
+          // iOS's plain number pad has no return key, so there was no
+          // way to submit; `signed` maps to numbers-and-punctuation there
+          // (which has one) and to the same digit pad elsewhere. Digits
+          // stay enforced by the formatter.
+          keyboardType: labelled
+              ? TextInputType.text
+              : const TextInputType.numberWithOptions(signed: true),
+          textInputAction: TextInputAction.go,
           inputFormatters:
               labelled ? const [] : [FilteringTextInputFormatter.digitsOnly],
           decoration: const InputDecoration(
@@ -140,6 +166,8 @@ class _PdfPageNumberFieldState extends State<PdfPageNumberField> {
             border: OutlineInputBorder(),
           ),
           onSubmitted: _submit,
+          // a tap outside drops focus on every platform; the blur commits
+          onTapOutside: (_) => _focus.unfocus(),
           contextMenuBuilder: pdfTextContextMenu,
         ),
       ),

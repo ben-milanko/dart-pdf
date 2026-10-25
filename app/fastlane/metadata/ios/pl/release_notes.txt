@@ -1,1 +1,3 @@
-Twórz edytowalne tabele i kopiuj komórki z arkuszy kalkulacyjnych i do nich. Wznawiaj przerwane rozpoznawanie tekstu. Zamieniaj kolory w migawkach i adnotacjach. Wyrównuj tekst w pionie i powielaj zapisane stemple. Poprawiono zawijanie tekstu, zapamiętywanie czcionek i obrócone migawki.
+DartPDF 12.0.0
+
+Dodano dymki z chmurką. Wyszukaj tekst i oznacz jeden lub wszystkie wyniki do redakcji, a następnie sprawdź oznaczenia przed zastosowaniem. Zapisuj wklejone migawki wektorowe jako PNG. Linijki i prowadnice kursora pozostają widoczne podczas nawigacji. Ulepszono zwarte paski narzędzi, numery stron i skróty. Naprawiono usuwanie sąsiedniego tekstu podczas redakcji.

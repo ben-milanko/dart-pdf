@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, kSecondaryMouseButton;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -160,6 +162,81 @@ void main() {
       await tester.pump();
       return editing;
     }
+
+    Future<(PdfEditingController, PdfViewerController)> pumpWithViewer(
+        WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      return (editing, viewer);
+    }
+
+    PdfAnnotation redactMark(PdfEditingController editing) => editing.document
+        .page(0)
+        .annotations
+        .singleWhere((a) => a.subtype == 'Redact');
+
+    testWidgets('the text menu marks the selected text for redaction',
+        (tester) async {
+      final (editing, viewer) = await pumpWithViewer(tester);
+      await tester.tapAt(view(100, 720),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(viewer.hasSelection, isTrue);
+      await tester.tap(find.byKey(const ValueKey('pdf-text-menu-redact')));
+      await tester.pumpAndSettle();
+
+      // one mark over the selected glyphs, the selection gone, and the
+      // Redact tool armed so its Apply button is at hand
+      expect(redactMark(editing).dict['QuadPoints'], isNotNull);
+      expect(viewer.hasSelection, isFalse);
+      expect(editing.tool, PdfEditTool.redact);
+    });
+
+    testWidgets('arming Redact over a text selection marks it', (tester) async {
+      final (editing, viewer) = await pumpWithViewer(tester);
+      final commands =
+          PdfEditorCommands(controller: editing, viewerController: viewer);
+      addTearDown(commands.dispose);
+      viewer.selectAllTextOn(0);
+      await tester.pump();
+      expect(viewer.hasSelection, isTrue);
+
+      commands.toggleToolNow(PdfEditTool.redact);
+      await tester.pumpAndSettle();
+
+      expect(redactMark(editing).dict['QuadPoints'], isNotNull);
+      expect(editing.tool, PdfEditTool.redact);
+      expect(viewer.hasSelection, isFalse);
+    });
+
+    testWidgets('arming Redact with no selection marks nothing',
+        (tester) async {
+      final (editing, viewer) = await pumpWithViewer(tester);
+      final commands =
+          PdfEditorCommands(controller: editing, viewerController: viewer);
+      addTearDown(commands.dispose);
+      commands.toggleToolNow(PdfEditTool.redact);
+      await tester.pump();
+      expect(editing.hasRedactionMarks, isFalse);
+      expect(editing.tool, PdfEditTool.redact);
+    });
 
     testWidgets('dragging out a region marks a redaction', (tester) async {
       final editing = await pumpEditor(tester);

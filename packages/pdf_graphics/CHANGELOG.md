@@ -1,5 +1,9 @@
 # Changelog
 
+## 12.0.0
+
+- Require the 12.0.0 package suite; no additional public API changes.
+
 ## 11.0.0
 
 - Keep thin filled rectangles visible at a minimum of one device pixel.

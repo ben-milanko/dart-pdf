@@ -443,6 +443,74 @@ void main() {
       expect(
           tester.widget<TextField>(find.byKey(fieldKey)).controller!.text, '5');
     });
+
+    testWidgets('has a submit key on every platform keyboard', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+
+      // TextInputType.number is iOS's number pad, which has no return key
+      final field = tester.widget<TextField>(find.byKey(fieldKey));
+      expect(field.keyboardType,
+          const TextInputType.numberWithOptions(signed: true));
+      expect(field.textInputAction, TextInputAction.go);
+    });
+
+    testWidgets('tapping outside commits the typed page', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+
+      await tester.enterText(find.byKey(fieldKey), '3');
+      await tester.tapAt(const Offset(400, 400));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.currentPage, 2);
+      final editable =
+          tester.widget<EditableText>(find.byType(EditableText).first);
+      expect(editable.focusNode.hasFocus, isFalse);
+    });
+
+    testWidgets('losing focus commits the typed page', (tester) async {
+      // mobile web: the browser's number pad has no return key, and its
+      // "Done" (or a tap elsewhere) blurs the field before Flutter sees a tap
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+
+      await tester.enterText(find.byKey(fieldKey), '4');
+      tester
+          .widget<EditableText>(find.byType(EditableText).first)
+          .focusNode
+          .unfocus();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.currentPage, 3);
+      expect(
+          tester.widget<TextField>(find.byKey(fieldKey)).controller!.text, '4');
+    });
+
+    testWidgets('tapping outside an untouched field only lets go',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(5),
+          above: PdfPageNumberField(controller: controller));
+      unawaited(controller.jumpToPage(1));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final region = controller.visiblePageRegion(1);
+
+      await tester.tap(find.byKey(fieldKey));
+      await tester.pump();
+      await tester.tapAt(const Offset(400, 400));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.currentPage, 1);
+      expect(controller.visiblePageRegion(1), region);
+      final editable =
+          tester.widget<EditableText>(find.byType(EditableText).first);
+      expect(editable.focusNode.hasFocus, isFalse);
+    });
   });
 
   group('PdfSearchField', () {

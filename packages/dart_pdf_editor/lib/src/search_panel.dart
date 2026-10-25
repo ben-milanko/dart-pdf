@@ -219,7 +219,9 @@ typedef _Entry = ({int? header, int? result});
 ///
 /// Pass [editing] to turn the panel into find *and replace*: a replacement
 /// field appears under the options bar with "Replace" (the current match
-/// alone) and "Replace all" (every hit, one undo step).
+/// alone) and "Replace all" (every hit, one undo step). [editing] also
+/// enables find-to-redact: "Mark" / "Mark all" turn the hits into /Redact
+/// marks to review before [PdfEditingController.applyRedactions] burns them.
 class PdfSearchResultsPanel extends StatefulWidget {
   const PdfSearchResultsPanel({
     super.key,
@@ -293,6 +295,22 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   bool get _replaceExpanded =>
       widget.preferences?.searchReplaceExpanded ?? _replaceExpandedLocal;
 
+  /// Same split for the find-to-redact section.
+  bool _redactExpandedLocal = false;
+
+  bool get _redactExpanded =>
+      widget.preferences?.searchRedactExpanded ?? _redactExpandedLocal;
+
+  void _toggleRedact() {
+    final next = !_redactExpanded;
+    final prefs = widget.preferences;
+    if (prefs != null) {
+      prefs.searchRedactExpanded = next; // rebuilds via _onPreferences
+    } else {
+      setState(() => _redactExpandedLocal = next);
+    }
+  }
+
   void _toggleReplace() {
     final next = !_replaceExpanded;
     final prefs = widget.preferences;
@@ -341,6 +359,13 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
     final scheme = Theme.of(context).colorScheme;
     final highlight = PdfViewerTheme.of(context).searchMatch;
     final style = Theme.of(context).textTheme.bodySmall;
+    final editing = widget.editing;
+    // a hit already under a /Redact mark says so, so a review pass can see
+    // what "Mark all" has covered and what it still would
+    final marked = editing != null &&
+        _redactExpanded &&
+        !result.isAnnotation &&
+        editing.isMarkedForRedaction(result.match);
     return ListTile(
       key: ValueKey('pdf-search-result-$index'),
       dense: true,
@@ -355,6 +380,15 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
           : null,
       horizontalTitleGap: result.isAnnotation ? 8 : null,
       minLeadingWidth: result.isAnnotation ? 16 : null,
+      trailing: marked
+          ? Tooltip(
+              message: pdfL10n(context).tbToolRedact,
+              child: Icon(Icons.gradient,
+                  key: ValueKey('pdf-search-result-marked-$index'),
+                  size: 16,
+                  color: scheme.onSurfaceVariant),
+            )
+          : null,
       title: Text.rich(
         TextSpan(children: [
           TextSpan(text: result.prefix),
@@ -516,6 +550,14 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                         selected: _replaceExpanded,
                         onPressed: _toggleReplace,
                       ),
+                    if (widget.editing != null)
+                      PdfPanelToggleButton(
+                        key: const ValueKey('pdf-search-redact-toggle'),
+                        iconData: Icons.gradient,
+                        tooltip: pdfL10n(context).searchRedact,
+                        selected: _redactExpanded,
+                        onPressed: _toggleRedact,
+                      ),
                   ]),
                 ),
                 if (widget.editing != null && _replaceExpanded)
@@ -523,6 +565,12 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                     controller: controller,
                     editing: widget.editing!,
                     field: _replaceField,
+                    geometry: geometry,
+                  ),
+                if (widget.editing != null && _redactExpanded)
+                  _RedactBar(
+                    controller: controller,
+                    editing: widget.editing!,
                     geometry: geometry,
                   ),
                 Divider(
@@ -723,6 +771,134 @@ class _ReplaceBarState extends State<_ReplaceBar> {
               ),
             ),
           ]),
+        ],
+      ),
+    );
+  }
+}
+
+/// The find-to-redact row under the search panel's options bar (#1160):
+/// "Mark" (the current match) and "Mark all" (every page-text hit) turn
+/// search hits into /Redact marks through
+/// [PdfEditingController.markMatchesForRedaction].
+///
+/// This is only the mark phase - each hit becomes its own mark, so a false
+/// positive can be deleted on the page before the redact tool's "Apply
+/// redactions" burns the rest. Hits inside annotations (note bodies,
+/// comments) have no page text under them to redact and are skipped, and a
+/// hit that is already marked is never marked twice.
+class _RedactBar extends StatefulWidget {
+  const _RedactBar({
+    required this.controller,
+    required this.editing,
+    required this.geometry,
+  });
+
+  final PdfViewerController controller;
+  final PdfEditingController editing;
+
+  /// The panel's layout, for insets that clear the resize grip.
+  final PdfSidebarPanelGeometry geometry;
+
+  @override
+  State<_RedactBar> createState() => _RedactBarState();
+}
+
+class _RedactBarState extends State<_RedactBar> {
+  bool _busy = false;
+
+  /// Marks [results], then re-runs the query - the new revision clears the
+  /// viewer's search as it lands (see [_ReplaceBarState._refresh]) - and
+  /// lands on match [landOn] of the fresh results, so "Mark" walks forward
+  /// through the hits the way a reviewer reads them.
+  Future<void> _mark(List<PdfSearchResult> results, {int? landOn}) async {
+    final controller = widget.controller;
+    final editing = widget.editing;
+    final query = controller.query;
+    final options = controller.searchOptions;
+    final l10n = pdfL10n(context);
+    final presenter = PdfEditorPresenter.of(context);
+
+    setState(() => _busy = true);
+    try {
+      final count = editing.markMatchesForRedaction([
+        for (final r in results)
+          if (!r.isAnnotation) r.match,
+      ]);
+      if (!mounted) return;
+      presenter.notice(
+        context,
+        PdfEditorNotice(l10n.searchRedactMarked(count),
+            onUndo: count > 0 && editing.canUndo ? editing.undo : null),
+      );
+      if (count == 0) {
+        if (landOn != null) controller.goToMatch(landOn);
+        return;
+      }
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      await controller.search(query, options: options);
+      if (landOn != null) controller.goToMatch(landOn);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final l10n = pdfL10n(context);
+    final results = controller.searchResults;
+    final index = controller.currentMatch;
+    final current =
+        index >= 0 && index < results.length ? results[index] : null;
+    final ready = !_busy &&
+        !controller.isSearching &&
+        controller.query.isNotEmpty &&
+        results.any((r) => !r.isAnnotation);
+
+    final geometry = widget.geometry;
+    return Padding(
+      padding: EdgeInsetsDirectional.only(
+        start: 16 + geometry.contentStartInset,
+        end: 16 + geometry.contentEndInset,
+        bottom: 10,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                key: const ValueKey('pdf-search-redact-one'),
+                style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact),
+                onPressed: ready && current != null && !current.isAnnotation
+                    ? () => _mark([current],
+                        landOn: index + 1 < results.length ? index + 1 : index)
+                    : null,
+                child: Text(l10n.searchRedactMark,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.tonal(
+                key: const ValueKey('pdf-search-redact-all'),
+                style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact),
+                onPressed: ready ? () => _mark(results) : null,
+                child: Text(l10n.searchRedactMarkAll,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            l10n.searchRedactHint,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
         ],
       ),
     );

@@ -406,6 +406,76 @@ void main() {
     expect(editing.selectedAnnotation!.freeTextStyle!.borderWidth, 0);
   });
 
+  testWidgets('cloud callout properties switch the cloud to a polygon',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    addTearDown(tester.view.resetPhysicalSize);
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addCloudCallout(0, const PdfRect(300, 500, 420, 560),
+          const PdfRect(120, 620, 260, 660), 'Detail')
+      ..selectAnnotation(0, 0);
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Align(
+      alignment: Alignment.centerRight,
+      child: PdfAnnotationPropertiesPanel(controller: editing),
+    ))));
+    await tester.pumpAndSettle();
+    const shapeKey = ValueKey('pdf-prop-callout-region-shape');
+    final scrollable = find
+        .descendant(
+            of: find.byType(PdfAnnotationPropertiesPanel),
+            matching: find.byType(Scrollable))
+        .first;
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('pdf-prop-callout-cloud-scale')), 300,
+        scrollable: scrollable);
+    PdfDropdown<PdfCalloutRegionShape> shape() =>
+        tester.widget<PdfDropdown<PdfCalloutRegionShape>>(find.byKey(shapeKey));
+    expect(shape().value, PdfCalloutRegionShape.cloud);
+    expect(find.byKey(const ValueKey('pdf-prop-callout-cloud-scale')),
+        findsOneWidget,
+        reason: 'a cloud offers its scallop size');
+
+    shape().onChanged!(PdfCalloutRegionShape.polygon);
+    await tester.pumpAndSettle();
+    expect(editing.selectedAnnotation!.calloutRegion!.shape,
+        PdfCalloutRegionShape.polygon);
+    expect(shape().value, PdfCalloutRegionShape.polygon);
+    expect(find.byKey(const ValueKey('pdf-prop-callout-cloud-scale')),
+        findsNothing,
+        reason: 'a polygon has no scallops to size');
+
+    tester
+        .widget<PdfDropdown<PdfLineStyle>>(
+            find.byKey(const ValueKey('pdf-prop-callout-region-dash')))
+        .onChanged!(PdfLineStyle.dotted);
+    await tester.pumpAndSettle();
+    expect(
+        PdfLineStyle.ofDashArray(
+            editing.selectedAnnotation!.calloutRegion!.dash),
+        PdfLineStyle.dotted);
+  });
+
+  testWidgets('an arrow callout shows no region controls', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    addTearDown(tester.view.resetPhysicalSize);
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addCallout(0, const PdfRect(300, 600, 450, 660), 'Detail', (120, 500))
+      ..selectAnnotation(0, 0);
+    addTearDown(editing.dispose);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Align(
+      alignment: Alignment.centerRight,
+      child: PdfAnnotationPropertiesPanel(controller: editing),
+    ))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pdf-prop-callout-region-shape')),
+        findsNothing);
+  });
+
   for (final mode in PdfAnnotationRotationMode.values) {
     testWidgets('right-click rotation invokes ${mode.name}', (tester) async {
       final (editing, _) = await pumpEditor(tester,

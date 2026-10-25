@@ -567,6 +567,10 @@
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
   },
+  "menuSaveAsImage": "Save as image…",
+  "@menuSaveAsImage": {
+    "description": "Annotation context-menu item that saves a pasted vector snapshot as a PNG image file."
+  },
   "menuRemoveNode": "Remove node",
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
@@ -927,6 +931,18 @@
   "@propLineType": {
     "description": "Row label for the line-style (solid/dashed) dropdown."
   },
+  "propRegion": "Marked area",
+  "@propRegion": {
+    "description": "Properties panel group title: the area a cloud callout marks (its cloud or polygon outline)."
+  },
+  "propRegionPolygon": "Polygon",
+  "@propRegionPolygon": {
+    "description": "Cloud callout outline option: a plain straight-edged polygon (a rectangle when dragged out as one)."
+  },
+  "propRegionCloud": "Cloud",
+  "@propRegionCloud": {
+    "description": "Cloud callout outline option: a scalloped revision cloud."
+  },
   "propLoadFont": "Load font…",
   "@propLoadFont": {
     "description": "Font picker entry that opens a file picker to load a custom font."
@@ -1237,6 +1253,31 @@
   "searchReplaced": "{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}",
   "@searchReplaced": {
     "description": "Confirmation after replacing search matches.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchRedact": "Mark for redaction",
+  "@searchRedact": {
+    "description": "Tooltip on the search panel toggle that shows the find-to-redact controls (mark search hits for redaction)."
+  },
+  "searchRedactMark": "Mark",
+  "@searchRedactMark": {
+    "description": "Label on the search panel button that marks the current match for redaction."
+  },
+  "searchRedactMarkAll": "Mark all",
+  "@searchRedactMarkAll": {
+    "description": "Label on the search panel button that marks every page-text match for redaction."
+  },
+  "searchRedactHint": "Marks stay reviewable until you apply redactions",
+  "@searchRedactHint": {
+    "description": "Note under the find-to-redact buttons: marking only flags the text; nothing is removed until redactions are applied."
+  },
+  "searchRedactMarked": "{count, plural, =0{Already marked} =1{1 match marked for redaction} other{{count} matches marked for redaction}}",
+  "@searchRedactMarked": {
+    "description": "Confirmation after marking search matches for redaction; 0 means every hit was already marked.",
     "placeholders": {
       "count": {
         "type": "int"
@@ -1902,6 +1943,10 @@
   "@tbApplyRedactionsTooltip": {
     "description": "Tooltip for the button that permanently applies marked redactions."
   },
+  "tbFindToRedact": "Find text to redact",
+  "@tbFindToRedact": {
+    "description": "Tooltip on the redact tool's toolbar button that opens the search panel to find text to mark for redaction."
+  },
   "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
@@ -2189,6 +2234,10 @@
   "@tbNameCallout": {
     "description": "Tool name: insert a callout (text box with a leader line)."
   },
+  "tbNameCloudCallout": "Cloud callout",
+  "@tbNameCloudCallout": {
+    "description": "Tool name: insert a callout whose text box is outlined by a revision cloud."
+  },
   "tbNameCloudPolygon": "Cloud polygon",
   "@tbNameCloudPolygon": {
     "description": "Tool name: draw a cloud-outline polygon."
@@ -2458,6 +2507,10 @@
   "tbTipCallout": "Callout - drag from the point to where the box goes",
   "@tbTipCallout": {
     "description": "Tooltip for the callout tool, explaining the drag gesture."
+  },
+  "tbTipCloudCallout": "Cloud callout - drag a cloud around the area, then type the note",
+  "@tbTipCloudCallout": {
+    "description": "Tooltip for the cloud callout tool, explaining the drag gesture."
   },
   "tbTipContent": "Edit page content",
   "@tbTipContent": {

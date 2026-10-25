@@ -56,6 +56,22 @@ List<int>? parsePrintPageRange(String input, int pageCount) {
   return result.isEmpty ? null : result.toList();
 }
 
+/// Formats zero-based [pages] as the one-based input [parsePrintPageRange]
+/// reads, collapsing consecutive runs: `[0, 1, 2, 4]` becomes `1-3, 5`.
+String formatPrintPageRange(List<int> pages) {
+  final parts = <String>[];
+  for (var i = 0; i < pages.length;) {
+    var end = i;
+    while (end + 1 < pages.length && pages[end + 1] == pages[end] + 1) {
+      end++;
+    }
+    parts.add(
+        end == i ? '${pages[i] + 1}' : '${pages[i] + 1}-${pages[end] + 1}');
+    i = end + 1;
+  }
+  return parts.join(', ');
+}
+
 /// Shows the same composed sheets that are sent to the printer.
 Future<PrintPreviewResult?> showPrintPreviewDialog(
   BuildContext context, {
@@ -111,6 +127,10 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   late final int _currentPage = widget.currentPage.clamp(0, _pageCount - 1);
   late PrintSettings _settings = PrintSettings(pages: _allPages);
   final _rangeInput = TextEditingController();
+  // What the user typed for Range mode. Outside Range the field mirrors the
+  // pages the chosen chip covers, so this keeps the typed list for when
+  // Range is picked again.
+  late String _customRange = _defaultCustomRange;
   final _previewAnchor = GlobalKey();
   final _numbers = <String, TextEditingController>{};
   final _invalidNumbers = <String>{};
@@ -147,6 +167,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       .toSet()
       .toList()
     ..sort();
+  String get _defaultCustomRange => '${_currentPage + 1}-$_pageCount';
   bool get _marginMode =>
       _settings.scaling == PrintScaling.fitMargins ||
       _settings.scaling == PrintScaling.reduceMargins ||
@@ -156,7 +177,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   void initState() {
     super.initState();
     _previewSlot = _currentPage;
-    _rangeInput.text = '${_currentPage + 1}-$_pageCount';
+    _syncRangeInput();
     unawaited(_loadPreferences());
   }
 
@@ -174,8 +195,9 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       // keeps this document's own default instead of, say, a previous
       // 14-page file's "1-14".
       if (_range == PrintPageRange.custom) {
-        _rangeInput.text = preferences.customRange ?? _rangeInput.text;
+        _customRange = preferences.customRange ?? _customRange;
       }
+      _syncRangeInput();
       _settings = preferences.settingsFor(_pages);
       _rangeInvalid = _pages.isEmpty;
       if (_range == PrintPageRange.current) _previewSlot = 0;
@@ -189,7 +211,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     final preferences = _preferences;
     if (preferences != null) {
       unawaited(preferences.saveSettings(_settings,
-          range: _range.name, customRange: _rangeInput.text));
+          range: _range.name, customRange: _customRange));
     }
   }
 
@@ -340,9 +362,22 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     _savePreferences();
   }
 
+  /// Shows the pages the current mode covers in the range field: the typed
+  /// list in Range mode, otherwise the chip's own pages (All on a 14-page
+  /// file reads `1-14`, not a stale `3-14`).
+  void _syncRangeInput() {
+    final text = _range == PrintPageRange.custom
+        ? _customRange
+        : formatPrintPageRange(_pages);
+    // Typing already put this text in the field; reassigning it would only
+    // move the caret.
+    if (_rangeInput.text != text) _rangeInput.text = text;
+  }
+
   void _setRange(PrintPageRange range) {
     setState(() {
       _range = range;
+      _syncRangeInput();
       _rangeInvalid = false;
       _error = null;
       _settings = _settings.copyWith(
@@ -362,7 +397,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   void _defaults() {
     setState(() {
       _range = PrintPageRange.all;
-      _rangeInput.text = '${_currentPage + 1}-$_pageCount';
+      _customRange = _defaultCustomRange;
+      _syncRangeInput();
       _settings = PrintSettings(pages: _allPages);
       _previewSlot = _currentPage;
       _rangeInvalid = false;
@@ -391,6 +427,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       if (!mounted) return;
       setState(() {
         _document = merged;
+        _syncRangeInput();
         _settings = _settings.copyWith(pages: _pages);
         _error = null;
       });
@@ -788,7 +825,10 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                 hintText: '1, 3-5',
                 isDense: true,
                 border: const OutlineInputBorder()),
-            onChanged: (_) => _setRange(PrintPageRange.custom),
+            onChanged: (text) {
+              _customRange = text;
+              _setRange(PrintPageRange.custom);
+            },
           ),
           const SizedBox(height: 8),
           Text(l10n.printPreviewSelection(_settings.pages.length),
