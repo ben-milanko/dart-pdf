@@ -110,6 +110,42 @@ void main() {
     expect(cursorPainter(tester).guideCursor, isNull);
   });
 
+  testWidgets('cursor guides stay on a still mouse while the page scrolls',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.preferences
+      ..showVerticalCursorGuide = true
+      ..showHorizontalCursorGuide = true;
+    await tester.pump();
+
+    const pointer = Offset(300, 300);
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(5, 5));
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(pointer);
+    await tester.pump();
+
+    final overlay = find.byType(EditingPageOverlay).first;
+    Offset pageTop() => tester.getTopLeft(overlay);
+    final topBefore = pageTop();
+    expect(cursorPainter(tester).guideCursor, pointer - topBefore);
+
+    // wheel-scroll without moving the mouse: no hover event arrives
+    tester.binding.handlePointerEvent(const PointerScrollEvent(
+      kind: PointerDeviceKind.mouse,
+      position: pointer,
+      scrollDelta: Offset(0, 120),
+    ));
+    await tester.pumpAndSettle();
+
+    final topAfter = pageTop();
+    expect(topAfter.dy, lessThan(topBefore.dy), reason: 'the page scrolled');
+    final cursor = cursorPainter(tester).guideCursor as Offset;
+    expect(cursor.dx, closeTo((pointer - topAfter).dx, 0.1));
+    expect(cursor.dy, closeTo((pointer - topAfter).dy, 0.1),
+        reason: 'the guides track the pointer, not the scrolled content');
+  });
+
   testWidgets('visible snap grid follows the page-space snapping interval',
       (tester) async {
     final editing = await pumpEditor(tester);
