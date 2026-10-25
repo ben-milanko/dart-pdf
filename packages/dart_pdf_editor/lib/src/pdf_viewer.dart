@@ -7283,6 +7283,8 @@ class _PdfViewerState extends State<PdfViewer>
         _markupSubmenuEntry(globalPosition),
         stock(
             'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
+        stock(
+            'redact', l10n.tbToolRedact, Icons.gradient, _redactTextSelection),
       ],
       stock('select-all', l10n.viewerSelectAll, Icons.select_all,
           () => _selectAllTextOn(page),
@@ -7457,6 +7459,22 @@ class _PdfViewerState extends State<PdfViewer>
     editing.useMarkupStyleScope();
     editing.addMarkup(kind, quadsByPage);
     _clearSelection();
+  }
+
+  /// Marks the current text selection for redaction (one /Redact mark per
+  /// page over the selected glyphs) and arms the Redact tool, whose strip
+  /// carries the Apply button that burns the marks.
+  void _redactTextSelection() {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    editing.addRedactionQuads(quadsByPage);
+    _clearSelection();
+    editing.tool = PdfEditTool.redact;
   }
 
   /// Turns the current text selection into a hyperlink: collects its quads
@@ -8722,6 +8740,9 @@ class _PdfViewerState extends State<PdfViewer>
           : null,
       onAddLink: widget.editing != null && widget.textSelectionMarkup
           ? _addLinkToTextSelection
+          : null,
+      onRedact: widget.editing != null && widget.textSelectionMarkup
+          ? _redactTextSelection
           : null,
     );
   }
@@ -11796,6 +11817,7 @@ class _PageTextSelection {
     required this.onEdit,
     required this.onMarkup,
     required this.onAddLink,
+    required this.onRedact,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -11827,6 +11849,10 @@ class _PageTextSelection {
   /// Turns the current selection into a hyperlink (opens the Add-link
   /// dialog), or null when link authoring isn't available.
   final Future<void> Function()? onAddLink;
+
+  /// Marks the current selection for redaction, or null when markup
+  /// authoring isn't available.
+  final VoidCallback? onRedact;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -11972,6 +11998,15 @@ class _TextSelectionChrome extends StatelessWidget {
                     onPressed: selection.onAddLink,
                   ),
                 ],
+                if (selection.onRedact != null) ...[
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                  IconButton(
+                    key: const ValueKey('pdf-text-selection-chip-redact'),
+                    tooltip: pdfL10n(context).tbToolRedact,
+                    icon: const Icon(Icons.gradient, size: 20),
+                    onPressed: selection.onRedact,
+                  ),
+                ],
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
                 TextButton(
                   key: const ValueKey('pdf-text-selection-chip-select-all'),
@@ -12051,6 +12086,12 @@ class _TextSelectionChrome extends StatelessWidget {
                 label: l10n.linkDialogTitle,
                 icon: Icons.link,
                 onPressed: selection.onAddLink),
+          if (selection.onRedact != null)
+            PdfActionBarAction(
+                id: 'pdf-text-selection-chip-redact',
+                label: l10n.tbToolRedact,
+                icon: Icons.gradient,
+                onPressed: selection.onRedact),
           PdfActionBarAction(
               id: 'pdf-text-selection-chip-select-all',
               label: l10n.viewerSelectAll,
