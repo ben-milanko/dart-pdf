@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Buat tabel yang dapat diedit dan salin sel dari dan ke spreadsheet. Lanjutkan pengenalan teks yang terputus. Ganti warna pada cuplikan dan anotasi. Ratakan teks secara vertikal dan duplikasikan stempel tersimpan. Perbaikan pembungkusan teks, font yang diingat, dan cuplikan yang diputar.
+Tambahkan anotasi awan. Cari teks dan tandai satu atau semua hasil untuk penyamaran, lalu tinjau sebelum menerapkannya. Simpan cuplikan vektor yang ditempel sebagai PNG. Penggaris dan panduan kursor tetap terlihat saat navigasi. Perbaiki bilah alat ringkas, nomor halaman dan pintasan. Perbaiki penyamaran yang menghapus teks di sekitarnya.

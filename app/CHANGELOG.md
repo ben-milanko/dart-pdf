@@ -1,5 +1,15 @@
 # Changelog
 
+## 12.0.0+49
+
+- Add cloud callouts with an attached note and a marked cloud or polygon area.
+- Search for text to mark for redaction, individually or in bulk. Review marks before applying them, or mark selected text directly.
+- Save pasted vector snapshots as PNG images.
+- Keep rulers visible when zoomed and cursor guides under the pointer while scrolling.
+- Use more compact floating toolbars and simpler side docks.
+- Submit page-number changes from the keyboard, dismiss it by tapping outside and use shortcuts immediately after opening a document.
+- Fix redaction removing nearby text and keep the print-preview page range in sync.
+
 ## 11.0.0+48
 
 - Create editable tables and exchange cells with spreadsheets.

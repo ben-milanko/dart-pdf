@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Erstellen Sie bearbeitbare Tabellen und kopieren Sie Zellen aus und in Tabellenkalkulationen. Setzen Sie unterbrochene Texterkennung fort. Ersetzen Sie Farben in Schnappschüssen und Anmerkungen. Richten Sie Text vertikal aus und duplizieren Sie gespeicherte Stempel. Verbesserter Textumbruch, gespeicherte Schriftarten und gedrehte Schnappschüsse.
+Wolkenanmerkungen hinzufügen. Suchtreffer einzeln oder gesammelt zum Schwärzen markieren und vor dem Anwenden prüfen. Eingefügte Vektorausschnitte als PNG speichern. Lineale und Cursorhilfen beim Navigieren sichtbar halten. Kompakte Werkzeugleisten, Seitenzahleingabe und Tastenkürzel verbessern. Fehler beim Schwärzen benachbarter Texte beheben.
