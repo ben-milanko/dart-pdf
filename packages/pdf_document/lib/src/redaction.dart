@@ -10,9 +10,11 @@ part of 'editor.dart';
 /// saved file) cannot recover the glyphs that were under a redaction rect.
 ///
 /// Honest limitations (each documented at the relevant site):
-///  * Per-glyph splitting is exact for simple single-byte fonts. Composite
-///    (`/Type0`) text-showing operations that touch a rect are dropped
-///    whole rather than split (the bytes are CID codes, not characters).
+///  * Per-glyph splitting is exact for simple single-byte fonts and for
+///    `/Identity-H` composite fonts (two-byte codes, widths from /W).
+///    Other composite (`/Type0`) encodings can't be split without parsing
+///    their CMap, so a text-showing operation in one that touches a rect is
+///    dropped whole.
 ///  * Image and form XObjects fully inside a rect are dropped; partially
 ///    covered ones are left in place and the /IC fill box covers the
 ///    overlapping portion (their off-rect content stays). Form XObject
@@ -621,9 +623,10 @@ class _RedactionBurn {
     }
 
     final font = _font(_fontName);
-    // Composite fonts: bytes are CID codes, not characters. Don't try to
-    // split - drop the whole op if it touches a region, else keep verbatim.
-    if (font != null && font.isComposite) {
+    // Composite fonts whose code length we can't know without the CMap:
+    // don't try to split - drop the whole op if it touches a region, else
+    // keep verbatim. Identity-H (two-byte codes) splits per glyph below.
+    if (font != null && font.isComposite && !font.isIdentityH) {
       final bounds = _compositeBounds(elements, font);
       if (bounds != null && _rectIntersectsAny(bounds)) {
         _advanceComposite(elements, font); // keep Tm in sync, emit nothing
@@ -641,14 +644,16 @@ class _RedactionBurn {
 
     // Walk glyph by glyph, building a TJ array with covered glyphs removed
     // and replaced by a numeric gap so survivors keep their position.
+    final codeLength = font != null && font.isComposite ? 2 : 1;
     final rebuilt = <Object>[]; // CosString | double
     final current = BytesBuilder();
+    var currentHex = false;
     var redactedAny = false;
     double pendingGap = 0; // accumulated removed advance (text-space points)
 
     void flushString() {
       if (current.length > 0) {
-        rebuilt.add(CosString(current.takeBytes()));
+        rebuilt.add(CosString(current.takeBytes(), isHex: currentHex));
       }
     }
 
@@ -667,16 +672,22 @@ class _RedactionBurn {
         if (current.length > 0) {
           flushString();
         }
-        // fold into the gap stream so spacing survives either way
-        pendingGap += -disp; // gap is measured as forward advance
+        // fold into the gap stream so spacing survives either way; both are
+        // forward advances, so a kern keeps its direction when re-emitted
+        pendingGap += disp;
         _tm = _redMul((1, 0, 0, 1, disp, 0), _tm);
         continue;
       }
       final string = element as CosString;
-      for (final code in string.bytes) {
+      final bytes = string.bytes;
+      for (var i = 0; i + codeLength <= bytes.length; i += codeLength) {
+        final code =
+            codeLength == 2 ? (bytes[i] << 8) | bytes[i + 1] : bytes[i];
         final w0 = font?.widthOf(code) ?? 500; // glyph units
         final glyphWidth = w0 / 1000 * _tfs * _th;
-        final advance = (w0 / 1000 * _tfs + _tc + (code == 32 ? _tw : 0)) * _th;
+        // word spacing applies to the single-byte code 32 only (§9.3.3)
+        final wordSpace = codeLength == 1 && code == 32 ? _tw : 0;
+        final advance = (w0 / 1000 * _tfs + _tc + wordSpace) * _th;
 
         final covered = _glyphCovered(glyphWidth);
         if (covered) {
@@ -685,7 +696,11 @@ class _RedactionBurn {
           pendingGap += advance;
         } else {
           flushGap();
-          current.addByte(code);
+          if (current.length > 0 && currentHex != string.isHex) {
+            flushString();
+          }
+          currentHex = string.isHex;
+          current.add(Uint8List.sublistView(bytes, i, i + codeLength));
         }
         _tm = _redMul((1, 0, 0, 1, advance, 0), _tm);
       }
@@ -831,10 +846,17 @@ class _RedFont {
     this._firstChar,
     this._widths,
     this._fallback,
-    this.defaultWidth,
-  );
+    this.defaultWidth, {
+    this.isIdentityH = false,
+    Map<int, double>? cidWidths,
+  }) : _cidWidths = cidWidths;
 
   final bool isComposite;
+
+  /// A composite font with the `/Identity-H` CMap: every code is two bytes
+  /// and is its own CID, so /W widths apply to it directly.
+  final bool isIdentityH;
+  final Map<int, double>? _cidWidths; // composite /W, by CID
   final int _firstChar;
   final List<double>? _widths; // glyph units (1000/em), simple fonts
   final List<int> _fallback; // base-14 table for missing widths
@@ -849,16 +871,25 @@ class _RedFont {
 
     if (isType0) {
       var dw = 1000.0;
+      var widths = <int, double>{};
       final descendants = cos.resolve(font['DescendantFonts']);
       if (descendants is CosArray && descendants.length > 0) {
         final d = cos.resolve(descendants.items.first);
         if (d is CosDictionary) {
-          final dwv = cos.resolve(d['DW']);
-          if (dwv is CosInteger) dw = dwv.value.toDouble();
-          if (dwv is CosReal) dw = dwv.value;
+          dw = cidDefaultWidth(cos, d);
+          widths = parseCidWidths(cos, d);
         }
       }
-      return _RedFont._(true, 0, null, fallback, dw);
+      final encoding = cos.resolve(font['Encoding']);
+      return _RedFont._(
+        true,
+        0,
+        null,
+        fallback,
+        dw,
+        isIdentityH: encoding is CosName && encoding.value == 'Identity-H',
+        cidWidths: widths,
+      );
     }
 
     final firstCharObj = cos.resolve(font['FirstChar']);
@@ -887,6 +918,8 @@ class _RedFont {
 
   /// Advance width of [code] in glyph units (1000/em).
   double widthOf(int code) {
+    final cidWidths = _cidWidths;
+    if (cidWidths != null) return cidWidths[code] ?? defaultWidth;
     final widths = _widths;
     if (widths != null) {
       final i = code - _firstChar;
