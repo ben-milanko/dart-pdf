@@ -35,6 +35,26 @@
   <title>DartPDF</title>
   <link rel="manifest" href="manifest.json">
 
+  <!-- Pin the document itself. Flutter fixes <body> and sets touch-action:
+       none on it, but iOS Safari (tab and home-screen app alike) still
+       rubber-bands the root scroller: a drag that the viewer can't absorb -
+       pushing past the last page - slid the whole app, header and toolbar
+       included, under the status bar and sprang it back. Every gesture is
+       Flutter's (it listens to pointer events, which a cancelled touchmove
+       does not suppress), so the browser never needs to pan the page. -->
+  <style>
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+  </style>
+  <script>
+    document.addEventListener('touchmove', function (event) {
+      if (event.cancelable) event.preventDefault();
+    }, { passive: false });
+  </script>
+
   <!-- Branded loading splash: shown immediately, before Flutter boots, and
        faded out on the first rendered frame so the user never sees a blank
        page on a cold start (the wasm/JS bundle can take a few seconds). -->
