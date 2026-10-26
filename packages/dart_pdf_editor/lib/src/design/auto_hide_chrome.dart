@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart'
     show PointerDownEvent, PointerEvent, PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart' show SystemChrome, SystemUiMode;
 import 'package:flutter/widgets.dart';
 
 /// How far (logical pixels) a user scroll has to travel in one direction
@@ -198,8 +199,11 @@ class PdfChromeAutoHideListener extends StatelessWidget {
 ///
 /// The bar collapses rather than floating over the content, so the viewer
 /// grows into the space it gives up and nothing is ever hidden behind it. A
-/// top bar keeps the status-bar inset ([MediaQuery.paddingOf]) as it goes,
-/// so the page never runs under the clock and battery icons.
+/// top bar that reaches the top of the screen (a status-bar inset in
+/// [MediaQuery.paddingOf]) takes the system status bar with it, so the
+/// hidden chrome is a true full screen - the page runs to the top edge
+/// rather than stopping under an empty band - and brings it back when the
+/// chrome returns.
 class PdfAutoHideBar extends StatefulWidget {
   const PdfAutoHideBar({
     super.key,
@@ -241,6 +245,25 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
 
   bool get _target => !widget.enabled || widget.controller.visible || _focused;
 
+  /// Whether this bar sits under the status bar, as of the last build that
+  /// saw it showing (hiding the status bar can zero the inset).
+  bool _underStatusBar = false;
+
+  /// Whether this bar hid the system status bar, so it is the one to restore
+  /// it.
+  bool _hidStatusBar = false;
+
+  void _syncStatusBar() {
+    final hide = widget.enabled &&
+        widget.edge == AxisDirection.up &&
+        _underStatusBar &&
+        !_target;
+    if (hide == _hidStatusBar) return;
+    _hidStatusBar = hide;
+    SystemChrome.setEnabledSystemUIMode(
+        hide ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -267,6 +290,7 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
     } else {
       _shown.reverse();
     }
+    _syncStatusBar();
   }
 
   void _onFocusChange(bool focused) {
@@ -278,6 +302,9 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
   @override
   void dispose() {
     widget.controller.removeListener(_sync);
+    if (_hidStatusBar) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     _shown.dispose();
     super.dispose();
   }
@@ -290,7 +317,9 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
     // page field live in shell-owned controllers, so nothing is lost.)
     if (!widget.enabled) return widget.child;
     final top = widget.edge == AxisDirection.up;
-    final inset = top ? MediaQuery.paddingOf(context).top : 0.0;
+    if (top && !_hidStatusBar) {
+      _underStatusBar = MediaQuery.paddingOf(context).top > 0;
+    }
     final child = Focus(
       canRequestFocus: false,
       skipTraversal: true,
@@ -307,7 +336,6 @@ class _PdfAutoHideBarState extends State<PdfAutoHideBar>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(height: inset * (1 - t)),
             ClipRect(
               child: Align(
                 // the bar keeps whatever is left of its far edge: a header
