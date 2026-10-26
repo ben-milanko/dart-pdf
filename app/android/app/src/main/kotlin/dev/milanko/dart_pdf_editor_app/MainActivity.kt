@@ -293,7 +293,13 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     }
 
     /// Persists read access to [uri], then builds the Dart-side descriptor
-    /// (token/name/length/seekable). Returns null if access can't be persisted.
+    /// (token/name/length). Returns null if access can't be persisted.
+    ///
+    /// Metadata only: no file descriptor is opened here. A cloud provider
+    /// (OneDrive's, notably) downloads the whole file before it hands one
+    /// over, and the app shows nothing until this reply lands - so the
+    /// seekability probe is left to Dart (`probeSeekable`), which asks once the
+    /// file's loading tab is on screen.
     private fun describeOpenedDocument(uri: Uri, intentFlags: Int): Map<String, Any?>? {
         return try {
             val persistable = intentFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -310,11 +316,10 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             mapOf(
                 "token" to uri.toString(),
                 "name" to (displayName(uri) ?: "document.pdf"),
-                "length" to fileLength(uri),
+                "length" to declaredLength(uri),
                 // The authority identifies the DocumentsProvider without
                 // exposing the picked URI/path or its persisted access token.
                 "provider" to (uri.authority ?: "android-documents-provider"),
-                "seekable" to probeSeekable(uri),
             )
         } catch (e: Exception) {
             null
@@ -351,6 +356,13 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             }
         } catch (_: Exception) {
         }
+        return declaredLength(uri)
+    }
+
+    /// The size the provider lists for [uri] (`OpenableColumns.SIZE`), or -1.
+    /// A metadata query - unlike [fileLength] it never opens the file, so it
+    /// can't trigger a cloud download.
+    private fun declaredLength(uri: Uri): Long {
         return try {
             contentResolver.query(
                 uri, arrayOf(OpenableColumns.SIZE), null, null, null

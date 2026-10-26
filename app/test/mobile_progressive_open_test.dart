@@ -5,6 +5,8 @@
 // snapshots for reopen). Driven on Android with the native `mobile_file`
 // channel mocked to serve a real PDF by range; the native handlers themselves
 // need on-device verification.
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
@@ -45,22 +47,27 @@ void main() {
     await tester.pump();
   }
 
-  // Mocks the native reference picker: one PDF served by range, marked
-  // [seekable] or not.
-  void mockPick({required bool seekable}) {
+  // Mocks the native reference picker: one PDF served by range, which the
+  // runner's `probeSeekable` reports [seekable] or not - after [probeGate]
+  // completes, when given, standing in for a cloud provider that downloads
+  // the whole file before it answers.
+  void mockPick({required bool seekable, Future<void>? probeGate}) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(mobileFileChannel, (call) async {
       switch (call.method) {
         case 'pickDocuments':
+          // Metadata only, like the runners: seekability is probed later.
           return <Map<Object?, Object?>>[
             {
               'token': 'cloud-token',
               'name': 'cloud.pdf',
               'length': pdfBytes.length,
               'provider': 'test-cloud-provider',
-              'seekable': seekable,
             }
           ];
+        case 'probeSeekable':
+          await probeGate;
+          return seekable;
         case 'fileLength':
           return pdfBytes.length;
         case 'readRange':
@@ -148,6 +155,39 @@ void main() {
       expect(log, isNot(contains('cloud-token')));
       expect(find.byType(PdfEditorView), findsOneWidget);
     } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets(
+      'shows the loading tab while a cloud provider is still answering '
+      'the seekability probe', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final probe = Completer<void>();
+    try {
+      mockPick(seekable: true, probeGate: probe.future);
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      await pump(tester, () async {
+        await tester.tap(find.text('Open a PDF'));
+      });
+
+      // The picker has closed and the probe is still out (a OneDrive file
+      // downloading): the file already has its loading tab.
+      expect(find.text('Open a PDF'), findsNothing);
+      expect(find.textContaining('cloud'), findsWidgets);
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+      expect(find.byType(PdfEditorView), findsNothing);
+
+      probe.complete();
+      await pump(tester, () async {});
+      final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
+      expect(log, contains('seekable=true mode=progressive'));
+      expect(find.byType(PdfEditorView), findsOneWidget);
+    } finally {
+      if (!probe.isCompleted) probe.complete();
       debugDefaultTargetPlatformOverride = null;
     }
   });
