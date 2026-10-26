@@ -1433,7 +1433,8 @@ class _PdfAnnotationPropertiesPanelState
                 style: textTheme.labelSmall
                     ?.copyWith(color: scheme.onSurfaceVariant)),
           SelectableText(pdfNormalizeLineEndings(comment.text),
-              style: textTheme.bodySmall),
+              style: textTheme.bodySmall,
+              contextMenuBuilder: pdfTextContextMenu),
         ]),
       ),
     );
