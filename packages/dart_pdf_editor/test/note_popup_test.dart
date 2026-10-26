@@ -1,9 +1,12 @@
 // The sticky-note popup: a note's text shows in a card beside its icon
 // while the mouse rests on it, and for as long as the note is selected.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -129,6 +132,97 @@ void main() {
     await g.moveTo(onNote);
     await tester.pump(const Duration(milliseconds: 350));
     expect(popup, findsNothing);
+  });
+
+  testWidgets('the card text is selectable and copies with the keyboard',
+      (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await pumpViewer(tester);
+    final g = await mouse(tester);
+    await g.moveTo(onNote);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(popup, findsOneWidget);
+    expect(find.descendant(of: popup, matching: find.byType(SelectableRegion)),
+        findsNothing,
+        reason: 'the selection region wraps the card, not the reverse');
+    expect(find.ancestor(of: popup, matching: find.byType(SelectionArea)),
+        findsOneWidget);
+
+    // drag across the comment from its start to its end
+    final text = find.byKey(const ValueKey('pdf-note-popup-text'));
+    await g.moveTo(tester.getTopLeft(text) + const Offset(1, 4));
+    await g.down(tester.getTopLeft(text) + const Offset(1, 4));
+    await tester.pump();
+    // wander off the card mid-drag: the card stays up
+    await g.moveTo(tester.getBottomRight(popup) + const Offset(40, 40));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(popup, findsOneWidget);
+    await g.moveTo(tester.getBottomRight(text) - const Offset(1, 4));
+    await g.up();
+    await tester.pump();
+
+    final modifier = defaultTargetPlatform == TargetPlatform.macOS
+        ? LogicalKeyboardKey.meta
+        : LogicalKeyboardKey.control;
+    await tester.sendKeyDownEvent(modifier);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(modifier);
+    await tester.pump();
+    expect(copied, 'Check the fault isolation');
+  });
+
+  testWidgets('a shape carrying a comment pops up the same card',
+      (tester) async {
+    final editing = await pumpViewer(tester, setUp: (editing) {
+      editing
+        ..addRectangle(0, const PdfRect(200, 400, 300, 500))
+        ..addRectangle(0, const PdfRect(200, 100, 300, 200));
+    });
+    // comment the first rectangle only (slot 1; the note is slot 0)
+    editing.tool = PdfEditTool.select;
+    expect(editing.selectAnnotation(0, 1), isTrue);
+    expect(editing.setSelectedContents('Check the clearance here'), isTrue);
+    editing.clearAnnotationSelection();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final g = await mouse(tester);
+    await g.moveTo(view(250, 450));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(popup, findsOneWidget);
+    expect(find.text('Check the clearance here'), findsOneWidget);
+
+    // a bare shape has nothing to show
+    await g.moveTo(view(250, 150));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(popup, findsNothing);
+  });
+
+  test('eligibility: notes and commented markups, not free text or replies',
+      () {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addNote(0, 100, 700, 'A note')
+      ..addRectangle(0, const PdfRect(200, 400, 300, 500))
+      ..addFreeText(0, const PdfRect(200, 200, 300, 260), 'Shown on page');
+    addTearDown(editing.dispose);
+    final annotations = editing.document.page(0).annotations;
+    expect(pdfIsNotePopupTarget(annotations[0]), isTrue);
+    expect(pdfIsNotePopupTarget(annotations[1]), isFalse,
+        reason: 'a shape without a comment has nothing to show');
+    expect(pdfIsNotePopupTarget(annotations[2]), isFalse,
+        reason: 'free text already shows its contents on the page');
+    editing.replyToAnnotation(0, annotations[0], 'A reply');
+    final reply =
+        editing.document.page(0).annotations.firstWhere((a) => a.isReply);
+    expect(pdfIsNotePopupTarget(reply), isFalse);
   });
 
   testWidgets('the layout flips the card left of an icon near the edge', (

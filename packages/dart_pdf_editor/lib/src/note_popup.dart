@@ -5,14 +5,21 @@ import 'design/viewer_tokens.dart';
 import 'l10n/pdf_l10n.dart';
 import 'theme.dart';
 
-/// Whether [annotation] is a sticky note whose text the viewer should
-/// surface in a [PdfNotePopupCard]: a /Text annotation that is a thread's
-/// root, not a reply or a review-state record (neither of which paints an
-/// icon on the page).
-bool pdfIsNotePopupTarget(PdfAnnotation annotation) =>
-    annotation.subtype == 'Text' &&
-    !annotation.isReply &&
-    !annotation.isStateAnnotation;
+/// Whether [annotation] has a comment the viewer should surface in a
+/// [PdfNotePopupCard]: a sticky note (/Text), or any other markup carrying a
+/// /Contents comment - a highlight or shape with a note attached. Always a
+/// thread's root, never a reply or a review-state record (neither paints on
+/// the page). Free text is left out (its /Contents is the text already drawn
+/// on the page), as are popups, links and form widgets.
+bool pdfIsNotePopupTarget(PdfAnnotation annotation) {
+  if (annotation.isReply || annotation.isStateAnnotation) return false;
+  if (annotation.subtype == 'Text') return true;
+  if (const {'FreeText', 'Popup', 'Link', 'Widget'}
+      .contains(annotation.subtype)) {
+    return false;
+  }
+  return annotation.contents?.trim().isNotEmpty ?? false;
+}
 
 /// A floating, read-only card showing a sticky note's text - author, date,
 /// the note body and any replies - beside its icon on the page.

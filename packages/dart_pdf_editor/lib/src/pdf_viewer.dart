@@ -57,6 +57,7 @@ import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 import 'design/editor_presenter.dart';
+import 'design/material_host.dart' show pdfHostRoute;
 import 'text_selection_geometry.dart';
 import 'viewer_intents.dart';
 import 'viewport.dart';
@@ -1939,7 +1940,8 @@ class PdfViewer extends StatefulWidget {
   /// drawing tool is armed), and for as long as a single note is selected,
   /// which is how touch reaches it. A note's icon carries none of its text,
   /// so without this it can only be read in a properties or annotation
-  /// panel.
+  /// panel. Highlights and shapes carrying a comment get the same card
+  /// ([pdfIsNotePopupTarget]), and the card's text is selectable.
   final bool showNotePopups;
 
   /// Whether outline/bookmark destinations are shown as labelled markers on
@@ -2637,6 +2639,10 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Whether the pointer is over the popup card itself.
   bool _overNoteCard = false;
+
+  /// Whether a press that began on the popup card is still down - a drag
+  /// selecting its text, which may wander off the card without closing it.
+  bool _noteCardPressed = false;
 
   /// Keys the viewport Stack the popup card is positioned in.
   final GlobalKey _noteLayerKey = GlobalKey();
@@ -7807,9 +7813,9 @@ class _PdfViewerState extends State<PdfViewer>
     _trackHoveredNote(event.localPosition);
   }
 
-  /// The sticky note topmost under [local] (list space), or null - only
-  /// while a mouse hover may pop one up ([PdfViewer.showNotePopups], no
-  /// drawing tool armed).
+  /// The note or commented markup topmost under [local] (list space), or
+  /// null - only while a mouse hover may pop one up
+  /// ([PdfViewer.showNotePopups], no drawing tool armed).
   ({int page, PdfAnnotation note})? _noteAt(Offset local) {
     if (!widget.showNotePopups || !widget.showAnnotations) return null;
     final editing = widget.editing;
@@ -7829,7 +7835,9 @@ class _PdfViewerState extends State<PdfViewer>
           annotation.isStateAnnotation ||
           annotation.subtype == 'Popup' ||
           hidden.contains(annotation.subtype) ||
-          !annotation.rect.contains(x, y)) {
+          // a commented highlight's runs, not the gaps its /Rect spans
+          !(_textMarkupQuadHit(annotation, x, y) ??
+              annotation.rect.contains(x, y))) {
         continue;
       }
       return pdfIsNotePopupTarget(annotation)
@@ -7874,7 +7882,7 @@ class _PdfViewerState extends State<PdfViewer>
   static const _noteHideDelay = Duration(milliseconds: 250);
 
   void _scheduleNoteHide() {
-    if (_hoveredNote == null || _overNoteCard) return;
+    if (_hoveredNote == null || _overNoteCard || _noteCardPressed) return;
     if (_noteHideTimer?.isActive ?? false) return;
     _noteHideTimer = Timer(_noteHideDelay, _hideHoveredNote);
   }
@@ -7955,15 +7963,51 @@ class _PdfViewerState extends State<PdfViewer>
             _overNoteCard = false;
             _scheduleNoteHide();
           },
-          child: PdfNotePopupCard(
-            note: placement.note,
-            replies: PdfNotePopupCard.repliesOf(
-                _document, placement.page, placement.note),
+          child: Listener(
+            onPointerDown: (_) => _noteCardPressed = true,
+            onPointerUp: (_) => _releaseNoteCard(),
+            onPointerCancel: (_) => _releaseNoteCard(),
+            // the comment text is selectable; the card's own copy and
+            // select-all keys win over the viewer's (which copy page text
+            // and select annotations)
+            child: Shortcuts(
+              shortcuts: _noteCardShortcuts,
+              child: SelectionArea(
+                contextMenuBuilder: (context, state) => pdfHostRoute(
+                  context,
+                  AdaptiveTextSelectionToolbar.selectableRegion(
+                      selectableRegionState: state),
+                  themesFrom: state.context,
+                ),
+                child: PdfNotePopupCard(
+                  note: placement.note,
+                  replies: PdfNotePopupCard.repliesOf(
+                      _document, placement.page, placement.note),
+                ),
+              ),
+            ),
           ),
         ),
       ),
     ));
   }
+
+  void _releaseNoteCard() {
+    _noteCardPressed = false;
+    _scheduleNoteHide();
+  }
+
+  /// Copy and select-all inside the popup card act on its text.
+  static const Map<ShortcutActivator, Intent> _noteCardShortcuts = {
+    SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyC, control: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+    SingleActivator(LogicalKeyboardKey.keyA, control: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+  };
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
   /// controller's clipboard; otherwise the text selection copies to the
