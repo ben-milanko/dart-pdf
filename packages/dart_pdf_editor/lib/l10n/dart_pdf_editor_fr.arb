@@ -269,6 +269,7 @@
   "propSectionAllFonts": "Toutes les polices",
   "propSectionAppearance": "Apparence",
   "propSectionContent": "Contenu",
+  "propSectionComments": "Commentaires",
   "propSectionFormField": "Champ de formulaire",
   "propSectionInThisDocument": "Dans ce document",
   "propSectionPositionSize": "Position et taille (pt)",

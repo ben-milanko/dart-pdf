@@ -791,6 +791,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get propSectionContent => '내용';
 
   @override
+  String get propSectionComments => '댓글';
+
+  @override
   String get propSectionFormField => '양식 필드';
 
   @override

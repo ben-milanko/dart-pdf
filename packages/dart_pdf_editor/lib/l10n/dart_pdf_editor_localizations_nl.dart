@@ -794,6 +794,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get propSectionContent => 'Inhoud';
 
   @override
+  String get propSectionComments => 'Opmerkingen';
+
+  @override
   String get propSectionFormField => 'Formulierveld';
 
   @override

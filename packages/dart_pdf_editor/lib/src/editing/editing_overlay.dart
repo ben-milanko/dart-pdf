@@ -1650,7 +1650,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final annotation = annotations[i];
       if (annotation.isHidden ||
           annotation.isNoView ||
-          annotation.subtype == 'Popup') {
+          annotation.subtype == 'Popup' ||
+          annotation.isReply ||
+          annotation.isStateAnnotation) {
         continue;
       }
       addRect(_geometry.toViewRect(annotation.calloutBox ?? annotation.rect));

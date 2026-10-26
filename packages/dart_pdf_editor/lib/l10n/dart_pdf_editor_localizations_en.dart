@@ -792,6 +792,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get propSectionContent => 'Content';
 
   @override
+  String get propSectionComments => 'Comments';
+
+  @override
   String get propSectionFormField => 'Form field';
 
   @override
@@ -3376,6 +3379,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get propSectionContent => 'Content';
 
   @override
+  String get propSectionComments => 'Comments';
+
+  @override
   String get propSectionFormField => 'Form field';
 
   @override
@@ -5958,6 +5964,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get propSectionContent => 'Content';
+
+  @override
+  String get propSectionComments => 'Comments';
 
   @override
   String get propSectionFormField => 'Form field';

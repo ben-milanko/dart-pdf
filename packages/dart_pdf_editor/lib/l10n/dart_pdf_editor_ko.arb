@@ -269,6 +269,7 @@
   "propSectionAllFonts": "모든 글꼴",
   "propSectionAppearance": "모양",
   "propSectionContent": "내용",
+  "propSectionComments": "댓글",
   "propSectionFormField": "양식 필드",
   "propSectionInThisDocument": "이 문서 내",
   "propSectionPositionSize": "위치 및 크기 (pt)",

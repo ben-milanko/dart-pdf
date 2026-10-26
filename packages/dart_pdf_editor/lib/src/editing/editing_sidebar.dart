@@ -871,13 +871,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   }
 
   /// A short local-time stamp for a comment, or '' when undated.
-  static String _formatTime(DateTime? t) {
-    if (t == null) return '';
-    final l = t.toLocal();
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${l.year}-${two(l.month)}-${two(l.day)} '
-        '${two(l.hour)}:${two(l.minute)}';
-  }
+  static String _formatTime(DateTime? t) => pdfPanelTimestamp(t);
 
   /// The label and accent color for a review state chip, or null when the
   /// state is `None` (an open/unresolved thread shows no chip).

@@ -804,6 +804,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get propSectionContent => 'Содержимое';
 
   @override
+  String get propSectionComments => 'Комментарии';
+
+  @override
   String get propSectionFormField => 'Поле формы';
 
   @override

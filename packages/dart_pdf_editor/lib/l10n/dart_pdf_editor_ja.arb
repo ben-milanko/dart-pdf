@@ -269,6 +269,7 @@
   "propSectionAllFonts": "すべてのフォント",
   "propSectionAppearance": "外観",
   "propSectionContent": "内容",
+  "propSectionComments": "コメント",
   "propSectionFormField": "フォームフィールド",
   "propSectionInThisDocument": "このドキュメント内",
   "propSectionPositionSize": "位置とサイズ (pt)",

@@ -792,6 +792,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get propSectionContent => 'İçerik';
 
   @override
+  String get propSectionComments => 'Yorumlar';
+
+  @override
   String get propSectionFormField => 'Form alanı';
 
   @override

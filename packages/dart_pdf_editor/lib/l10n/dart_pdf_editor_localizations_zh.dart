@@ -790,6 +790,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get propSectionContent => '内容';
 
   @override
+  String get propSectionComments => '评论';
+
+  @override
   String get propSectionFormField => '表单字段';
 
   @override
@@ -3326,6 +3329,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get propSectionContent => '內容';
+
+  @override
+  String get propSectionComments => '評論';
 
   @override
   String get propSectionFormField => '表單欄位';

@@ -6204,6 +6204,14 @@ class PdfEditingController extends ChangeNotifier {
   bool _hiddenFromDisplay(PdfAnnotation annotation) =>
       preferences.hiddenAnnotationSubtypes.contains(annotation.subtype);
 
+  /// Whether [annotation] is comment-thread content - a reply or a review
+  /// state (§12.5.6.2). The renderer never paints those (they live in the
+  /// thread, the way Acrobat shows them), and Acrobat stacks a reply on its
+  /// parent's /Rect, so an on-page hit test that reached one would pick an
+  /// invisible reply over the note the user actually tapped.
+  static bool _isThreadContent(PdfAnnotation annotation) =>
+      annotation.isReply || annotation.isStateAnnotation;
+
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
   /// draw on top, so they win). Subtypes hidden by
@@ -6223,6 +6231,7 @@ class PdfEditingController extends ChangeNotifier {
           annotation.isReply ||
           annotation.isStateAnnotation ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
@@ -6267,6 +6276,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.isLocked ||
           !isAnnotationLockManageable(annotation)) {
         continue;
@@ -6448,6 +6458,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;

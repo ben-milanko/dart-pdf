@@ -269,6 +269,7 @@
   "propSectionAllFonts": "所有字体",
   "propSectionAppearance": "外观",
   "propSectionContent": "内容",
+  "propSectionComments": "评论",
   "propSectionFormField": "表单字段",
   "propSectionInThisDocument": "本文档中",
   "propSectionPositionSize": "位置和大小（pt）",
