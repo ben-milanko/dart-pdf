@@ -93,6 +93,12 @@ void main() {
     await tapPage(tester);
     expect(headerShown(tester), isTrue);
     expect(modes, ['SystemUiMode.immersiveSticky', 'SystemUiMode.edgeToEdge']);
+
+    // closing the reader while it is full screen gives the status bar back
+    await tapPage(tester);
+    await tester.pumpWidget(const SizedBox());
+    expect(modes.last, 'SystemUiMode.edgeToEdge');
+    expect(modes, hasLength(4));
   });
 
   testWidgets('reader: a tap on the page toggles the header', (tester) async {
