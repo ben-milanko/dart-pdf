@@ -133,7 +133,7 @@ def collect():
     except Exception as error:
         result['windows']['authentication'] = failure(error)
     else:
-        queries = [('usagemonthly','2026-09-01','2026-09-30')] if usage_only else [('installs','2026-07-01','2026-10-25'),('usagemonthly','2026-08-01','2026-10-25')]
+        queries = [('usagemonthly','2026-10-01','2026-10-24')] if usage_only else [('installs','2026-07-01','2026-10-25'),('usagemonthly','2026-08-01','2026-10-25')]
         for endpoint, start, end in queries:
             try:
                 result['windows'][endpoint] = windows_series(token, endpoint, start, end)
