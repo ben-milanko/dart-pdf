@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, immutable, kIsWeb, visibleForTesting;
+    show ValueListenable, immutable, kIsWeb, listEquals, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/physics.dart';
@@ -2640,6 +2640,15 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Keys the viewport Stack the popup card is positioned in.
   final GlobalKey _noteLayerKey = GlobalKey();
+
+  /// Ticks when [_hoveredNote] changes, so only the popup layer rebuilds.
+  final ValueNotifier<int> _noteHoverTick = ValueNotifier(0);
+
+  /// The popup layer, kept as one instance per editing controller so a
+  /// viewer rebuild skips it entirely (it updates itself from its
+  /// listenables).
+  Widget? _notePopupLayer;
+  PdfEditingController? _notePopupLayerEditing;
 
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
@@ -5426,6 +5435,7 @@ class _PdfViewerState extends State<PdfViewer>
     _settleTimer?.cancel();
     _noteShowTimer?.cancel();
     _noteHideTimer?.cancel();
+    _noteHoverTick.dispose();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
     _gestureQuietTimer?.cancel();
@@ -7854,8 +7864,9 @@ class _PdfViewerState extends State<PdfViewer>
     _noteShowTimer =
         Timer(_hoveredNote == null ? _noteShowDelay : Duration.zero, () {
       if (!mounted) return;
-      setState(() => _hoveredNote = _pendingNote);
+      _hoveredNote = _pendingNote;
       _pendingNote = null;
+      _noteHoverTick.value++;
     });
   }
 
@@ -7873,7 +7884,8 @@ class _PdfViewerState extends State<PdfViewer>
     _noteHideTimer?.cancel();
     _pendingNote = null;
     if (_hoveredNote == null || !mounted) return;
-    setState(() => _hoveredNote = null);
+    _hoveredNote = null;
+    _noteHoverTick.value++;
   }
 
   /// The note the popup card shows: a single selected note wins (it stays
@@ -7898,47 +7910,59 @@ class _PdfViewerState extends State<PdfViewer>
     return (page: hovered.page, note: hovered.note, pinned: false);
   }
 
+  /// Where the popup card goes right now: its note and the icon's rect in
+  /// the viewport Stack, or null when no card shows.
+  _NotePopupPlacement? _notePopupPlacement() {
+    final target = _notePopupTarget();
+    if (target == null) return null;
+    final layer =
+        _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
+    final global = _globalRectOf(target.page, target.note.rect);
+    if (layer == null || !layer.hasSize || global == null) return null;
+    final anchor = layer.globalToLocal(global.topLeft) & global.size;
+    // scrolled out of view: no card floating over the margin
+    if (!anchor.overlaps(Offset.zero & layer.size)) return null;
+    return _NotePopupPlacement(target.page, target.note, anchor);
+  }
+
   /// The popup card layer over the viewport ([PdfViewer.showNotePopups]),
-  /// following the note through scrolls and zooms.
+  /// following the note through scrolls and zooms. It rebuilds only when
+  /// the placement changes - not on every editing-controller tick.
   Widget _buildNotePopupLayer() {
     final editing = widget.editing;
-    return ListenableBuilder(
-      listenable:
-          Listenable.merge([_scroll, _transform, if (editing != null) editing]),
-      builder: (context, _) {
-        final target = _notePopupTarget();
-        if (target == null) return const SizedBox.shrink();
-        final layer =
-            _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
-        final global = _globalRectOf(target.page, target.note.rect);
-        if (layer == null || !layer.hasSize || global == null) {
-          return const SizedBox.shrink();
-        }
-        final anchor = layer.globalToLocal(global.topLeft) & global.size;
-        // scrolled out of view: no card floating over the margin
-        if (!anchor.overlaps(Offset.zero & layer.size)) {
-          return const SizedBox.shrink();
-        }
-        return CustomSingleChildLayout(
-          delegate: PdfNotePopupLayout(anchor),
-          child: MouseRegion(
-            onEnter: (_) {
-              _overNoteCard = true;
-              _noteHideTimer?.cancel();
-            },
-            onExit: (_) {
-              _overNoteCard = false;
-              _scheduleNoteHide();
-            },
-            child: PdfNotePopupCard(
-              note: target.note,
-              replies: PdfNotePopupCard.repliesOf(
-                  _document, target.page, target.note),
-            ),
+    final cached = _notePopupLayer;
+    if (cached != null && identical(_notePopupLayerEditing, editing)) {
+      return cached;
+    }
+    _notePopupLayerEditing = editing;
+    return _notePopupLayer = Positioned.fill(
+        child: _NotePopupLayer(
+      listenables: [
+        _scroll,
+        _transform,
+        _noteHoverTick,
+        if (editing != null) editing,
+      ],
+      resolve: _notePopupPlacement,
+      builder: (placement) => CustomSingleChildLayout(
+        delegate: PdfNotePopupLayout(placement.anchor),
+        child: MouseRegion(
+          onEnter: (_) {
+            _overNoteCard = true;
+            _noteHideTimer?.cancel();
+          },
+          onExit: (_) {
+            _overNoteCard = false;
+            _scheduleNoteHide();
+          },
+          child: PdfNotePopupCard(
+            note: placement.note,
+            replies: PdfNotePopupCard.repliesOf(
+                _document, placement.page, placement.note),
           ),
-        );
-      },
-    );
+        ),
+      ),
+    ));
   }
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
@@ -10360,8 +10384,7 @@ class _PdfViewerState extends State<PdfViewer>
                   onScrollBy: _scrollbarPanBy,
                   thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
                 )),
-                if (widget.showNotePopups)
-                  Positioned.fill(child: _buildNotePopupLayer()),
+                if (widget.showNotePopups) _buildNotePopupLayer(),
               ]),
             ),
           ),
@@ -12484,5 +12507,93 @@ class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
   Object? invoke(T intent) {
     _invoke(intent);
     return null;
+  }
+}
+
+/// Where a [PdfNotePopupCard] shows: the note and its icon's rect in the
+/// viewport. Equal for the same note dictionary at the same spot, so a
+/// fresh [PdfAnnotation] wrapper for an unchanged note doesn't rebuild.
+class _NotePopupPlacement {
+  const _NotePopupPlacement(this.page, this.note, this.anchor);
+
+  final int page;
+  final PdfAnnotation note;
+  final Rect anchor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _NotePopupPlacement &&
+      other.page == page &&
+      identical(other.note.dict, note.dict) &&
+      other.anchor == anchor;
+
+  @override
+  int get hashCode => Object.hash(page, identityHashCode(note.dict), anchor);
+}
+
+/// Rebuilds its card only when [resolve]'s placement changes, so the
+/// listenables it watches (scroll, zoom, the editing controller) cost
+/// nothing on the many ticks that leave the card where it was.
+class _NotePopupLayer extends StatefulWidget {
+  const _NotePopupLayer({
+    required this.listenables,
+    required this.resolve,
+    required this.builder,
+  });
+
+  final List<Listenable> listenables;
+  final _NotePopupPlacement? Function() resolve;
+  final Widget Function(_NotePopupPlacement placement) builder;
+
+  @override
+  State<_NotePopupLayer> createState() => _NotePopupLayerState();
+}
+
+class _NotePopupLayerState extends State<_NotePopupLayer> {
+  _NotePopupPlacement? _placement;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final l in widget.listenables) {
+      l.addListener(_update);
+    }
+    _placement = widget.resolve();
+  }
+
+  @override
+  void didUpdateWidget(_NotePopupLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.listenables, widget.listenables)) {
+      for (final l in oldWidget.listenables) {
+        l.removeListener(_update);
+      }
+      for (final l in widget.listenables) {
+        l.addListener(_update);
+      }
+    }
+    _placement = widget.resolve();
+  }
+
+  @override
+  void dispose() {
+    for (final l in widget.listenables) {
+      l.removeListener(_update);
+    }
+    super.dispose();
+  }
+
+  void _update() {
+    final placement = widget.resolve();
+    if (placement == _placement) return;
+    setState(() => _placement = placement);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final placement = _placement;
+    return placement == null
+        ? const SizedBox.shrink()
+        : widget.builder(placement);
   }
 }
