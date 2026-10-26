@@ -59,6 +59,7 @@
   "annotStamp": "Stempel",
   "annotStrikeOut": "Durchstreichung",
   "annotText": "Notiz",
+  "notePopupKeepOpen": "Geöffnet lassen",
   "annotUnderline": "Unterstreichung",
   "annotWidget": "Formularfeld",
   "apply": "Anwenden",

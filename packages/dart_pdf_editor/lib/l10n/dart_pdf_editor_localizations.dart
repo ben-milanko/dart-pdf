@@ -264,6 +264,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Note'**
   String get annotText;
 
+  /// Tooltip on a note popup card's pin button: keep this card open after the pointer leaves, so several notes can be open at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep open'**
+  String get notePopupKeepOpen;
+
   /// Annotation type name: a text underline.
   ///
   /// In en, this message translates to:

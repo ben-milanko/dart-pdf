@@ -59,6 +59,7 @@
   "annotStamp": "图章",
   "annotStrikeOut": "删除线",
   "annotText": "便笺",
+  "notePopupKeepOpen": "保持打开",
   "annotUnderline": "下划线",
   "annotWidget": "表单字段",
   "apply": "应用",

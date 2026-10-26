@@ -21,6 +21,7 @@
   "annotStamp": "Stamp",
   "annotStrikeOut": "Strike-out",
   "annotText": "Note",
+  "notePopupKeepOpen": "Keep open",
   "annotUnderline": "Underline",
   "annotWidget": "Form field",
   "apply": "Apply",

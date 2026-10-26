@@ -72,6 +72,10 @@
   "@annotText": {
     "description": "Annotation type name: a sticky note / text comment."
   },
+  "notePopupKeepOpen": "Keep open",
+  "@notePopupKeepOpen": {
+    "description": "Tooltip on a note popup card's pin button: keep this card open after the pointer leaves, so several notes can be open at once."
+  },
   "annotUnderline": "Underline",
   "@annotUnderline": {
     "description": "Annotation type name: a text underline."

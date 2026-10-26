@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get annotText => 'Заметка';
 
   @override
+  String get notePopupKeepOpen => 'Оставить открытой';
+
+  @override
   String get annotUnderline => 'Подчёркивание';
 
   @override

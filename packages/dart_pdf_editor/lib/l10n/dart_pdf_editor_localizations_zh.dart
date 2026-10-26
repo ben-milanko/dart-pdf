@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get annotText => '便笺';
 
   @override
+  String get notePopupKeepOpen => '保持打开';
+
+  @override
   String get annotUnderline => '下划线';
 
   @override
@@ -2611,6 +2614,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get annotText => '便箋';
+
+  @override
+  String get notePopupKeepOpen => '保持開啟';
 
   @override
   String get annotUnderline => '底線';

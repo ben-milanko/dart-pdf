@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Keep open';
+
+  @override
   String get annotUnderline => 'Underline';
 
   @override
@@ -2659,6 +2662,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Keep open';
+
+  @override
   String get annotUnderline => 'Underline';
 
   @override
@@ -5244,6 +5250,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get annotText => 'Note';
+
+  @override
+  String get notePopupKeepOpen => 'Keep open';
 
   @override
   String get annotUnderline => 'Underline';

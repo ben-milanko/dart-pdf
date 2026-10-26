@@ -59,6 +59,7 @@
   "annotStamp": "スタンプ",
   "annotStrikeOut": "取り消し線",
   "annotText": "ノート",
+  "notePopupKeepOpen": "開いたままにする",
   "annotUnderline": "下線",
   "annotWidget": "フォームフィールド",
   "apply": "適用",

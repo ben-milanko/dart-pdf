@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get annotText => 'Not';
 
   @override
+  String get notePopupKeepOpen => 'Açık tut';
+
+  @override
   String get annotUnderline => 'Altı çizili';
 
   @override

@@ -1,5 +1,6 @@
 // The sticky-note popup: a note's text shows in a card beside its icon
-// while the mouse rests on it, and for as long as the note is selected.
+// while the mouse rests on it, for as long as the note is selected, and -
+// pinned open - until its close button, several at once.
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/gestures.dart';
@@ -114,6 +115,95 @@ void main() {
     editing.clearAnnotationSelection();
     await tester.pump();
     expect(popup, findsNothing);
+  });
+
+  final pin = find.byKey(const ValueKey('pdf-note-popup-pin'));
+  final close = find.byKey(const ValueKey('pdf-note-popup-close'));
+
+  testWidgets('pinned cards stay open, several at once, until closed',
+      (tester) async {
+    final editing = await pumpViewer(tester, setUp: (editing) {
+      editing.addNote(0, 300, 500, 'Second opinion');
+    });
+    final g = await mouse(tester);
+    await g.moveTo(onNote);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(popup, findsOneWidget);
+    expect(close, findsNothing);
+    await g.moveTo(tester.getCenter(pin));
+    await tester.pump();
+    await g.down(tester.getCenter(pin));
+    await g.up();
+    await tester.pump();
+    expect(close, findsOneWidget, reason: 'a pinned card offers to close');
+
+    // leaving it: it stays
+    await g.moveTo(offNote);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(popup, findsOneWidget);
+    expect(find.text('Check the fault isolation'), findsOneWidget);
+
+    // a second note's card joins it, and pins too
+    await g.moveTo(view(310, 490));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(popup, findsNWidgets(2));
+    final secondPin = find.descendant(
+        of: find.ancestor(of: find.text('Second opinion'), matching: popup),
+        matching: pin);
+    await g.moveTo(tester.getCenter(secondPin));
+    await tester.pump();
+    await g.down(tester.getCenter(secondPin));
+    await g.up();
+    await tester.pump();
+    await g.moveTo(offNote);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(popup, findsNWidgets(2));
+    expect(close, findsNWidgets(2));
+
+    // an edit elsewhere keeps both open, following the notes by /NM
+    editing.addRectangle(0, const PdfRect(200, 100, 300, 200));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(popup, findsNWidgets(2));
+
+    // closing one leaves the other
+    final firstClose = find.descendant(
+        of: find.ancestor(
+            of: find.text('Check the fault isolation'), matching: popup),
+        matching: close);
+    await g.moveTo(tester.getCenter(firstClose));
+    await tester.pump();
+    await g.down(tester.getCenter(firstClose));
+    await g.up();
+    await tester.pump();
+    await g.moveTo(offNote);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(popup, findsOneWidget);
+    expect(find.text('Second opinion'), findsOneWidget);
+    expect(find.text('Check the fault isolation'), findsNothing);
+  });
+
+  testWidgets('a pinned note that is deleted closes; undo reopens it',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.tool = PdfEditTool.select;
+    expect(editing.selectAnnotationAt(0, 110, 690), isTrue);
+    await tester.pump();
+    await tester.tap(pin);
+    // the viewer's double-tap zoom holds a touch tap until it times out
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(close, findsOneWidget);
+    editing.clearAnnotationSelection();
+    await tester.pump();
+    expect(popup, findsOneWidget, reason: 'pinned past the selection');
+
+    expect(editing.selectAnnotationAt(0, 110, 690), isTrue);
+    editing.deleteSelected();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(popup, findsNothing);
+
+    editing.undo();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(popup, findsOneWidget);
   });
 
   testWidgets('no card while a drawing tool is armed', (tester) async {

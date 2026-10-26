@@ -59,6 +59,7 @@
   "annotStamp": "Tampon",
   "annotStrikeOut": "Barré",
   "annotText": "Note",
+  "notePopupKeepOpen": "Garder ouverte",
   "annotUnderline": "Souligné",
   "annotWidget": "Champ de formulaire",
   "apply": "Appliquer",

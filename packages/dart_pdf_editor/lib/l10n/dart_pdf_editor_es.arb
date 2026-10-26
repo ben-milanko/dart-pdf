@@ -59,6 +59,7 @@
   "annotStamp": "Sello",
   "annotStrikeOut": "Tachado",
   "annotText": "Nota",
+  "notePopupKeepOpen": "Mantener abierta",
   "annotUnderline": "Subrayado",
   "annotWidget": "Campo de formulario",
   "apply": "Aplicar",

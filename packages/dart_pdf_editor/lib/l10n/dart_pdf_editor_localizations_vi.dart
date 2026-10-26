@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get annotText => 'Ghi chú';
 
   @override
+  String get notePopupKeepOpen => 'Giữ mở';
+
+  @override
   String get annotUnderline => 'Gạch chân';
 
   @override
