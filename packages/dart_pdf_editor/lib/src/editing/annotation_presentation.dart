@@ -4,6 +4,16 @@ import 'package:pdf_document/pdf_document.dart';
 import '../l10n/pdf_l10n.dart';
 import 'line_style.dart';
 
+/// A comment or signature timestamp as the panels show it: local time,
+/// `yyyy-mm-dd hh:mm`. Empty for a null time.
+String pdfPanelTimestamp(DateTime? t) {
+  if (t == null) return '';
+  final l = t.toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${l.year}-${two(l.month)}-${two(l.day)} '
+      '${two(l.hour)}:${two(l.minute)}';
+}
+
 /// Flutter-only presentation for PDF annotation subtypes.
 ///
 /// Semantic editing policy lives in `PdfAnnotation.behavior` in

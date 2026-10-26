@@ -794,6 +794,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get propSectionContent => 'ناوەڕۆک';
 
   @override
+  String get propSectionComments => 'لێدوانەکان';
+
+  @override
   String get propSectionFormField => 'خانەی فۆرم';
 
   @override

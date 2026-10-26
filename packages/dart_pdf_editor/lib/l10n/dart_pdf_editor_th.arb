@@ -269,6 +269,7 @@
   "propSectionAllFonts": "ฟอนต์ทั้งหมด",
   "propSectionAppearance": "ลักษณะที่ปรากฏ",
   "propSectionContent": "เนื้อหา",
+  "propSectionComments": "ความคิดเห็น",
   "propSectionFormField": "ช่องแบบฟอร์ม",
   "propSectionInThisDocument": "ในเอกสารนี้",
   "propSectionPositionSize": "ตำแหน่งและขนาด (pt)",

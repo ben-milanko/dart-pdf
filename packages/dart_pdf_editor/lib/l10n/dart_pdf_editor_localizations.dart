@@ -1572,6 +1572,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Content'**
   String get propSectionContent;
 
+  /// Section header for the selected annotation's comment thread (its replies, plus a field to add one) in the annotation properties panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments'**
+  String get propSectionComments;
+
   /// Section header for the form-field controls in the annotation properties panel.
   ///
   /// In en, this message translates to:

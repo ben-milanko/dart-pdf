@@ -1020,6 +1020,10 @@
   "@propSectionContent": {
     "description": "Section header for the contents/author controls in the annotation properties panel."
   },
+  "propSectionComments": "Comments",
+  "@propSectionComments": {
+    "description": "Section header for the selected annotation's comment thread (its replies, plus a field to add one) in the annotation properties panel."
+  },
   "propSectionFormField": "Form field",
   "@propSectionFormField": {
     "description": "Section header for the form-field controls in the annotation properties panel."

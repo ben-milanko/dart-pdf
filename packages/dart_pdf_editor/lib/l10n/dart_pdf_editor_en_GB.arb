@@ -239,6 +239,7 @@
   "propSectionAllFonts": "All fonts",
   "propSectionAppearance": "Appearance",
   "propSectionContent": "Content",
+  "propSectionComments": "Comments",
   "propSectionFormField": "Form field",
   "propSectionInThisDocument": "In this document",
   "propSectionPositionSize": "Position & size (pt)",

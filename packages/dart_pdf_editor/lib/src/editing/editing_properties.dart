@@ -113,6 +113,7 @@ class _PdfAnnotationPropertiesPanelState
   final TextEditingController _y = TextEditingController();
   final TextEditingController _w = TextEditingController();
   final TextEditingController _h = TextEditingController();
+  final TextEditingController _reply = TextEditingController();
 
   /// What the text fields were last synced from. While the document and full
   /// selection are unchanged the user owns the field text; any revision or
@@ -180,6 +181,7 @@ class _PdfAnnotationPropertiesPanelState
     _y.dispose();
     _w.dispose();
     _h.dispose();
+    _reply.dispose();
     super.dispose();
   }
 
@@ -232,6 +234,9 @@ class _PdfAnnotationPropertiesPanelState
         listEquals(_syncedSlots, slots)) {
       return;
     }
+    // a half-typed reply belongs to the note it was typed under; a revision
+    // alone (including the one the sent reply makes) keeps the selection
+    if (!listEquals(_syncedSlots, slots)) _reply.clear();
     _syncedRevisionId = _controller.revisionId;
     _syncedSlots = List.of(slots);
     final selected = _selectedAnnotations;
@@ -1305,6 +1310,8 @@ class _PdfAnnotationPropertiesPanelState
           _textRow(l.propAuthor, _author,
               key: const ValueKey('pdf-prop-author'), onCommit: _commitAuthor),
       ]);
+      addGroup(
+          'comments', l.propSectionComments, _threadRows(slot.$1, annotation));
     }
     addGroup('position-size', l.propSectionPositionSize, [
       Padding(
@@ -1330,6 +1337,112 @@ class _PdfAnnotationPropertiesPanelState
     ]);
     sections.add(const SizedBox(height: 16));
     return sections;
+  }
+
+  /// The comment thread (§12.5.6.x) [annotation] belongs to: every reply
+  /// under its root - indented by depth, with author and time - then a field
+  /// to add one. The root's own text is the Contents row above.
+  ///
+  /// The page never paints a reply (Acrobat stacks each one, invisibly, on
+  /// its note's /Rect), so without this a selected note showed only its own
+  /// text and the conversation under it read nowhere but the annotation
+  /// list.
+  List<Widget> _threadRows(int pageIndex, PdfAnnotation annotation) {
+    if (!annotation.behavior.selectable) return const [];
+    PdfCommentThread? thread;
+    for (final candidate in _controller.commentThreads(pageIndex)) {
+      if (candidate.comments
+          .any((c) => identical(c.annotation.dict, annotation.dict))) {
+        thread = candidate;
+        break;
+      }
+    }
+    if (thread == null) return const [];
+    final root = thread.root.annotation;
+    final l = pdfL10n(context);
+    final rows = <Widget>[];
+    var index = 0;
+    void walk(PdfComment comment, int depth) {
+      if (depth > 0) rows.add(_replyRow(comment, depth, index++));
+      for (final reply in comment.replies) {
+        walk(reply, depth + 1);
+      }
+    }
+
+    walk(thread.root, 0);
+    rows.add(Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Expanded(
+          child: TextField(
+            key: const ValueKey('pdf-prop-reply-field'),
+            controller: _reply,
+            minLines: 1,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: l.sidebarWriteReplyHint,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _sendReply(pageIndex, root),
+            contextMenuBuilder: pdfTextContextMenu,
+          ),
+        ),
+        ListenableBuilder(
+          listenable: _reply,
+          builder: (context, _) => IconButton(
+            key: const ValueKey('pdf-prop-reply-send'),
+            icon: const Icon(Icons.send, size: 20),
+            tooltip: l.sidebarReply,
+            onPressed: _reply.text.trim().isEmpty
+                ? null
+                : () => _sendReply(pageIndex, root),
+          ),
+        ),
+      ]),
+    ));
+    return rows;
+  }
+
+  /// One reply in the thread, indented by [depth]: author and time over
+  /// its text.
+  Widget _replyRow(PdfComment comment, int depth, int index) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final header = [
+      if (comment.author case final author? when author.isNotEmpty) author,
+      if (pdfPanelTimestamp(comment.createdAt) case final time
+          when time.isNotEmpty)
+        time,
+    ].join(' • ');
+    return Padding(
+      key: ValueKey('pdf-prop-reply-$index'),
+      padding:
+          EdgeInsetsDirectional.fromSTEB(16.0 + (depth - 1) * 14, 2, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: BorderDirectional(
+              start: BorderSide(color: scheme.outlineVariant, width: 2)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (header.isNotEmpty)
+            Text(header,
+                style: textTheme.labelSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+          SelectableText(pdfNormalizeLineEndings(comment.text),
+              style: textTheme.bodySmall),
+        ]),
+      ),
+    );
+  }
+
+  void _sendReply(int pageIndex, PdfAnnotation root) {
+    final text = _reply.text.trim();
+    if (text.isEmpty) return;
+    if (_controller.replyToAnnotation(pageIndex, root, text)) _reply.clear();
   }
 
   List<Widget> _buildMulti(int count) {

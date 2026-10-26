@@ -794,6 +794,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get propSectionContent => 'Nội dung';
 
   @override
+  String get propSectionComments => 'Bình luận';
+
+  @override
   String get propSectionFormField => 'Trường biểu mẫu';
 
   @override
