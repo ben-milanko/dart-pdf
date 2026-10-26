@@ -1290,6 +1290,25 @@ class AppLocalizationsVi extends AppLocalizations {
       'Ghi chú phát hành không có sẵn trong bản dựng này.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Phiếu kể từ $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Không có phiếu mới kể từ $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Từ bản nightly mới hơn ($commit) so với bản dựng này.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Không thể tải các phiếu của bản nightly này. Hãy kiểm tra kết nối và thử lại.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

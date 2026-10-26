@@ -484,6 +484,8 @@ const _textFields = {
   'strokeWidth',
 };
 
+const _cloudCalloutFields = {..._textFields, 'lineScale'};
+
 const _inkFields = {'color', 'strokeWidth', 'opacity'};
 
 final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
@@ -611,6 +613,13 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _SimpleTool(PdfEditTool.callout,
         styleScopeKey: 'callout',
         styleScopeFields: _textFields,
+        styleFields:
+            PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
+    // its own scope so a cloud callout's look (and scallop size) is
+    // remembered apart from the plain callout's
+    const _SimpleTool(PdfEditTool.cloudCallout,
+        styleScopeKey: 'cloudCallout',
+        styleScopeFields: _cloudCalloutFields,
         styleFields:
             PdfToolStyleFields(opacity: true, font: true, boxColors: true)),
     // The Insert strip offers one shared tune popup (opacity + font + text-box

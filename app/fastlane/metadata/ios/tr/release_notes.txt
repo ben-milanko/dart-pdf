@@ -1,1 +1,3 @@
-Düzenlenebilir tablolar oluşturun ve hesap tablolarıyla hücre kopyalayın. Kesintiye uğrayan metin tanımayı sürdürün. Anlık görüntülerde ve açıklamalarda renkleri değiştirin. Metni dikey hizalayın ve kayıtlı damgaları çoğaltın. Metin kaydırma, hatırlanan yazı tipleri ve döndürülmüş anlık görüntüler iyileştirildi.
+DartPDF 12.0.0
+
+Bulut açıklamaları eklendi. Metin arayın, tek veya tüm eşleşmeleri karartma için işaretleyin ve uygulamadan önce inceleyin. Yapıştırılan vektör görüntülerini PNG olarak kaydedin. Gezinirken cetveller ve imleç kılavuzları görünür kalır. Küçük araç çubukları, sayfa numarası ve kısayollar iyileştirildi. Karartmada yakındaki metnin silinmesi düzeltildi.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 12.0.0
+
+- **BREAKING:** add `PdfEditTool.cloudCallout` and 12 abstract localization members. Update exhaustive switches and custom localizations; see `doc/MIGRATING-12.0.0.md`.
+- Add cloud callouts with a marked cloud or polygon region and an attached note.
+- Find text and mark individual or all search matches for redaction. Review marks before applying; selected text can also be marked directly.
+- Save pasted vector snapshots as PNG images.
+- Keep rulers visible when zoomed and cursor guides under the pointer while scrolling.
+- Compact floating toolbars, simplify side docks and give the viewer keyboard focus when it opens.
+- Require the 12.0.0 package suite.
+
 ## 11.0.0
 
 - **BREAKING:** add 22 abstract localization getters for tables, vertical text alignment and stamp duplication. See doc/MIGRATING-11.0.0.md.

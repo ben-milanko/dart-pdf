@@ -1,1 +1,3 @@
+11.0.0
+
 Crie tabelas editáveis e copie células de e para planilhas. Retome o reconhecimento de texto interrompido. Substitua cores em capturas e anotações. Alinhe o texto verticalmente e duplique carimbos salvos. Melhorias na quebra de texto, nas fontes lembradas e nas capturas giradas.

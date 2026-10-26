@@ -455,6 +455,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Zmień kolor…';
 
   @override
+  String get menuSaveAsImage => 'Zapisz jako obraz…';
+
+  @override
   String get menuRemoveNode => 'Usuń węzeł';
 
   @override
@@ -737,6 +740,15 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get propLineType => 'Typ linii';
 
   @override
+  String get propRegion => 'Zaznaczony obszar';
+
+  @override
+  String get propRegionPolygon => 'Wielokąt';
+
+  @override
+  String get propRegionCloud => 'Chmurka';
+
+  @override
   String get propLoadFont => 'Wczytaj czcionkę…';
 
   @override
@@ -976,6 +988,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       few: 'Zamieniono $count dopasowania',
       one: 'Zamieniono 1 dopasowanie',
       zero: 'Nic nie zamieniono',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Oznacz do utajnienia';
+
+  @override
+  String get searchRedactMark => 'Oznacz';
+
+  @override
+  String get searchRedactMarkAll => 'Oznacz wszystkie';
+
+  @override
+  String get searchRedactHint =>
+      'Oznaczenia można przejrzeć, dopóki nie zastosujesz utajnienia';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Oznaczono $count dopasowania do utajnienia',
+      many: 'Oznaczono $count dopasowań do utajnienia',
+      few: 'Oznaczono $count dopasowania do utajnienia',
+      one: 'Oznaczono 1 dopasowanie do utajnienia',
+      zero: 'Już oznaczono',
     );
     return '$_temp0';
   }
@@ -1482,6 +1521,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Zastosuj wymazania (nieodwracalne)';
 
   @override
+  String get tbFindToRedact => 'Znajdź tekst do utajnienia';
+
+  @override
   String get tbAutosizeTextBox =>
       'Automatyczny rozmiar pola tekstowego (Alt+Z)';
 
@@ -1714,6 +1756,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Objaśnienie';
 
   @override
+  String get tbNameCloudCallout => 'Objaśnienie chmurkowe';
+
+  @override
   String get tbNameCloudPolygon => 'Wielokąt chmurkowy';
 
   @override
@@ -1923,6 +1968,10 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Objaśnienie - przeciągnij od punktu do miejsca pola';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Objaśnienie chmurkowe - przeciągnij chmurkę wokół obszaru, a potem wpisz notatkę';
 
   @override
   String get tbTipContent => 'Edytuj treść strony';

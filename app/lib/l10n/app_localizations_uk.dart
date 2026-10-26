@@ -1314,6 +1314,25 @@ class AppLocalizationsUk extends AppLocalizations {
       'Примітки до випуску недоступні в цій збірці.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Завдання з версії $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Нових завдань з версії $version немає.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'З новішої нічної збірки ($commit), ніж ця.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Не вдалося завантажити завдання цієї нічної збірки. Перевірте з’єднання та спробуйте ще раз.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

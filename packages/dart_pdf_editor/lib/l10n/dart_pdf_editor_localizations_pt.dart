@@ -449,6 +449,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recolorir…';
 
   @override
+  String get menuSaveAsImage => 'Salvar como imagem…';
+
+  @override
   String get menuRemoveNode => 'Remover nó';
 
   @override
@@ -727,6 +730,15 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo de linha';
 
   @override
+  String get propRegion => 'Área marcada';
+
+  @override
+  String get propRegionPolygon => 'Polígono';
+
+  @override
+  String get propRegionCloud => 'Nuvem';
+
+  @override
   String get propLoadFont => 'Carregar fonte…';
 
   @override
@@ -962,6 +974,31 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
       other: '$count ocorrências substituídas',
       one: '1 ocorrência substituída',
       zero: 'Nada substituído',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Marcar para ocultação';
+
+  @override
+  String get searchRedactMark => 'Marcar';
+
+  @override
+  String get searchRedactMarkAll => 'Marcar tudo';
+
+  @override
+  String get searchRedactHint =>
+      'As marcas podem ser revistas até aplicar as ocultações';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ocorrências marcadas para ocultação',
+      one: '1 ocorrência marcada para ocultação',
+      zero: 'Já marcado',
     );
     return '$_temp0';
   }
@@ -1462,6 +1499,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Aplicar tarjas (irreversível)';
 
   @override
+  String get tbFindToRedact => 'Localizar texto para ocultar';
+
+  @override
   String get tbAutosizeTextBox =>
       'Ajustar caixa de texto automaticamente (Alt+Z)';
 
@@ -1691,6 +1731,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Chamada';
 
   @override
+  String get tbNameCloudCallout => 'Chamada em nuvem';
+
+  @override
   String get tbNameCloudPolygon => 'Polígono em nuvem';
 
   @override
@@ -1898,6 +1941,10 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Chamada - arraste do ponto até onde a caixa ficará';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Chamada em nuvem - arraste uma nuvem ao redor da área e digite a nota';
 
   @override
   String get tbTipContent => 'Editar conteúdo da página';

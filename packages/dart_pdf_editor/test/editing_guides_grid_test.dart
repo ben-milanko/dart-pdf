@@ -110,6 +110,42 @@ void main() {
     expect(cursorPainter(tester).guideCursor, isNull);
   });
 
+  testWidgets('cursor guides stay on a still mouse while the page scrolls',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.preferences
+      ..showVerticalCursorGuide = true
+      ..showHorizontalCursorGuide = true;
+    await tester.pump();
+
+    const pointer = Offset(300, 300);
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(5, 5));
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(pointer);
+    await tester.pump();
+
+    final overlay = find.byType(EditingPageOverlay).first;
+    Offset pageTop() => tester.getTopLeft(overlay);
+    final topBefore = pageTop();
+    expect(cursorPainter(tester).guideCursor, pointer - topBefore);
+
+    // wheel-scroll without moving the mouse: no hover event arrives
+    tester.binding.handlePointerEvent(const PointerScrollEvent(
+      kind: PointerDeviceKind.mouse,
+      position: pointer,
+      scrollDelta: Offset(0, 120),
+    ));
+    await tester.pumpAndSettle();
+
+    final topAfter = pageTop();
+    expect(topAfter.dy, lessThan(topBefore.dy), reason: 'the page scrolled');
+    final cursor = cursorPainter(tester).guideCursor as Offset;
+    expect(cursor.dx, closeTo((pointer - topAfter).dx, 0.1));
+    expect(cursor.dy, closeTo((pointer - topAfter).dy, 0.1),
+        reason: 'the guides track the pointer, not the scrolled content');
+  });
+
   testWidgets('visible snap grid follows the page-space snapping interval',
       (tester) async {
     final editing = await pumpEditor(tester);
@@ -300,6 +336,49 @@ void main() {
     painter = rulerPainter(tester);
     expect(painter.cursor.dx, closeTo(view(220, 700).dx, 0.1));
     expect(painter.cursor.dy, closeTo(view(220, 700).dy, 0.1));
+  });
+
+  testWidgets('page rulers follow the visible slice when zoomed in',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    editing.preferences.showPageRulers = true;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          controller: viewer,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // fit-width: the whole page width is on screen, rulers at its edges
+    final pageSize = tester.getSize(find.byKey(const ValueKey(
+      'pdf-page-rulers',
+    )));
+    var visible = rulerPainter(tester).visibleRectFor(pageSize)!;
+    expect(visible.left, closeTo(0, 0.5));
+    expect(visible.top, closeTo(0, 0.5));
+
+    // zoomed 3x around the viewport centre the page's top-left corner is
+    // off screen: the rulers must hang from the visible slice instead
+    viewer.setZoom(3 * scale);
+    await tester.pump();
+    final region = viewer.visiblePageRegion(0)!;
+    expect(region.left, greaterThan(0.1));
+    expect(region.top, greaterThan(0.1));
+    final zoomedSize = tester.getSize(find.byKey(const ValueKey(
+      'pdf-page-rulers',
+    )));
+    visible = rulerPainter(tester).visibleRectFor(zoomedSize)!;
+    expect(visible.left, closeTo(region.left * zoomedSize.width, 0.5));
+    expect(visible.top, closeTo(region.top * zoomedSize.height, 0.5));
+    // the step still adapts to the on-screen zoom
+    expect(rulerPainter(tester).majorStepFor(zoomedSize), lessThan(50));
   });
 
   testWidgets('editor settings exposes persistent guide and grid controls',

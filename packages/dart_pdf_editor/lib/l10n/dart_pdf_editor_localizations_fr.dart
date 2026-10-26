@@ -450,6 +450,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recoloriser…';
 
   @override
+  String get menuSaveAsImage => 'Enregistrer comme image…';
+
+  @override
   String get menuRemoveNode => 'Supprimer le nœud';
 
   @override
@@ -728,6 +731,15 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get propLineType => 'Type de ligne';
 
   @override
+  String get propRegion => 'Zone marquée';
+
+  @override
+  String get propRegionPolygon => 'Polygone';
+
+  @override
+  String get propRegionCloud => 'Nuage';
+
+  @override
   String get propLoadFont => 'Charger une police…';
 
   @override
@@ -963,6 +975,31 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       other: '$count correspondances remplacées',
       one: '1 correspondance remplacée',
       zero: 'Rien n’a été remplacé',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Marquer pour biffure';
+
+  @override
+  String get searchRedactMark => 'Marquer';
+
+  @override
+  String get searchRedactMarkAll => 'Tout marquer';
+
+  @override
+  String get searchRedactHint =>
+      'Les marques restent modifiables jusqu’à l’application des biffures';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count correspondances marquées pour biffure',
+      one: '1 correspondance marquée pour biffure',
+      zero: 'Déjà marqué',
     );
     return '$_temp0';
   }
@@ -1465,6 +1502,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Appliquer les caviardages (irréversible)';
 
   @override
+  String get tbFindToRedact => 'Rechercher du texte à biffer';
+
+  @override
   String get tbAutosizeTextBox =>
       'Ajuster automatiquement la zone de texte (Alt+Z)';
 
@@ -1696,6 +1736,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Légende';
 
   @override
+  String get tbNameCloudCallout => 'Légende nuage';
+
+  @override
   String get tbNameCloudPolygon => 'Polygone nuage';
 
   @override
@@ -1903,6 +1946,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Légende - faites glisser du point vers l\'emplacement de la zone';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Légende nuage - faites glisser un nuage autour de la zone, puis saisissez la note';
 
   @override
   String get tbTipContent => 'Modifier le contenu de la page';

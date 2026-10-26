@@ -1,5 +1,11 @@
 # Changelog
 
+## 12.0.0
+
+- Add cloud and polygon regions to callouts, preserving their geometry through moves, resizing, rotation, styling and copying.
+- Preserve unredacted text elsewhere in a text run and support redaction from text selections.
+- Require the 12.0.0 package suite.
+
 ## 11.0.0
 
 - **BREAKING:** add PdfAnnotationResizeBehavior.reflowTable. Update exhaustive switches; see doc/MIGRATING-11.0.0.md.

@@ -166,7 +166,8 @@ void main() {
 
   group('context menu', () {
     Future<PdfEditingController> pumpViewer(WidgetTester tester,
-        {PdfAnnotationMenuBuilder? menuBuilder}) async {
+        {PdfAnnotationMenuBuilder? menuBuilder,
+        PdfSelectedContentImageHandler? onSaveImage}) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       await tester.pumpWidget(MaterialApp(
@@ -178,6 +179,7 @@ void main() {
               document: editing.document,
               editing: editing,
               annotationMenuBuilder: menuBuilder,
+              onSaveAnnotationImage: onSaveImage,
             ),
           ),
         ),
@@ -396,6 +398,52 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(identical(editing.document, before), isFalse);
+    });
+
+    testWidgets('Save as image… shows only for a snapshot, with a host saver',
+        (tester) async {
+      PdfSelectedContentImage? saved;
+      final editing = await pumpViewer(tester,
+          onSaveImage: (context, image) async => saved = image);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(110, 725)); // plain rectangle A
+      const key = ValueKey('pdf-annot-menu-save-snapshot-image');
+      expect(find.byKey(key), findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      await rightClick(tester, viewPoint(110, 500)); // the snapshot stamp
+      expect(find.byKey(key), findsOneWidget);
+      final before = editing.document;
+      await tester.tap(find.byKey(key));
+      await tester.runAsync(() async {
+        for (var i = 0; i < 50 && saved == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await tester.pumpAndSettle();
+
+      expect(saved, isNotNull);
+      expect(saved!.pngBytes.take(4), [137, 80, 78, 71]);
+      // saving is read-only: no new revision
+      expect(identical(editing.document, before), isTrue);
+    });
+
+    testWidgets('Save as image… is hidden without a host saver',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(110, 500));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-recolor-snapshot')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-save-snapshot-image')),
+          findsNothing);
     });
 
     testWidgets('right-click keeps an existing multi-selection',

@@ -1285,6 +1285,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Release notes aren\'t available in this build.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Tickets since $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'No new tickets since $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'From a newer nightly ($commit) than this build.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Couldn\'t load this nightly\'s tickets. Check your connection and try again.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2656,6 +2675,25 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
       'Release notes aren\'t available in this build.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Tickets since $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'No new tickets since $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'From a newer nightly ($commit) than this build.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Couldn\'t load this nightly\'s tickets. Check your connection and try again.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -4025,6 +4063,25 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get whatsNewUnavailable =>
       'Release notes aren\'t available in this build.';
+
+  @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Tickets since $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'No new tickets since $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'From a newer nightly ($commit) than this build.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Couldn\'t load this nightly\'s tickets. Check your connection and try again.';
 
   @override
   String incomingFilesTitle(int count) {
