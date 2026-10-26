@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:web/web.dart' as web;
 
 /// Web file picker that reads each chosen file's bytes straight from the
-/// browser [web.File] with `File.arrayBuffer()`, returning in-memory [XFile]s
-/// built via [XFile.fromData].
+/// browser [web.File] with `File.arrayBuffer()` ([PickedWebFile]).
 ///
 /// It deliberately bypasses `file_selector_web`, whose picked XFiles are
 /// blob-URL-only (`XFile(URL.createObjectURL(file))`). Their [XFile.readAsBytes]
@@ -15,9 +16,13 @@ import 'package:web/web.dart' as web;
 /// COEP `credentialless`) the deployed site sets for SharedArrayBuffer - so
 /// opening a picked PDF - and later a signing key/certificate - hung forever
 /// on app.dart-pdf.com. Reading the [web.File] directly touches only the
-/// in-memory blob, which works under isolation, and [XFile.fromData] keeps
-/// those bytes so a later [XFile.readAsBytes] never hits the XHR path. See
-/// doc/dev-log/2026-07-19-web-pick-coep-hang.md.
+/// browser's file handle, which works under isolation, so [XFile.readAsBytes]
+/// never hits the XHR path. See doc/dev-log/2026-07-19-web-pick-coep-hang.md.
+///
+/// The picker completes as soon as the files are chosen; the bytes are read
+/// when a caller asks for them. A file on a cloud-synced or network folder
+/// can take many seconds to read, and reading it here left the app showing
+/// nothing between the picker closing and the document opening.
 Future<List<XFile>> pickInMemoryFilesWeb({
   required String accept,
   required String fallbackMimeType,
@@ -47,31 +52,11 @@ Future<List<XFile>> pickInMemoryFilesWeb({
         finish(const <XFile>[]);
         return;
       }
-      // Read every picked file's bytes before completing so the returned XFiles
-      // are fully in-memory (no lazy blob-URL fetch downstream).
-      () async {
-        try {
-          final out = <XFile>[];
-          for (var i = 0; i < fileList.length; i++) {
-            final file = fileList.item(i);
-            if (file == null) continue;
-            final buffer = (await file.arrayBuffer().toDart).toDart;
-            final bytes = buffer.asUint8List();
-            out.add(XFile.fromData(
-              bytes,
-              name: file.name,
-              mimeType: file.type.isEmpty ? fallbackMimeType : file.type,
-              length: bytes.length,
-            ));
-          }
-          finish(out);
-        } catch (error) {
-          if (!completer.isCompleted) {
-            input.remove();
-            completer.completeError(error);
-          }
-        }
-      }();
+      finish([
+        for (var i = 0; i < fileList.length; i++)
+          if (fileList.item(i) case final file?)
+            PickedWebFile(file, fallbackMimeType: fallbackMimeType),
+      ]);
     }.toJS,
   );
 
@@ -111,3 +96,51 @@ Future<XFile?> pickPdfFileWeb() => pickInMemoryFileWeb(
       accept: '.pdf,application/pdf',
       fallbackMimeType: 'application/pdf',
     );
+
+/// An [XFile] over a browser [web.File] that reads its bytes only on demand,
+/// with `File.arrayBuffer()` (never a `blob:` URL XHR, which hangs under the
+/// deployed site's cross-origin isolation). [name], [mimeType] and [length]
+/// come from the file's metadata, so a caller can label and size it without
+/// reading it. The bytes are read once and kept, so repeat reads are free.
+class PickedWebFile extends XFile {
+  PickedWebFile(this._file, {required String fallbackMimeType})
+      : _mimeType = _file.type.isEmpty ? fallbackMimeType : _file.type,
+        super(_file.name);
+
+  final web.File _file;
+  final String _mimeType;
+  Future<Uint8List>? _bytes;
+
+  @override
+  String get name => _file.name;
+
+  @override
+  String? get mimeType => _mimeType;
+
+  @override
+  Future<int> length() async => _file.size;
+
+  @override
+  Future<DateTime> lastModified() async =>
+      DateTime.fromMillisecondsSinceEpoch(_file.lastModified);
+
+  @override
+  Future<Uint8List> readAsBytes() => _bytes ??= _file.arrayBuffer().toDart.then(
+        (buffer) => buffer.toDart.asUint8List(),
+        // A failed read stays retryable rather than cached.
+        onError: (Object error, StackTrace stack) {
+          _bytes = null;
+          return Future<Uint8List>.error(error, stack);
+        },
+      );
+
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) async =>
+      encoding.decode(await readAsBytes());
+
+  @override
+  Stream<Uint8List> openRead([int? start, int? end]) async* {
+    final bytes = await readAsBytes();
+    yield Uint8List.sublistView(bytes, start ?? 0, end ?? bytes.length);
+  }
+}

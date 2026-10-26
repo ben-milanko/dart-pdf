@@ -173,15 +173,16 @@ PdfByteSource pdfByteSourceForMobileToken(
 
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
 ///
-/// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
-/// instead of going through `file_selector`, whose blob-URL XFiles hang on
-/// `readAsBytes()` under the deployed site's cross-origin isolation.
+/// On the web this reads the picked file's bytes from the browser file itself
+/// (see [pickPdfFileWeb]) instead of going through `file_selector`, whose
+/// blob-URL XFiles hang on `readAsBytes()` under the deployed site's
+/// cross-origin isolation.
 Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
     ? pickPdfFileWeb()
     : openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
-/// when the user cancels. On the web, reads the bytes eagerly (see
+/// when the user cancels. On the web, reads through the browser file (see
 /// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
 Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
     ? pickPdfFilesWeb()

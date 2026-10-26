@@ -31,3 +31,24 @@ open buys little there until reads use a byte-range-friendly path.
 
 Test: `mobile_progressive_open_test.dart` holds the probe open and asserts the
 loading tab is already showing.
+
+## Web and desktop
+
+**Web** had the same shape. `pickInMemoryFilesWeb` (web_file_picker.dart)
+awaited `File.arrayBuffer()` for every picked file before completing, so a
+file in a cloud-synced or network folder read in full before the app saw the
+pick. It now completes on `change` with `PickedWebFile`s: an `XFile` over the
+browser `web.File` whose name/type/size come from metadata and whose bytes are
+read on the first `readAsBytes()` (still `arrayBuffer()`, never the `blob:`
+XHR that hangs under COEP - see 2026-07-19-web-pick-coep-hang.md), memoized,
+with a failed read left retryable. `_openPickedFile` already sizes the file
+with `length()` and reads behind the placeholder. Browser test:
+`test/web/web_file_picker_test.dart` (in CI's chrome step).
+
+**Desktop** needed nothing in Dart: `_pickAndOpen` puts the loading tabs up
+(`_openLoadingBatch`) before any stat, bookmark or read, all of which are
+async - pinned by session_restore_test's "a multi-file pick shows every
+placeholder before any file is read". macOS runner file access runs on
+`FileAccessExecutor`'s background queue. The one stall left is outside the
+app: if the OS dialog itself downloads a cloud file before returning (macOS
+NSOpenPanel does this for dataless iCloud items, with its own progress UI).
