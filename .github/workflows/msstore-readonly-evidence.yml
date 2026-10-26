@@ -24,8 +24,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install cryptography==46.0.3
+      - name: Install existing Snapcraft reporting client
+        run: sudo snap install snapcraft --classic
       - name: Test read-only boundaries without credentials
-        run: python -m unittest discover -s app/packaging/msstore -p 'test_read_evidence.py'
+        run: python -m unittest discover -s app/packaging/msstore -p 'test_read_*.py'
       - name: Read and encrypt native evidence
         env:
           EVIDENCE_PUBLIC_KEY: ${{ inputs.evidence_public_key }}
@@ -33,10 +35,11 @@ jobs:
           MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
           MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}
           MSSTORE_CERTIFICATE_PASSWORD: ${{ secrets.MSSTORE_CERTIFICATE_PASSWORD }}
-        run: python app/packaging/msstore/read_evidence.py
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: python app/packaging/msstore/read_growth.py
       - uses: actions/upload-artifact@v7
         with:
-          name: msstore-encrypted-evidence
-          path: msstore-evidence.encrypted.json
+          name: growth-encrypted-evidence
+          path: growth-evidence.encrypted.json
           if-no-files-found: error
           retention-days: 7
