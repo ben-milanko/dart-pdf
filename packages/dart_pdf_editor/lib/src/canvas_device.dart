@@ -87,6 +87,10 @@ class CanvasPdfDevice
   /// Every stroke goes through this, text included: an outlined glyph
   /// (rendering modes 1/2/5/6) is linework, and a `0 w` stroked run used to
   /// read as blank paper for exactly the reason above (#912).
+  ///
+  /// An opaque path stroke narrower than a pixel is not replaced, though: it
+  /// keeps its width and gains a hairline overlay ([_thinStrokeOverlay]), so
+  /// it still grows when the picture is replayed zoomed in.
   @visibleForTesting
   double strokeWidthFor(double width) {
     if (pixelRatio <= 0) return width;
@@ -353,6 +357,11 @@ class CanvasPdfDevice
   PdfStroke? _strokeStyle;
   double _strokeAlpha = -1;
   BlendMode? _strokeBlend;
+
+  /// The one-device-pixel overlay for the stroke paint last returned by
+  /// [_solidStrokePaint], or null when that stroke needs none (see
+  /// [_thinStrokeOverlay]).
+  Paint? _strokeHairlinePaint;
 
   /// One entry per open transparency group: true while that group is a
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
@@ -828,8 +837,10 @@ class CanvasPdfDevice
       if (cursor.moveNext() && cursor.verb == PdfPathVerb.moveTo) {
         final x = cursor.x1, y = cursor.y1;
         if (cursor.moveNext() && cursor.verb == PdfPathVerb.lineTo) {
-          canvas.drawLine(Offset(x, y), Offset(cursor.x1, cursor.y1),
-              _solidStrokePaint(color, stroke, alpha));
+          final from = Offset(x, y), to = Offset(cursor.x1, cursor.y1);
+          canvas.drawLine(from, to, _solidStrokePaint(color, stroke, alpha));
+          final hairline = _strokeHairlinePaint;
+          if (hairline != null) canvas.drawLine(from, to, hairline);
           return;
         }
       }
@@ -842,6 +853,71 @@ class CanvasPdfDevice
       uiPath,
       _solidStrokePaint(color, stroke, alpha),
     );
+    final hairline = _strokeHairlinePaint;
+    if (hairline != null) canvas.drawPath(uiPath, hairline);
+  }
+
+  /// Whether a stroke [width] page units wide is floored by a hairline
+  /// overlay rather than replaced by one.
+  ///
+  /// [strokeWidthFor] alone turns a sub-pixel stroke into Skia's hairline,
+  /// which is one device pixel at *every* replay scale - right zoomed out,
+  /// wrong zoomed in. A recorded picture is replayed at many ratios (base
+  /// raster, deep-zoom detail patch, retained scene), and every one of them
+  /// records at [pixelRatio] 1, so a 0.72 pt CAD line stayed one pixel wide
+  /// at 4x instead of growing to ~3: parallel conduit runs that read as a
+  /// solid band zoomed out fell apart into faint threads zoomed in.
+  ///
+  /// Instead the stroke keeps its true width and a hairline is drawn down
+  /// the same path, the way [_floorThinRectFill] floors a thin fill: where
+  /// the stroke is under a pixel the hairline supplies the floor, and where
+  /// it is wider the hairline lies inside it and changes nothing. That needs
+  /// paint that is idempotent over itself - opaque, and a blend mode that
+  /// leaves a pixel already painted in that colour unchanged. Anything else
+  /// keeps the plain hairline, since painting it twice would darken it.
+  bool _thinStrokeOverlay(double width, double alpha, BlendMode blend) =>
+      pixelRatio > 0 &&
+      width > 0 &&
+      width * pixelRatio < 1 &&
+      alpha >= 1 &&
+      (blend == BlendMode.srcOver ||
+          blend == BlendMode.src ||
+          blend == BlendMode.darken);
+
+  Paint _buildStrokePaint(PdfColor color, PdfStroke stroke, double alpha,
+      BlendMode blend, double width) {
+    return Paint()
+      ..style = PaintingStyle.stroke
+      ..color = _toColor(color, alpha)
+      ..strokeWidth = width
+      ..strokeCap = switch (stroke.cap) {
+        1 => StrokeCap.round,
+        2 => StrokeCap.square,
+        _ => StrokeCap.butt,
+      }
+      ..strokeJoin = switch (stroke.join) {
+        1 => StrokeJoin.round,
+        2 => StrokeJoin.bevel,
+        _ => StrokeJoin.miter,
+      }
+      ..strokeMiterLimit = stroke.miterLimit
+      ..blendMode = blend;
+  }
+
+  /// Builds the stroke paint for [stroke] and leaves its overlay (or null)
+  /// in [_strokeHairlinePaint].
+  Paint _newStrokePaint(
+      PdfColor color, PdfStroke stroke, double alpha, BlendMode blend) {
+    final overlay = _thinStrokeOverlay(stroke.width, alpha, blend);
+    _strokeHairlinePaint = overlay
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0
+          ..color = _toColor(color, alpha)
+          ..blendMode = blend)
+        : null;
+    return _buildStrokePaint(color, stroke, alpha, blend,
+        overlay ? stroke.width : strokeWidthFor(stroke.width));
   }
 
   Paint _solidFillPaint(PdfColor color, double alpha) {
@@ -871,22 +947,7 @@ class CanvasPdfDevice
   Paint _solidStrokePaint(PdfColor color, PdfStroke stroke, double alpha) {
     final blend = _strokeElementBlend;
     if (!debugReuseSolidPaints) {
-      return Paint()
-        ..style = PaintingStyle.stroke
-        ..color = _toColor(color, alpha)
-        ..strokeWidth = strokeWidthFor(stroke.width)
-        ..strokeCap = switch (stroke.cap) {
-          1 => StrokeCap.round,
-          2 => StrokeCap.square,
-          _ => StrokeCap.butt,
-        }
-        ..strokeJoin = switch (stroke.join) {
-          1 => StrokeJoin.round,
-          2 => StrokeJoin.bevel,
-          _ => StrokeJoin.miter,
-        }
-        ..strokeMiterLimit = stroke.miterLimit
-        ..blendMode = blend;
+      return _newStrokePaint(color, stroke, alpha, blend);
     }
     final cached = _strokePaint;
     final style = _strokeStyle;
@@ -905,22 +966,7 @@ class CanvasPdfDevice
     _strokeStyle = stroke;
     _strokeAlpha = alpha;
     _strokeBlend = blend;
-    return _strokePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..color = _toColor(color, alpha)
-      ..strokeWidth = strokeWidthFor(stroke.width)
-      ..strokeCap = switch (stroke.cap) {
-        1 => StrokeCap.round,
-        2 => StrokeCap.square,
-        _ => StrokeCap.butt,
-      }
-      ..strokeJoin = switch (stroke.join) {
-        1 => StrokeJoin.round,
-        2 => StrokeJoin.bevel,
-        _ => StrokeJoin.miter,
-      }
-      ..strokeMiterLimit = stroke.miterLimit
-      ..blendMode = blend;
+    return _strokePaint = _newStrokePaint(color, stroke, alpha, blend);
   }
 
   /// Rebuilds [source] as its dashed segments (§8.4.3.6). Zero-length
