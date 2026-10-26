@@ -31,6 +31,7 @@ jobs:
       - name: Read and encrypt native evidence
         env:
           EVIDENCE_PUBLIC_KEY: ${{ inputs.evidence_public_key }}
+          GROWTH_USAGE_ONLY: '1'
           MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
           MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
           MSSTORE_CERTIFICATE_BASE64: ${{ secrets.MSSTORE_CERTIFICATE_BASE64 }}

@@ -50,8 +50,13 @@ def request(url, method='GET', data=None, headers=None):
 
 
 def failure(error):
-    return {'status':'unavailable', 'errorType':type(error).__name__,
-            'httpStatus':error.code if isinstance(error, urllib.error.HTTPError) else None}
+    value = {'status':'unavailable', 'errorType':type(error).__name__,
+             'httpStatus':error.code if isinstance(error, urllib.error.HTTPError) else None}
+    if isinstance(error, urllib.error.HTTPError):
+        retry = error.headers.get('Retry-After','') if error.headers else ''
+        if retry.isdigit():
+            value['retryAfterSeconds'] = int(retry)
+    return value
 
 
 def microsoft_token():
@@ -122,17 +127,19 @@ def snap_series(name, start, end):
 
 def collect():
     result = {'observedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'product':PRODUCT,'windows':{},'snap':{}}
+    usage_only = os.environ.get('GROWTH_USAGE_ONLY') == '1'
     try:
         token = microsoft_token()
     except Exception as error:
         result['windows']['authentication'] = failure(error)
     else:
-        for endpoint, start in [('installs','2026-07-01'),('usagemonthly','2026-08-01')]:
+        queries = [('usagemonthly','2026-09-01','2026-09-30')] if usage_only else [('installs','2026-07-01','2026-10-25'),('usagemonthly','2026-08-01','2026-10-25')]
+        for endpoint, start, end in queries:
             try:
-                result['windows'][endpoint] = windows_series(token, endpoint, start, '2026-10-25')
+                result['windows'][endpoint] = windows_series(token, endpoint, start, end)
             except Exception as error:
                 result['windows'][endpoint] = failure(error)
-    for metric in SNAP_METRICS:
+    for metric in (() if usage_only else SNAP_METRICS):
         try:
             result['snap'][metric] = snap_series(metric, '2026-07-29', '2026-10-25')
         except Exception as error:
