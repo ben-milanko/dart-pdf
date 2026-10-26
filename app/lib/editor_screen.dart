@@ -2052,8 +2052,10 @@ class _EditorScreenState extends State<EditorScreen>
       ];
 
   /// Opens phone/tablet picks through the reference picker (#364): the runner
-  /// hands back a token to the *original* file (not a sandbox copy) plus a
-  /// seekability probe. A single seekable pick opens progressively (first paint
+  /// hands back a token to the *original* file (not a sandbox copy), and the
+  /// loading tabs go up before anything reads it - the seekability probe comes
+  /// after, since a cloud provider may download the whole file to answer it.
+  /// A single seekable pick opens progressively (first paint
   /// from native ranged reads, full bytes streamed in behind it, then a private
   /// snapshot for reopen). A non-seekable provider - many cloud providers hand
   /// SAF a pipe - streams the reference whole instead, the same cost as the old
@@ -2072,7 +2074,14 @@ class _EditorScreenState extends State<EditorScreen>
       final loading = placeholders[i];
       if (!mounted) return;
       if (!_tabs.contains(loading)) continue;
-      final progressive = !defer && pick.seekable;
+      // The probe can take as long as the whole download, so it runs here,
+      // behind the placeholder, not in the picker reply. A batch never opens
+      // progressively, so it doesn't need to know.
+      final seekable = pick.seekable ??
+          (defer ? null : await probeMobileSeekable(pick.token));
+      if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
+      final progressive = !defer && seekable == true;
       final reason = progressive
           ? 'single-seekable'
           : defer
@@ -2084,7 +2093,7 @@ class _EditorScreenState extends State<EditorScreen>
         'provider="${_openTraceLabel(pick.provider)}" '
         'name="${_openTraceLabel(pick.name)}" '
         'declaredBytes=${pick.length ?? "unknown"} '
-        'seekable=${pick.seekable} '
+        'seekable=${seekable ?? "unprobed"} '
         'mode=${progressive ? "progressive" : "whole"} '
         'reason=$reason',
       );
