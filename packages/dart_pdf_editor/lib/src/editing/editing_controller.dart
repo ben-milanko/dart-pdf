@@ -6216,7 +6216,12 @@ class PdfEditingController extends ChangeNotifier {
     final annotations = _page(pageIndex).annotations;
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
+      // replies and review-state records share their root's /Rect but are
+      // never painted: a click on a note must select the note, not the
+      // invisible reply stacked over it
       if (annotation.isHidden ||
+          annotation.isReply ||
+          annotation.isStateAnnotation ||
           _hiddenFromDisplay(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
