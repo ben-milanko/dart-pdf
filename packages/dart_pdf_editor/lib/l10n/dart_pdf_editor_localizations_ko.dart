@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get annotText => '메모';
 
   @override
+  String get notePopupKeepOpen => '열어 두기';
+
+  @override
   String get annotUnderline => '밑줄';
 
   @override

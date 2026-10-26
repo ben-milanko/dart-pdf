@@ -59,6 +59,7 @@
   "annotStamp": "Штамп",
   "annotStrikeOut": "Зачёркивание",
   "annotText": "Заметка",
+  "notePopupKeepOpen": "Оставить открытой",
   "annotUnderline": "Подчёркивание",
   "annotWidget": "Поле формы",
   "apply": "Применить",

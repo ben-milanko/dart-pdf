@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get annotText => 'تێبینی';
 
   @override
+  String get notePopupKeepOpen => 'بە کراوەیی بهێڵەرەوە';
+
+  @override
   String get annotUnderline => 'هێڵی ژێرەوە';
 
   @override

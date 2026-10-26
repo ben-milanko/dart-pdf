@@ -27,13 +27,14 @@ bool pdfIsNotePopupTarget(PdfAnnotation annotation) {
 /// A note's icon carries none of its text, so without this the only place
 /// to read it is the properties or annotation panel. [PdfViewer] shows the
 /// card while the mouse rests on a note and keeps it up while a single note
-/// is selected (which is how touch reaches it); see
-/// [PdfViewer.showNotePopups].
+/// is selected (which is how touch reaches it), and keeps any number of
+/// cards the user pinned open; see [PdfViewer.showNotePopups].
 class PdfNotePopupCard extends StatelessWidget {
   const PdfNotePopupCard({
     super.key,
     required this.note,
     this.replies = const [],
+    this.trailing,
     this.maxWidth = 300,
     this.maxHeight = 260,
   });
@@ -44,6 +45,9 @@ class PdfNotePopupCard extends StatelessWidget {
   /// The note's replies with their depth below the note (1 = a direct
   /// reply), in thread order.
   final List<(PdfComment, int)> replies;
+
+  /// Shown at the end of the author line - the viewer's pin / close button.
+  final Widget? trailing;
 
   /// Bounds of the card; a long note scrolls inside them.
   final double maxWidth;
@@ -117,49 +121,66 @@ class PdfNotePopupCard extends StatelessWidget {
               style: base,
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      header.isEmpty ? pdfL10n(context).annotText : header,
-                      style: base.copyWith(
-                          fontSize: 12, fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (contents.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(contents,
-                          key: const ValueKey('pdf-note-popup-text')),
-                    ],
-                    for (final (reply, depth) in replies) ...[
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: EdgeInsets.only(left: (depth - 1) * 12.0),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.only(left: 8),
-                          decoration: BoxDecoration(
-                            border:
-                                Border(left: BorderSide(color: rule, width: 2)),
+                // as wide as the widest line (up to maxWidth), so the
+                // trailing button sits at the card's edge, not after a short
+                // author line
+                child: IntrinsicWidth(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              header.isEmpty
+                                  ? pdfL10n(context).annotText
+                                  : header,
+                              style: base.copyWith(
+                                  fontSize: 12, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (_header(reply.author, reply.createdAt)
-                                  case final h when h.isNotEmpty)
-                                Text(h,
-                                    style: base.copyWith(
-                                        fontSize: 11, color: muted)),
-                              Text(reply.text,
-                                  style: base.copyWith(fontSize: 13)),
-                            ],
+                          if (trailing case final trailing?) ...[
+                            const SizedBox(width: 6),
+                            trailing,
+                          ],
+                        ],
+                      ),
+                      if (contents.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(contents,
+                            key: const ValueKey('pdf-note-popup-text')),
+                      ],
+                      for (final (reply, depth) in replies) ...[
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: EdgeInsets.only(left: (depth - 1) * 12.0),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.only(left: 8),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                  left: BorderSide(color: rule, width: 2)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_header(reply.author, reply.createdAt)
+                                    case final h when h.isNotEmpty)
+                                  Text(h,
+                                      style: base.copyWith(
+                                          fontSize: 11, color: muted)),
+                                Text(reply.text,
+                                    style: base.copyWith(fontSize: 13)),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

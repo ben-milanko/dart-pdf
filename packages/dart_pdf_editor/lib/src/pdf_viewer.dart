@@ -1938,7 +1938,9 @@ class PdfViewer extends StatefulWidget {
   /// Whether a sticky note's text pops up beside its icon: a
   /// [PdfNotePopupCard] while the mouse rests on a note (not while a
   /// drawing tool is armed), and for as long as a single note is selected,
-  /// which is how touch reaches it. A note's icon carries none of its text,
+  /// which is how touch reaches it. The card's pin button keeps it open
+  /// until its close button, so several notes can be open at once. A note's
+  /// icon carries none of its text,
   /// so without this it can only be read in a properties or annotation
   /// panel. Highlights and shapes carrying a comment get the same card
   /// ([pdfIsNotePopupTarget]), and the card's text is selectable.
@@ -2637,7 +2639,12 @@ class _PdfViewerState extends State<PdfViewer>
   /// scroll it.
   Timer? _noteHideTimer;
 
-  /// Whether the pointer is over the popup card itself.
+  /// Notes the user pinned open with a card's pin button, oldest first. Any
+  /// number stay up at once, beside the hovered or selected one, until their
+  /// close button dismisses them; an unrelated document clears them.
+  final List<_OpenNote> _openNotes = [];
+
+  /// Whether the pointer is over a popup card.
   bool _overNoteCard = false;
 
   /// Whether a press that began on the popup card is still down - a drag
@@ -2647,7 +2654,8 @@ class _PdfViewerState extends State<PdfViewer>
   /// Keys the viewport Stack the popup card is positioned in.
   final GlobalKey _noteLayerKey = GlobalKey();
 
-  /// Ticks when [_hoveredNote] changes, so only the popup layer rebuilds.
+  /// Ticks when [_hoveredNote] or [_openNotes] changes, so only the popup
+  /// layer rebuilds.
   final ValueNotifier<int> _noteHoverTick = ValueNotifier(0);
 
   /// The popup layer, kept as one instance per editing controller so a
@@ -4629,6 +4637,7 @@ class _PdfViewerState extends State<PdfViewer>
     }
     if (!preserveRevisionViewport) {
       _incrementalFallbackReason = 'unrelated-document-swap';
+      _openNotes.clear();
     }
     _lastIncrementallyReconciledPages = null;
     final sameGeometry = _sameGeometryAs(document);
@@ -7896,11 +7905,30 @@ class _PdfViewerState extends State<PdfViewer>
     _noteHoverTick.value++;
   }
 
-  /// The note the popup card shows: a single selected note wins (it stays
-  /// up while selected, the touch path) over the hovered one.
-  ({int page, PdfAnnotation note, bool pinned})? _notePopupTarget() {
-    if (!widget.showNotePopups || !widget.showAnnotations) return null;
+  /// The notes whose cards show, bottom to top: the ones pinned open, then
+  /// a single selected note (it stays up while selected - the touch path),
+  /// then the hovered one. A note shows once, as the first of those it is.
+  List<({int page, PdfAnnotation note, _OpenNote? open})> _notePopupTargets() {
+    if (!widget.showNotePopups || !widget.showAnnotations) return const [];
     final editing = widget.editing;
+    final shown = Set<CosDictionary>.identity();
+    // a move drag rides a ghost; a moving note's card would sit at the old
+    // spot
+    if (editing != null && _movePreview != null) {
+      for (final (page, slot) in editing.selectedAnnotationSlots) {
+        if (editing.annotationAt(page, slot) case final moving?) {
+          shown.add(moving.dict);
+        }
+      }
+    }
+    final out = <({int page, PdfAnnotation note, _OpenNote? open})>[];
+    void add(int page, PdfAnnotation note, _OpenNote? open) {
+      if (shown.add(note.dict)) out.add((page: page, note: note, open: open));
+    }
+
+    for (final open in _openNotes) {
+      if (_resolveOpenNote(open) case final r?) add(r.page, r.note, open);
+    }
     if (editing != null) {
       final slots = editing.selectedAnnotationSlots;
       final selected = editing.selectedAnnotation;
@@ -7908,34 +7936,95 @@ class _PdfViewerState extends State<PdfViewer>
           selected != null &&
           pdfIsNotePopupTarget(selected) &&
           !editing.isEditingText) {
-        // a move drag rides a ghost; the card would sit at the old spot
-        if (_movePreview != null) return null;
-        return (page: slots.single.$1, note: selected, pinned: true);
+        add(slots.single.$1, selected, null);
       }
     }
     final hovered = _hoveredNote;
-    if (hovered == null || hovered.page >= _pages.length) return null;
-    return (page: hovered.page, note: hovered.note, pinned: false);
+    if (hovered != null && hovered.page < _pages.length) {
+      add(hovered.page, hovered.note, null);
+    }
+    return out;
   }
 
-  /// Where the popup card goes right now: its note and the icon's rect in
-  /// the viewport Stack, or null when no card shows.
-  _NotePopupPlacement? _notePopupPlacement() {
-    final target = _notePopupTarget();
-    if (target == null) return null;
+  /// [open]'s note in the current revision: on the page with the same
+  /// indirect reference (pages move), by /NM, else by its /Annots slot.
+  /// Null while it is gone - deleted, hidden, or no longer commented - so
+  /// an undo that brings it back reopens its card.
+  ({int page, PdfAnnotation note})? _resolveOpenNote(_OpenNote open) {
+    final page =
+        open.pageRef == null ? open.page : _pageRefs.indexOf(open.pageRef);
+    if (page < 0 || page >= _pages.length) return null;
+    final annotations = _pages[page].annotations;
+    final name = open.name;
+    final note = name != null
+        ? annotations.where((a) => a.name == name).firstOrNull
+        : (open.slot >= 0 && open.slot < annotations.length
+            ? annotations[open.slot]
+            : null);
+    if (note == null ||
+        note.isHidden ||
+        note.isNoView ||
+        widget.hiddenAnnotationSubtypes.contains(note.subtype) ||
+        !pdfIsNotePopupTarget(note)) {
+      return null;
+    }
+    return (page: page, note: note);
+  }
+
+  /// Pins [note]'s card open, so it stays up beside any others.
+  void _openNote(int page, PdfAnnotation note) {
+    if (page >= _pages.length) return;
+    final slot = _pages[page]
+        .annotations
+        .indexWhere((a) => identical(a.dict, note.dict));
+    _openNotes.add(_OpenNote(
+      pageRef: _pageRefs[page],
+      page: page,
+      name: note.name,
+      slot: slot,
+    ));
+    _noteCardsChanged();
+  }
+
+  void _closeNote(_OpenNote open) {
+    if (!_openNotes.remove(open)) return;
+    _noteCardsChanged();
+  }
+
+  void _noteCardsChanged() {
+    // the card under the pointer is rebuilt under a new key; its replacement
+    // reports the pointer again, the old one never reports leaving
+    _overNoteCard = false;
+    _noteCardPressed = false;
+    _noteHoverTick.value++;
+  }
+
+  /// Where the popup cards go right now: each note and its icon's rect in
+  /// the viewport Stack, bottom to top. Cards for notes scrolled out of view
+  /// are left out.
+  List<_NotePopupPlacement> _notePopupPlacements() {
+    final targets = _notePopupTargets();
+    if (targets.isEmpty) return const [];
     final layer =
         _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
-    final global = _globalRectOf(target.page, target.note.rect);
-    if (layer == null || !layer.hasSize || global == null) return null;
-    final anchor = layer.globalToLocal(global.topLeft) & global.size;
-    // scrolled out of view: no card floating over the margin
-    if (!anchor.overlaps(Offset.zero & layer.size)) return null;
-    return _NotePopupPlacement(target.page, target.note, anchor);
+    if (layer == null || !layer.hasSize) return const [];
+    final bounds = Offset.zero & layer.size;
+    final out = <_NotePopupPlacement>[];
+    for (final target in targets) {
+      final global = _globalRectOf(target.page, target.note.rect);
+      if (global == null) continue;
+      final anchor = layer.globalToLocal(global.topLeft) & global.size;
+      // scrolled out of view: no card floating over the margin
+      if (!anchor.overlaps(bounds)) continue;
+      out.add(
+          _NotePopupPlacement(target.page, target.note, anchor, target.open));
+    }
+    return out;
   }
 
   /// The popup card layer over the viewport ([PdfViewer.showNotePopups]),
-  /// following the note through scrolls and zooms. It rebuilds only when
-  /// the placement changes - not on every editing-controller tick.
+  /// following the notes through scrolls and zooms. It rebuilds only when
+  /// the placements change - not on every editing-controller tick.
   Widget _buildNotePopupLayer() {
     final editing = widget.editing;
     final cached = _notePopupLayer;
@@ -7951,7 +8040,7 @@ class _PdfViewerState extends State<PdfViewer>
         _noteHoverTick,
         if (editing != null) editing,
       ],
-      resolve: _notePopupPlacement,
+      resolve: _notePopupPlacements,
       builder: (placement) => CustomSingleChildLayout(
         delegate: PdfNotePopupLayout(placement.anchor),
         child: MouseRegion(
@@ -7983,6 +8072,13 @@ class _PdfViewerState extends State<PdfViewer>
                   note: placement.note,
                   replies: PdfNotePopupCard.repliesOf(
                       _document, placement.page, placement.note),
+                  trailing: _NoteCardButton(
+                    open: placement.open != null,
+                    onPressed: () => switch (placement.open) {
+                      final open? => _closeNote(open),
+                      null => _openNote(placement.page, placement.note),
+                    },
+                  ),
                 ),
               ),
             ),
@@ -12554,30 +12650,80 @@ class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
   }
 }
 
-/// Where a [PdfNotePopupCard] shows: the note and its icon's rect in the
-/// viewport. Equal for the same note dictionary at the same spot, so a
-/// fresh [PdfAnnotation] wrapper for an unchanged note doesn't rebuild.
+/// A note card the user pinned open ([PdfViewerState._openNotes]),
+/// recorded so it finds its note again in later revisions: the page by its
+/// indirect reference, the note by /NM, falling back to its /Annots slot.
+class _OpenNote {
+  _OpenNote({
+    required this.pageRef,
+    required this.page,
+    required this.name,
+    required this.slot,
+  });
+
+  final (int, int)? pageRef;
+  final int page;
+  final String? name;
+  final int slot;
+}
+
+/// Where a [PdfNotePopupCard] shows: the note, its icon's rect in the
+/// viewport, and the pin it is open under ([open], null for a hovered or
+/// selected card). Equal for the same note dictionary at the same spot, so
+/// a fresh [PdfAnnotation] wrapper for an unchanged note doesn't rebuild.
 class _NotePopupPlacement {
-  const _NotePopupPlacement(this.page, this.note, this.anchor);
+  const _NotePopupPlacement(this.page, this.note, this.anchor, this.open);
 
   final int page;
   final PdfAnnotation note;
   final Rect anchor;
+  final _OpenNote? open;
+
+  /// Keeps a card's state (its text selection, its scroll) while the cards
+  /// below it come and go.
+  Key get key => open != null ? ObjectKey(open) : ObjectKey(note.dict);
 
   @override
   bool operator ==(Object other) =>
       other is _NotePopupPlacement &&
       other.page == page &&
       identical(other.note.dict, note.dict) &&
-      other.anchor == anchor;
+      other.anchor == anchor &&
+      identical(other.open, open);
 
   @override
-  int get hashCode => Object.hash(page, identityHashCode(note.dict), anchor);
+  int get hashCode => Object.hash(
+      page, identityHashCode(note.dict), anchor, identityHashCode(open));
 }
 
-/// Rebuilds its card only when [resolve]'s placement changes, so the
+/// A note card's pin button - "keep open" - or, on a card pinned open, its
+/// close button.
+class _NoteCardButton extends StatelessWidget {
+  const _NoteCardButton({required this.open, required this.onPressed});
+
+  final bool open;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    return IconButton(
+      key: ValueKey(open ? 'pdf-note-popup-close' : 'pdf-note-popup-pin'),
+      tooltip: open ? l10n.close : l10n.notePopupKeepOpen,
+      onPressed: onPressed,
+      icon: Icon(open ? Icons.close : Icons.push_pin_outlined),
+      iconSize: 16,
+      color: PdfViewerTheme.of(context).chipForeground,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+    );
+  }
+}
+
+/// Rebuilds its cards only when [resolve]'s placements change, so the
 /// listenables it watches (scroll, zoom, the editing controller) cost
-/// nothing on the many ticks that leave the card where it was.
+/// nothing on the many ticks that leave the cards where they were.
 class _NotePopupLayer extends StatefulWidget {
   const _NotePopupLayer({
     required this.listenables,
@@ -12586,7 +12732,7 @@ class _NotePopupLayer extends StatefulWidget {
   });
 
   final List<Listenable> listenables;
-  final _NotePopupPlacement? Function() resolve;
+  final List<_NotePopupPlacement> Function() resolve;
   final Widget Function(_NotePopupPlacement placement) builder;
 
   @override
@@ -12594,7 +12740,7 @@ class _NotePopupLayer extends StatefulWidget {
 }
 
 class _NotePopupLayerState extends State<_NotePopupLayer> {
-  _NotePopupPlacement? _placement;
+  List<_NotePopupPlacement> _placements = const [];
 
   @override
   void initState() {
@@ -12602,7 +12748,7 @@ class _NotePopupLayerState extends State<_NotePopupLayer> {
     for (final l in widget.listenables) {
       l.addListener(_update);
     }
-    _placement = widget.resolve();
+    _placements = widget.resolve();
   }
 
   @override
@@ -12616,7 +12762,7 @@ class _NotePopupLayerState extends State<_NotePopupLayer> {
         l.addListener(_update);
       }
     }
-    _placement = widget.resolve();
+    _placements = widget.resolve();
   }
 
   @override
@@ -12628,16 +12774,22 @@ class _NotePopupLayerState extends State<_NotePopupLayer> {
   }
 
   void _update() {
-    final placement = widget.resolve();
-    if (placement == _placement) return;
-    setState(() => _placement = placement);
+    final placements = widget.resolve();
+    if (listEquals(placements, _placements)) return;
+    setState(() => _placements = placements);
   }
 
   @override
   Widget build(BuildContext context) {
-    final placement = _placement;
-    return placement == null
-        ? const SizedBox.shrink()
-        : widget.builder(placement);
+    if (_placements.isEmpty) return const SizedBox.shrink();
+    return Stack(
+      children: [
+        for (final placement in _placements)
+          Positioned.fill(
+            key: placement.key,
+            child: widget.builder(placement),
+          ),
+      ],
+    );
   }
 }

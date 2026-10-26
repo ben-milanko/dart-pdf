@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get annotText => 'โน้ต';
 
   @override
+  String get notePopupKeepOpen => 'เปิดค้างไว้';
+
+  @override
   String get annotUnderline => 'ขีดเส้นใต้';
 
   @override

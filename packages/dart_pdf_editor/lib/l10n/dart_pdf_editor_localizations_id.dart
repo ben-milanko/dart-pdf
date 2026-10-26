@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get annotText => 'Catatan';
 
   @override
+  String get notePopupKeepOpen => 'Tetap buka';
+
+  @override
   String get annotUnderline => 'Garis bawah';
 
   @override

@@ -59,6 +59,7 @@
   "annotStamp": "Carimbo",
   "annotStrikeOut": "Tachado",
   "annotText": "Nota",
+  "notePopupKeepOpen": "Manter aberta",
   "annotUnderline": "Sublinhado",
   "annotWidget": "Campo de formulário",
   "apply": "Aplicar",
