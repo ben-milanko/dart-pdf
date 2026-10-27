@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../annotation_tap.dart';
+import '../mouse_cursor.dart';
 import '../design/material_host.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
@@ -660,19 +661,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     }
   }
 
-  MouseCursor _cursorFor(PdfFormField field) {
-    if (field.type == PdfFieldType.signature && _isSigned(field)) {
-      return SystemMouseCursors.click;
-    }
-    if (field.isReadOnly) return SystemMouseCursors.basic;
-    return switch (field.type) {
-      PdfFieldType.text => SystemMouseCursors.text,
-      PdfFieldType.signature ||
-      PdfFieldType.unknown =>
-        SystemMouseCursors.basic,
-      _ => SystemMouseCursors.click,
-    };
-  }
+  PdfMouseCursorKind? _cursorFor(PdfFormField field) =>
+      pdfFormFieldMouseCursor(field,
+          canPickButtonImage: widget.formImagePicker != null,
+          isSignedSignature:
+              field.type == PdfFieldType.signature && _isSigned(field));
 
   bool _interactive(PdfFormField field) {
     if (field.type == PdfFieldType.signature) return _isSigned(field);
@@ -785,8 +778,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       PdfAnnotation annotation, Rect rect) {
     return Positioned.fromRect(
       rect: rect,
-      child: MouseRegion(
-        cursor: _cursorFor(field),
+      child: PdfMouseCursorRegion(
+        kind: _cursorFor(field),
+        scale: _chromeScale,
         child: GestureDetector(
           key: ValueKey(
             'pdf-form-field-${widget.pageIndex}-${field.name}-$widgetIndex',

@@ -11,6 +11,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
+
+PdfMouseCursorPainter cursor(WidgetTester tester) => tester
+    .widget<CustomPaint>(find.byKey(const ValueKey('pdf-viewer-mouse-cursor')))
+    .painter! as PdfMouseCursorPainter;
 
 void main() {
   MouseRegion region(WidgetTester tester) => tester.widget<MouseRegion>(find
@@ -57,8 +62,13 @@ void main() {
     // the cold text cache is NOT extracted synchronously from a hover.
     await gesture.moveTo(view(100, 720));
     await tester.pump();
-    expect(region(tester).cursor, SystemMouseCursors.grab,
-        reason: 'heavy page must not extract text just to pick a hover cursor');
+    expect((
+      region(tester).cursor,
+      cursor(tester).kind
+    ), (
+      SystemMouseCursors.none,
+      PdfMouseCursorKind.grab
+    ), reason: 'heavy page must not extract text just to pick a hover cursor');
 
     // A real action warms the cache (selection drag over the same text)...
     final drag =
@@ -75,7 +85,12 @@ void main() {
     await tester.pump();
     await gesture.moveTo(view(100, 720));
     await tester.pump();
-    expect(region(tester).cursor, SystemMouseCursors.text,
-        reason: 'once warmed by a real action, the I-beam appears on hover');
+    expect((
+      region(tester).cursor,
+      cursor(tester).kind
+    ), (
+      SystemMouseCursors.none,
+      PdfMouseCursorKind.text
+    ), reason: 'once warmed by a real action, the I-beam appears on hover');
   });
 }

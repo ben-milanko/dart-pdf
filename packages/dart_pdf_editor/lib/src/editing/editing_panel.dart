@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 
+import '../mouse_cursor.dart';
 import '../l10n/pdf_l10n.dart';
 import '../scrollbar.dart';
 import 'editor_panel.dart';
@@ -249,8 +250,8 @@ class _PdfSidebarResizeGripState extends State<PdfSidebarResizeGrip> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final active = _hovered || _dragging;
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
+    return PdfMouseCursorRegion(
+      kind: PdfMouseCursorKind.resizeColumn,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(

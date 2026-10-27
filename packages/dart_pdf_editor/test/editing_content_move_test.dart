@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:dart_pdf_editor/src/mouse_cursor.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -348,7 +349,7 @@ void main() {
         );
 
     /// The overlay's own MouseRegion cursor - what the system shows on hover.
-    MouseCursor regionCursor(WidgetTester tester) {
+    PdfMouseCursorKind? regionCursor(WidgetTester tester) {
       final paint = find
           .descendant(
               of: find.byType(EditingPageOverlay),
@@ -356,7 +357,16 @@ void main() {
           .first;
       final region =
           find.ancestor(of: paint, matching: find.byType(MouseRegion)).first;
-      return tester.widget<MouseRegion>(region).cursor;
+      expect(
+          tester.widget<MouseRegion>(region).cursor, SystemMouseCursors.none);
+      final painter = tester
+          .widgetList<CustomPaint>(find.descendant(
+              of: find.byType(EditingPageOverlay),
+              matching: find.byType(CustomPaint)))
+          .map((paint) => paint.painter)
+          .singleWhere((painter) =>
+              painter.runtimeType.toString() == '_HoverCursorPainter');
+      return (painter as dynamic).mouseCursor as PdfMouseCursorKind?;
     }
 
     /// A mouse hovering the overlay. One pointer per test - the binding is
@@ -459,16 +469,16 @@ void main() {
 
       // before selecting, an element under the pointer is click-to-select
       await hoverTo(tester, mouse, view(140, 620));
-      expect(regionCursor(tester), SystemMouseCursors.click);
+      expect(regionCursor(tester), PdfMouseCursorKind.click);
 
       expect(editing.selectElementAt(0, 140, 620), isTrue);
       await tester.pump();
       await hoverTo(tester, mouse, view(141, 621));
-      expect(regionCursor(tester), SystemMouseCursors.move);
+      expect(regionCursor(tester), PdfMouseCursorKind.move);
 
       // empty page area is neither
       await hoverTo(tester, mouse, view(450, 500));
-      expect(regionCursor(tester), SystemMouseCursors.basic);
+      expect(regionCursor(tester), PdfMouseCursorKind.basic);
     });
 
     testWidgets('the drag floats the element alone, over a clean page',
