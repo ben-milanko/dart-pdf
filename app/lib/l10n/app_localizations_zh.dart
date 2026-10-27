@@ -1356,6 +1356,24 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => '将 DartPDF 添加到应用程序？';
+
+  @override
+  String get launcherOfferBody => '设置启动器，以便在应用搜索中找到 DartPDF。默认 PDF 阅读器不会更改。';
+
+  @override
+  String get launcherOfferRegister => '设置启动器';
+
+  @override
+  String get launcherOfferLater => '暂不';
+
+  @override
+  String get launcherOfferNever => '不再显示';
+
+  @override
+  String get launcherOfferError => '无法保存此更改。请重试或选择“暂不”。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2711,4 +2729,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => '將 DartPDF 加入應用程式？';
+
+  @override
+  String get launcherOfferBody => '設定啟動器，以便在應用程式搜尋中找到 DartPDF。預設 PDF 閱讀器不會變更。';
+
+  @override
+  String get launcherOfferRegister => '設定啟動器';
+
+  @override
+  String get launcherOfferLater => '稍後再說';
+
+  @override
+  String get launcherOfferNever => '不再顯示';
+
+  @override
+  String get launcherOfferError => '無法儲存此變更。請重試或選擇「稍後再說」。';
 }

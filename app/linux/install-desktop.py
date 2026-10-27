@@ -6,6 +6,8 @@ The application stays where it is; rerun after moving it. No sudo required.
 """
 
 import argparse
+import configparser
+import json
 import os
 from pathlib import Path
 import shutil
@@ -79,13 +81,61 @@ def refresh(applications, icons):
                            stderr=subprocess.DEVNULL)
 
 
+def registration_status(bundle, appimage=None):
+    """Read-only probe; a stale/moved launcher is missing, not installed."""
+    executable = Path(appimage).absolute() if appimage else bundle.resolve() / "dart_pdf_editor_app"
+    share = bundle.resolve().parent / "share" if appimage else bundle.resolve() / "share"
+    if (os.environ.get("SNAP") or os.environ.get("FLATPAK_ID") or
+            Path("/.flatpak-info").exists() or
+            (not appimage and str(executable).startswith(("/usr/", "/app/", "/snap/"))) or
+            not executable.is_file() or not os.access(executable, os.X_OK) or
+            "%" in str(executable) or any(ord(c) < 32 for c in str(executable)) or
+            not (share / "applications" / (APP_ID + ".desktop")).is_file() or
+            not (share / "icons/hicolor/512x512/apps" / (APP_ID + ".png")).is_file()):
+        return "unsupported"
+    home = data_home()
+    entry = home / "applications" / (DESKTOP_ID + ".desktop")
+    icon = home / "icons/hicolor/512x512/apps" / (DESKTOP_ID + ".png")
+    if entry.is_file() and icon.is_file():
+        try:
+            parser = configparser.ConfigParser(interpolation=None, strict=True)
+            parser.optionxform = str
+            parser.read_string(entry.read_text(encoding="utf-8"))
+            desktop = parser["Desktop Entry"]
+            if (desktop.get("Type") == "Application" and desktop.get("Name") and
+                    desktop.get("Exec") == exec_argument(str(executable)) + " %U" and
+                    desktop.get("Icon") == DESKTOP_ID and
+                    desktop.get("Hidden", "false").lower() == "false" and
+                    desktop.get("NoDisplay", "false").lower() == "false" and
+                    not desktop.get("TryExec") and not desktop.get("OnlyShowIn") and
+                    not desktop.get("NotShowIn")):
+                return "registered"
+        except (OSError, UnicodeError, configparser.Error, KeyError):
+            pass  # A damaged owned entry should offer repair.
+    # Honor third-party integration through the desktop's own parser. Another
+    # installed DartPDF version must not mask a shortcut to a moved executable.
+    try:
+        from gi.repository import Gio
+        for entry in Gio.AppInfo.get_all():
+            if entry.get_id() == DESKTOP_ID + ".desktop":
+                continue  # Our own entry failed the full icon/path check above.
+            if entry.should_show() and entry.get_executable() == str(executable):
+                return "registered"
+    except ImportError:
+        pass
+    return "missing"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uninstall", action="store_true",
                         help="remove only this user's portable launcher and icon")
+    parser.add_argument("--status", action="store_true", help="read-only status as JSON")
     args = parser.parse_args()
     try:
-        if args.uninstall:
+        if args.status:
+            print(json.dumps({"status": registration_status(Path(__file__).resolve().parent, os.environ.get("APPIMAGE"))}))
+        elif args.uninstall:
             home = data_home()
             (home / "applications" / (DESKTOP_ID + ".desktop")).unlink(missing_ok=True)
             (home / "icons/hicolor/512x512/apps" / (DESKTOP_ID + ".png")).unlink(missing_ok=True)

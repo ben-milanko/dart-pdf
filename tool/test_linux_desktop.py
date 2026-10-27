@@ -65,6 +65,81 @@ class DesktopTest(unittest.TestCase):
         self.assertTrue(self.runner.exists())
         self.assertEqual(packaged.read_text(), "package manager entry")
 
+    def test_status_missing_present_stale_and_missing_icon(self):
+        self.assertEqual(installer.registration_status(self.bundle), "missing")
+        target = installer.install(self.bundle)
+        self.assertEqual(installer.registration_status(self.bundle), "registered")
+        target.write_text(target.read_text().replace(str(self.runner), "/missing/dartpdf"))
+        self.assertEqual(installer.registration_status(self.bundle), "missing")
+        installer.install(self.bundle)
+        (installer.data_home() / "icons/hicolor/512x512/apps/dev.milanko.dartpdf.portable.png").unlink()
+        self.assertEqual(installer.registration_status(self.bundle), "missing")
+
+    def test_status_unsupported_sandbox_and_incomplete_bundle(self):
+        with patch.dict(os.environ, {"SNAP": "/snap/dartpdf/current"}):
+            self.assertEqual(installer.registration_status(self.bundle), "unsupported")
+        with patch.dict(os.environ, {"FLATPAK_ID": "dev.milanko.dartpdf"}):
+            self.assertEqual(installer.registration_status(self.bundle), "unsupported")
+        self.runner.unlink()
+        self.assertEqual(installer.registration_status(self.bundle), "unsupported")
+
+    def test_damaged_owned_entries_offer_repair(self):
+        target = installer.install(self.bundle)
+        valid = target.read_text()
+        for broken in [valid.replace("[Desktop Entry]", "[Wrong]"),
+                       valid.replace("Type=Application", "Type=Link"),
+                       valid + "TryExec=/missing/binary\n",
+                       valid + "Hidden=true\n"]:
+            target.write_text(broken)
+            self.assertEqual(installer.registration_status(self.bundle), "missing")
+        target.write_bytes(b"\xff")
+        self.assertEqual(installer.registration_status(self.bundle), "missing")
+
+    def test_appimage_status_tracks_outer_image(self):
+        appdir = self.root / "mount"
+        stage_appdir(self.bundle, appdir)
+        image = self.root / "app.AppImage"
+        image.write_text("#!/bin/sh\n")
+        image.chmod(0o755)
+        bundle = appdir / "usr/bin"
+        self.assertEqual(installer.registration_status(bundle, str(image)), "missing")
+        installer.install(bundle, str(image))
+        self.assertEqual(installer.registration_status(bundle, str(image)), "registered")
+        moved = self.root / "moved.AppImage"
+        image.rename(moved)
+        self.assertEqual(installer.registration_status(bundle, str(moved)), "missing")
+
+    def test_third_party_entry_targets_this_exact_executable(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        entry = Mock()
+        entry.get_id.return_value = "third-party.desktop"
+        entry.should_show.return_value = True
+        entry.get_executable.return_value = str(self.runner)
+        gio = SimpleNamespace(AppInfo=SimpleNamespace(get_all=lambda: [entry]))
+        with patch.dict("sys.modules", {"gi.repository": SimpleNamespace(Gio=gio)}):
+            self.assertEqual(installer.registration_status(self.bundle), "registered")
+            entry.get_executable.return_value = "/other/dart_pdf_editor_app"
+            self.assertEqual(installer.registration_status(self.bundle), "missing")
+        with patch.dict("sys.modules", {"gi": None, "gi.repository": None}):
+            self.assertEqual(installer.registration_status(self.bundle), "missing")
+
+    def test_opt_is_not_treated_as_package_managed(self):
+        # No writes under /opt: only the path/metadata checks are mocked.
+        with patch.object(Path, "resolve", lambda path: path), \
+             patch.object(Path, "is_file", return_value=True), \
+             patch.object(Path, "exists", return_value=False), \
+             patch("os.access", return_value=True), \
+             patch.dict("sys.modules", {"gi": None, "gi.repository": None}):
+            self.assertEqual(installer.registration_status(Path("/opt/DartPDF")), "missing")
+
+    def test_status_cli_is_read_only(self):
+        import json
+        result = subprocess.run(["python3", str(self.bundle / SCRIPT.name), "--status"],
+                                capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), {"status": "missing"})
+        self.assertFalse(installer.data_home().exists())
+
     def test_relative_xdg_ignored(self):
         os.environ["XDG_DATA_HOME"] = "relative"
         self.assertEqual(installer.data_home(), self.home / ".local/share")

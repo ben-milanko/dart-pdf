@@ -31,8 +31,14 @@ manager. An AppImage or extracted tarball is portable: running it does not
 install a menu entry. The desktop files inside the bundle alone are not visible
 to Ubuntu's application search.
 
-For portable builds containing the registration helper, put the app in a permanent
-location first, then register it once (Python 3 required; do not use sudo):
+Portable builds containing the registration helper offer to set up a launcher on
+startup when one is missing. Choose **Set up launcher**, **Not now** (ask again on
+the next launch), or **Don’t show again** (saved across restarts). The offer does
+not block opening documents and never registers without your choice. A failed
+setup stays visible so you can retry or dismiss it.
+
+Put the app in a permanent location first. You can also register it manually
+(Python 3 required; do not use sudo):
 
 ```bash
 # AppImage, after making it executable:
