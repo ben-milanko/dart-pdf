@@ -1259,6 +1259,25 @@ class AppLocalizationsJa extends AppLocalizations {
   String get whatsNewUnavailable => 'このビルドにはリリースノートがありません。';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '$version 以降のチケット';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '$version 以降の新しいチケットはありません。';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'このビルドより新しいナイトリー（$commit）の内容です。';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'このナイトリーのチケットを読み込めませんでした。接続を確認してもう一度お試しください。';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

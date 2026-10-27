@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Maak bewerkbare tabellen en kopieer cellen van en naar spreadsheets. Hervat onderbroken tekstherkenning. Vervang kleuren in momentopnamen en annotaties. Lijn tekst verticaal uit en dupliceer opgeslagen stempels. Verbeteringen in tekstomloop, onthouden lettertypen en gedraaide momentopnamen.
+Voeg wolkannotaties toe. Zoek tekst en markeer één of alle treffers voor redactie; controleer de markeringen vóór toepassing. Sla geplakte vectorsnapshots op als PNG. Houd linialen en cursorhulplijnen zichtbaar tijdens navigatie. Verbeter compacte werkbalken, paginanummers en sneltoetsen. Herstel het onbedoeld verwijderen van nabije tekst bij redactie.

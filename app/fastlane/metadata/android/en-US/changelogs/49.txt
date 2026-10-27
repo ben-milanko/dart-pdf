@@ -1,0 +1,3 @@
+DartPDF 12.0.0
+
+Add cloud callouts. Find text and mark individual or all matches for redaction, then review the marks before applying them. Save pasted vector snapshots as PNG images. Keep rulers and cursor guides visible while navigating. Improve compact toolbars, page-number entry and keyboard shortcuts. Fix redaction removing nearby text.

@@ -221,6 +221,7 @@ class PdfEditingPreferences extends ChangeNotifier
   bool _searchRegex = false;
   bool _searchAnnotations = true;
   bool _searchReplaceExpanded = false;
+  bool _searchRedactExpanded = false;
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
@@ -483,6 +484,8 @@ class PdfEditingPreferences extends ChangeNotifier
       _searchReplaceExpanded =
           store.getBool('${_prefix}searchReplaceExpanded') ??
               _searchReplaceExpanded;
+      _searchRedactExpanded = store.getBool('${_prefix}searchRedactExpanded') ??
+          _searchRedactExpanded;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -1990,6 +1993,18 @@ class PdfEditingPreferences extends ChangeNotifier
     if (value == _searchReplaceExpanded) return;
     _searchReplaceExpanded = value;
     _write((s) => s.setBool('${_prefix}searchReplaceExpanded', value));
+    notifyListeners();
+  }
+
+  /// Whether the search panel's find-to-redact section (mark the hits for
+  /// redaction) is expanded. Off by default like the replace section; the
+  /// redact tool's "Find text to redact" button opens it. Persisted.
+  bool get searchRedactExpanded => _searchRedactExpanded;
+
+  set searchRedactExpanded(bool value) {
+    if (value == _searchRedactExpanded) return;
+    _searchRedactExpanded = value;
+    _write((s) => s.setBool('${_prefix}searchRedactExpanded', value));
     notifyListeners();
   }
 

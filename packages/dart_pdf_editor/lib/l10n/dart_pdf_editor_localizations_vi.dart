@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get annotText => 'Ghi chú';
 
   @override
+  String get notePopupKeepOpen => 'Giữ mở';
+
+  @override
   String get annotUnderline => 'Gạch chân';
 
   @override
@@ -448,6 +451,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Đổi màu…';
 
   @override
+  String get menuSaveAsImage => 'Lưu dưới dạng hình ảnh…';
+
+  @override
   String get menuRemoveNode => 'Xóa nút';
 
   @override
@@ -726,6 +732,15 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get propLineType => 'Kiểu đường';
 
   @override
+  String get propRegion => 'Vùng được đánh dấu';
+
+  @override
+  String get propRegionPolygon => 'Đa giác';
+
+  @override
+  String get propRegionCloud => 'Đám mây';
+
+  @override
   String get propLoadFont => 'Tải phông chữ…';
 
   @override
@@ -780,6 +795,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Nội dung';
+
+  @override
+  String get propSectionComments => 'Bình luận';
 
   @override
   String get propSectionFormField => 'Trường biểu mẫu';
@@ -961,6 +979,31 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       other: 'Đã thay thế $count kết quả khớp',
       one: 'Đã thay thế 1 kết quả khớp',
       zero: 'Không thay thế gì',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Đánh dấu để biên tập ẩn';
+
+  @override
+  String get searchRedactMark => 'Đánh dấu';
+
+  @override
+  String get searchRedactMarkAll => 'Đánh dấu tất cả';
+
+  @override
+  String get searchRedactHint =>
+      'Các dấu vẫn có thể xem lại cho đến khi bạn áp dụng biên tập ẩn';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đã đánh dấu $count kết quả khớp để biên tập ẩn',
+      one: 'Đã đánh dấu 1 kết quả khớp để biên tập ẩn',
+      zero: 'Đã được đánh dấu',
     );
     return '$_temp0';
   }
@@ -1461,6 +1504,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Áp dụng che thông tin (không thể đảo ngược)';
 
   @override
+  String get tbFindToRedact => 'Tìm văn bản để biên tập ẩn';
+
+  @override
   String get tbAutosizeTextBox => 'Tự động cỡ hộp văn bản (Alt+Z)';
 
   @override
@@ -1688,6 +1734,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Chú dẫn';
 
   @override
+  String get tbNameCloudCallout => 'Chú dẫn đám mây';
+
+  @override
   String get tbNameCloudPolygon => 'Đa giác đám mây';
 
   @override
@@ -1893,6 +1942,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'Chú dẫn - kéo từ điểm đến nơi đặt hộp';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Chú dẫn đám mây - kéo đám mây quanh vùng, rồi nhập ghi chú';
 
   @override
   String get tbTipContent => 'Chỉnh sửa nội dung trang';

@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Créez des tableaux modifiables et copiez des cellules depuis et vers un tableur. Reprenez la reconnaissance de texte interrompue. Remplacez les couleurs des captures et annotations. Alignez le texte verticalement et dupliquez les tampons enregistrés. Amélioration du retour à la ligne, des polices mémorisées et des captures pivotées.
+Ajout de bulles avec nuage. Recherchez du texte et marquez un ou tous les résultats pour le caviardage, puis vérifiez les marques avant application. Enregistrez les captures vectorielles collées en PNG. Règles et guides du curseur restent visibles pendant la navigation. Amélioration des barres compactes, de la saisie de page et des raccourcis. Correction du caviardage de texte voisin.

@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Crie tabelas editáveis e copie células de e para planilhas. Retome o reconhecimento de texto interrompido. Substitua cores em capturas e anotações. Alinhe o texto verticalmente e duplique carimbos salvos. Melhorias na quebra de texto, nas fontes lembradas e nas capturas giradas.
+Adiciona chamadas com nuvens. Pesquise texto e marque um ou todos os resultados para ocultação; reveja as marcas antes de aplicar. Guarde capturas vetoriais coladas como PNG. Mantém réguas e guias do cursor visíveis durante a navegação. Melhora barras compactas, números de página e atalhos. Corrige a remoção de texto próximo ao ocultar conteúdo.

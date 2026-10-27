@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get annotText => 'Заметка';
 
   @override
+  String get notePopupKeepOpen => 'Оставить открытой';
+
+  @override
   String get annotUnderline => 'Подчёркивание';
 
   @override
@@ -454,6 +457,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Перекрасить…';
 
   @override
+  String get menuSaveAsImage => 'Сохранить как изображение…';
+
+  @override
   String get menuRemoveNode => 'Удалить узел';
 
   @override
@@ -736,6 +742,15 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get propLineType => 'Тип линии';
 
   @override
+  String get propRegion => 'Отмеченная область';
+
+  @override
+  String get propRegionPolygon => 'Многоугольник';
+
+  @override
+  String get propRegionCloud => 'Облако';
+
+  @override
   String get propLoadFont => 'Загрузить шрифт…';
 
   @override
@@ -790,6 +805,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Содержимое';
+
+  @override
+  String get propSectionComments => 'Комментарии';
 
   @override
   String get propSectionFormField => 'Поле формы';
@@ -975,6 +993,33 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
       few: 'Заменено $count совпадения',
       one: 'Заменено 1 совпадение',
       zero: 'Ничего не заменено',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Пометить для скрытия';
+
+  @override
+  String get searchRedactMark => 'Пометить';
+
+  @override
+  String get searchRedactMarkAll => 'Пометить все';
+
+  @override
+  String get searchRedactHint =>
+      'Пометки можно проверить, пока вы не примените скрытие';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Помечено для скрытия $count совпадения',
+      many: 'Помечено для скрытия $count совпадений',
+      few: 'Помечено для скрытия $count совпадения',
+      one: 'Помечено для скрытия 1 совпадение',
+      zero: 'Уже помечено',
     );
     return '$_temp0';
   }
@@ -1482,6 +1527,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Применить вымарывания (необратимо)';
 
   @override
+  String get tbFindToRedact => 'Найти текст для скрытия';
+
+  @override
   String get tbAutosizeTextBox => 'Автоподбор размера текстового поля (Alt+Z)';
 
   @override
@@ -1714,6 +1762,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Выноска';
 
   @override
+  String get tbNameCloudCallout => 'Облачная выноска';
+
+  @override
   String get tbNameCloudPolygon => 'Облачный многоугольник';
 
   @override
@@ -1922,6 +1973,10 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Выноска — перетащите от точки к месту размещения поля';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Облачная выноска — обведите область облаком, затем введите заметку';
 
   @override
   String get tbTipContent => 'Редактировать содержимое страницы';

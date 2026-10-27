@@ -1288,6 +1288,25 @@ class AppLocalizationsTr extends AppLocalizations {
   String get whatsNewUnavailable => 'Bu sürümde sürüm notları kullanılamıyor.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '$version sürümünden bu yana biletler';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '$version sürümünden bu yana yeni bilet yok.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Bu derlemeden daha yeni bir gecelik derlemeden ($commit).';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Bu gecelik derlemenin biletleri yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

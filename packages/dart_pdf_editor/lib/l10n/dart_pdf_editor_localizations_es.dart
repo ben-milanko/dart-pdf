@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get annotText => 'Nota';
 
   @override
+  String get notePopupKeepOpen => 'Mantener abierta';
+
+  @override
   String get annotUnderline => 'Subrayado';
 
   @override
@@ -450,6 +453,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recolorear…';
 
   @override
+  String get menuSaveAsImage => 'Guardar como imagen…';
+
+  @override
   String get menuRemoveNode => 'Quitar nodo';
 
   @override
@@ -728,6 +734,15 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo de línea';
 
   @override
+  String get propRegion => 'Área marcada';
+
+  @override
+  String get propRegionPolygon => 'Polígono';
+
+  @override
+  String get propRegionCloud => 'Nube';
+
+  @override
   String get propLoadFont => 'Cargar fuente…';
 
   @override
@@ -782,6 +797,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Contenido';
+
+  @override
+  String get propSectionComments => 'Comentarios';
 
   @override
   String get propSectionFormField => 'Campo de formulario';
@@ -963,6 +981,31 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
       other: '$count coincidencias reemplazadas',
       one: '1 coincidencia reemplazada',
       zero: 'No se reemplazó nada',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Marcar para censurar';
+
+  @override
+  String get searchRedactMark => 'Marcar';
+
+  @override
+  String get searchRedactMarkAll => 'Marcar todo';
+
+  @override
+  String get searchRedactHint =>
+      'Las marcas se pueden revisar hasta que apliques las censuras';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count coincidencias marcadas para censurar',
+      one: '1 coincidencia marcada para censurar',
+      zero: 'Ya marcado',
     );
     return '$_temp0';
   }
@@ -1462,6 +1505,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Aplicar censuras (irreversible)';
 
   @override
+  String get tbFindToRedact => 'Buscar texto para censurar';
+
+  @override
   String get tbAutosizeTextBox => 'Autoajustar cuadro de texto (Alt+Z)';
 
   @override
@@ -1692,6 +1738,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Llamada';
 
   @override
+  String get tbNameCloudCallout => 'Llamada en nube';
+
+  @override
   String get tbNameCloudPolygon => 'Polígono en nube';
 
   @override
@@ -1899,6 +1948,10 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Llamada: arrastra desde el punto hasta donde va el cuadro';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Llamada en nube: arrastra una nube alrededor del área y escribe la nota';
 
   @override
   String get tbTipContent => 'Editar contenido de la página';

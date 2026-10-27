@@ -206,8 +206,13 @@ class SceneDelegate: FlutterSceneDelegate {
   }
 
   /// Builds the Dart-side descriptor for a picked URL: a base64 security-scoped
-  /// bookmark [token], display name, length, and a seekability probe. Returns
-  /// nil when a bookmark can't be minted (the URL is then unusable by range).
+  /// bookmark [token], display name and length. Returns nil when a bookmark
+  /// can't be minted (the URL is then unusable by range).
+  ///
+  /// Metadata only. A coordinated read of a File Provider item (iCloud,
+  /// OneDrive) downloads the whole file first, and the app shows nothing until
+  /// this reply lands - so the seekability probe is left to Dart
+  /// (`probeSeekable`), which asks once the file's loading tab is on screen.
   fileprivate func describePickedURL(_ url: URL) -> [String: Any]? {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -227,9 +232,6 @@ class SceneDelegate: FlutterSceneDelegate {
       "name": url.lastPathComponent,
       "length": size,
       "provider": provider,
-      // iOS File Provider serves coordinated ranged reads on demand, so a
-      // resolvable URL is seekable; confirm by opening a handle.
-      "seekable": probeSeekableURL(url),
     ]
   }
 

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       # Run before pub get on purpose: the formatter wrapper must preserve the
@@ -219,9 +219,12 @@ jobs:
       - name: Test DartPDF app
         working-directory: app
         run: flutter test --coverage
-      - name: Test browser PDF snapshot cache
+      - name: Test browser PDF snapshot cache and file picker
         working-directory: app
-        run: flutter test --platform chrome test/web/pdf_cache_web_test.dart
+        run: >-
+          flutter test --platform chrome
+          test/web/pdf_cache_web_test.dart
+          test/web/web_file_picker_test.dart
       - name: Test browser English regional localisation
         working-directory: app
         run: >-
@@ -276,7 +279,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       - name: Legacy bridge DCE check
@@ -297,7 +300,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       - run: flutter pub get
@@ -796,7 +799,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       # Guard: the checked-in worker asset must stay the small placeholder, not
@@ -872,7 +875,7 @@ jobs:
           "$RUNNER_TEMP/long_paths_test"
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       - run: flutter pub get
@@ -1007,7 +1010,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           channel: stable
           cache: true
       - name: Install desktop dependencies and virtual display

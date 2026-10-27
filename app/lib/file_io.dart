@@ -71,15 +71,15 @@ class PickedPdf {
 
 /// A file the mobile reference picker handed back: a native [token] pointing at
 /// the *original* file (not a sandbox copy), its display [name], the [length]
-/// when the provider reports it, and whether the runner's up-front probe found
-/// the reference [seekable] (so ranged reads are worth attempting - see #364).
+/// when the provider reports it, and whether the reference is [seekable] (so
+/// ranged reads are worth attempting - see #364), when that is already known.
 class MobilePickedPdf {
   const MobilePickedPdf({
     required this.token,
     required this.name,
     this.length,
     this.provider,
-    required this.seekable,
+    this.seekable,
   });
 
   /// Opaque native reference (Android persisted `content://` Uri; iOS
@@ -96,8 +96,11 @@ class MobilePickedPdf {
 
   /// Whether native ranged reads over [token] are random-access. False for a
   /// non-seekable pipe (many cloud providers), where the caller streams whole
-  /// instead of opening progressively.
-  final bool seekable;
+  /// instead of opening progressively. Null when the runner left it unprobed:
+  /// answering it can download the whole file from a cloud provider, so the
+  /// pick comes back without it and [probeMobileSeekable] asks once a loading
+  /// tab is up.
+  final bool? seekable;
 }
 
 /// Whether this platform can pick a mobile file *by reference* (Android/iOS,
@@ -114,7 +117,9 @@ bool get supportsMobileProgressiveOpen =>
 
 /// Opens the reference-based mobile document picker and returns one entry per
 /// chosen PDF (empty when cancelled). Each entry carries a native [token] to
-/// the original file plus a seekability probe result. Throws
+/// the original file and only metadata the provider can answer without
+/// fetching content, so the app can show the file as loading the moment the
+/// picker closes. Throws
 /// [MissingPluginException] on a runner without the channel, so callers can
 /// fall back to the copy-based [pickPdfFiles].
 Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
@@ -131,10 +136,25 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
       name: (entry['name'] as String?) ?? 'document.pdf',
       length: rawLength != null && rawLength >= 0 ? rawLength : null,
       provider: entry['provider'] as String?,
-      seekable: entry['seekable'] == true,
+      seekable: entry['seekable'] as bool?,
     ));
   }
   return out;
+}
+
+/// Whether ranged reads over a mobile pick's [token] are random-access. Can
+/// take as long as downloading the file: many cloud providers (OneDrive's
+/// Android provider, any iOS File Provider under a coordinated read) fetch the
+/// whole thing before they hand over a readable handle. False on any failure,
+/// which streams the reference whole - never worse than the old copy.
+Future<bool> probeMobileSeekable(String token) async {
+  try {
+    return await mobileFileChannel
+            .invokeMethod<bool>('probeSeekable', {'token': token}) ??
+        false;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// A ranged [PdfByteSource] over a mobile pick's native [token], so the app can
@@ -153,15 +173,16 @@ PdfByteSource pdfByteSourceForMobileToken(
 
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
 ///
-/// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
-/// instead of going through `file_selector`, whose blob-URL XFiles hang on
-/// `readAsBytes()` under the deployed site's cross-origin isolation.
+/// On the web this reads the picked file's bytes from the browser file itself
+/// (see [pickPdfFileWeb]) instead of going through `file_selector`, whose
+/// blob-URL XFiles hang on `readAsBytes()` under the deployed site's
+/// cross-origin isolation.
 Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
     ? pickPdfFileWeb()
     : openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
-/// when the user cancels. On the web, reads the bytes eagerly (see
+/// when the user cancels. On the web, reads through the browser file (see
 /// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
 Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
     ? pickPdfFilesWeb()
