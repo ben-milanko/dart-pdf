@@ -10556,7 +10556,7 @@ class _PdfViewerState extends State<PdfViewer>
                                         // pointer events, so shift+click
                                         // multi-select and shift-resize in the
                                         // editing overlay still reach it.
-                                        Positioned.fill(
+                                        SizedBox.expand(
                                           child: Listener(
                                             behavior:
                                                 HitTestBehavior.translucent,
@@ -10580,7 +10580,7 @@ class _PdfViewerState extends State<PdfViewer>
                 // transform, keeping one geometry and physical size on every
                 // platform and at every document zoom. Editing/form overlays
                 // own their local cursor rects and set this layer to null.
-                Positioned.fill(
+                SizedBox.expand(
                   child: IgnorePointer(
                     child: CustomPaint(
                       key: const ValueKey('pdf-viewer-mouse-cursor'),
