@@ -10,14 +10,14 @@ environment:
 
 dependencies:
   # The Cupertino host demo (lib/cupertino_host.dart).
-  cupertino_ui: ^1.1.2
+  cupertino_ui: ^1.1.4
   file_selector: ^1.0.3
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
-  material_ui: ^1.6.0
+  material_ui: ^1.8.0
   pdf_document: ^12.0.0
   pdf_graphics: ^12.0.0
   dart_pdf_editor: ^12.0.0
@@ -27,7 +27,7 @@ dependencies:
   pdf_ocr_vlm: ^12.0.0
   share_plus: ^13.3.1
   url_launcher: ^6.3.3
-  web: ^1.1.0
+  web: ^1.1.2
 
 dev_dependencies:
   flutter_lints: ^6.0.0

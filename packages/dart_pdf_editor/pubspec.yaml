@@ -22,7 +22,7 @@ dependencies:
   archive: ^4.3.0
   # The iOS/macOS text-selection menus and their localizations (material_ui
   # depends on it too; listed because the library imports it directly).
-  cupertino_ui: ^1.1.2
+  cupertino_ui: ^1.1.4
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -32,7 +32,7 @@ dependencies:
   intl: ^0.20.2
   # The Material design library (the stock chrome). 7.0 moved off
   # package:flutter/material.dart; see doc/MIGRATING-7.0.0.md.
-  material_ui: ^1.6.0
+  material_ui: ^1.8.0
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
   flutter_secure_storage: ^11.2.0
@@ -50,7 +50,7 @@ dependencies:
   url_launcher: ^6.3.3
   # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
   # Worker over package:web's typed bindings. A no-op everywhere else.
-  web: ^1.1.0
+  web: ^1.1.2
 
 dev_dependencies:
   pdf_test_fixtures: ^12.0.0
