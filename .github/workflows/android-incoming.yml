@@ -32,10 +32,13 @@ jobs:
         with:
           gradle-version: '9.3.1'
       - run: flutter pub get
+      - uses: android-actions/setup-android@v3
       - name: Prepare Android SDK
         run: |
           sdkmanager "platforms;android-37.0"
-          ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          fi
           printf 'sdk.dir=%s\nflutter.sdk=%s\n' "$ANDROID_HOME" "$FLUTTER_ROOT" > app/android/local.properties
       - name: Test incoming PDF resolver and provider reads
         working-directory: app/android
