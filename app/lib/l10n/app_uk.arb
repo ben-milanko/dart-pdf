@@ -358,5 +358,11 @@
   "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
   "ocrAutoOfferKeepOn": "Keep on",
   "ocrAutoOfferTurnOff": "Turn off",
-  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "launcherOfferTitle": "Додати DartPDF до програм?",
+  "launcherOfferBody": "Створіть ярлик, щоб знаходити DartPDF у пошуку програм. Типова програма для читання PDF не зміниться.",
+  "launcherOfferRegister": "Створити ярлик",
+  "launcherOfferLater": "Не зараз",
+  "launcherOfferNever": "Більше не показувати",
+  "launcherOfferError": "Не вдалося зберегти зміну. Спробуйте ще раз або виберіть «Не зараз»."
 }

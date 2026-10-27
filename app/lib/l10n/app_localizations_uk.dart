@@ -1421,4 +1421,24 @@ class AppLocalizationsUk extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Додати DartPDF до програм?';
+
+  @override
+  String get launcherOfferBody =>
+      'Створіть ярлик, щоб знаходити DartPDF у пошуку програм. Типова програма для читання PDF не зміниться.';
+
+  @override
+  String get launcherOfferRegister => 'Створити ярлик';
+
+  @override
+  String get launcherOfferLater => 'Не зараз';
+
+  @override
+  String get launcherOfferNever => 'Більше не показувати';
+
+  @override
+  String get launcherOfferError =>
+      'Не вдалося зберегти зміну. Спробуйте ще раз або виберіть «Не зараз».';
 }

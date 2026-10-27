@@ -1832,5 +1832,17 @@
   "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
   "@ocrAutoTurnedOff": {
     "description": "Toast after the user turned automatic OCR off from the one-time dialog."
-  }
+  },
+  "launcherOfferTitle": "Add DartPDF to Applications?",
+  "launcherOfferBody": "Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.",
+  "launcherOfferRegister": "Set up launcher",
+  "launcherOfferLater": "Not now",
+  "launcherOfferNever": "Don’t show again",
+  "launcherOfferError": "Could not save this change. Try again, or choose Not now.",
+  "@launcherOfferTitle": {"description": "Linux portable launcher startup offer: launcherOfferTitle"},
+  "@launcherOfferBody": {"description": "Linux portable launcher startup offer: launcherOfferBody"},
+  "@launcherOfferRegister": {"description": "Linux portable launcher startup offer: launcherOfferRegister"},
+  "@launcherOfferLater": {"description": "Linux portable launcher startup offer: launcherOfferLater"},
+  "@launcherOfferNever": {"description": "Linux portable launcher startup offer: launcherOfferNever"},
+  "@launcherOfferError": {"description": "Linux portable launcher startup offer: launcherOfferError"}
 }

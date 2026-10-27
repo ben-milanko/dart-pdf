@@ -1385,4 +1385,24 @@ class AppLocalizationsTh extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'เพิ่ม DartPDF ในแอปพลิเคชันไหม';
+
+  @override
+  String get launcherOfferBody =>
+      'ตั้งค่าตัวเรียกใช้งานเพื่อค้นหา DartPDF ในการค้นหาแอปพลิเคชัน โปรแกรมอ่าน PDF เริ่มต้นจะไม่เปลี่ยนแปลง';
+
+  @override
+  String get launcherOfferRegister => 'ตั้งค่าตัวเรียกใช้งาน';
+
+  @override
+  String get launcherOfferLater => 'ไม่ใช่ตอนนี้';
+
+  @override
+  String get launcherOfferNever => 'ไม่ต้องแสดงอีก';
+
+  @override
+  String get launcherOfferError =>
+      'บันทึกการเปลี่ยนแปลงไม่ได้ ลองอีกครั้งหรือเลือกไม่ใช่ตอนนี้';
 }

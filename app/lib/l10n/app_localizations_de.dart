@@ -1415,4 +1415,24 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'DartPDF zu den Anwendungen hinzufügen?';
+
+  @override
+  String get launcherOfferBody =>
+      'Richte einen Starter ein, um DartPDF in der Anwendungssuche zu finden. Der Standard-PDF-Reader bleibt unverändert.';
+
+  @override
+  String get launcherOfferRegister => 'Starter einrichten';
+
+  @override
+  String get launcherOfferLater => 'Nicht jetzt';
+
+  @override
+  String get launcherOfferNever => 'Nicht mehr anzeigen';
+
+  @override
+  String get launcherOfferError =>
+      'Die Änderung konnte nicht gespeichert werden. Versuche es erneut oder wähle „Nicht jetzt“.';
 }

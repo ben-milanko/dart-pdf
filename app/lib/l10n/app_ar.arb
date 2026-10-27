@@ -358,5 +358,11 @@
   "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
   "ocrAutoOfferKeepOn": "Keep on",
   "ocrAutoOfferTurnOff": "Turn off",
-  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "launcherOfferTitle": "إضافة DartPDF إلى التطبيقات؟",
+  "launcherOfferBody": "أعدّ مشغّلًا للعثور على DartPDF في بحث التطبيقات. لن يتغير قارئ PDF الافتراضي.",
+  "launcherOfferRegister": "إعداد المشغّل",
+  "launcherOfferLater": "ليس الآن",
+  "launcherOfferNever": "عدم الإظهار مجددًا",
+  "launcherOfferError": "تعذّر حفظ هذا التغيير. حاول مجددًا أو اختر «ليس الآن»."
 }

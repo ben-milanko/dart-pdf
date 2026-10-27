@@ -2288,6 +2288,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.'**
   String get ocrAutoTurnedOff;
+
+  /// Linux portable launcher startup offer: launcherOfferTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Add DartPDF to Applications?'**
+  String get launcherOfferTitle;
+
+  /// Linux portable launcher startup offer: launcherOfferBody
+  ///
+  /// In en, this message translates to:
+  /// **'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.'**
+  String get launcherOfferBody;
+
+  /// Linux portable launcher startup offer: launcherOfferRegister
+  ///
+  /// In en, this message translates to:
+  /// **'Set up launcher'**
+  String get launcherOfferRegister;
+
+  /// Linux portable launcher startup offer: launcherOfferLater
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get launcherOfferLater;
+
+  /// Linux portable launcher startup offer: launcherOfferNever
+  ///
+  /// In en, this message translates to:
+  /// **'Don’t show again'**
+  String get launcherOfferNever;
+
+  /// Linux portable launcher startup offer: launcherOfferError
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save this change. Try again, or choose Not now.'**
+  String get launcherOfferError;
 }
 
 class _AppLocalizationsDelegate

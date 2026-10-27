@@ -138,6 +138,9 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
     COMPONENT Runtime)
 endif()
 
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/install-desktop.py"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+
 # === Desktop integration ===
 # Ship the freedesktop .desktop entry, AppStream metainfo, and hicolor icons in
 # the bundle's share/ tree (relative to the bundle prefix, so the release

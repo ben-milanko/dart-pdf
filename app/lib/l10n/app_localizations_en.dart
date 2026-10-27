@@ -1392,6 +1392,26 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2782,6 +2802,26 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognise text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -4172,4 +4212,24 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognise text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
 }

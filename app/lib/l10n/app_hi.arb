@@ -358,5 +358,11 @@
   "ocrAutoOfferMessage": "This scan is now searchable and selectable. DartPDF can do this for every scanned document you open - text is recognized on this device. You can change this later in Settings.",
   "ocrAutoOfferKeepOn": "Keep on",
   "ocrAutoOfferTurnOff": "Turn off",
-  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings."
+  "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
+  "launcherOfferTitle": "DartPDF को ऐप्लिकेशन में जोड़ें?",
+  "launcherOfferBody": "ऐप्लिकेशन खोज में DartPDF ढूँढने के लिए लॉन्चर सेट अप करें। आपका डिफ़ॉल्ट PDF रीडर नहीं बदलेगा।",
+  "launcherOfferRegister": "लॉन्चर सेट अप करें",
+  "launcherOfferLater": "अभी नहीं",
+  "launcherOfferNever": "फिर न दिखाएँ",
+  "launcherOfferError": "यह बदलाव सहेजा नहीं जा सका। फिर से कोशिश करें या «अभी नहीं» चुनें।"
 }
