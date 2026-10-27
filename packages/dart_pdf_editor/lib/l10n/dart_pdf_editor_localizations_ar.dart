@@ -63,6 +63,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get annotText => 'ملاحظة';
 
   @override
+  String get notePopupKeepOpen => 'إبقاء مفتوحة';
+
+  @override
   String get annotUnderline => 'تسطير';
 
   @override
@@ -447,6 +450,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuRecolour => 'إعادة التلوين…';
 
   @override
+  String get menuSaveAsImage => 'حفظ كصورة…';
+
+  @override
   String get menuRemoveNode => 'إزالة عقدة';
 
   @override
@@ -730,6 +736,15 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get propLineType => 'نوع الخط';
 
   @override
+  String get propRegion => 'المنطقة المحددة';
+
+  @override
+  String get propRegionPolygon => 'مضلّع';
+
+  @override
+  String get propRegionCloud => 'سحابة';
+
+  @override
   String get propLoadFont => 'تحميل خط…';
 
   @override
@@ -784,6 +799,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'المحتوى';
+
+  @override
+  String get propSectionComments => 'التعليقات';
 
   @override
   String get propSectionFormField => 'حقل النموذج';
@@ -969,6 +987,34 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       two: 'تم استبدال تطابقين',
       one: 'تم استبدال تطابق واحد',
       zero: 'لم يتم استبدال أي شيء',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'تحديد للتنقيح';
+
+  @override
+  String get searchRedactMark => 'تحديد';
+
+  @override
+  String get searchRedactMarkAll => 'تحديد الكل';
+
+  @override
+  String get searchRedactHint =>
+      'تبقى التحديدات قابلة للمراجعة حتى تطبّق التنقيحات';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم تحديد $count تطابق للتنقيح',
+      many: 'تم تحديد $count تطابقًا للتنقيح',
+      few: 'تم تحديد $count تطابقات للتنقيح',
+      two: 'تم تحديد تطابقين للتنقيح',
+      one: 'تم تحديد تطابق واحد للتنقيح',
+      zero: 'محدد بالفعل',
     );
     return '$_temp0';
   }
@@ -1477,6 +1523,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'تطبيق التنقيحات (لا يمكن التراجع)';
 
   @override
+  String get tbFindToRedact => 'البحث عن نص لتنقيحه';
+
+  @override
   String get tbAutosizeTextBox => 'تحجيم مربع النص تلقائيًا (Alt+Z)';
 
   @override
@@ -1708,6 +1757,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'وسيلة شرح';
 
   @override
+  String get tbNameCloudCallout => 'وسيلة شرح سحابية';
+
+  @override
   String get tbNameCloudPolygon => 'مضلّع سحابي';
 
   @override
@@ -1912,6 +1964,10 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'وسيلة شرح - اسحب من النقطة إلى موضع المربع';
+
+  @override
+  String get tbTipCloudCallout =>
+      'وسيلة شرح سحابية - اسحب سحابة حول المنطقة، ثم اكتب الملاحظة';
 
   @override
   String get tbTipContent => 'تحرير محتوى الصفحة';

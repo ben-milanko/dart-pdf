@@ -856,6 +856,12 @@
       flex-wrap: wrap;
     }
 
+    .dev-cta .guide-link {
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
     .bench {
       background: #232427;
       border: 1px solid #313337;
@@ -1692,6 +1698,9 @@
         <a href="https://github.com/ben-milanko/dart-pdf/releases/latest" target="_blank" rel="noopener">GitHub
           Releases</a>.</span>
       </p>
+      <p class="free-note">
+        <a href="/pdf-editor-linux" data-i18n="dl_linuxGuide">Linux installation guide</a>
+      </p>
     </div>
   </section>
 
@@ -1715,8 +1724,10 @@
           </a>
           <a class="btn btn-outline-light" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
             rel="noopener" data-i18n="dev_ctaPub">Packages on pub.dev</a>
-          <a class="btn btn-outline-light" href="/guides/add-pdf-editing-to-flutter"
-            data-i18n="sdk_nav_guide">Guide</a>
+          <a class="btn btn-outline-light guide-link" href="/guides/add-pdf-editing-to-flutter"
+            data-i18n="dev_integrationGuide">Flutter integration guide (English)</a>
+          <a class="btn btn-outline-light guide-link" href="/guides/pdf-forms-and-signatures"
+            data-i18n="dev_formsGuide">PDF forms and signatures (English)</a>
         </div>
       </div>
       <div class="reveal" style="transition-delay:.08s;">

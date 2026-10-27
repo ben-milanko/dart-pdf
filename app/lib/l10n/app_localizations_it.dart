@@ -1304,6 +1304,25 @@ class AppLocalizationsIt extends AppLocalizations {
       'Le note di rilascio non sono disponibili in questa build.';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'Ticket dalla $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'Nessun nuovo ticket dalla $version.';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'Da una build nightly più recente ($commit) di questa.';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'Impossibile caricare i ticket di questa build nightly. Controlla la connessione e riprova.';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

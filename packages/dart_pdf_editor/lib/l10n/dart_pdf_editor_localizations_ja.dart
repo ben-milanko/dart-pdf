@@ -63,6 +63,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get annotText => 'ノート';
 
   @override
+  String get notePopupKeepOpen => '開いたままにする';
+
+  @override
   String get annotUnderline => '下線';
 
   @override
@@ -438,6 +441,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuRecolour => '色を変更…';
 
   @override
+  String get menuSaveAsImage => '画像として保存…';
+
+  @override
   String get menuRemoveNode => '頂点を削除';
 
   @override
@@ -714,6 +720,15 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get propLineType => '線の種類';
 
   @override
+  String get propRegion => 'マークした範囲';
+
+  @override
+  String get propRegionPolygon => '多角形';
+
+  @override
+  String get propRegionCloud => '雲形';
+
+  @override
   String get propLoadFont => 'フォントを読み込む…';
 
   @override
@@ -768,6 +783,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => '内容';
+
+  @override
+  String get propSectionComments => 'コメント';
 
   @override
   String get propSectionFormField => 'フォームフィールド';
@@ -947,6 +965,30 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       other: '$count 件を置換しました',
       one: '1 件を置換しました',
       zero: '置換されませんでした',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '墨消し用にマーク';
+
+  @override
+  String get searchRedactMark => 'マーク';
+
+  @override
+  String get searchRedactMarkAll => 'すべてマーク';
+
+  @override
+  String get searchRedactHint => '墨消しを適用するまでマークは確認・変更できます';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 件を墨消し用にマークしました',
+      one: '1 件を墨消し用にマークしました',
+      zero: 'マーク済みです',
     );
     return '$_temp0';
   }
@@ -1443,6 +1485,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => '墨消しを適用（元に戻せません）';
 
   @override
+  String get tbFindToRedact => '墨消しするテキストを検索';
+
+  @override
   String get tbAutosizeTextBox => 'テキストボックスを自動サイズ (Alt+Z)';
 
   @override
@@ -1666,6 +1711,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbNameCallout => '引き出し';
 
   @override
+  String get tbNameCloudCallout => '雲形引き出し';
+
+  @override
   String get tbNameCloudPolygon => '雲形多角形';
 
   @override
@@ -1870,6 +1918,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '引き出し - 起点からボックスの位置までドラッグ';
+
+  @override
+  String get tbTipCloudCallout => '雲形引き出し - 範囲を雲で囲むようにドラッグしてから、メモを入力';
 
   @override
   String get tbTipContent => 'ページコンテンツを編集';

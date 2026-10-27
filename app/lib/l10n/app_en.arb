@@ -1700,6 +1700,37 @@
   "@whatsNewUnavailable": {
     "description": "Shown when the bundled changelog is missing or empty."
   },
+  "whatsNewNightlyTickets": "Tickets since {version}",
+  "@whatsNewNightlyTickets": {
+    "description": "Heading of the What's new section, shown only in nightly builds, that lists the tickets (merged pull requests) since the last published release. {version} is that release's version, e.g. 10.0.0.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "whatsNewNightlyNoTickets": "No new tickets since {version}.",
+  "@whatsNewNightlyNoTickets": {
+    "description": "Shown in that nightly section when nothing has merged since the release.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "whatsNewNightlyNewer": "From a newer nightly ({commit}) than this build.",
+  "@whatsNewNightlyNewer": {
+    "description": "Shown under that heading when the ticket list comes from a newer nightly than the running build. {commit} is a short git commit hash.",
+    "placeholders": {
+      "commit": {
+        "type": "String"
+      }
+    }
+  },
+  "whatsNewNightlyUnavailable": "Couldn't load this nightly's tickets. Check your connection and try again.",
+  "@whatsNewNightlyUnavailable": {
+    "description": "Shown in that nightly section when the ticket list could not be downloaded."
+  },
   "incomingFilesTitle": "{count, plural, other{Open {count} PDFs}}",
   "@incomingFilesTitle": {
     "description": "Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file \"Open with\").",

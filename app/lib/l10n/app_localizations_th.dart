@@ -1279,6 +1279,25 @@ class AppLocalizationsTh extends AppLocalizations {
   String get whatsNewUnavailable => 'ไม่มีบันทึกประจำรุ่นในบิลด์นี้';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return 'ทิกเก็ตตั้งแต่ $version';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return 'ไม่มีทิกเก็ตใหม่ตั้งแต่ $version';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'จากบิลด์ไนต์ลีที่ใหม่กว่า ($commit) บิลด์นี้';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'โหลดทิกเก็ตของบิลด์ไนต์ลีนี้ไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

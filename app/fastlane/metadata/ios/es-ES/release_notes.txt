@@ -1,3 +1,3 @@
-11.0.0
+DartPDF 12.0.0
 
-Crea tablas editables y copia celdas desde y hacia hojas de cálculo. Reanuda el reconocimiento de texto interrumpido. Sustituye colores en capturas y anotaciones. Alinea el texto verticalmente y duplica sellos guardados. Mejoras en el ajuste de texto, las fuentes recordadas y las capturas giradas.
+Añade llamadas con nubes. Busca texto y marca una o todas las coincidencias para censurar; revisa las marcas antes de aplicarlas. Guarda capturas vectoriales pegadas como PNG. Mantiene visibles las reglas y guías del cursor al navegar. Mejora las barras compactas, el número de página y los atajos. Corrige la eliminación de texto cercano al censurar.

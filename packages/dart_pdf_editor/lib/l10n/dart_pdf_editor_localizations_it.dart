@@ -63,6 +63,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get annotText => 'Nota';
 
   @override
+  String get notePopupKeepOpen => 'Tieni aperta';
+
+  @override
   String get annotUnderline => 'Sottolineatura';
 
   @override
@@ -440,6 +443,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Ricolora…';
 
   @override
+  String get menuSaveAsImage => 'Salva come immagine…';
+
+  @override
   String get menuRemoveNode => 'Rimuovi nodo';
 
   @override
@@ -718,6 +724,15 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipo di linea';
 
   @override
+  String get propRegion => 'Area contrassegnata';
+
+  @override
+  String get propRegionPolygon => 'Poligono';
+
+  @override
+  String get propRegionCloud => 'Nuvola';
+
+  @override
   String get propLoadFont => 'Carica carattere…';
 
   @override
@@ -772,6 +787,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Contenuto';
+
+  @override
+  String get propSectionComments => 'Commenti';
 
   @override
   String get propSectionFormField => 'Campo modulo';
@@ -953,6 +971,31 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       other: '$count corrispondenze sostituite',
       one: '1 corrispondenza sostituita',
       zero: 'Nessuna sostituzione',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Contrassegna per l’oscuramento';
+
+  @override
+  String get searchRedactMark => 'Contrassegna';
+
+  @override
+  String get searchRedactMarkAll => 'Contrassegna tutto';
+
+  @override
+  String get searchRedactHint =>
+      'I contrassegni restano rivedibili finché non applichi gli oscuramenti';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count corrispondenze contrassegnate per l’oscuramento',
+      one: '1 corrispondenza contrassegnata per l’oscuramento',
+      zero: 'Già contrassegnato',
     );
     return '$_temp0';
   }
@@ -1454,6 +1497,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Applica oscuramenti (irreversibile)';
 
   @override
+  String get tbFindToRedact => 'Trova testo da oscurare';
+
+  @override
   String get tbAutosizeTextBox => 'Adatta casella di testo (Alt+Z)';
 
   @override
@@ -1683,6 +1729,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Didascalia';
 
   @override
+  String get tbNameCloudCallout => 'Didascalia a nuvola';
+
+  @override
   String get tbNameCloudPolygon => 'Poligono a nuvola';
 
   @override
@@ -1890,6 +1939,10 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Didascalia - trascina dal punto verso dove va la casella';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Didascalia a nuvola - trascina una nuvola attorno all\'area, poi scrivi la nota';
 
   @override
   String get tbTipContent => 'Modifica il contenuto della pagina';

@@ -63,6 +63,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get annotText => 'تێبینی';
 
   @override
+  String get notePopupKeepOpen => 'بە کراوەیی بهێڵەرەوە';
+
+  @override
   String get annotUnderline => 'هێڵی ژێرەوە';
 
   @override
@@ -440,6 +443,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuRecolour => 'گۆڕینی ڕەنگ…';
 
   @override
+  String get menuSaveAsImage => 'پاشەکەوتکردن وەک وێنە…';
+
+  @override
   String get menuRemoveNode => 'لابردنی گرێ';
 
   @override
@@ -717,6 +723,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get propLineType => 'جۆری هێڵ';
 
   @override
+  String get propRegion => 'ناوچەی دیاریکراو';
+
+  @override
+  String get propRegionPolygon => 'فرەگۆشە';
+
+  @override
+  String get propRegionCloud => 'هەور';
+
+  @override
   String get propLoadFont => 'بارکردنی فۆنت…';
 
   @override
@@ -771,6 +786,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'ناوەڕۆک';
+
+  @override
+  String get propSectionComments => 'لێدوانەکان';
 
   @override
   String get propSectionFormField => 'خانەی فۆرم';
@@ -952,6 +970,31 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       other: '$count هاوتا جێگۆڕکێ کران',
       one: 'یەک هاوتا جێگۆڕکێ کرا',
       zero: 'هیچ نەگۆڕدرا',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'نیشانکردن بۆ شاردنەوە';
+
+  @override
+  String get searchRedactMark => 'نیشانکردن';
+
+  @override
+  String get searchRedactMarkAll => 'نیشانکردنی هەموو';
+
+  @override
+  String get searchRedactHint =>
+      'نیشانەکان تا جێبەجێکردنی شاردنەوەکان دەتوانرێن پێداچوونەوەیان بۆ بکرێت';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count هاوتا بۆ شاردنەوە نیشانکران',
+      one: 'یەک هاوتا بۆ شاردنەوە نیشانکرا',
+      zero: 'پێشتر نیشانکراوە',
     );
     return '$_temp0';
   }
@@ -1454,6 +1497,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'جێبەجێکردنی سانسۆرکردن (ناگەڕێتەوە)';
 
   @override
+  String get tbFindToRedact => 'دۆزینەوەی دەق بۆ شاردنەوە';
+
+  @override
   String get tbAutosizeTextBox => 'قەبارەی خۆکاری چوارگۆشەی دەق (Alt+Z)';
 
   @override
@@ -1683,6 +1729,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'دەرخەری تێبینی';
 
   @override
+  String get tbNameCloudCallout => 'دەرخەری تێبینی هەوری';
+
+  @override
   String get tbNameCloudPolygon => 'فرەگۆشەی هەوری';
 
   @override
@@ -1891,6 +1940,10 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'دەرخەری تێبینی - لە خاڵەکەوە ڕایبکێشە بۆ شوێنی چوارگۆشەکە';
+
+  @override
+  String get tbTipCloudCallout =>
+      'دەرخەری تێبینی هەوری - هەورێک بە دەوری ناوچەکەدا ڕابکێشە، پاشان تێبینییەکە بنووسە';
 
   @override
   String get tbTipContent => 'دەستکاریکردنی ناوەڕۆکی پەڕە';

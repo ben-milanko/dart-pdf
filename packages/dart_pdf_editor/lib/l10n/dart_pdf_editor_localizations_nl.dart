@@ -63,6 +63,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get annotText => 'Notitie';
 
   @override
+  String get notePopupKeepOpen => 'Open houden';
+
+  @override
   String get annotUnderline => 'Onderstreping';
 
   @override
@@ -439,6 +442,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Herkleuren…';
 
   @override
+  String get menuSaveAsImage => 'Opslaan als afbeelding…';
+
+  @override
   String get menuRemoveNode => 'Knooppunt verwijderen';
 
   @override
@@ -717,6 +723,15 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get propLineType => 'Lijntype';
 
   @override
+  String get propRegion => 'Gemarkeerd gebied';
+
+  @override
+  String get propRegionPolygon => 'Veelhoek';
+
+  @override
+  String get propRegionCloud => 'Wolk';
+
+  @override
   String get propLoadFont => 'Lettertype laden…';
 
   @override
@@ -771,6 +786,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Inhoud';
+
+  @override
+  String get propSectionComments => 'Opmerkingen';
 
   @override
   String get propSectionFormField => 'Formulierveld';
@@ -952,6 +970,31 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       other: '$count overeenkomsten vervangen',
       one: '1 overeenkomst vervangen',
       zero: 'Niets vervangen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Markeren voor redactie';
+
+  @override
+  String get searchRedactMark => 'Markeren';
+
+  @override
+  String get searchRedactMarkAll => 'Alles markeren';
+
+  @override
+  String get searchRedactHint =>
+      'Markeringen blijven controleerbaar tot je de redacties toepast';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count overeenkomsten gemarkeerd voor redactie',
+      one: '1 overeenkomst gemarkeerd voor redactie',
+      zero: 'Al gemarkeerd',
     );
     return '$_temp0';
   }
@@ -1453,6 +1496,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Redacties toepassen (onomkeerbaar)';
 
   @override
+  String get tbFindToRedact => 'Tekst zoeken om te redigeren';
+
+  @override
   String get tbAutosizeTextBox => 'Tekstvak automatisch aanpassen (Alt+Z)';
 
   @override
@@ -1683,6 +1729,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Bijschrift';
 
   @override
+  String get tbNameCloudCallout => 'Wolkbijschrift';
+
+  @override
   String get tbNameCloudPolygon => 'Wolkveelhoek';
 
   @override
@@ -1889,6 +1938,10 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Bijschrift - sleep van het punt naar waar het vak komt';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Wolkbijschrift - sleep een wolk om het gebied en typ dan de notitie';
 
   @override
   String get tbTipContent => 'Pagina-inhoud bewerken';

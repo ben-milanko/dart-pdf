@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/app_info.dart';
@@ -32,6 +34,26 @@ class _FakeBundle extends CachingAssetBundle {
     return contents;
   }
 }
+
+const _nightlyBody = r'''
+Rolling Windows + macOS test build from [`abc1234`](https://github.com/o/r/commit/abc1234def), built 2026-10-22 03:00 UTC.
+
+- **Windows:** use the installer.
+
+## Tickets since [DartPDF 10.0.0](https://github.com/o/r/releases/tag/app-v10.0.0)
+
+- feat(editor): editable tables ([#1140](https://github.com/o/r/pull/1140))
+- fix: keep \[brackets\] literal ([#1134](https://github.com/o/r/pull/1134))
+
+[Full comparison](https://github.com/o/r/compare/a...b).
+
+## Changes since the previous nightly
+
+- feat(editor): editable tables (#1140) ([abc1234](https://github.com/o/r/commit/abc))
+
+<!-- main-sha: ABC1234DEF5678 -->
+<!-- app-version: 10.0.0 -->
+''';
 
 void main() {
   group('parseChangelog', () {
@@ -126,6 +148,49 @@ void main() {
     });
   });
 
+  group('parseNightlyTickets', () {
+    test('reads the ticket section and the build commit', () {
+      final tickets = parseNightlyTickets(_nightlyBody)!;
+      expect(tickets.sinceVersion, '10.0.0');
+      expect(tickets.commitSha, 'abc1234def5678');
+      expect(tickets.tickets.map((t) => t.number), [1140, 1134]);
+      expect(tickets.tickets.first.title, 'feat(editor): editable tables');
+      expect(tickets.tickets.first.url, 'https://github.com/o/r/pull/1140');
+      expect(tickets.tickets.last.title, 'fix: keep [brackets] literal');
+    });
+
+    test('an empty list is only reported when the workflow said so', () {
+      const heading = '## Tickets since [DartPDF 10.0.0](https://x)\n\n';
+      final none = parseNightlyTickets(
+          '${heading}No new merged tickets since this release.\n')!;
+      expect(none.tickets, isEmpty);
+      expect(
+          parseNightlyTickets('${heading}This nightly and the latest release '
+              'have different histories.\n'),
+          isNull);
+    });
+
+    test('a body without the section yields null', () {
+      expect(parseNightlyTickets(''), isNull);
+      expect(parseNightlyTickets('## Changes since the previous nightly\n'),
+          isNull);
+    });
+  });
+
+  test('fetchNightlyReleaseNotes reads the rolling release body', () async {
+    late Uri requested;
+    final client = MockClient((request) async {
+      requested = request.url;
+      return http.Response('{"body": "notes"}', 200);
+    });
+    expect(await fetchNightlyReleaseNotes(client: client), 'notes');
+    expect(requested.path, endsWith('/releases/tags/app-nightly'));
+
+    final failing = MockClient((_) async => http.Response('', 404));
+    expect(fetchNightlyReleaseNotes(client: failing),
+        throwsA(isA<http.ClientException>()));
+  });
+
   group('the dialog', () {
     late PdfEditingPreferences prefs;
 
@@ -140,13 +205,17 @@ void main() {
     });
     tearDown(() => prefs.dispose());
 
-    Future<void> pumpDialog(WidgetTester tester, String changelog) async {
+    Future<void> pumpDialog(
+      WidgetTester tester,
+      String changelog, {
+      NightlyNotesFetcher? nightlyNotes,
+    }) async {
       await tester.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
-              onPressed: () =>
-                  showWhatsNew(context, bundle: _FakeBundle(changelog)),
+              onPressed: () => showWhatsNew(context,
+                  bundle: _FakeBundle(changelog), nightlyNotes: nightlyNotes),
               child: const Text('open'),
             ),
           ),
@@ -195,6 +264,73 @@ void main() {
 
       expect(
           find.byKey(const ValueKey('whats-new-unavailable')), findsOneWidget);
+    });
+
+    testWidgets('a stable build has no nightly section', (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n');
+      expect(find.byKey(const ValueKey('whats-new-nightly')), findsNothing);
+      expect(find.byKey(const ValueKey('whats-new-nightly-unavailable')),
+          findsNothing);
+    });
+
+    testWidgets('a nightly lists its tickets above the changelog',
+        (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n',
+          nightlyNotes: () async => _nightlyBody);
+
+      expect(find.byKey(const ValueKey('whats-new-nightly')), findsOneWidget);
+      expect(find.text('Tickets since 10.0.0'), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('whats-new-ticket-1140')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('whats-new-ticket-1134')), findsOneWidget);
+      // The test binary has no build commit, so the list reads as coming
+      // from a newer nightly than the one running.
+      expect(find.text('From a newer nightly (abc1234) than this build.'),
+          findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Tickets since 10.0.0')).dy,
+        lessThan(tester.getTopLeft(find.text('1.0.0')).dy),
+      );
+    });
+
+    testWidgets('a nightly with nothing new says so', (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n',
+          nightlyNotes: () async =>
+              '## Tickets since [DartPDF 10.0.0](https://x)\n\n'
+              'No new merged tickets since this release.\n');
+
+      expect(find.text('No new tickets since 10.0.0.'), findsOneWidget);
+    });
+
+    testWidgets('an offline nightly still shows the changelog', (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n',
+          nightlyNotes: () async => throw http.ClientException('offline'));
+
+      expect(find.byKey(const ValueKey('whats-new-nightly-unavailable')),
+          findsOneWidget);
+      expect(find.text('Something.'), findsOneWidget);
+    });
+
+    testWidgets('tapping a ticket opens its pull request', (tester) async {
+      const launcher = MethodChannel('plugins.flutter.io/url_launcher');
+      final launched = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(launcher, (call) async {
+        if (call.method == 'launch') {
+          launched.add((call.arguments as Map)['url'] as String);
+        }
+        return true;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(launcher, null));
+
+      await pumpDialog(tester, '## 1.0.0\n\n- Something.\n',
+          nightlyNotes: () async => _nightlyBody);
+      await tester.tap(find.byKey(const ValueKey('whats-new-ticket-1140')));
+      await tester.pumpAndSettle();
+
+      expect(launched, ['https://github.com/o/r/pull/1140']);
     });
 
     testWidgets('the command palette runs it', (tester) async {

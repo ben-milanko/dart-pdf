@@ -26,6 +26,7 @@ export 'src/design/editor_presenter.dart'
 export 'src/design/editor_theme.dart'
     show PdfEditorThemeData, pdfShellCompactWidth;
 export 'src/design/fold.dart';
+export 'src/design/keyboard_dismiss.dart';
 export 'src/design/header_parts.dart';
 export 'src/design/material_host.dart'
     show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
@@ -88,6 +89,7 @@ export 'package:pdf_cos/pdf_cos.dart'
         PdfSourceLoadOptions,
         PdfSourceProgress;
 export 'src/http_byte_source.dart';
+export 'src/note_popup.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
 export 'src/l10n/editor_localizations.dart';
 export 'src/legacy/legacy_host_bridge.dart' show kPdfLegacyMaterialBridge;
