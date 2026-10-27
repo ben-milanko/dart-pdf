@@ -9,6 +9,12 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get updateSkipVersion => '跳过此版本';
+
+  @override
+  String get settingsUpdateSkipped => '已跳过此版本。你不会再收到此版本的通知，但仍可在此安装。';
+
+  @override
   String get add => '添加';
 
   @override
@@ -1379,6 +1385,12 @@ class AppLocalizationsZh extends AppLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get updateSkipVersion => '略過此版本';
+
+  @override
+  String get settingsUpdateSkipped => '已略過此版本。你不會再收到此版本的通知，但仍可在此安裝。';
 
   @override
   String get add => '新增';

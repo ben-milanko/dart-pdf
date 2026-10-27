@@ -1,5 +1,7 @@
 {
   "@@locale": "tr",
+  "updateSkipVersion": "Bu sürümü atla",
+  "settingsUpdateSkipped": "Bu sürüm atlandı. Bu sürüm hakkında tekrar bildirim almayacaksınız, ancak yine de buradan yükleyebilirsiniz.",
   "add": "Ekle",
   "appSigAddLogo": "Logo ekle…",
   "appSigAllPages": "Tüm {pageCount} sayfa",

@@ -9,6 +9,13 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get updateSkipVersion => '이 버전 건너뛰기';
+
+  @override
+  String get settingsUpdateSkipped =>
+      '이 버전은 건너뛰었습니다. 이 버전에 대한 알림은 더 이상 표시되지 않지만 여기에서 설치할 수 있습니다.';
+
+  @override
   String get add => '추가';
 
   @override

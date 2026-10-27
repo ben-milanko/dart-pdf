@@ -9,6 +9,13 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Bu sürümü atla';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Bu sürüm atlandı. Bu sürüm hakkında tekrar bildirim almayacaksınız, ancak yine de buradan yükleyebilirsiniz.';
+
+  @override
   String get add => 'Ekle';
 
   @override

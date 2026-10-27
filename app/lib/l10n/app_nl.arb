@@ -1,5 +1,7 @@
 {
   "@@locale": "nl",
+  "updateSkipVersion": "Deze versie overslaan",
+  "settingsUpdateSkipped": "Deze versie is overgeslagen. Je ontvangt er geen meldingen meer over, maar je kunt deze hier nog steeds installeren.",
   "add": "Toevoegen",
   "appSigAddLogo": "Logo toevoegen…",
   "appSigAllPages": "Alle {pageCount} pagina's",

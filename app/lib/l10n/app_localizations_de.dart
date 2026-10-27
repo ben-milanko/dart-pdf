@@ -9,6 +9,13 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Diese Version überspringen';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Diese Version wird übersprungen. Du erhältst keine weiteren Benachrichtigungen dazu, kannst sie aber hier weiterhin installieren.';
+
+  @override
   String get add => 'Hinzufügen';
 
   @override

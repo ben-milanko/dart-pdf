@@ -135,6 +135,18 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// Button to skip notifications for this exact update while retaining manual installation.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip this version'**
+  String get updateSkipVersion;
+
+  /// Explanation for a skipped update; manual installation remains available.
+  ///
+  /// In en, this message translates to:
+  /// **'This version is skipped. You won’t be notified about it again, but you can still install it here.'**
+  String get settingsUpdateSkipped;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:

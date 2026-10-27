@@ -9,6 +9,13 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -1419,6 +1426,13 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   AppLocalizationsEnAu() : super('en_AU');
 
   @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -2827,6 +2841,13 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 /// The translations for English, as used in the United Kingdom (`en_GB`).
 class AppLocalizationsEnGb extends AppLocalizationsEn {
   AppLocalizationsEnGb() : super('en_GB');
+
+  @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
 
   @override
   String get add => 'Add';

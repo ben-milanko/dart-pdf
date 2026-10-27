@@ -1,5 +1,7 @@
 {
   "@@locale": "de",
+  "updateSkipVersion": "Diese Version überspringen",
+  "settingsUpdateSkipped": "Diese Version wird übersprungen. Du erhältst keine weiteren Benachrichtigungen dazu, kannst sie aber hier weiterhin installieren.",
   "add": "Hinzufügen",
   "appSigAddLogo": "Logo hinzufügen…",
   "appSigAllPages": "Alle {pageCount} Seiten",

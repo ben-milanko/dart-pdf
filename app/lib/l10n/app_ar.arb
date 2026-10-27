@@ -1,5 +1,7 @@
 {
   "@@locale": "ar",
+  "updateSkipVersion": "تخطي هذا الإصدار",
+  "settingsUpdateSkipped": "تم تخطي هذا الإصدار. لن يتم إشعارك به مجددًا، ولكن لا يزال بإمكانك تثبيته هنا.",
   "add": "إضافة",
   "appSigAddLogo": "إضافة شعار…",
   "appSigAllPages": "كل الصفحات {pageCount}",

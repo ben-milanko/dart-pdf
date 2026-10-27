@@ -1,5 +1,7 @@
 {
   "@@locale": "vi",
+  "updateSkipVersion": "Bỏ qua phiên bản này",
+  "settingsUpdateSkipped": "Phiên bản này đã được bỏ qua. Bạn sẽ không nhận được thông báo về phiên bản này nữa, nhưng vẫn có thể cài đặt tại đây.",
   "add": "Thêm",
   "appSigAddLogo": "Thêm biểu trưng…",
   "appSigAllPages": "Tất cả {pageCount} trang",

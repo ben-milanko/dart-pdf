@@ -1,5 +1,7 @@
 {
   "@@locale": "hi",
+  "updateSkipVersion": "इस संस्करण को छोड़ें",
+  "settingsUpdateSkipped": "इस संस्करण को छोड़ दिया गया है। आपको इसके बारे में फिर से सूचित नहीं किया जाएगा, लेकिन आप इसे यहाँ से इंस्टॉल कर सकते हैं।",
   "add": "जोड़ें",
   "appSigAddLogo": "लोगो जोड़ें…",
   "appSigAllPages": "सभी {pageCount} पृष्ठ",

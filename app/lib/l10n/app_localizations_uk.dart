@@ -9,6 +9,13 @@ class AppLocalizationsUk extends AppLocalizations {
   AppLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Пропустити цю версію';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Цю версію пропущено. Ви більше не отримуватимете сповіщень про неї, але все ще можете встановити її тут.';
+
+  @override
   String get add => 'Додати';
 
   @override

@@ -1,5 +1,7 @@
 {
   "@@locale": "en_AU",
+  "updateSkipVersion": "Skip this version",
+  "settingsUpdateSkipped": "This version is skipped. You won’t be notified about it again, but you can still install it here.",
   "add": "Add",
   "appSigAddLogo": "Add logo…",
   "appSigAllPages": "All {pageCount} pages",

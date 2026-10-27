@@ -9,6 +9,13 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'このバージョンをスキップ';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'このバージョンはスキップされています。今後このバージョンの通知は表示されませんが、ここからインストールできます。';
+
+  @override
   String get add => '追加';
 
   @override

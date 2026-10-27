@@ -1,5 +1,7 @@
 {
   "@@locale": "zh_Hant",
+  "updateSkipVersion": "略過此版本",
+  "settingsUpdateSkipped": "已略過此版本。你不會再收到此版本的通知，但仍可在此安裝。",
   "add": "新增",
   "appSigAddLogo": "新增標誌…",
   "appSigAllPages": "全部 {pageCount} 頁",
