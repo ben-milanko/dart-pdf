@@ -120,5 +120,16 @@
   "exFileTypePdf": "เอกสาร PDF",
   "exFileTypeImages": "รูปภาพ",
   "exFileTypeFonts": "ฟอนต์",
-  "exExtractedTitle": "{title} - ส่วนที่ {part}.pdf"
+  "exExtractedTitle": "{title} - ส่วนที่ {part}.pdf",
+  "exUseCupertinoDesign": "เปลี่ยนเป็นดีไซน์ Cupertino",
+  "exSettings": "การตั้งค่า",
+  "exDesignSection": "ดีไซน์",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "การเปลี่ยนจะเก็บเอกสารที่เปิดอยู่และการแก้ไขที่ยังไม่ได้บันทึกไว้",
+  "exAppearanceSection": "ลักษณะที่ปรากฏ",
+  "exAppearanceSystem": "ระบบ",
+  "exAppearanceLight": "สว่าง",
+  "exAppearanceDark": "มืด",
+  "exOpenDocumentsSection": "เอกสารที่เปิดอยู่"
 }

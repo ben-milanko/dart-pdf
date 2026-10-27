@@ -30,7 +30,7 @@ export 'src/design/keyboard_dismiss.dart';
 export 'src/design/header_parts.dart';
 export 'src/design/material_host.dart'
     show PdfDropdown, PdfDropdownItem, PdfMaterialHost, pdfTextContextMenu;
-export 'src/dialog.dart';
+export 'src/dialog.dart' hide pdfDialogRouteContent;
 export 'src/canvas_device.dart';
 export 'src/font_substitution.dart';
 export 'src/comparison/comparison_view.dart';

@@ -461,4 +461,38 @@ class AppLocalizationsUk extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - частина $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Перейти на дизайн Cupertino';
+
+  @override
+  String get exSettings => 'Налаштування';
+
+  @override
+  String get exDesignSection => 'Дизайн';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter =>
+      'Під час перемикання відкриті документи й незбережені зміни зберігаються.';
+
+  @override
+  String get exAppearanceSection => 'Вигляд';
+
+  @override
+  String get exAppearanceSystem => 'Системний';
+
+  @override
+  String get exAppearanceLight => 'Світлий';
+
+  @override
+  String get exAppearanceDark => 'Темний';
+
+  @override
+  String get exOpenDocumentsSection => 'Відкриті документи';
 }

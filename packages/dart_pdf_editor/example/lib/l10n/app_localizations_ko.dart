@@ -441,4 +441,37 @@ class AppLocalizationsKo extends AppLocalizations {
   String exExtractedTitle(String title, int part) {
     return '$title - 파트 $part.pdf';
   }
+
+  @override
+  String get exUseCupertinoDesign => 'Cupertino 디자인으로 전환';
+
+  @override
+  String get exSettings => '설정';
+
+  @override
+  String get exDesignSection => '디자인';
+
+  @override
+  String get exDesignMaterial => 'Material';
+
+  @override
+  String get exDesignCupertino => 'Cupertino';
+
+  @override
+  String get exDesignFooter => '전환해도 열린 문서와 저장하지 않은 편집 내용은 유지됩니다.';
+
+  @override
+  String get exAppearanceSection => '모양';
+
+  @override
+  String get exAppearanceSystem => '시스템';
+
+  @override
+  String get exAppearanceLight => '라이트';
+
+  @override
+  String get exAppearanceDark => '다크';
+
+  @override
+  String get exOpenDocumentsSection => '열린 문서';
 }

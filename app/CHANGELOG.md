@@ -1,5 +1,6 @@
 # Changelog
 
+## Unreleased
 ## 12.0.0+49
 
 - Add cloud callouts with an attached note and a marked cloud or polygon area.

@@ -647,5 +647,49 @@
         "type": "int"
       }
     }
+  },
+  "exUseCupertinoDesign": "Switch to Cupertino design",
+  "@exUseCupertinoDesign": {
+    "description": "App menu item that switches the example from the Material design to the Cupertino (iOS-style) design."
+  },
+  "exSettings": "Settings",
+  "@exSettings": {
+    "description": "Title of the Cupertino design's settings page, and the tooltip of the nav-bar button that opens it."
+  },
+  "exDesignSection": "Design",
+  "@exDesignSection": {
+    "description": "Settings section header: which design system (Material or Cupertino) the app uses."
+  },
+  "exDesignMaterial": "Material",
+  "@exDesignMaterial": {
+    "description": "Design option: Google's Material design. A product name; usually left untranslated."
+  },
+  "exDesignCupertino": "Cupertino",
+  "@exDesignCupertino": {
+    "description": "Design option: Apple-style Cupertino design. A product name; usually left untranslated."
+  },
+  "exDesignFooter": "Switching keeps your open documents and unsaved edits.",
+  "@exDesignFooter": {
+    "description": "Footer under the design choice in settings."
+  },
+  "exAppearanceSection": "Appearance",
+  "@exAppearanceSection": {
+    "description": "Settings section header for light/dark appearance."
+  },
+  "exAppearanceSystem": "System",
+  "@exAppearanceSystem": {
+    "description": "Appearance option: follow the device's light/dark setting."
+  },
+  "exAppearanceLight": "Light",
+  "@exAppearanceLight": {
+    "description": "Appearance option: always light."
+  },
+  "exAppearanceDark": "Dark",
+  "@exAppearanceDark": {
+    "description": "Appearance option: always dark."
+  },
+  "exOpenDocumentsSection": "Open documents",
+  "@exOpenDocumentsSection": {
+    "description": "Settings section header listing the open documents; tapping one shows it."
   }
 }

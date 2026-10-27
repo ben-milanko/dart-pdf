@@ -120,5 +120,16 @@
   "exFileTypePdf": "PDF 문서",
   "exFileTypeImages": "이미지",
   "exFileTypeFonts": "글꼴",
-  "exExtractedTitle": "{title} - 파트 {part}.pdf"
+  "exExtractedTitle": "{title} - 파트 {part}.pdf",
+  "exUseCupertinoDesign": "Cupertino 디자인으로 전환",
+  "exSettings": "설정",
+  "exDesignSection": "디자인",
+  "exDesignMaterial": "Material",
+  "exDesignCupertino": "Cupertino",
+  "exDesignFooter": "전환해도 열린 문서와 저장하지 않은 편집 내용은 유지됩니다.",
+  "exAppearanceSection": "모양",
+  "exAppearanceSystem": "시스템",
+  "exAppearanceLight": "라이트",
+  "exAppearanceDark": "다크",
+  "exOpenDocumentsSection": "열린 문서"
 }
