@@ -5,6 +5,7 @@
     "packages/dart_pdf_editor/lib/src/cupertino/cupertino_prompts.dart",
     "packages/dart_pdf_editor/lib/src/design/material_host.dart",
     "packages/dart_pdf_editor/lib/src/design/material_presenter.dart",
+    "packages/dart_pdf_editor/lib/src/design/table_editor_dialog.dart",
     "packages/dart_pdf_editor/lib/src/dialog.dart",
     "packages/dart_pdf_editor/lib/src/editing/annotation_presentation.dart",
     "packages/dart_pdf_editor/lib/src/editing/annotation_preview.dart",

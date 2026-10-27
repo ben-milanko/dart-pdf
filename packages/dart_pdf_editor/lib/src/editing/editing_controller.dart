@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextMatch;
 
 import '../page_geometry.dart';
 import '../renderer.dart';
@@ -209,6 +210,13 @@ enum PdfEditTool {
   /// then type the text (a /FreeText callout with a leader line and arrow,
   /// like Bluebeam's Callout tool).
   callout,
+
+  /// Drag a revision cloud around the area to mark, then type the note
+  /// (Bluebeam's Cloud+): one callout whose leader runs from the note to the
+  /// cloud. Scallops are sized by [PdfEditingPreferences.lineScale]; the
+  /// properties panel switches the cloud to a plain polygon (and dashes it)
+  /// and back. Drag the note to move it alone, the cloud to move both.
+  cloudCallout,
 
   /// Tap to place a sticky note (/Text).
   note,
@@ -2535,10 +2543,7 @@ class PdfEditingController extends ChangeNotifier {
   PdfStandardFont get fontFamily => preferences.fontFamily;
 
   set fontFamily(PdfStandardFont value) {
-    if (_activeFont != null) {
-      _activeFont = null;
-      notifyListeners();
-    }
+    preferences.embeddedFont = null;
     preferences.fontFamily = value;
   }
 
@@ -2587,22 +2592,17 @@ class PdfEditingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PdfEmbeddedFont? _activeFont;
-
   /// An embedded TrueType/OpenType font selected for new free text, taking
   /// precedence over [fontFamily] so authored text can use any font (not
   /// just the base-14 faces). Null means a standard family.
   ///
-  /// Not persisted - the font program is large, and recovering it from a
-  /// box's own appearance keeps editing lossless regardless. A session
-  /// starts on the standard fonts; reselect a bundled or custom font to
-  /// use it again.
-  PdfEmbeddedFont? get activeFont => _activeFont;
+  /// Persisted with [preferences] as a compressed font program, so new
+  /// documents and app sessions keep the chosen face. Selecting a standard
+  /// [fontFamily] clears this embedded default.
+  PdfEmbeddedFont? get activeFont => preferences.embeddedFont;
 
   set activeFont(PdfEmbeddedFont? value) {
-    if (value == _activeFont) return;
-    _activeFont = value;
-    notifyListeners();
+    preferences.embeddedFont = value;
   }
 
   /// A human label for the font the font controls currently target - a
@@ -2610,7 +2610,7 @@ class PdfEditingController extends ChangeNotifier {
   /// be written in (the embedded font's family, or the standard family).
   String get activeFontLabel =>
       selectedMeasurementCaptionStyle?.font.family.label ??
-      _activeFont?.displayName ??
+      activeFont?.displayName ??
       preferences.fontFamily.family.label;
 
   /// Parses [bytes] as a TrueType (.ttf) or OpenType (.otf) font and
@@ -3264,6 +3264,76 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Marks each search hit in [matches] for redaction - one /Redact
+  /// annotation per hit (fill black), so every mark can be reviewed on the
+  /// page, and a false positive deleted, before [applyRedactions] burns
+  /// them. Find-to-redact (#1160): the search panel's "Mark all" hands it
+  /// [PdfViewerController.searchResults]' page-text hits.
+  ///
+  /// A hit already covered by a /Redact mark - from an earlier pass, or an
+  /// overlapping hit earlier in [matches] - is skipped, so marking the same
+  /// search twice adds nothing. Everything lands as one undo step. Returns
+  /// how many marks were added.
+  int markMatchesForRedaction(Iterable<PdfTextMatch> matches) {
+    final covered = <int, List<PdfRect>>{};
+    List<PdfRect> coveredOn(int page) => covered.putIfAbsent(
+          page,
+          () => [
+            for (final a in pageAt(page).annotations)
+              if (a.subtype == 'Redact') a.rect,
+          ],
+        );
+    final marks = <({int page, List<PdfRect> rects})>[];
+    for (final match in matches) {
+      if (match.rects.isEmpty) continue;
+      if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+        continue;
+      }
+      final existing = coveredOn(match.pageIndex);
+      if (match.rects.every((r) => existing.any((c) => _covers(c, r)))) {
+        continue;
+      }
+      marks.add((page: match.pageIndex, rects: match.rects));
+      existing.add(_boundsOfRects(match.rects));
+    }
+    if (marks.isEmpty) return 0;
+    final applied = apply((editor) {
+      for (final mark in marks) {
+        editor.addRedaction(mark.page, mark.rects, author: preferences.author);
+      }
+    });
+    return applied ? marks.length : 0;
+  }
+
+  /// Whether every run of [match] already sits under a /Redact mark on its
+  /// page - what the search panel shows beside a hit that "Mark" would skip.
+  bool isMarkedForRedaction(PdfTextMatch match) {
+    if (match.rects.isEmpty) return false;
+    if (match.pageIndex < 0 || match.pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final marks = [
+      for (final a in pageAt(match.pageIndex).annotations)
+        if (a.subtype == 'Redact') a.rect,
+    ];
+    return match.rects.every((r) => marks.any((c) => _covers(c, r)));
+  }
+
+  /// Whether [outer] contains [inner], give or take half a point of
+  /// rounding in the stored /Rect.
+  static bool _covers(PdfRect outer, PdfRect inner) =>
+      inner.left >= outer.left - 0.5 &&
+      inner.bottom >= outer.bottom - 0.5 &&
+      inner.right <= outer.right + 0.5 &&
+      inner.top <= outer.top + 0.5;
+
+  static PdfRect _boundsOfRects(List<PdfRect> rects) => PdfRect(
+        rects.map((r) => r.left).reduce(math.min),
+        rects.map((r) => r.bottom).reduce(math.min),
+        rects.map((r) => r.right).reduce(math.max),
+        rects.map((r) => r.top).reduce(math.max),
+      );
+
   // ---------------------------------------------------------------------
   // links
 
@@ -3806,7 +3876,7 @@ class PdfEditingController extends ChangeNotifier {
           rect,
           text,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
           verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
@@ -3839,7 +3909,7 @@ class PdfEditingController extends ChangeNotifier {
           text,
           target,
           fontSize: preferences.fontSize,
-          font: _activeFont ?? preferences.fontFamily,
+          font: activeFont ?? preferences.fontFamily,
           align: preferences.textAlign,
           verticalAlign: preferences.textVerticalAlign,
           color: _colorValue,
@@ -3848,6 +3918,43 @@ class PdfEditingController extends ChangeNotifier {
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
+          pageRotation: _page(pageIndex).rotation,
+          author: preferences.author,
+        ),
+      );
+
+  /// Places a cloud callout ([PdfEditTool.cloudCallout]): a revision cloud
+  /// around [region] and the [text] note at [rect], joined by a plain leader
+  /// from the note to the cloud (all page space). The note is borderless
+  /// text in the tool's colour, over [PdfEditingPreferences.textFillColor];
+  /// the cloud and leader share the stroke ([PdfEditingPreferences.
+  /// textBorderColor], else the text colour) and the scallops follow
+  /// [PdfEditingPreferences.lineScale].
+  void addCloudCallout(
+    int pageIndex,
+    PdfRect region,
+    PdfRect rect,
+    String text,
+  ) =>
+      apply(
+        (e) => e.addCallout(
+          pageIndex,
+          rect,
+          text,
+          (region.left, region.top),
+          region:
+              PdfCalloutRegion.rect(region, cloudScale: preferences.lineScale),
+          fontSize: preferences.fontSize,
+          font: activeFont ?? preferences.fontFamily,
+          align: preferences.textAlign,
+          verticalAlign: preferences.textVerticalAlign,
+          color: _colorValue,
+          fillColor: _rgbOf(preferences.textFillColor),
+          strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
+          strokeWidth: preferences.strokeWidth,
+          outlineColor: (null,),
+          ending: PdfLineEnding.none,
           opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
@@ -3890,6 +3997,13 @@ class PdfEditingController extends ChangeNotifier {
     String text, {
     double width = 220,
   }) {
+    if (text.contains('\t')) {
+      try {
+        return placeTable(pageIndex, x, y, PdfTableData.fromTsv(text));
+      } on FormatException {
+        return false;
+      }
+    }
     final value = text.trimRight();
     if (value.trim().isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
@@ -3908,7 +4022,7 @@ class PdfEditingController extends ChangeNotifier {
         rect,
         value,
         fontSize: fontSize,
-        font: _activeFont ?? preferences.fontFamily,
+        font: activeFont ?? preferences.fontFamily,
         align: preferences.textAlign,
         verticalAlign: preferences.textVerticalAlign,
         color: _colorValue,
@@ -3928,6 +4042,51 @@ class PdfEditingController extends ChangeNotifier {
       ..add((pageIndex, total - 1));
     notifyListeners();
     return true;
+  }
+
+  /// Copies cell values for Excel. Old PDF-specific clipboards must not win
+  /// over this newer text copy when Paste returns to a PDF page.
+  Future<void> copyTableCellsText(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    annotationClipboard.clear();
+    snapshotClipboard.clear();
+    pageClipboard.clear();
+  }
+
+  /// Inserts one movable, resizable table annotation. Cell values remain
+  /// editable after saving and reopening; ordinary viewers see its vector AP.
+  bool placeTable(int pageIndex, double x, double y, PdfTableData table) {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return false;
+    }
+    final scale = math.min(
+        1.0,
+        math.min(_visualPageWidth(pageIndex) * .9 / table.width,
+            _visualPageHeight(pageIndex) * .9 / table.height));
+    final rect = _pageRectForVisualSize(pageIndex, x, y,
+        width: table.width * scale, height: table.height * scale);
+    if (!apply((e) =>
+        e.addTable(pageIndex, rect, table, author: preferences.author))) {
+      return false;
+    }
+    tool = PdfEditTool.select;
+    _selected
+      ..clear()
+      ..add((pageIndex, _page(pageIndex).annotations.length - 1));
+    notifyListeners();
+    return true;
+  }
+
+  bool updateTable(int pageIndex, int slot, PdfTableData table,
+      {required int expectedRevision}) {
+    if (_disposed || expectedRevision != revisionId) return false;
+    final annotation = annotationAt(pageIndex, slot);
+    if (annotation == null ||
+        !isAnnotationEditable(annotation) ||
+        annotation.isLockedContents) {
+      return false;
+    }
+    return apply((e) => e.updateTable(pageIndex, annotation, table));
   }
 
   void addStamp(int pageIndex, PdfRect rect, String text, {int? color}) =>
@@ -4345,6 +4504,25 @@ class PdfEditingController extends ChangeNotifier {
   void saveCustomStamp(PdfCustomStamp stamp) =>
       preferences.customStamps = [...preferences.customStamps, stamp];
 
+  /// Saves an independent copy of a library stamp, preserving its artwork,
+  /// fields and metadata, and selects the copy for placement.
+  PdfCustomStamp duplicateCustomStamp(PdfCustomStamp stamp) {
+    final detached = PdfCustomStamp.decode(stamp.encode())!;
+    final copy = PdfCustomStamp(
+      id: 'copy-${DateTime.now().microsecondsSinceEpoch}-${_stampCopySequence++}',
+      text: detached.text,
+      color: detached.color,
+      template: detached.template,
+      type: detached.type,
+      tags: detached.tags,
+    );
+    saveCustomStamp(copy);
+    activeStamp = copy;
+    return copy;
+  }
+
+  static int _stampCopySequence = 0;
+
   /// Replaces a user-saved stamp with [next]. If [stamp] is active, the
   /// edited stamp remains active. Returns false for app-supplied stamps.
   bool replaceCustomStamp(PdfCustomStamp stamp, PdfCustomStamp next) {
@@ -4465,6 +4643,7 @@ class PdfEditingController extends ChangeNotifier {
     if (active == null) return;
     final rgb = color.toARGB32() & 0xFFFFFF;
     final next = PdfCustomStamp(
+      id: active.id,
       text: active.text,
       color: rgb,
       template: active.template == null
@@ -6025,6 +6204,14 @@ class PdfEditingController extends ChangeNotifier {
   bool _hiddenFromDisplay(PdfAnnotation annotation) =>
       preferences.hiddenAnnotationSubtypes.contains(annotation.subtype);
 
+  /// Whether [annotation] is comment-thread content - a reply or a review
+  /// state (§12.5.6.2). The renderer never paints those (they live in the
+  /// thread, the way Acrobat shows them), and Acrobat stacks a reply on its
+  /// parent's /Rect, so an on-page hit test that reached one would pick an
+  /// invisible reply over the note the user actually tapped.
+  static bool _isThreadContent(PdfAnnotation annotation) =>
+      annotation.isReply || annotation.isStateAnnotation;
+
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
   /// draw on top, so they win). Subtypes hidden by
@@ -6037,8 +6224,14 @@ class PdfEditingController extends ChangeNotifier {
     final annotations = _page(pageIndex).annotations;
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
+      // replies and review-state records share their root's /Rect but are
+      // never painted: a click on a note must select the note, not the
+      // invisible reply stacked over it
       if (annotation.isHidden ||
+          annotation.isReply ||
+          annotation.isStateAnnotation ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
@@ -6083,6 +6276,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.isLocked ||
           !isAnnotationLockManageable(annotation)) {
         continue;
@@ -6264,6 +6458,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
@@ -7452,6 +7647,7 @@ class PdfEditingController extends ChangeNotifier {
   double? get selectedLineScale {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
+    if (annotation.calloutRegion case final region?) return region.cloudScale;
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
   }
 
@@ -7489,9 +7685,10 @@ class PdfEditingController extends ChangeNotifier {
       case 'Ink':
         return PdfEditTool.ink;
       case 'FreeText':
-        return annotation.isCallout
-            ? PdfEditTool.callout
-            : PdfEditTool.freeText;
+        if (!annotation.isCallout) return PdfEditTool.freeText;
+        return annotation.calloutRegion != null
+            ? PdfEditTool.cloudCallout
+            : PdfEditTool.callout;
       case 'Text':
         return PdfEditTool.note;
       case 'Stamp':
@@ -7537,6 +7734,8 @@ class PdfEditingController extends ChangeNotifier {
       // shapes bake their pattern scale into the dash array; only a cloud
       // exposes a readable scallop scale to seed
       if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      if (annotation.calloutRegion case final region?)
+        'lineScale': region.cloudScale,
       'shapeFillColor': argb(style.fillColor),
       if (endings != null) 'lineStartEnding': endings.$1.name,
       if (endings != null) 'lineEndEnding': endings.$2.name,
@@ -7576,6 +7775,9 @@ class PdfEditingController extends ChangeNotifier {
     if (annotation == null) return false;
     final target = _defaultStyleTargetFor(annotation);
     if (target == null) return false;
+    if (annotation.subtype == 'FreeText') {
+      preferences.embeddedFont = PdfEmbeddedFont.fromFreeText(annotation);
+    }
     preferences.writeScopedStyle(
         target.scope, target.fields, _capturedStyleOf(annotation));
     notifyListeners();
@@ -7719,6 +7921,77 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// Whether exactly one annotation is selected and it is a pasted vector
+  /// snapshot, so [exportSelectedSnapshotImage] can save it as a picture.
+  bool get canExportSelectedSnapshotImage {
+    if (_selected.length != 1) return false;
+    final annotation = _annotationAt(_selected.single);
+    return annotation != null &&
+        PdfEditor(_document).isVectorSnapshotStamp(annotation);
+  }
+
+  /// Renders the selected vector snapshot to a standalone PNG - the
+  /// annotation's own appearance alone (its crop, recolour and rotation
+  /// included) on a transparent background, at [dpi]. Being vector, the
+  /// snapshot is re-rasterized at that resolution rather than reusing the
+  /// screen pixels, so the image stays sharp however it was zoomed.
+  ///
+  /// The whole /Rect is exported even where it hangs past the page edge:
+  /// the snapshot is the subject here, not the page. Returns null when the
+  /// selection isn't a single vector snapshot, its rect is degenerate, or
+  /// the document changed while it rendered.
+  Future<PdfSelectedContentImage?> exportSelectedSnapshotImage({
+    double dpi = 300,
+  }) async {
+    if (dpi <= 0) throw ArgumentError.value(dpi, 'dpi', 'must be positive');
+    if (!canExportSelectedSnapshotImage) return null;
+    final selected = _selected.single;
+    final annotation = _annotationAt(selected)!;
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    final revisionAtStart = _revisionId;
+    final page = _page(selected.$1);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: PdfPageRenderer.pageSize(page, rotation: page.rotation),
+    );
+    final region = geometry.toViewRect(rect);
+    final maxSideRatio = 8192 / math.max(region.width, region.height);
+    final pixelRatio = (dpi / 72).clamp(0.0, maxSideRatio).toDouble();
+    if (region.width * pixelRatio < 1 || region.height * pixelRatio < 1) {
+      return null;
+    }
+
+    final picture = await PdfPageRenderer.renderAnnotationPicture(
+      page,
+      annotation,
+      rotation: page.rotation,
+    );
+    if (picture == null) return null;
+    ui.Image? image;
+    try {
+      image = await PdfPageRenderer.rasterizeRegion(
+        picture,
+        region,
+        pixelRatio,
+      );
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null || revisionAtStart != _revisionId) return null;
+      return PdfSelectedContentImage(
+        pageIndex: selected.$1,
+        pageRect: rect,
+        pngBytes: Uint8List.fromList(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        ),
+      );
+    } finally {
+      image?.dispose();
+      picture.dispose();
+    }
+  }
+
   // ---------------------------------------------------------------------
   // attention flash
 
@@ -7771,14 +8044,19 @@ class PdfEditingController extends ChangeNotifier {
   /// Translates every selected annotation by ([dx], [dy]) in page space,
   /// as one revision. The selection survives: annotations keep their
   /// /Annots slots across a move.
-  void moveSelected(double dx, double dy) {
+  ///
+  /// A callout moves only its text box (see [_moveAnnotationIn]) unless
+  /// [wholeCallout] - a cloud callout dragged by its cloud moves note, leader
+  /// and cloud together.
+  void moveSelected(double dx, double dy, {bool wholeCallout = false}) {
     final targets = <(int, PdfAnnotation, bool)>[
       for (final slot in _selected)
         if (_annotationAt(slot) case final annotation?)
           (
             slot.$1,
             annotation,
-            _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
+            wholeCallout ||
+                _annotationGroups(slot.$1).slotsFor(slot.$2).length > 1
           ),
     ];
     if (targets.isEmpty) return;
@@ -8251,6 +8529,47 @@ class PdfEditingController extends ChangeNotifier {
                 : (lineStyle.dashArray(width ?? style.width, scale: 1),));
       }
     });
+  }
+
+  /// Restyles the marked region of every selected cloud callout: [shape]
+  /// switches between the revision cloud and the plain polygon, [lineStyle]
+  /// dashes its outline, and [cloudScale] resizes the cloud's scallops. One
+  /// revision, one undo. Returns whether anything changed.
+  bool restyleSelectedCalloutRegion({
+    PdfCalloutRegionShape? shape,
+    PdfLineStyle? lineStyle,
+    double? cloudScale,
+  }) {
+    if (shape == null && lineStyle == null && cloudScale == null) return false;
+    final targets = [
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final a?
+            when a.calloutRegion != null && isAnnotationEditable(a))
+          (slot.$1, a),
+    ];
+    if (targets.isEmpty) return false;
+    return apply((e) {
+      for (final (page, a) in targets) {
+        final width = a.calloutLeaderStyle?.width ?? 1;
+        e.restyleCalloutRegion(page, a,
+            shape: shape,
+            cloudScale: cloudScale,
+            dash: lineStyle == null
+                ? null
+                : (lineStyle.dashArray(width, scale: 1),));
+      }
+    });
+  }
+
+  /// Gives the selected cloud callout's region new corners (page space) - a
+  /// dragged vertex handle. The note stays and the leader follows. A no-op
+  /// unless one cloud callout is selected.
+  void reshapeSelectedCalloutRegion(List<(double, double)> vertices) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || annotation.calloutRegion == null) return;
+    apply(
+      (e) => e.reshapeCallout(_selected.last.$1, annotation, region: vertices),
+    );
   }
 
   /// Whether [addSelectedCalloutLeader] can act: one editable callout is
@@ -9739,6 +10058,9 @@ class PdfEditingController extends ChangeNotifier {
         dict[kPdfCalloutLeadersKey] =
             CosArray([for (final line in lines.skip(1)) local(line)]);
       }
+      if (annotation.calloutRegion case final region?) {
+        dict[kPdfCalloutRegionKey] = local(region.vertices);
+      }
     }
     return (
       annotation: PdfAnnotation.fromDict(_document, dict),
@@ -9751,7 +10073,8 @@ class PdfEditingController extends ChangeNotifier {
     List<PdfCalloutLeader> leaders,
     PdfLineEnding ending,
     PdfCalloutLeaderStyle style,
-    List<double>? outlineDash
+    List<double>? outlineDash,
+    PdfCalloutRegion? region
   })? _calloutShapeOf(PdfAnnotation annotation) {
     final box = annotation.calloutBox;
     final lines = annotation.calloutLeaders;
@@ -9764,6 +10087,7 @@ class PdfEditingController extends ChangeNotifier {
       ],
       style: annotation.calloutLeaderStyle!,
       outlineDash: annotation.borderDash,
+      region: annotation.calloutRegion,
       ending: le is CosName
           ? PdfLineEnding.fromName(le.value)
           : PdfLineEnding.openArrow,
@@ -9782,7 +10106,8 @@ class PdfEditingController extends ChangeNotifier {
       List<PdfCalloutLeader> leaders,
       PdfLineEnding ending,
       PdfCalloutLeaderStyle style,
-      List<double>? outlineDash
+      List<double>? outlineDash,
+      PdfCalloutRegion? region
     }) shape,
     String text, {
     required double fontSize,
@@ -9821,6 +10146,7 @@ class PdfEditingController extends ChangeNotifier {
       outlineColor: (borderColor,),
       outlineWidth: borderWidth,
       outlineDash: shape.outlineDash,
+      region: shape.region,
       opacity: opacity,
       ending: shape.ending,
       lineSpacing: lineSpacing,

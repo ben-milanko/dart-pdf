@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Keep open';
+
+  @override
   String get annotUnderline => 'Underline';
 
   @override
@@ -447,6 +450,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recolor…';
 
   @override
+  String get menuSaveAsImage => 'Save as image…';
+
+  @override
   String get menuRemoveNode => 'Remove node';
 
   @override
@@ -724,6 +730,15 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get propLineType => 'Line type';
 
   @override
+  String get propRegion => 'Marked area';
+
+  @override
+  String get propRegionPolygon => 'Polygon';
+
+  @override
+  String get propRegionCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -778,6 +793,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Content';
+
+  @override
+  String get propSectionComments => 'Comments';
 
   @override
   String get propSectionFormField => 'Form field';
@@ -958,6 +976,31 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       other: '$count matches replaced',
       one: '1 match replaced',
       zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
     );
     return '$_temp0';
   }
@@ -1459,6 +1502,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
 
   @override
+  String get tbFindToRedact => 'Find text to redact';
+
+  @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
 
   @override
@@ -1686,6 +1732,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -1892,6 +1941,10 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag a cloud around the area, then type the note';
 
   @override
   String get tbTipContent => 'Edit page content';
@@ -2483,6 +2536,62 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background color';
+
+  @override
+  String get tableHeaderColor => 'Header color';
+
+  @override
+  String get tableTextColor => 'Font color';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid color';
+
+  @override
+  String get tableGridWidth => 'Grid width';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2553,6 +2662,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Keep open';
+
+  @override
   String get annotUnderline => 'Underline';
 
   @override
@@ -2928,6 +3040,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuRecolour => 'Recolour…';
 
   @override
+  String get menuSaveAsImage => 'Save as image…';
+
+  @override
   String get menuRemoveNode => 'Remove node';
 
   @override
@@ -3205,6 +3320,15 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get propLineType => 'Line type';
 
   @override
+  String get propRegion => 'Marked area';
+
+  @override
+  String get propRegionPolygon => 'Polygon';
+
+  @override
+  String get propRegionCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -3259,6 +3383,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get propSectionContent => 'Content';
+
+  @override
+  String get propSectionComments => 'Comments';
 
   @override
   String get propSectionFormField => 'Form field';
@@ -3439,6 +3566,31 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       other: '$count matches replaced',
       one: '1 match replaced',
       zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
     );
     return '$_temp0';
   }
@@ -3940,6 +4092,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
 
   @override
+  String get tbFindToRedact => 'Find text to redact';
+
+  @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
 
   @override
@@ -4167,6 +4322,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -4373,6 +4531,10 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag a cloud around the area, then type the note';
 
   @override
   String get tbTipContent => 'Edit page content';
@@ -4964,6 +5126,62 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background colour';
+
+  @override
+  String get tableHeaderColor => 'Header colour';
+
+  @override
+  String get tableTextColor => 'Font colour';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid colour';
+
+  @override
+  String get tableGridWidth => 'Grid width';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -5034,6 +5252,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Keep open';
+
+  @override
   String get annotUnderline => 'Underline';
 
   @override
@@ -5409,6 +5630,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get menuRecolour => 'Recolour…';
 
   @override
+  String get menuSaveAsImage => 'Save as image…';
+
+  @override
   String get menuRemoveNode => 'Remove node';
 
   @override
@@ -5686,6 +5910,15 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get propLineType => 'Line type';
 
   @override
+  String get propRegion => 'Marked area';
+
+  @override
+  String get propRegionPolygon => 'Polygon';
+
+  @override
+  String get propRegionCloud => 'Cloud';
+
+  @override
   String get propLoadFont => 'Load font…';
 
   @override
@@ -5740,6 +5973,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get propSectionContent => 'Content';
+
+  @override
+  String get propSectionComments => 'Comments';
 
   @override
   String get propSectionFormField => 'Form field';
@@ -5920,6 +6156,31 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
       other: '$count matches replaced',
       one: '1 match replaced',
       zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Mark for redaction';
+
+  @override
+  String get searchRedactMark => 'Mark';
+
+  @override
+  String get searchRedactMarkAll => 'Mark all';
+
+  @override
+  String get searchRedactHint =>
+      'Marks stay reviewable until you apply redactions';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches marked for redaction',
+      one: '1 match marked for redaction',
+      zero: 'Already marked',
     );
     return '$_temp0';
   }
@@ -6421,6 +6682,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get tbApplyRedactionsTooltip => 'Apply redactions (irreversible)';
 
   @override
+  String get tbFindToRedact => 'Find text to redact';
+
+  @override
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
 
   @override
@@ -6648,6 +6912,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get tbNameCallout => 'Callout';
 
   @override
+  String get tbNameCloudCallout => 'Cloud callout';
+
+  @override
   String get tbNameCloudPolygon => 'Cloud polygon';
 
   @override
@@ -6854,6 +7121,10 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbTipCallout =>
       'Callout - drag from the point to where the box goes';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Cloud callout - drag a cloud around the area, then type the note';
 
   @override
   String get tbTipContent => 'Edit page content';
@@ -7445,4 +7716,60 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get pageColorNotBakedSigned =>
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
+
+  @override
+  String get table => 'Table';
+
+  @override
+  String get tableEdit => 'Edit table';
+
+  @override
+  String get tableRows => 'Rows';
+
+  @override
+  String get tableColumns => 'Columns';
+
+  @override
+  String get tableStyle => 'Table style';
+
+  @override
+  String get tableStyleHint => 'Applies to the whole table.';
+
+  @override
+  String get tableBackgroundColor => 'Background colour';
+
+  @override
+  String get tableHeaderColor => 'Header colour';
+
+  @override
+  String get tableTextColor => 'Font colour';
+
+  @override
+  String get tableGridLines => 'Grid lines';
+
+  @override
+  String get tableGridColor => 'Grid colour';
+
+  @override
+  String get tableGridWidth => 'Grid width';
+
+  @override
+  String get tableHeaderRow => 'Header row';
+
+  @override
+  String get tableColumnWidth => 'Column width';
+
+  @override
+  String get tableRowHeight => 'Row height';
+
+  @override
+  String get tableSelectionHint =>
+      'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
+
+  @override
+  String get duplicate => 'Duplicate';
 }

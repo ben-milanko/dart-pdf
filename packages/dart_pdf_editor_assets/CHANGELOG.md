@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+## 12.0.0
+
+- Require the 12.0.0 package suite; no additional public API changes.
+
+## 11.0.0
+
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Regenerate the bundled web render worker for the 10.0.0 suite.

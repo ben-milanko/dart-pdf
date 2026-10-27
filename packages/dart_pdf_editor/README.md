@@ -603,6 +603,12 @@ To reach them from above the editor (an app-level palette), create them
 yourself and pass `PdfEditorView(commands: ...)`. `toolbarBuilder` replaces
 the toolbar with one you build from the catalog.
 
+**Temporary hand.** Hold Space and drag with the left mouse button, or drag
+with the middle mouse button, to pan without changing the current tool or
+selection. Release Space to stop panning; the next gesture uses the original
+tool. Space remains normal text input in search, forms and inline editors.
+Right-click menus are unchanged.
+
 **Keyboard.** The viewer's keys map to intents - `PdfCopyIntent`,
 `PdfSelectAllIntent`, `PdfUndoIntent`, `PdfRedoIntent`,
 `PdfDeleteSelectionIntent`, `PdfNudgeSelectionIntent`, `PdfArmToolIntent` and

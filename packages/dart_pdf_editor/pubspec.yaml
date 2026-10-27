@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF editor and viewer for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 10.0.0
+version: 12.0.0
 homepage: https://dart-pdf.com/flutter-pdf-editor
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
@@ -41,9 +41,9 @@ dependencies:
   # code. See src/http_byte_source.dart.
   http: ^1.2.0
   image: ^4.12.0
-  pdf_cos: ^10.0.0
-  pdf_document: ^10.0.0
-  pdf_graphics: ^10.0.0
+  pdf_cos: ^12.0.0
+  pdf_document: ^12.0.0
+  pdf_graphics: ^12.0.0
   shared_preferences: ^2.5.6
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
@@ -53,7 +53,7 @@ dependencies:
   web: ^1.1.0
 
 dev_dependencies:
-  pdf_test_fixtures: '>=1.4.0 <11.0.0'
+  pdf_test_fixtures: ^12.0.0
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

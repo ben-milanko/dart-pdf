@@ -113,6 +113,7 @@ class _PdfAnnotationPropertiesPanelState
   final TextEditingController _y = TextEditingController();
   final TextEditingController _w = TextEditingController();
   final TextEditingController _h = TextEditingController();
+  final TextEditingController _reply = TextEditingController();
 
   /// What the text fields were last synced from. While the document and full
   /// selection are unchanged the user owns the field text; any revision or
@@ -134,6 +135,7 @@ class _PdfAnnotationPropertiesPanelState
   double? _draggingStroke;
   double? _draggingLeaderWidth;
   double? _draggingOutlineWidth;
+  double? _draggingCloudScale;
   double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
@@ -179,6 +181,7 @@ class _PdfAnnotationPropertiesPanelState
     _y.dispose();
     _w.dispose();
     _h.dispose();
+    _reply.dispose();
     super.dispose();
   }
 
@@ -231,6 +234,9 @@ class _PdfAnnotationPropertiesPanelState
         listEquals(_syncedSlots, slots)) {
       return;
     }
+    // a half-typed reply belongs to the note it was typed under; a revision
+    // alone (including the one the sent reply makes) keeps the selection
+    if (!listEquals(_syncedSlots, slots)) _reply.clear();
     _syncedRevisionId = _controller.revisionId;
     _syncedSlots = List.of(slots);
     final selected = _selectedAnnotations;
@@ -974,6 +980,82 @@ class _PdfAnnotationPropertiesPanelState
     ];
   }
 
+  /// The marked region of the selected cloud callouts: its outline (the
+  /// revision cloud or the plain polygon), line type, and - for clouds -
+  /// scallop size, applied through
+  /// [PdfEditingController.restyleSelectedCalloutRegion].
+  List<Widget> _calloutRegionControls() {
+    final regions = [
+      for (final a in _selectedAnnotations)
+        if (a.calloutRegion case final region?) region
+    ];
+    if (regions.isEmpty) return const [];
+    final l = pdfL10n(context);
+    final shapes =
+        _common<PdfCalloutRegionShape>([for (final r in regions) r.shape]);
+    final dashes = _common<PdfLineStyle>(
+        [for (final r in regions) PdfLineStyle.ofDashArray(r.dash)]);
+    final clouds = [
+      for (final r in regions)
+        if (r.shape == PdfCalloutRegionShape.cloud) r.cloudScale
+    ];
+    final scales = clouds.isEmpty ? null : _common<double>(clouds);
+    return [
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(l.propOutline)),
+            PdfDropdown<PdfCalloutRegionShape>(
+                key: const ValueKey('pdf-prop-callout-region-shape'),
+                value: shapes.varies ? null : shapes.value,
+                hint: Text(l.propVaries),
+                isDense: true,
+                items: [
+                  for (final shape in PdfCalloutRegionShape.values)
+                    PdfDropdownItem(
+                        value: shape,
+                        key: ValueKey(
+                            'pdf-prop-callout-region-shape-${shape.name}'),
+                        label: switch (shape) {
+                          PdfCalloutRegionShape.cloud => l.propRegionCloud,
+                          PdfCalloutRegionShape.polygon => l.propRegionPolygon,
+                        }),
+                ],
+                onChanged: (shape) =>
+                    _controller.restyleSelectedCalloutRegion(shape: shape)),
+          ])),
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Expanded(child: Text(l.propLineType)),
+            PdfDropdown<PdfLineStyle>(
+                key: const ValueKey('pdf-prop-callout-region-dash'),
+                value: dashes.varies ? null : dashes.value,
+                hint: Text(l.propVaries),
+                isDense: true,
+                items: [
+                  for (final s in PdfLineStyle.values)
+                    PdfDropdownItem(
+                        value: s, label: pdfLineStyleLabel(context, s))
+                ],
+                onChanged: (s) =>
+                    _controller.restyleSelectedCalloutRegion(lineStyle: s)),
+          ])),
+      if (scales != null)
+        _sliderRow(l.propScale, _draggingCloudScale ?? scales.value,
+            key: const ValueKey('pdf-prop-callout-cloud-scale'),
+            min: 0.5,
+            max: 4,
+            varies: _draggingCloudScale == null && scales.varies,
+            display: (v) => '${v.toStringAsFixed(1)}×',
+            onChanged: (v) => setState(() => _draggingCloudScale = v),
+            onChangeEnd: (v) {
+              _controller.restyleSelectedCalloutRegion(cloudScale: v);
+              setState(() => _draggingCloudScale = null);
+            }),
+    ];
+  }
+
   List<Widget> _calloutLeaderControls() {
     final callouts = [
       for (final a in _selectedAnnotations)
@@ -1171,12 +1253,16 @@ class _PdfAnnotationPropertiesPanelState
     final l = pdfL10n(context);
     final sections = <Widget>[
       ListTile(
-        leading: Icon(annotation.isCallout
-            ? Icons.chat_bubble_outline
-            : pdfAnnotationIcon(annotation.subtype)),
-        title: Text(annotation.isCallout
-            ? l.propCallout
-            : pdfAnnotationLabel(context, annotation.subtype)),
+        leading: Icon(annotation.calloutRegion != null
+            ? Icons.cloud_queue
+            : annotation.isCallout
+                ? Icons.chat_bubble_outline
+                : pdfAnnotationIcon(annotation.subtype)),
+        title: Text(annotation.calloutRegion != null
+            ? l.tbNameCloudCallout
+            : annotation.isCallout
+                ? l.propCallout
+                : pdfAnnotationLabel(context, annotation.subtype)),
         subtitle: Text(l.propPageNumber(slot.$1 + 1)),
       ),
     ];
@@ -1188,6 +1274,7 @@ class _PdfAnnotationPropertiesPanelState
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
     addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
+    addGroup('callout-region', l.propRegion, _calloutRegionControls());
     // a form widget's /T is its field name, not an author, and /V (not
     // /Contents) is its value - so widgets get a "Field name" group instead
     // of the generic Contents/Author group
@@ -1223,6 +1310,8 @@ class _PdfAnnotationPropertiesPanelState
           _textRow(l.propAuthor, _author,
               key: const ValueKey('pdf-prop-author'), onCommit: _commitAuthor),
       ]);
+      addGroup(
+          'comments', l.propSectionComments, _threadRows(slot.$1, annotation));
     }
     addGroup('position-size', l.propSectionPositionSize, [
       Padding(
@@ -1248,6 +1337,113 @@ class _PdfAnnotationPropertiesPanelState
     ]);
     sections.add(const SizedBox(height: 16));
     return sections;
+  }
+
+  /// The comment thread (§12.5.6.x) [annotation] belongs to: every reply
+  /// under its root - indented by depth, with author and time - then a field
+  /// to add one. The root's own text is the Contents row above.
+  ///
+  /// The page never paints a reply (Acrobat stacks each one, invisibly, on
+  /// its note's /Rect), so without this a selected note showed only its own
+  /// text and the conversation under it read nowhere but the annotation
+  /// list.
+  List<Widget> _threadRows(int pageIndex, PdfAnnotation annotation) {
+    if (!annotation.behavior.selectable) return const [];
+    PdfCommentThread? thread;
+    for (final candidate in _controller.commentThreads(pageIndex)) {
+      if (candidate.comments
+          .any((c) => identical(c.annotation.dict, annotation.dict))) {
+        thread = candidate;
+        break;
+      }
+    }
+    if (thread == null) return const [];
+    final root = thread.root.annotation;
+    final l = pdfL10n(context);
+    final rows = <Widget>[];
+    var index = 0;
+    void walk(PdfComment comment, int depth) {
+      if (depth > 0) rows.add(_replyRow(comment, depth, index++));
+      for (final reply in comment.replies) {
+        walk(reply, depth + 1);
+      }
+    }
+
+    walk(thread.root, 0);
+    rows.add(Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Expanded(
+          child: TextField(
+            key: const ValueKey('pdf-prop-reply-field'),
+            controller: _reply,
+            minLines: 1,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: l.sidebarWriteReplyHint,
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _sendReply(pageIndex, root),
+            contextMenuBuilder: pdfTextContextMenu,
+          ),
+        ),
+        ListenableBuilder(
+          listenable: _reply,
+          builder: (context, _) => IconButton(
+            key: const ValueKey('pdf-prop-reply-send'),
+            icon: const Icon(Icons.send, size: 20),
+            tooltip: l.sidebarReply,
+            onPressed: _reply.text.trim().isEmpty
+                ? null
+                : () => _sendReply(pageIndex, root),
+          ),
+        ),
+      ]),
+    ));
+    return rows;
+  }
+
+  /// One reply in the thread, indented by [depth]: author and time over
+  /// its text.
+  Widget _replyRow(PdfComment comment, int depth, int index) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final header = [
+      if (comment.author case final author? when author.isNotEmpty) author,
+      if (pdfPanelTimestamp(comment.createdAt) case final time
+          when time.isNotEmpty)
+        time,
+    ].join(' • ');
+    return Padding(
+      key: ValueKey('pdf-prop-reply-$index'),
+      padding:
+          EdgeInsetsDirectional.fromSTEB(16.0 + (depth - 1) * 14, 2, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: BorderDirectional(
+              start: BorderSide(color: scheme.outlineVariant, width: 2)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (header.isNotEmpty)
+            Text(header,
+                style: textTheme.labelSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+          SelectableText(pdfNormalizeLineEndings(comment.text),
+              style: textTheme.bodySmall,
+              contextMenuBuilder: pdfTextContextMenu),
+        ]),
+      ),
+    );
+  }
+
+  void _sendReply(int pageIndex, PdfAnnotation root) {
+    final text = _reply.text.trim();
+    if (text.isEmpty) return;
+    if (_controller.replyToAnnotation(pageIndex, root, text)) _reply.clear();
   }
 
   List<Widget> _buildMulti(int count) {
@@ -1290,6 +1486,7 @@ class _PdfAnnotationPropertiesPanelState
     addGroup('appearance', l.propSectionAppearance, _styleControls());
     addGroup('text', l.propSectionText, _textStyleControls());
     addGroup('callout-leader', l.propLeader, _calloutLeaderControls());
+    addGroup('callout-region', l.propRegion, _calloutRegionControls());
     if (hasWidget) {
       // bulk form-field edits: text styling for every selected text field
       // and one width/height for every selected widget

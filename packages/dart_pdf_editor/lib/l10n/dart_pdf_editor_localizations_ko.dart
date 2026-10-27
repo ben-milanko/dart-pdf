@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get annotText => '메모';
 
   @override
+  String get notePopupKeepOpen => '열어 두기';
+
+  @override
   String get annotUnderline => '밑줄';
 
   @override
@@ -447,6 +450,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuRecolour => '색상 변경…';
 
   @override
+  String get menuSaveAsImage => '이미지로 저장…';
+
+  @override
   String get menuRemoveNode => '노드 제거';
 
   @override
@@ -723,6 +729,15 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get propLineType => '선 유형';
 
   @override
+  String get propRegion => '표시한 영역';
+
+  @override
+  String get propRegionPolygon => '다각형';
+
+  @override
+  String get propRegionCloud => '구름';
+
+  @override
   String get propLoadFont => '글꼴 불러오기…';
 
   @override
@@ -777,6 +792,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => '내용';
+
+  @override
+  String get propSectionComments => '댓글';
 
   @override
   String get propSectionFormField => '양식 필드';
@@ -956,6 +974,30 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       other: '일치 $count개 바꿈',
       one: '일치 1개 바꿈',
       zero: '바꾼 항목 없음',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => '교정용으로 표시';
+
+  @override
+  String get searchRedactMark => '표시';
+
+  @override
+  String get searchRedactMarkAll => '모두 표시';
+
+  @override
+  String get searchRedactHint => '교정을 적용하기 전까지 표시는 검토할 수 있습니다';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '일치 $count개를 교정용으로 표시함',
+      one: '일치 1개를 교정용으로 표시함',
+      zero: '이미 표시됨',
     );
     return '$_temp0';
   }
@@ -1453,6 +1495,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => '교정 적용(되돌릴 수 없음)';
 
   @override
+  String get tbFindToRedact => '교정할 텍스트 찾기';
+
+  @override
   String get tbAutosizeTextBox => '텍스트 상자 자동 크기 조정 (Alt+Z)';
 
   @override
@@ -1676,6 +1721,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbNameCallout => '콜아웃';
 
   @override
+  String get tbNameCloudCallout => '구름 콜아웃';
+
+  @override
   String get tbNameCloudPolygon => '구름 다각형';
 
   @override
@@ -1880,6 +1928,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => '콜아웃 - 지점에서 상자가 놓일 위치로 드래그하세요';
+
+  @override
+  String get tbTipCloudCallout => '구름 콜아웃 - 영역 둘레로 구름을 드래그한 다음 메모를 입력하세요';
 
   @override
   String get tbTipContent => '페이지 콘텐츠 편집';
@@ -2451,4 +2502,60 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       '페이지 색상이 파일에 저장되지 않았습니다. 페이지를 변경하면 서명이 무효화됩니다.';
+
+  @override
+  String get table => '표';
+
+  @override
+  String get tableEdit => '표 편집';
+
+  @override
+  String get tableRows => '행';
+
+  @override
+  String get tableColumns => '열';
+
+  @override
+  String get tableStyle => '표 스타일';
+
+  @override
+  String get tableStyleHint => '표 전체에 적용됩니다.';
+
+  @override
+  String get tableBackgroundColor => '배경색';
+
+  @override
+  String get tableHeaderColor => '머리글 색';
+
+  @override
+  String get tableTextColor => '글꼴 색';
+
+  @override
+  String get tableGridLines => '격자선';
+
+  @override
+  String get tableGridColor => '격자선 색';
+
+  @override
+  String get tableGridWidth => '격자선 두께';
+
+  @override
+  String get tableHeaderRow => '머리글 행';
+
+  @override
+  String get tableColumnWidth => '열 너비';
+
+  @override
+  String get tableRowHeight => '행 높이';
+
+  @override
+  String get tableSelectionHint =>
+      '셀을 클릭하여 편집하고 Shift 키를 누른 채 클릭하여 범위를 선택하세요. 복사와 붙여넣기로 Excel과 셀 값을 주고받을 수 있습니다.';
+
+  @override
+  String get tableClipboardError =>
+      '클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.';
+
+  @override
+  String get duplicate => '복제';
 }

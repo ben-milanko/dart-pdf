@@ -1,3 +1,3 @@
-Novidades da 10.0.0
+DartPDF 12.0.0
 
-Digite valores de medida mesmo sem escala. Edite palavras inteiras e identifique links com facilidade. Os controles se ocultam nos celulares e evitam as dobras da tela. Escolha se deseja manter o OCR automático após o primeiro uso. Corrigimos uma falha em digitalizações grandes e melhoramos anotações e recortes.
+Adiciona chamadas com nuvens. Pesquise texto e marque um ou todos os resultados para ocultação; reveja as marcas antes de aplicar. Guarde capturas vetoriais coladas como PNG. Mantém réguas e guias do cursor visíveis durante a navegação. Melhora barras compactas, números de página e atalhos. Corrige a remoção de texto próximo ao ocultar conteúdo.

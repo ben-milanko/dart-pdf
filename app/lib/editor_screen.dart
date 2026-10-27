@@ -490,7 +490,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    if (widget.ownsApplicationSession) unawaited(_restoreSession());
+    if (widget.ownsApplicationSession) {
+      unawaited(_restoreSession().then((_) {
+        if (mounted) _recoverOcr();
+      }));
+    }
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
@@ -790,6 +794,9 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && widget.ownsApplicationSession) {
+      _recoverOcr();
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
@@ -2045,8 +2052,10 @@ class _EditorScreenState extends State<EditorScreen>
       ];
 
   /// Opens phone/tablet picks through the reference picker (#364): the runner
-  /// hands back a token to the *original* file (not a sandbox copy) plus a
-  /// seekability probe. A single seekable pick opens progressively (first paint
+  /// hands back a token to the *original* file (not a sandbox copy), and the
+  /// loading tabs go up before anything reads it - the seekability probe comes
+  /// after, since a cloud provider may download the whole file to answer it.
+  /// A single seekable pick opens progressively (first paint
   /// from native ranged reads, full bytes streamed in behind it, then a private
   /// snapshot for reopen). A non-seekable provider - many cloud providers hand
   /// SAF a pipe - streams the reference whole instead, the same cost as the old
@@ -2065,7 +2074,14 @@ class _EditorScreenState extends State<EditorScreen>
       final loading = placeholders[i];
       if (!mounted) return;
       if (!_tabs.contains(loading)) continue;
-      final progressive = !defer && pick.seekable;
+      // The probe can take as long as the whole download, so it runs here,
+      // behind the placeholder, not in the picker reply. A batch never opens
+      // progressively, so it doesn't need to know.
+      final seekable = pick.seekable ??
+          (defer ? null : await probeMobileSeekable(pick.token));
+      if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
+      final progressive = !defer && seekable == true;
       final reason = progressive
           ? 'single-seekable'
           : defer
@@ -2077,7 +2093,7 @@ class _EditorScreenState extends State<EditorScreen>
         'provider="${_openTraceLabel(pick.provider)}" '
         'name="${_openTraceLabel(pick.name)}" '
         'declaredBytes=${pick.length ?? "unknown"} '
-        'seekable=${pick.seekable} '
+        'seekable=${seekable ?? "unprobed"} '
         'mode=${progressive ? "progressive" : "whole"} '
         'reason=$reason',
       );
@@ -2804,9 +2820,28 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Adds an invisible, selectable/searchable OCR text layer over the active
   /// document, running entirely on-device (pdf_ocr_ondevice). The model
-  /// downloads once on first use; OCR runs in the **background** (progress in
+  /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
+  void _recoverOcr() {
+    unawaited(_ocr.recover(context, onToast: (message) {
+      if (mounted) _toast(message);
+    }, onComplete: (result, title) {
+      if (mounted) unawaited(_openOcrResult(result, title));
+    }));
+  }
+
+  Future<void> _openOcrResult(Uint8List result, String title) async {
+    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    final tab = _active;
+    if (tab == null) return;
+    await _snapshotOpenedDocument(tab, result);
+    await _persistSession();
+    // Never discard a completed job just because its tab was displayed. The
+    // result stays recoverable until the replacement snapshot is saved.
+    if (mounted && tab.cachePath != null) await _ocr.acknowledgeResult(result);
+  }
+
   Future<void> _runOcr() async {
     final tab = _active;
     final bytes = tab?.session?.bytes;
@@ -2818,14 +2853,16 @@ class _EditorScreenState extends State<EditorScreen>
     final title = tab.title;
     await _ocr.start(
       context,
-      bytes: bytes,
+      // A session byte view may be overwritten by undo + a later edit while
+      // the first-use model prompt is open. Freeze the requested revision.
+      bytes: Uint8List.fromList(bytes),
       title: title,
       onToast: (message) {
         if (mounted) _toast(message);
       },
       onComplete: (result) {
         if (mounted) {
-          _openBytes(result, appL10n(context).editorOcrTitle(title));
+          unawaited(_openOcrResult(result, title));
         }
       },
     );

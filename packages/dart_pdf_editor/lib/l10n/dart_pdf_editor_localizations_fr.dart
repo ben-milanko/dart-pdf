@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get annotText => 'Note';
 
   @override
+  String get notePopupKeepOpen => 'Garder ouverte';
+
+  @override
   String get annotUnderline => 'Souligné';
 
   @override
@@ -450,6 +453,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Recoloriser…';
 
   @override
+  String get menuSaveAsImage => 'Enregistrer comme image…';
+
+  @override
   String get menuRemoveNode => 'Supprimer le nœud';
 
   @override
@@ -728,6 +734,15 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get propLineType => 'Type de ligne';
 
   @override
+  String get propRegion => 'Zone marquée';
+
+  @override
+  String get propRegionPolygon => 'Polygone';
+
+  @override
+  String get propRegionCloud => 'Nuage';
+
+  @override
   String get propLoadFont => 'Charger une police…';
 
   @override
@@ -782,6 +797,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Contenu';
+
+  @override
+  String get propSectionComments => 'Commentaires';
 
   @override
   String get propSectionFormField => 'Champ de formulaire';
@@ -963,6 +981,31 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       other: '$count correspondances remplacées',
       one: '1 correspondance remplacée',
       zero: 'Rien n’a été remplacé',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Marquer pour biffure';
+
+  @override
+  String get searchRedactMark => 'Marquer';
+
+  @override
+  String get searchRedactMarkAll => 'Tout marquer';
+
+  @override
+  String get searchRedactHint =>
+      'Les marques restent modifiables jusqu’à l’application des biffures';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count correspondances marquées pour biffure',
+      one: '1 correspondance marquée pour biffure',
+      zero: 'Déjà marqué',
     );
     return '$_temp0';
   }
@@ -1465,6 +1508,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Appliquer les caviardages (irréversible)';
 
   @override
+  String get tbFindToRedact => 'Rechercher du texte à biffer';
+
+  @override
   String get tbAutosizeTextBox =>
       'Ajuster automatiquement la zone de texte (Alt+Z)';
 
@@ -1696,6 +1742,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Légende';
 
   @override
+  String get tbNameCloudCallout => 'Légende nuage';
+
+  @override
   String get tbNameCloudPolygon => 'Polygone nuage';
 
   @override
@@ -1903,6 +1952,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Légende - faites glisser du point vers l\'emplacement de la zone';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Légende nuage - faites glisser un nuage autour de la zone, puis saisissez la note';
 
   @override
   String get tbTipContent => 'Modifier le contenu de la page';
@@ -2506,4 +2559,60 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'La couleur de page n\'a pas été enregistrée dans le fichier : modifier les pages invaliderait ses signatures.';
+
+  @override
+  String get table => 'Tableau';
+
+  @override
+  String get tableEdit => 'Modifier le tableau';
+
+  @override
+  String get tableRows => 'Lignes';
+
+  @override
+  String get tableColumns => 'Colonnes';
+
+  @override
+  String get tableStyle => 'Style du tableau';
+
+  @override
+  String get tableStyleHint => 'S’applique à tout le tableau.';
+
+  @override
+  String get tableBackgroundColor => 'Couleur de fond';
+
+  @override
+  String get tableHeaderColor => 'Couleur de l’en-tête';
+
+  @override
+  String get tableTextColor => 'Couleur de police';
+
+  @override
+  String get tableGridLines => 'Quadrillage';
+
+  @override
+  String get tableGridColor => 'Couleur du quadrillage';
+
+  @override
+  String get tableGridWidth => 'Épaisseur du quadrillage';
+
+  @override
+  String get tableHeaderRow => 'Ligne d’en-tête';
+
+  @override
+  String get tableColumnWidth => 'Largeur de colonne';
+
+  @override
+  String get tableRowHeight => 'Hauteur de ligne';
+
+  @override
+  String get tableSelectionHint =>
+      'Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.';
+
+  @override
+  String get duplicate => 'Dupliquer';
 }

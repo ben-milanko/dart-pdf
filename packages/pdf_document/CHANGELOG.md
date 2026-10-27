@@ -1,5 +1,20 @@
 # Changelog
 
+## 12.0.0
+
+- Add cloud and polygon regions to callouts, preserving their geometry through moves, resizing, rotation, styling and copying.
+- Preserve unredacted text elsewhere in a text run and support redaction from text selections.
+- Require the 12.0.0 package suite.
+
+## 11.0.0
+
+- **BREAKING:** add PdfAnnotationResizeBehavior.reflowTable. Update exhaustive switches; see doc/MIGRATING-11.0.0.md.
+- Add editable table annotations and tab-separated spreadsheet data.
+- Add vertical text alignment and colour replacement in annotation appearances.
+- Preserve character and word spacing when editing page text.
+- Correct rotated snapshot orientation and wrapping of long words and CJK text.
+- Update dependency constraints for the 11.0.0 suite.
+
 ## 10.0.0
 
 - Support written measurement values with `PdfTakeoffData.valueText`, `PdfMeasurementResult.isCustom`, `pdfParseMeasurementValue` and `PdfEditor.setMeasurementValue`. Written values survive reshaping and may be used without a drawing scale.

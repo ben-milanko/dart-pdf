@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get annotText => 'Catatan';
 
   @override
+  String get notePopupKeepOpen => 'Tetap buka';
+
+  @override
   String get annotUnderline => 'Garis bawah';
 
   @override
@@ -449,6 +452,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuRecolour => 'Warnai ulang…';
 
   @override
+  String get menuSaveAsImage => 'Simpan sebagai gambar…';
+
+  @override
   String get menuRemoveNode => 'Hapus simpul';
 
   @override
@@ -727,6 +733,15 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get propLineType => 'Tipe garis';
 
   @override
+  String get propRegion => 'Area yang ditandai';
+
+  @override
+  String get propRegionPolygon => 'Poligon';
+
+  @override
+  String get propRegionCloud => 'Awan';
+
+  @override
   String get propLoadFont => 'Muat font…';
 
   @override
@@ -781,6 +796,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Konten';
+
+  @override
+  String get propSectionComments => 'Komentar';
 
   @override
   String get propSectionFormField => 'Bidang formulir';
@@ -962,6 +980,31 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       other: '$count kecocokan diganti',
       one: '1 kecocokan diganti',
       zero: 'Tidak ada yang diganti',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'Tandai untuk disensor';
+
+  @override
+  String get searchRedactMark => 'Tandai';
+
+  @override
+  String get searchRedactMarkAll => 'Tandai semua';
+
+  @override
+  String get searchRedactHint =>
+      'Tanda tetap dapat ditinjau hingga Anda menerapkan sensor';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count kecocokan ditandai untuk disensor',
+      one: '1 kecocokan ditandai untuk disensor',
+      zero: 'Sudah ditandai',
     );
     return '$_temp0';
   }
@@ -1463,6 +1506,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       'Terapkan redaksi (tidak dapat dibatalkan)';
 
   @override
+  String get tbFindToRedact => 'Cari teks untuk disensor';
+
+  @override
   String get tbAutosizeTextBox => 'Ukuran otomatis kotak teks (Alt+Z)';
 
   @override
@@ -1692,6 +1738,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'Keterangan';
 
   @override
+  String get tbNameCloudCallout => 'Keterangan awan';
+
+  @override
   String get tbNameCloudPolygon => 'Poligon awan';
 
   @override
@@ -1899,6 +1948,10 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'Keterangan - seret dari titik ke tempat kotak berada';
+
+  @override
+  String get tbTipCloudCallout =>
+      'Keterangan awan - seret awan di sekitar area, lalu ketik catatan';
 
   @override
   String get tbTipContent => 'Edit konten halaman';
@@ -2495,4 +2548,60 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'Warna halaman tidak disimpan ke file: mengubah halaman akan membatalkan tanda tangannya.';
+
+  @override
+  String get table => 'Tabel';
+
+  @override
+  String get tableEdit => 'Edit tabel';
+
+  @override
+  String get tableRows => 'Baris';
+
+  @override
+  String get tableColumns => 'Kolom';
+
+  @override
+  String get tableStyle => 'Gaya tabel';
+
+  @override
+  String get tableStyleHint => 'Berlaku untuk seluruh tabel.';
+
+  @override
+  String get tableBackgroundColor => 'Warna latar';
+
+  @override
+  String get tableHeaderColor => 'Warna tajuk';
+
+  @override
+  String get tableTextColor => 'Warna huruf';
+
+  @override
+  String get tableGridLines => 'Garis kisi';
+
+  @override
+  String get tableGridColor => 'Warna kisi';
+
+  @override
+  String get tableGridWidth => 'Ketebalan kisi';
+
+  @override
+  String get tableHeaderRow => 'Baris judul';
+
+  @override
+  String get tableColumnWidth => 'Lebar kolom';
+
+  @override
+  String get tableRowHeight => 'Tinggi baris';
+
+  @override
+  String get tableSelectionHint =>
+      'Klik sel untuk mengedit; Shift-klik untuk memilih rentang. Salin dan Tempel menukar nilai sel dengan Excel.';
+
+  @override
+  String get tableClipboardError =>
+      'Tabel papan klip tidak valid atau melebihi 500 baris, 100 kolom, atau 20.000 sel.';
+
+  @override
+  String get duplicate => 'Duplikat';
 }

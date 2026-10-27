@@ -1289,6 +1289,25 @@ class AppLocalizationsHi extends AppLocalizations {
       'इस बिल्ड में रिलीज़ नोट्स उपलब्ध नहीं हैं।';
 
   @override
+  String whatsNewNightlyTickets(String version) {
+    return '$version के बाद के टिकट';
+  }
+
+  @override
+  String whatsNewNightlyNoTickets(String version) {
+    return '$version के बाद कोई नया टिकट नहीं।';
+  }
+
+  @override
+  String whatsNewNightlyNewer(String commit) {
+    return 'इस बिल्ड से नए नाइटली ($commit) से।';
+  }
+
+  @override
+  String get whatsNewNightlyUnavailable =>
+      'इस नाइटली के टिकट लोड नहीं हो सके। अपना कनेक्शन जाँचें और फिर से प्रयास करें।';
+
+  @override
   String incomingFilesTitle(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

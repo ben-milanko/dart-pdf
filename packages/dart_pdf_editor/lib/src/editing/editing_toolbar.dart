@@ -24,6 +24,7 @@ import 'editing_annotation_library.dart';
 import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
+import 'editing_table.dart';
 import 'editor_commands.dart';
 import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
@@ -212,6 +213,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.onExportCustomStamps,
     this.onImportCustomStamps,
     this.onAnnotationLibraryPressed,
+    this.onFindToRedact,
     this.palette = defaultPalette,
     this.tools,
     this.groups,
@@ -284,6 +286,12 @@ class PdfEditingToolbar extends StatefulWidget {
   /// the toolbar falls back to the legacy modal library dialog so standalone
   /// toolbars keep a working entry point.
   final VoidCallback? onAnnotationLibraryPressed;
+
+  /// Opens the host's search panel with its find-to-redact controls
+  /// expanded (#1160). When non-null, the redact tool's strip shows a "Find
+  /// text to redact" button beside "Apply redactions"; the stock
+  /// [PdfEditorView] supplies it wherever its search results panel exists.
+  final VoidCallback? onFindToRedact;
 
   /// The colors offered for new annotations.
   final List<Color> palette;
@@ -1401,6 +1409,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           if (labelled) {
             return _LabeledToolButton(
               key: key,
+              iconOnly: _sideStrip,
               icon: command.icon,
               label: command.label(context),
               tooltip: command.tooltipOf(context),
@@ -1425,6 +1434,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Axis get _stripAxis =>
       widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
 
+  /// Whether the contextual strip is a column beside a side-docked rail.
+  /// Its width then comes straight off the page, so it drops its text:
+  /// labelled buttons go icon-only (the tooltip keeps the name) and the
+  /// wide inline controls stack.
+  bool get _sideStrip => _stripAxis == Axis.vertical;
+
   Widget _stripFlex(List<Widget> children) => Flex(
         direction: _stripAxis,
         mainAxisSize: MainAxisSize.min,
@@ -1436,7 +1451,26 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ? IntrinsicHeight(child: child)
       : IntrinsicWidth(child: child);
 
+  /// The floating cards' icon buttons: desktop density (40px targets,
+  /// 20px glyphs) so the cards cover less of the page than Material's 48px
+  /// touch default. A host [IconButtonTheme] still wins where it says
+  /// otherwise.
+  static final _desktopIconStyle = IconButton.styleFrom(
+    visualDensity: VisualDensity.compact,
+    iconSize: 20,
+  );
+
   Widget _buildDesktop(BuildContext context) {
+    final hostStyle = IconButtonTheme.of(context).style;
+    return IconButtonTheme(
+      data: IconButtonThemeData(
+        style: hostStyle?.merge(_desktopIconStyle) ?? _desktopIconStyle,
+      ),
+      child: Builder(builder: _buildDesktopCards),
+    );
+  }
+
+  Widget _buildDesktopCards(BuildContext context) {
     final strip = _desktopStrip(context);
     if (widget.dock.isHorizontal) {
       final rail = _dock(context);
@@ -1494,7 +1528,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _centeredCard(
     BuildContext context, {
     required Widget child,
-    EdgeInsetsGeometry padding = const EdgeInsets.all(8),
+    EdgeInsetsGeometry padding = const EdgeInsets.all(6),
     Axis scrollDirection = Axis.horizontal,
   }) {
     return LayoutBuilder(
@@ -1660,6 +1694,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final tool = entry.tool!;
         toolButtons.add(_LabeledToolButton(
           key: ValueKey('pdf-tool-${tool.name}'),
+          iconOnly: _sideStrip,
           icon: entry.icon,
           label: _toolName(context, tool),
           tooltip: _entryTip(context, entry),
@@ -1687,9 +1722,19 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         }
       }
     }
+    if (group.kind == PdfEditToolGroup.insert) {
+      toolButtons.add(IconButton(
+          key: const ValueKey('pdf-insert-table'),
+          icon: const Icon(Icons.table_chart_outlined),
+          tooltip: pdfL10n(context).table,
+          onPressed: () => showPdfTableEditor(context,
+              controller: controller,
+              pageIndex: viewerController.currentPage)));
+    }
     if (group.kind == PdfEditToolGroup.edit && _showColorProcessingAction) {
       toolButtons.add(_LabeledToolButton(
         key: const ValueKey('pdf-toolbar-color-processing'),
+        iconOnly: _sideStrip,
         icon: Icons.palette_outlined,
         label: pdfL10n(context).tbColorLabel,
         tooltip: pdfL10n(context).tbColorProcessingTooltip,
@@ -1896,6 +1941,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final flatten = widget.showFlatten
         ? _LabeledToolButton(
             key: const ValueKey('pdf-flatten-all'),
+            iconOnly: _sideStrip,
             icon: Icons.layers_outlined,
             label: pdfL10n(context).tbFlattenLabel,
             tooltip: pdfL10n(context).tbFlattenAnnotationsTooltip,
@@ -1978,8 +2024,16 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ];
     }
     if (tool == PdfEditTool.redact) {
+      final findToRedact = widget.onFindToRedact;
       return [
         if (flatten != null) ...[flatten, _MiniDivider(axis: axis)],
+        if (findToRedact != null)
+          IconButton(
+            key: const ValueKey('pdf-find-to-redact'),
+            icon: const Icon(Icons.manage_search),
+            tooltip: pdfL10n(context).tbFindToRedact,
+            onPressed: findToRedact,
+          ),
         IconButton(
           key: const ValueKey('pdf-apply-redactions'),
           icon: const Icon(Icons.check),
@@ -2324,8 +2378,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 }
               },
               child: SizedBox(
-                width: 40,
-                height: 40,
+                width: 36,
+                height: 36,
                 child: Center(
                   child: Icon(Icons.palette_outlined, color: current, size: 20),
                 ),
@@ -2360,38 +2414,41 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (restyling) controller.restyleSelected(strokeWidth: w);
     }
 
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      for (final w in presets)
-        Tooltip(
-          message: pdfL10n(context).tbStrokeWidthPreset(
-              w.toStringAsFixed(w == w.roundToDouble() ? 0 : 1)),
-          child: InkWell(
-            onTap: () => set(w),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              width: 36,
-              height: 32,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: (current - w).abs() < 0.4
-                    ? scheme.primary.withValues(alpha: 0.16)
-                    : Colors.transparent,
+    return Flex(
+        direction: _stripAxis,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final w in presets)
+            Tooltip(
+              message: pdfL10n(context).tbStrokeWidthPreset(
+                  w.toStringAsFixed(w == w.roundToDouble() ? 0 : 1)),
+              child: InkWell(
+                onTap: () => set(w),
                 borderRadius: BorderRadius.circular(8),
-              ),
-              child: Container(
-                width: 20,
-                height: (w + 1).clamp(2, 10),
-                decoration: BoxDecoration(
-                  color: (current - w).abs() < 0.4
-                      ? scheme.primary
-                      : scheme.onSurfaceVariant,
-                  borderRadius: BorderRadius.circular(2),
+                child: Container(
+                  width: 36,
+                  height: _sideStrip ? 26 : 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: (current - w).abs() < 0.4
+                        ? scheme.primary.withValues(alpha: 0.16)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Container(
+                    width: 20,
+                    height: (w + 1).clamp(2, 10),
+                    decoration: BoxDecoration(
+                      color: (current - w).abs() < 0.4
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-    ]);
+        ]);
   }
 
   /// A compact inline opacity slider with a percentage readout. While an
@@ -2402,57 +2459,76 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final value = _dragOpacity ??
         (restyling ? controller.selectedAnnotationStyle?.opacity : null) ??
         controller.preferences.opacity;
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      const Padding(
-        padding: EdgeInsetsDirectional.only(end: 2),
-        child: Icon(Icons.opacity, size: 18),
+    // a side strip stands the slider up (opaque at the top) rather than
+    // widening the whole column to fit it
+    final side = _sideStrip;
+    final slider = SizedBox(
+      width: side ? 72 : 96,
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 4,
+          overlayShape: SliderComponentShape.noOverlay,
+        ),
+        child: Slider(
+          key: const ValueKey('pdf-strip-opacity-slider'),
+          value: value.clamp(0.1, 1),
+          min: 0.1,
+          max: 1,
+          onChanged: (v) {
+            setState(() => _dragOpacity = v);
+            if (!restyling) controller.preferences.opacity = v;
+          },
+          onChangeEnd: (v) {
+            controller.preferences.opacity = v;
+            if (restyling) controller.restyleSelected(opacity: v);
+            setState(() => _dragOpacity = null);
+          },
+        ),
       ),
-      SizedBox(
-        width: 96,
-        child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 4,
-            overlayShape: SliderComponentShape.noOverlay,
+    );
+    return Flex(
+        direction: _stripAxis,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: side
+                ? const EdgeInsets.only(bottom: 6)
+                : const EdgeInsetsDirectional.only(end: 2),
+            child: const Icon(Icons.opacity, size: 18),
           ),
-          child: Slider(
-            key: const ValueKey('pdf-strip-opacity-slider'),
-            value: value.clamp(0.1, 1),
+          if (side) RotatedBox(quarterTurns: 3, child: slider) else slider,
+          PdfSliderValueField(
+            value: value,
             min: 0.1,
             max: 1,
-            onChanged: (v) {
-              setState(() => _dragOpacity = v);
-              if (!restyling) controller.preferences.opacity = v;
-            },
-            onChangeEnd: (v) {
+            // a true ratio: typeable down to 0%, never past 100%
+            fieldMin: 0,
+            fieldMax: 1,
+            width: 40,
+            display: (v) => '${(v * 100).round()}%',
+            parse: _parsePercent,
+            onSubmit: (v) {
               controller.preferences.opacity = v;
               if (restyling) controller.restyleSelected(opacity: v);
               setState(() => _dragOpacity = null);
             },
           ),
-        ),
-      ),
-      PdfSliderValueField(
-        value: value,
-        min: 0.1,
-        max: 1,
-        // a true ratio: typeable down to 0%, never past 100%
-        fieldMin: 0,
-        fieldMax: 1,
-        width: 40,
-        display: (v) => '${(v * 100).round()}%',
-        parse: _parsePercent,
-        onSubmit: (v) {
-          controller.preferences.opacity = v;
-          if (restyling) controller.restyleSelected(opacity: v);
-          setState(() => _dragOpacity = null);
-        },
-      ),
-    ]);
+        ]);
   }
 
   /// The measure scale chip - its ratio label, opening the calibration
   /// dialog on tap.
   Widget _scaleChip(BuildContext context) {
+    final l10n = pdfL10n(context);
+    if (_sideStrip) {
+      return IconButton(
+        key: const ValueKey('pdf-measure-scale'),
+        icon: const Icon(Icons.square_foot),
+        tooltip: '${l10n.tbScale} '
+            '${controller.preferences.measurementScale?.ratioLabel ?? l10n.tbSetEllipsis}',
+        onPressed: () => _setScale(context),
+      );
+    }
     return _SettingChip(
       key: const ValueKey('pdf-measure-scale'),
       leading: pdfL10n(context).tbScale,
@@ -2465,6 +2541,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _takeoffButton(BuildContext context) {
     return _LabeledToolButton(
       key: const ValueKey('pdf-takeoff-totals'),
+      iconOnly: _sideStrip,
       icon: Icons.functions,
       label: pdfL10n(context).tbTotals,
       tooltip: pdfL10n(context).tbTakeoffTotals,
@@ -2507,7 +2584,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         showColor: widget.showColor,
         fields: fields,
         toolColor: toolColor,
-        fontChipTrigger: fields.font && !compactTrigger,
+        fontChipTrigger:
+            fields.font && !compactTrigger && axis == Axis.horizontal,
         fontPicker: widget.fontPicker,
       ),
     ];
@@ -3173,6 +3251,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 }
               },
             ),
+        if (group.kind == PdfEditToolGroup.insert)
+          _SheetToolTile(
+              key: const ValueKey('pdf-insert-table'),
+              icon: Icons.table_chart_outlined,
+              label: pdfL10n(context).table,
+              active: false,
+              enabled: true,
+              onTap: () {
+                Navigator.of(context).pop();
+                if (mounted) {
+                  showPdfTableEditor(this.context,
+                      controller: controller,
+                      pageIndex: viewerController.currentPage);
+                }
+              }),
         if (group.kind == PdfEditToolGroup.measure)
           _SheetToolTile(
             key: const ValueKey('pdf-takeoff-totals'),
@@ -3333,7 +3426,7 @@ class _NavigationModeGroup extends StatelessWidget {
         backgroundColor: active
             ? scheme.primary.withValues(alpha: 0.15)
             : Colors.transparent,
-        fixedSize: const Size.square(40),
+        fixedSize: const Size.square(36),
         padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const RoundedRectangleBorder(),
@@ -3406,10 +3499,21 @@ class _StripLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    if (axis == Axis.vertical) {
+      // a side strip has no width to spare for text: the active rail chip
+      // already names the group, and a hint keeps its tooltip
+      if (hint == null) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Tooltip(
+          message: '$text\n$hint',
+          child: Icon(Icons.info_outline,
+              size: 18, color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
     return Padding(
-      padding: axis == Axis.horizontal
-          ? const EdgeInsetsDirectional.only(end: 8, start: 2)
-          : const EdgeInsets.only(bottom: 8, top: 2),
+      padding: const EdgeInsetsDirectional.only(end: 8, start: 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3529,8 +3633,8 @@ class _GroupChip extends StatelessWidget {
         customBorder: const StadiumBorder(),
         onTap: onTap,
         child: SizedBox(
-          width: vertical ? 40 : null,
-          height: 40,
+          width: vertical ? 36 : null,
+          height: 36,
           child: Padding(
             padding: vertical
                 ? EdgeInsets.zero
@@ -3583,6 +3687,7 @@ class _GroupChip extends StatelessWidget {
 class _LabeledToolButton extends StatelessWidget {
   const _LabeledToolButton({
     super.key,
+    this.iconOnly = false,
     required this.icon,
     required this.label,
     required this.tooltip,
@@ -3596,8 +3701,20 @@ class _LabeledToolButton extends StatelessWidget {
   final bool active;
   final VoidCallback? onTap;
 
+  /// Drops the text (a side-docked strip), leaving the label to the
+  /// tooltip.
+  final bool iconOnly;
+
   @override
   Widget build(BuildContext context) {
+    if (iconOnly) {
+      return IconButton(
+        icon: Icon(icon),
+        tooltip: tooltip,
+        isSelected: active,
+        onPressed: onTap,
+      );
+    }
     final scheme = Theme.of(context).colorScheme;
     final fg = onTap == null
         ? scheme.onSurfaceFaintOr

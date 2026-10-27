@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get annotText => 'नोट';
 
   @override
+  String get notePopupKeepOpen => 'खुला रखें';
+
+  @override
   String get annotUnderline => 'रेखांकन';
 
   @override
@@ -447,6 +450,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuRecolour => 'पुनः रंग दें…';
 
   @override
+  String get menuSaveAsImage => 'छवि के रूप में सहेजें…';
+
+  @override
   String get menuRemoveNode => 'नोड हटाएँ';
 
   @override
@@ -724,6 +730,15 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get propLineType => 'रेखा प्रकार';
 
   @override
+  String get propRegion => 'चिह्नित क्षेत्र';
+
+  @override
+  String get propRegionPolygon => 'बहुभुज';
+
+  @override
+  String get propRegionCloud => 'बादल';
+
+  @override
   String get propLoadFont => 'फ़ॉन्ट लोड करें…';
 
   @override
@@ -778,6 +793,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'सामग्री';
+
+  @override
+  String get propSectionComments => 'टिप्पणियाँ';
 
   @override
   String get propSectionFormField => 'फ़ॉर्म फ़ील्ड';
@@ -958,6 +976,31 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       other: '$count मिलान बदले गए',
       one: '1 मिलान बदला गया',
       zero: 'कुछ नहीं बदला गया',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'रिडैक्शन के लिए चिह्नित करें';
+
+  @override
+  String get searchRedactMark => 'चिह्नित करें';
+
+  @override
+  String get searchRedactMarkAll => 'सभी चिह्नित करें';
+
+  @override
+  String get searchRedactHint =>
+      'रिडैक्शन लागू करने तक चिह्न समीक्षा योग्य रहते हैं';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count मिलान रिडैक्शन के लिए चिह्नित',
+      one: '1 मिलान रिडैक्शन के लिए चिह्नित',
+      zero: 'पहले से चिह्नित',
     );
     return '$_temp0';
   }
@@ -1457,6 +1500,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tbApplyRedactionsTooltip => 'रिडैक्शन लागू करें (अपरिवर्तनीय)';
 
   @override
+  String get tbFindToRedact => 'रिडैक्ट करने के लिए टेक्स्ट खोजें';
+
+  @override
   String get tbAutosizeTextBox => 'टेक्स्ट बॉक्स स्वतः-आकार दें (Alt+Z)';
 
   @override
@@ -1687,6 +1733,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'कॉलआउट';
 
   @override
+  String get tbNameCloudCallout => 'क्लाउड कॉलआउट';
+
+  @override
   String get tbNameCloudPolygon => 'क्लाउड बहुभुज';
 
   @override
@@ -1895,6 +1944,10 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tbTipCallout =>
       'कॉलआउट - बिंदु से उस जगह तक खींचें जहाँ बॉक्स जाता है';
+
+  @override
+  String get tbTipCloudCallout =>
+      'क्लाउड कॉलआउट - क्षेत्र के चारों ओर बादल खींचें, फिर नोट लिखें';
 
   @override
   String get tbTipContent => 'पृष्ठ सामग्री संपादित करें';
@@ -2488,4 +2541,60 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'पृष्ठ का रंग फ़ाइल में नहीं सहेजा गया: पृष्ठ बदलने से इसके हस्ताक्षर अमान्य हो जाएँगे।';
+
+  @override
+  String get table => 'तालिका';
+
+  @override
+  String get tableEdit => 'तालिका संपादित करें';
+
+  @override
+  String get tableRows => 'पंक्तियाँ';
+
+  @override
+  String get tableColumns => 'कॉलम';
+
+  @override
+  String get tableStyle => 'तालिका शैली';
+
+  @override
+  String get tableStyleHint => 'पूरी तालिका पर लागू होता है।';
+
+  @override
+  String get tableBackgroundColor => 'पृष्ठभूमि का रंग';
+
+  @override
+  String get tableHeaderColor => 'शीर्षलेख का रंग';
+
+  @override
+  String get tableTextColor => 'फ़ॉन्ट का रंग';
+
+  @override
+  String get tableGridLines => 'ग्रिड रेखाएँ';
+
+  @override
+  String get tableGridColor => 'ग्रिड का रंग';
+
+  @override
+  String get tableGridWidth => 'ग्रिड की मोटाई';
+
+  @override
+  String get tableHeaderRow => 'शीर्षक पंक्ति';
+
+  @override
+  String get tableColumnWidth => 'कॉलम की चौड़ाई';
+
+  @override
+  String get tableRowHeight => 'पंक्ति की ऊँचाई';
+
+  @override
+  String get tableSelectionHint =>
+      'संपादित करने के लिए सेल पर क्लिक करें; रेंज चुनने के लिए Shift-क्लिक करें। कॉपी और पेस्ट से Excel के साथ सेल मान साझा करें।';
+
+  @override
+  String get tableClipboardError =>
+      'क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।';
+
+  @override
+  String get duplicate => 'डुप्लिकेट बनाएँ';
 }

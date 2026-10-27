@@ -332,6 +332,8 @@ class _ViewerAppState extends State<ViewerApp> {
           PdfThemePreference.light => ThemeMode.light,
           PdfThemePreference.dark => ThemeMode.dark,
         },
+        builder: (context, child) =>
+            PdfDismissKeyboardOnTapOutside(child: child!),
         home: ViewerScreen(
           prefs: _prefs,
           workspace: _workspace,
@@ -1507,20 +1509,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
     if (message != null && mounted) _toast(message);
   }
 
-  /// Exports a Snapshot tool capture as a PNG image - a save dialog on
-  /// desktop, a download on the web, the share sheet on phones. The vector
-  /// copy of the same region stays on the editor's clipboard, so ⌘V/Ctrl+V
-  /// (or the right-click Paste) drops it back into the PDF as vectors.
+  /// Exports a native Snapshot tool capture as a PNG image - a save dialog
+  /// on desktop, the share sheet on phones. Web captures only fill the
+  /// editor's vector clipboard; they do not automatically download a PNG.
   Future<void> _saveSnapshot(BuildContext context, PdfSnapshot snapshot) async {
     final l10n = appL10n(context);
     const name = 'snapshot.png';
     final file =
         XFile.fromData(snapshot.pngBytes, mimeType: 'image/png', name: name);
-    if (kIsWeb) {
-      await file.saveTo(name);
-      _toast(l10n.exDownloadedSnapshotCtrl(name));
-      return;
-    }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android || TargetPlatform.iOS:
         final box = context.findRenderObject() as RenderBox?;
@@ -1588,6 +1584,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
       AppLog.instance.error('Image export failed', error: e, stackTrace: s);
       if (mounted) _toast(appL10n(context).exExportFailed('$e'));
     }
+  }
+
+  /// Suggested PNG name for an image saved from the editor - a content
+  /// image or a pasted snapshot - e.g. `report-p3-image.png`.
+  static String _selectedImageFileName(String title, int pageNumber) {
+    var stem = title.trim();
+    if (stem.toLowerCase().endsWith('.pdf')) {
+      stem = stem.substring(0, stem.length - 4).trim();
+    }
+    if (stem.isEmpty) stem = 'image';
+    return '$stem-p$pageNumber-image.png';
   }
 
   /// Saves a page-image [bytes] as [name] ([mimeType] PNG/JPEG): a save dialog
@@ -1927,7 +1934,15 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 formImagePicker: _pickFormImage,
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
-                                onSnapshot: _saveSnapshot,
+                                onSnapshot: kIsWeb ? null : _saveSnapshot,
+                                // the content tool's Save image, and Save as
+                                // image… on a pasted snapshot's context menu
+                                onExportSelectedContentImage:
+                                    (context, image) => _saveImageBytes(
+                                        image.pngBytes,
+                                        _selectedImageFileName(
+                                            tab.title, image.pageIndex + 1),
+                                        'image/png'),
                                 onPlaceSignature: (context,
                                         {required pageIndex,
                                         required pageRect}) =>

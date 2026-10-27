@@ -179,6 +179,46 @@ void main() {
       expect(latin1.decode(cos.decodeStreamData(cap)), contains('1 0 0 rg'));
     });
 
+    testWidgets('exportSelectedSnapshotImage renders the snapshot as PNG',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (100, 100)), isTrue);
+      expect(editing.canExportSelectedSnapshotImage, isTrue);
+      final stamp = editing.document.page(0).annotations.single;
+
+      final exported = await tester
+          .runAsync(() => editing.exportSelectedSnapshotImage(dpi: 144));
+
+      expect(exported, isNotNull);
+      expect(exported!.pageIndex, 0);
+      expect(exported.pageRect, stamp.rect);
+      final png = exported.pngBytes;
+      expect(png.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      // IHDR width/height: the 160x40 pt snapshot at 2x (144 dpi)
+      final header = ByteData.sublistView(png, 16, 24);
+      expect(header.getUint32(0), 320);
+      expect(header.getUint32(4), 80);
+    });
+
+    test('only a single vector snapshot selection exports as an image', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(10, 10, 60, 60));
+      editing.selectAnnotationAt(0, 35, 35);
+      expect(editing.canExportSelectedSnapshotImage, isFalse);
+
+      editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      expect(editing.pasteSnapshot(0, at: (300, 300)), isTrue);
+      expect(editing.canExportSelectedSnapshotImage, isTrue);
+      editing.selectAnnotationsIn(0, const PdfRect(0, 0, 600, 600));
+      expect(editing.selectedAnnotationSlots, hasLength(2));
+      expect(editing.canExportSelectedSnapshotImage, isFalse);
+    });
+
     test('a non-snapshot selection is not recolourable as a snapshot', () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));

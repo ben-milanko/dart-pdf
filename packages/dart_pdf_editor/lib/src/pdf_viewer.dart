@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, immutable, kIsWeb, visibleForTesting;
+    show ValueListenable, immutable, kIsWeb, listEquals, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/physics.dart';
@@ -19,13 +19,16 @@ import 'annotation_display_filter.dart';
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
+import 'note_popup.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
+import 'editing/editing_table.dart';
 import 'editing/editing_reach.dart';
+import 'temporary_pan.dart';
 import 'editing/editor_commands.dart' show PdfEditorCommandsScope;
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
@@ -54,6 +57,7 @@ import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 import 'design/editor_presenter.dart';
+import 'design/material_host.dart' show pdfHostRoute;
 import 'text_selection_geometry.dart';
 import 'viewer_intents.dart';
 import 'viewport.dart';
@@ -1407,6 +1411,7 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
+    this.onSaveAnnotationImage,
     this.textMenuBuilder,
     this.annotationMenuEntries,
     this.textMenuEntries,
@@ -1436,6 +1441,7 @@ class PdfViewer extends StatefulWidget {
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.hiddenAnnotationSubtypes = const {},
+    this.showNotePopups = true,
     this.showScrollbarChapters = false,
     this.highlightFormFields = true,
     this.interactiveForms = true,
@@ -1717,6 +1723,13 @@ class PdfViewer extends StatefulWidget {
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
+  /// Saves an annotation rendered to a picture - the annotation context
+  /// menu's "Save as image…" on a pasted vector snapshot, which renders it
+  /// to a PNG ([PdfEditingController.exportSelectedSnapshotImage]) and hands
+  /// it here to save, share or download. Null hides the entry. Needs
+  /// [editing].
+  final PdfSelectedContentImageHandler? onSaveAnnotationImage;
+
   /// Adds the app's own entries to the text-selection context menu (the
   /// desktop right-click menu over page text - markup, Copy and Select
   /// all come stock). Called when the menu opens, with the selection it
@@ -1921,6 +1934,17 @@ class PdfViewer extends StatefulWidget {
   /// taps, hover, or editing selection either, so a hidden link can't be
   /// followed. Usually fed from [PdfEditingPreferences.hiddenAnnotationSubtypes].
   final Set<String> hiddenAnnotationSubtypes;
+
+  /// Whether a sticky note's text pops up beside its icon: a
+  /// [PdfNotePopupCard] while the mouse rests on a note (not while a
+  /// drawing tool is armed), and for as long as a single note is selected,
+  /// which is how touch reaches it. The card's pin button keeps it open
+  /// until its close button, so several notes can be open at once. A note's
+  /// icon carries none of its text,
+  /// so without this it can only be read in a properties or annotation
+  /// panel. Highlights and shapes carrying a comment get the same card
+  /// ([pdfIsNotePopupTarget]), and the card's text is selectable.
+  final bool showNotePopups;
 
   /// Whether outline/bookmark destinations are shown as labelled markers on
   /// the main scrollbar. Off by default to keep the scrollbar uncluttered.
@@ -2514,6 +2538,21 @@ class _PdfViewerState extends State<PdfViewer>
   bool _touchPanning = false;
 
   final _focusNode = FocusNode(debugLabel: 'PdfViewer');
+  bool _claimedInitialFocus = false;
+
+  /// A freshly opened document answers its shortcuts straight away instead
+  /// of waiting for a click on the page. Queued as an autofocus request
+  /// after the frame that first builds the focus node, so it lands only
+  /// when nothing else in the scope holds focus - and behind any host field
+  /// that autofocused in the same frame, which a plain `autofocus: true`
+  /// would beat by being built first.
+  void _claimInitialFocus() {
+    if (_claimedInitialFocus) return;
+    _claimedInitialFocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.enclosingScope?.autofocus(_focusNode);
+    });
+  }
 
   // text selection: (pageIndex, offset into that page's text)
   (int, int)? _selAnchor;
@@ -2530,17 +2569,10 @@ class _PdfViewerState extends State<PdfViewer>
   // second click of a double-click.
   Duration? _lastMouseDownStamp;
   Offset? _lastMouseDownLocal;
+  int _lastMouseDownButtons = 0;
+  bool _primaryDoubleClick = false;
   bool _wordDrag = false;
 
-  /// Whether the press the current mouse drag began with was the middle
-  /// button.
-  ///
-  /// A middle drag is the pan every other document viewer offers: it grabs the
-  /// page whatever the primary button would have done there - select text,
-  /// draw, marquee, drag an annotation - so a user with a tool armed can still
-  /// move around without disarming it. [DragStartDetails] carries no buttons,
-  /// so the raw pointer-down records it.
-  bool _middleButtonDrag = false;
   ((int, int), (int, int))? _wordAnchor;
 
   /// The device kind of the latest pointer down - tap callbacks don't
@@ -2591,6 +2623,46 @@ class _PdfViewerState extends State<PdfViewer>
   /// the page below once the drag crosses a page boundary, so the viewer
   /// paints it in list space (above the whole list) instead.
   PdfMoveDragPreview? _movePreview;
+
+  /// The note the mouse rests on, shown in a [PdfNotePopupCard]
+  /// ([PdfViewer.showNotePopups]); null when none is.
+  ({int page, PdfAnnotation note})? _hoveredNote;
+
+  /// The note under the mouse that [_noteShowTimer] will show.
+  ({int page, PdfAnnotation note})? _pendingNote;
+
+  /// Delays showing a hovered note, so a pointer sweeping across the page
+  /// doesn't flash cards.
+  Timer? _noteShowTimer;
+
+  /// Delays hiding it, so the pointer can cross the gap onto the card to
+  /// scroll it.
+  Timer? _noteHideTimer;
+
+  /// Notes the user pinned open with a card's pin button, oldest first. Any
+  /// number stay up at once, beside the hovered or selected one, until their
+  /// close button dismisses them; an unrelated document clears them.
+  final List<_OpenNote> _openNotes = [];
+
+  /// Whether the pointer is over a popup card.
+  bool _overNoteCard = false;
+
+  /// Whether a press that began on the popup card is still down - a drag
+  /// selecting its text, which may wander off the card without closing it.
+  bool _noteCardPressed = false;
+
+  /// Keys the viewport Stack the popup card is positioned in.
+  final GlobalKey _noteLayerKey = GlobalKey();
+
+  /// Ticks when [_hoveredNote] or [_openNotes] changes, so only the popup
+  /// layer rebuilds.
+  final ValueNotifier<int> _noteHoverTick = ValueNotifier(0);
+
+  /// The popup layer, kept as one instance per editing controller so a
+  /// viewer rebuild skips it entirely (it updates itself from its
+  /// listenables).
+  Widget? _notePopupLayer;
+  PdfEditingController? _notePopupLayerEditing;
 
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
@@ -2650,6 +2722,7 @@ class _PdfViewerState extends State<PdfViewer>
     // Cmd+Tab and friends: the modifier's key-up goes to the other app, so
     // the tracked state would stick. Losing focus clears it.
     _lifecycle = AppLifecycleListener(onInactive: () {
+      _stopTemporaryPan();
       if (_zoomModifierDown && mounted) {
         setState(() => _zoomModifierDown = false);
       }
@@ -2844,7 +2917,82 @@ class _PdfViewerState extends State<PdfViewer>
     }
   }
 
+  @override
+  void didChangeViewFocus(ui.ViewFocusEvent event) {
+    if (event.viewId == View.of(context).viewId &&
+        event.state == ui.ViewFocusState.unfocused) {
+      _stopTemporaryPan();
+    }
+  }
+
+  bool _spacePan = false;
+  int? _temporaryPanPointer;
+  bool _temporaryPanStopped = false;
+
+  KeyEventResult _onViewerKey(FocusNode node, KeyEvent event) {
+    if (event.logicalKey != LogicalKeyboardKey.space ||
+        !_focusNode.hasPrimaryFocus ||
+        _textEditController?.isEditingText == true) {
+      return KeyEventResult.ignored;
+    }
+    if (event is KeyDownEvent && !event.synthesized) {
+      setState(() => _spacePan = true);
+    } else if (event is KeyUpEvent) {
+      _stopTemporaryPan();
+    }
+    return KeyEventResult.handled;
+  }
+
+  void _stopTemporaryPan() {
+    if (!mounted || (!_spacePan && _temporaryPanPointer == null)) return;
+    setState(() {
+      _spacePan = false;
+      // Swallow the rest of this pointer rather than resume a tool mid-drag.
+      _temporaryPanStopped = true;
+    });
+    _scheduleMotionRenderHoldRelease();
+  }
+
+  bool _wantsTemporaryPan(PointerDownEvent event) =>
+      event.kind == PointerDeviceKind.mouse &&
+      (event.buttons == kMiddleMouseButton ||
+          (event.buttons == kPrimaryMouseButton && _spacePan));
+
+  void _temporaryPanDown(PointerDownEvent event) {
+    if (_temporaryPanPointer != null) return;
+    setState(() {
+      _temporaryPanPointer = event.pointer;
+      _temporaryPanStopped = false;
+    });
+    _panFlinger.stop();
+    _touchFlinger.stop();
+    _hBounceController.stop();
+    _beginMotionRenderHold();
+  }
+
+  void _temporaryPanMove(PointerMoveEvent event) {
+    if (event.pointer != _temporaryPanPointer || _temporaryPanStopped) return;
+    if (event.buttons != kPrimaryMouseButton &&
+        event.buttons != kMiddleMouseButton) {
+      _stopTemporaryPan();
+      return;
+    }
+    // Outside the zoom transform; the existing pan takes list-space pixels.
+    _grabPanBy(event.delta / _transformScale.value);
+  }
+
+  void _temporaryPanEnd(PointerEvent event) {
+    if (event.pointer != _temporaryPanPointer) return;
+    setState(() => _temporaryPanPointer = null);
+    _scheduleMotionRenderHoldRelease();
+  }
+
   bool _onKeyEvent(KeyEvent event) {
+    if (event is KeyUpEvent &&
+        event.logicalKey == LogicalKeyboardKey.space &&
+        _spacePan) {
+      _stopTemporaryPan();
+    }
     final down = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     if (down != _zoomModifierDown && mounted) {
@@ -4489,6 +4637,7 @@ class _PdfViewerState extends State<PdfViewer>
     }
     if (!preserveRevisionViewport) {
       _incrementalFallbackReason = 'unrelated-document-swap';
+      _openNotes.clear();
     }
     _lastIncrementallyReconciledPages = null;
     final sameGeometry = _sameGeometryAs(document);
@@ -5299,6 +5448,9 @@ class _PdfViewerState extends State<PdfViewer>
     _lifecycle.dispose();
     _renderScheduler.activity.removeListener(_onRenderSchedulerActivity);
     _settleTimer?.cancel();
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
+    _noteHoverTick.dispose();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
     _gestureQuietTimer?.cancel();
@@ -5451,6 +5603,8 @@ class _PdfViewerState extends State<PdfViewer>
       (_maxCrossPoint <= 0 ? 1.0 : _crossPointOf(index) / _maxCrossPoint) *
       _layoutZoom;
 
+  final _editingReachKeys = <Object, GlobalKey>{};
+
   /// Wraps page [index] in the reach that lets a selected annotation be
   /// grabbed where it hangs off the page - see [PdfEditingReach] for why
   /// hit testing stops at the page edge without it, and why routing through
@@ -5470,6 +5624,8 @@ class _PdfViewerState extends State<PdfViewer>
     return ListenableBuilder(
       listenable: editing,
       builder: (context, child) => PdfEditingReach(
+        key: _editingReachKeys.putIfAbsent(
+            (_tileCacheNamespace, _pageRefs[index] ?? index), GlobalKey.new),
         grabs: (position) => _selectionGrabsPageView(index, position),
         child: child!,
       ),
@@ -5488,14 +5644,13 @@ class _PdfViewerState extends State<PdfViewer>
     if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
     final contentMain = _scroll.offset + _mainOf(local);
     final point = _axisOffset(contentMain, _crossOf(local));
-    var mainStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
-        return _selectionGrabsPageView(
-            i, point - Offset(_pageContentX(i), _pageContentY(i)));
+    if (_pageContainsListPoint(local)) return false;
+    for (final i
+        in editing.selectedAnnotationSlots.map((slot) => slot.$1).toSet()) {
+      if (_selectionGrabsPageView(
+          i, point - Offset(_pageContentX(i), _pageContentY(i)))) {
+        return true;
       }
-      mainStart += pageMain + widget.pageSpacing;
     }
     return false;
   }
@@ -7209,6 +7364,8 @@ class _PdfViewerState extends State<PdfViewer>
         _markupSubmenuEntry(globalPosition),
         stock(
             'link', l10n.linkDialogTitle, Icons.link, _addLinkToTextSelection),
+        stock(
+            'redact', l10n.tbToolRedact, Icons.gradient, _redactTextSelection),
       ],
       stock('select-all', l10n.viewerSelectAll, Icons.select_all,
           () => _selectAllTextOn(page),
@@ -7385,6 +7542,22 @@ class _PdfViewerState extends State<PdfViewer>
     _clearSelection();
   }
 
+  /// Marks the current text selection for redaction (one /Redact mark per
+  /// page over the selected glyphs) and arms the Redact tool, whose strip
+  /// carries the Apply button that burns the marks.
+  void _redactTextSelection() {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    editing.addRedactionQuads(quadsByPage);
+    _clearSelection();
+    editing.tool = PdfEditTool.redact;
+  }
+
   /// Turns the current text selection into a hyperlink: collects its quads
   /// per page, asks for the target (an external URL or an in-document page),
   /// and creates one /Link annotation per page over the selected glyphs.
@@ -7470,6 +7643,7 @@ class _PdfViewerState extends State<PdfViewer>
       entriesBuilder: widget.annotationMenuEntries,
       textPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
       pagePoint: pagePoint,
+      onSaveImage: widget.onSaveAnnotationImage,
       onPaste: widget.systemPdfPasteProvider == null
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
@@ -7645,7 +7819,291 @@ class _PdfViewerState extends State<PdfViewer>
       cursor = grabCursor;
     }
     if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
+    _trackHoveredNote(event.localPosition);
   }
+
+  /// The note or commented markup topmost under [local] (list space), or
+  /// null - only while a mouse hover may pop one up
+  /// ([PdfViewer.showNotePopups], no drawing tool armed).
+  ({int page, PdfAnnotation note})? _noteAt(Offset local) {
+    if (!widget.showNotePopups || !widget.showAnnotations) return null;
+    final editing = widget.editing;
+    if (editing != null &&
+        ((editing.tool != null && editing.tool != PdfEditTool.select) ||
+            editing.isPickingColor)) {
+      return null;
+    }
+    final point = _pagePointAt(local);
+    if (point == null) return null;
+    final (i, x, y) = point;
+    final hidden = widget.hiddenAnnotationSubtypes;
+    for (final annotation in _visibleAnnots(i).reversed) {
+      // replies and state records aren't painted, so they can't cover
+      // anything; any other annotation drawn over the note wins
+      if (annotation.isReply ||
+          annotation.isStateAnnotation ||
+          annotation.subtype == 'Popup' ||
+          hidden.contains(annotation.subtype) ||
+          // a commented highlight's runs, not the gaps its /Rect spans
+          !(_textMarkupQuadHit(annotation, x, y) ??
+              annotation.rect.contains(x, y))) {
+        continue;
+      }
+      return pdfIsNotePopupTarget(annotation)
+          ? (page: i, note: annotation)
+          : null;
+    }
+    return null;
+  }
+
+  static bool _sameNote(({int page, PdfAnnotation note})? a,
+          ({int page, PdfAnnotation note})? b) =>
+      a != null &&
+      b != null &&
+      a.page == b.page &&
+      identical(a.note.dict, b.note.dict);
+
+  void _trackHoveredNote(Offset local) {
+    final note = _noteAt(local);
+    if (note == null) {
+      _noteShowTimer?.cancel();
+      _pendingNote = null;
+      _scheduleNoteHide();
+      return;
+    }
+    _noteHideTimer?.cancel();
+    if (_sameNote(note, _hoveredNote) || _sameNote(note, _pendingNote)) {
+      return;
+    }
+    _pendingNote = note;
+    _noteShowTimer?.cancel();
+    // already showing one: move straight to the next, no second wait
+    _noteShowTimer =
+        Timer(_hoveredNote == null ? _noteShowDelay : Duration.zero, () {
+      if (!mounted) return;
+      _hoveredNote = _pendingNote;
+      _pendingNote = null;
+      _noteHoverTick.value++;
+    });
+  }
+
+  static const _noteShowDelay = Duration(milliseconds: 300);
+  static const _noteHideDelay = Duration(milliseconds: 250);
+
+  void _scheduleNoteHide() {
+    if (_hoveredNote == null || _overNoteCard || _noteCardPressed) return;
+    if (_noteHideTimer?.isActive ?? false) return;
+    _noteHideTimer = Timer(_noteHideDelay, _hideHoveredNote);
+  }
+
+  void _hideHoveredNote() {
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
+    _pendingNote = null;
+    if (_hoveredNote == null || !mounted) return;
+    _hoveredNote = null;
+    _noteHoverTick.value++;
+  }
+
+  /// The notes whose cards show, bottom to top: the ones pinned open, then
+  /// a single selected note (it stays up while selected - the touch path),
+  /// then the hovered one. A note shows once, as the first of those it is.
+  List<({int page, PdfAnnotation note, _OpenNote? open})> _notePopupTargets() {
+    if (!widget.showNotePopups || !widget.showAnnotations) return const [];
+    final editing = widget.editing;
+    final shown = Set<CosDictionary>.identity();
+    // a move drag rides a ghost; a moving note's card would sit at the old
+    // spot
+    if (editing != null && _movePreview != null) {
+      for (final (page, slot) in editing.selectedAnnotationSlots) {
+        if (editing.annotationAt(page, slot) case final moving?) {
+          shown.add(moving.dict);
+        }
+      }
+    }
+    final out = <({int page, PdfAnnotation note, _OpenNote? open})>[];
+    void add(int page, PdfAnnotation note, _OpenNote? open) {
+      if (shown.add(note.dict)) out.add((page: page, note: note, open: open));
+    }
+
+    for (final open in _openNotes) {
+      if (_resolveOpenNote(open) case final r?) add(r.page, r.note, open);
+    }
+    if (editing != null) {
+      final slots = editing.selectedAnnotationSlots;
+      final selected = editing.selectedAnnotation;
+      if (slots.length == 1 &&
+          selected != null &&
+          pdfIsNotePopupTarget(selected) &&
+          !editing.isEditingText) {
+        add(slots.single.$1, selected, null);
+      }
+    }
+    final hovered = _hoveredNote;
+    if (hovered != null && hovered.page < _pages.length) {
+      add(hovered.page, hovered.note, null);
+    }
+    return out;
+  }
+
+  /// [open]'s note in the current revision: on the page with the same
+  /// indirect reference (pages move), by /NM, else by its /Annots slot.
+  /// Null while it is gone - deleted, hidden, or no longer commented - so
+  /// an undo that brings it back reopens its card.
+  ({int page, PdfAnnotation note})? _resolveOpenNote(_OpenNote open) {
+    final page =
+        open.pageRef == null ? open.page : _pageRefs.indexOf(open.pageRef);
+    if (page < 0 || page >= _pages.length) return null;
+    final annotations = _pages[page].annotations;
+    final name = open.name;
+    final note = name != null
+        ? annotations.where((a) => a.name == name).firstOrNull
+        : (open.slot >= 0 && open.slot < annotations.length
+            ? annotations[open.slot]
+            : null);
+    if (note == null ||
+        note.isHidden ||
+        note.isNoView ||
+        widget.hiddenAnnotationSubtypes.contains(note.subtype) ||
+        !pdfIsNotePopupTarget(note)) {
+      return null;
+    }
+    return (page: page, note: note);
+  }
+
+  /// Pins [note]'s card open, so it stays up beside any others.
+  void _openNote(int page, PdfAnnotation note) {
+    if (page >= _pages.length) return;
+    final slot = _pages[page]
+        .annotations
+        .indexWhere((a) => identical(a.dict, note.dict));
+    _openNotes.add(_OpenNote(
+      pageRef: _pageRefs[page],
+      page: page,
+      name: note.name,
+      slot: slot,
+    ));
+    _noteCardsChanged();
+  }
+
+  void _closeNote(_OpenNote open) {
+    if (!_openNotes.remove(open)) return;
+    _noteCardsChanged();
+  }
+
+  void _noteCardsChanged() {
+    // the card under the pointer is rebuilt under a new key; its replacement
+    // reports the pointer again, the old one never reports leaving
+    _overNoteCard = false;
+    _noteCardPressed = false;
+    _noteHoverTick.value++;
+  }
+
+  /// Where the popup cards go right now: each note and its icon's rect in
+  /// the viewport Stack, bottom to top. Cards for notes scrolled out of view
+  /// are left out.
+  List<_NotePopupPlacement> _notePopupPlacements() {
+    final targets = _notePopupTargets();
+    if (targets.isEmpty) return const [];
+    final layer =
+        _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (layer == null || !layer.hasSize) return const [];
+    final bounds = Offset.zero & layer.size;
+    final out = <_NotePopupPlacement>[];
+    for (final target in targets) {
+      final global = _globalRectOf(target.page, target.note.rect);
+      if (global == null) continue;
+      final anchor = layer.globalToLocal(global.topLeft) & global.size;
+      // scrolled out of view: no card floating over the margin
+      if (!anchor.overlaps(bounds)) continue;
+      out.add(
+          _NotePopupPlacement(target.page, target.note, anchor, target.open));
+    }
+    return out;
+  }
+
+  /// The popup card layer over the viewport ([PdfViewer.showNotePopups]),
+  /// following the notes through scrolls and zooms. It rebuilds only when
+  /// the placements change - not on every editing-controller tick.
+  Widget _buildNotePopupLayer() {
+    final editing = widget.editing;
+    final cached = _notePopupLayer;
+    if (cached != null && identical(_notePopupLayerEditing, editing)) {
+      return cached;
+    }
+    _notePopupLayerEditing = editing;
+    return _notePopupLayer = Positioned.fill(
+        child: _NotePopupLayer(
+      listenables: [
+        _scroll,
+        _transform,
+        _noteHoverTick,
+        if (editing != null) editing,
+      ],
+      resolve: _notePopupPlacements,
+      builder: (placement) => CustomSingleChildLayout(
+        delegate: PdfNotePopupLayout(placement.anchor),
+        child: MouseRegion(
+          onEnter: (_) {
+            _overNoteCard = true;
+            _noteHideTimer?.cancel();
+          },
+          onExit: (_) {
+            _overNoteCard = false;
+            _scheduleNoteHide();
+          },
+          child: Listener(
+            onPointerDown: (_) => _noteCardPressed = true,
+            onPointerUp: (_) => _releaseNoteCard(),
+            onPointerCancel: (_) => _releaseNoteCard(),
+            // the comment text is selectable; the card's own copy and
+            // select-all keys win over the viewer's (which copy page text
+            // and select annotations)
+            child: Shortcuts(
+              shortcuts: _noteCardShortcuts,
+              child: SelectionArea(
+                contextMenuBuilder: (context, state) => pdfHostRoute(
+                  context,
+                  AdaptiveTextSelectionToolbar.selectableRegion(
+                      selectableRegionState: state),
+                  themesFrom: state.context,
+                ),
+                child: PdfNotePopupCard(
+                  note: placement.note,
+                  replies: PdfNotePopupCard.repliesOf(
+                      _document, placement.page, placement.note),
+                  trailing: _NoteCardButton(
+                    open: placement.open != null,
+                    onPressed: () => switch (placement.open) {
+                      final open? => _closeNote(open),
+                      null => _openNote(placement.page, placement.note),
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  void _releaseNoteCard() {
+    _noteCardPressed = false;
+    _scheduleNoteHide();
+  }
+
+  /// Copy and select-all inside the popup card act on its text.
+  static const Map<ShortcutActivator, Intent> _noteCardShortcuts = {
+    SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyC, control: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+    SingleActivator(LogicalKeyboardKey.keyA, control: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+  };
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
   /// controller's clipboard; otherwise the text selection copies to the
@@ -7987,7 +8445,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (_textEditController?.isEditingText != true) _focusNode.requestFocus();
     if (event.kind != PointerDeviceKind.mouse) {
       _wordDrag = false;
-      _middleButtonDrag = false;
+      _primaryDoubleClick = false;
       return;
     }
     final lastStamp = _lastMouseDownStamp;
@@ -7996,9 +8454,12 @@ class _PdfViewerState extends State<PdfViewer>
         lastLocal != null &&
         event.timeStamp - lastStamp < kDoubleTapTimeout &&
         (event.localPosition - lastLocal).distance < kDoubleTapSlop;
+    _primaryDoubleClick = _wordDrag &&
+        _lastMouseDownButtons == kPrimaryMouseButton &&
+        event.buttons == kPrimaryMouseButton;
+    _lastMouseDownButtons = event.buttons;
     _lastMouseDownStamp = event.timeStamp;
     _lastMouseDownLocal = event.localPosition;
-    _middleButtonDrag = event.buttons == kMiddleMouseButton;
     // Hand mode closes the hand on press, not once the drag clears the
     // slop - the cursor answers the click the way a native hand tool does
     if (event.buttons == kPrimaryMouseButton &&
@@ -8030,11 +8491,42 @@ class _PdfViewerState extends State<PdfViewer>
     if (_editingTextBoxAt(event.localPosition)) {
       return; // let the editing overlay turn the click into in-place edit
     }
+    if (_primaryDoubleClick && _openTableAt(event.localPosition)) return;
     // the viewer's own tap recognizer fires after this raw event and
     // would immediately clear the selection made here
     _suppressTap = true;
     _selectWordAt(event.localPosition);
     _applyArmedMarkup();
+  }
+
+  /// Reuse the viewer's double-click/tap paths so tables need neither a
+  /// pre-existing selection nor a mouse recognizer that delays other clicks.
+  bool _openTableAt(Offset local) {
+    final editing = widget.editing;
+    if (editing == null ||
+        !widget.showAnnotations ||
+        editing.isHandMode ||
+        editing.isPickingColor ||
+        editing.isCroppingImage ||
+        editing.isEditingText ||
+        editing.activeSavedAnnotation != null ||
+        (editing.tool != null && editing.tool != PdfEditTool.select) ||
+        HardwareKeyboard.instance.isShiftPressed ||
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed) {
+      return false;
+    }
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final hit = editing.selectableAnnotationAt(point.$1, point.$2, point.$3);
+    if (hit == null || hit.$2.table == null || hit.$2.isLockedContents) {
+      return false;
+    }
+    _suppressTap = true;
+    editing.selectAnnotation(point.$1, hit.$1);
+    unawaited(showPdfTableEditor(context,
+        controller: editing, pageIndex: point.$1, annotationSlot: hit.$1));
+    return true;
   }
 
   /// Whether a default/select-mode mouse click at [local] is over a
@@ -8098,14 +8590,6 @@ class _PdfViewerState extends State<PdfViewer>
     // document out from under its own stroke
     if (_kindDrawsInk(details.kind)) return;
     _focusNode.requestFocus();
-    if (_middleButtonDrag) {
-      // The middle button is the temporary hand: it pans past whatever else
-      // this drag would have meant, without touching the armed tool.
-      _grabPanning = true;
-      _beginMotionRenderHold();
-      setState(() => _hoverCursor = grabbingCursor);
-      return;
-    }
     if (widget.editing?.isHandMode == true && !_wordDrag) {
       // Explicit Hand mode is for navigation. Unlike the tool-free reader
       // state, a drag that begins over page text must grab the document
@@ -8623,6 +9107,9 @@ class _PdfViewerState extends State<PdfViewer>
       onAddLink: widget.editing != null && widget.textSelectionMarkup
           ? _addLinkToTextSelection
           : null,
+      onRedact: widget.editing != null && widget.textSelectionMarkup
+          ? _redactTextSelection
+          : null,
     );
   }
 
@@ -8942,6 +9429,7 @@ class _PdfViewerState extends State<PdfViewer>
   void _onDoubleTap() {
     final details = _doubleTapDetails;
     if (details == null) return;
+    if (_openTableAt(details.localPosition)) return;
     // two quick pen dots (dotting an i twice) are ink, not a zoom
     // gesture - the strokes already committed through the raw path
     if (_kindDrawsInk(details.kind)) return;
@@ -9696,6 +10184,8 @@ class _PdfViewerState extends State<PdfViewer>
                     crossPageGhost: _crossPageGhostFor(index),
                     transformScale: _transformScale,
                     transformChanges: _transform,
+                    viewportChanges: _controller.viewportChanges,
+                    visibleRegion: () => _visibleFractionOf(index),
                     renderScheduler: _renderScheduler,
                     previewCache: widget.pagePreviews ? _previews : null,
                     renderWorker: _effectiveRenderWorker,
@@ -9714,6 +10204,7 @@ class _PdfViewerState extends State<PdfViewer>
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: list,
       );
+      _claimInitialFocus();
       final keyed = Shortcuts(
         // while an in-place text editor is open every key belongs to it:
         // backspace deletes characters (not the annotation), ⌘C copies
@@ -9723,6 +10214,10 @@ class _PdfViewerState extends State<PdfViewer>
             : _keyBindings(editing != null),
         child: Focus(
           focusNode: _focusNode,
+          onKeyEvent: _onViewerKey,
+          onFocusChange: (focused) {
+            if (!focused) _stopTemporaryPan();
+          },
           child: RawGestureDetector(
             gestures: <Type, GestureRecognizerFactory>{
               // touch/stylus only: a double-tap recognizer that accepted
@@ -9748,231 +10243,242 @@ class _PdfViewerState extends State<PdfViewer>
               // the canvas color behind the page: visible as margins when
               // zoomed out past fit-width
               color: canvasColor,
-              child: Stack(children: [
-                InteractiveViewer(
-                  transformationController: _transform,
-                  maxScale: _effectiveMaxZoom,
-                  // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
-                  // disables InteractiveViewer's own (modifier-blind) version
-                  scaleFactor: double.maxFinite,
-                  // a draw tool armed: stand IV's scale handling down so a
-                  // stray trackpad pinch (a PointerScaleEvent on the web,
-                  // which scaleFactor does NOT neutralize) can't zoom the
-                  // page out from under a stroke. Touch pinch still zooms
-                  // through _EagerPinchRecognizer, not IV.
-                  scaleEnabled: !_drawToolArmed,
-                  minScale: widget.minZoom,
-                  // scaling below "cover" needs a free boundary; our own
-                  // clamping replaces InteractiveViewer's (live for wheel and
-                  // trackpad, on gesture end for touch)
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
-                  // Every direct pan path is owned below: mouse grab-pan,
-                  // bounded zoomed touch-pan, editing-overlay touch-pan, and
-                  // trackpad pan. Letting InteractiveViewer also pan was more
-                  // than redundant: a touch beginning on canvas beside a
-                  // narrow page could start its unbounded inertial pan and
-                  // push the matrix past our vertical clamp, desynchronizing
-                  // lazy page layout from the visible zoom window.
-                  panEnabled: false,
-                  // touch pinches that InteractiveViewer still wins run on
-                  // the transform mid-gesture; settle them the same way as
-                  // the eager pinch recognizer's
-                  onInteractionStart: (details) => pdfLogGesture(
-                      'InteractiveViewer interaction START',
-                      () => 'pointers=${details.pointerCount}'),
-                  onInteractionEnd: (_) {
-                    pdfLogGesture('InteractiveViewer interaction END');
-                    _settleZoomGesture();
-                    _springBackCross();
-                  },
-                  // all trackpad pan-zoom gestures are handled here, never by
-                  // the list's drag recognizer (whose iOS-style velocity
-                  // tracker asserts on macOS trackpad timestamps) nor by
-                  // InteractiveViewer (which would pan only within the zoom
-                  // window). Innermost recognizers win the arena, and this one
-                  // accepts eagerly.
-                  child: RawGestureDetector(
-                    gestures: <Type, GestureRecognizerFactory>{
-                      _TrackpadPanRecognizer:
-                          GestureRecognizerFactoryWithHandlers<
-                              _TrackpadPanRecognizer>(
-                        () => _TrackpadPanRecognizer(debugOwner: this),
-                        (recognizer) => recognizer
-                          ..gestureSettings = gestureSettings
-                          ..onStart = _onTrackpadPanZoomStart
-                          ..onUpdate = _onTrackpadPanZoomUpdate
-                          ..onEnd = _onTrackpadPanZoomEnd,
-                      ),
-                      // touch pinch zoom: passive for single touches,
-                      // claims the gesture when a second finger lands
-                      _EagerPinchRecognizer:
-                          GestureRecognizerFactoryWithHandlers<
-                              _EagerPinchRecognizer>(
-                        () => _EagerPinchRecognizer(debugOwner: this),
-                        (recognizer) => recognizer
-                          ..gestureSettings = gestureSettings
-                          ..onStart = _onPinchStart
-                          ..onUpdate = _onPinchUpdate
-                          ..onEnd = _onPinchEnd,
-                      ),
-                      // At zoom, the ListView's drag reaches only its
-                      // untransformed extent. This pan spills edge motion into
-                      // the transform so every page edge remains reachable.
-                      _ZoomedTouchPanRecognizer:
-                          GestureRecognizerFactoryWithHandlers<
-                              _ZoomedTouchPanRecognizer>(
-                        () => _ZoomedTouchPanRecognizer(debugOwner: this),
-                        (recognizer) => recognizer
-                          // must match InteractiveViewer's scale recognizer or
-                          // IV wins this drag and drops it (see above)
-                          ..gestureSettings = gestureSettings
-                          ..isEnabled = _touchPanEnabledAt
-                          ..onStart = _onZoomedTouchPanStart
-                          ..onUpdate = _onZoomedTouchPanUpdate
-                          ..onEnd = _onZoomedTouchPanEnd
-                          ..onCancel = _onZoomedTouchPanCancel,
-                      ),
+              child: Stack(key: _noteLayerKey, children: [
+                PdfTemporaryPanRegion(
+                  wantsPan: _wantsTemporaryPan,
+                  cursor: _temporaryPanPointer != null && !_temporaryPanStopped
+                      ? grabbingCursor
+                      : (_spacePan ? grabCursor : MouseCursor.defer),
+                  onDown: _temporaryPanDown,
+                  onMove: _temporaryPanMove,
+                  onEnd: _temporaryPanEnd,
+                  child: InteractiveViewer(
+                    transformationController: _transform,
+                    maxScale: _effectiveMaxZoom,
+                    // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
+                    // disables InteractiveViewer's own (modifier-blind) version
+                    scaleFactor: double.maxFinite,
+                    // a draw tool armed: stand IV's scale handling down so a
+                    // stray trackpad pinch (a PointerScaleEvent on the web,
+                    // which scaleFactor does NOT neutralize) can't zoom the
+                    // page out from under a stroke. Touch pinch still zooms
+                    // through _EagerPinchRecognizer, not IV.
+                    scaleEnabled: !_drawToolArmed,
+                    minScale: widget.minZoom,
+                    // scaling below "cover" needs a free boundary; our own
+                    // clamping replaces InteractiveViewer's (live for wheel and
+                    // trackpad, on gesture end for touch)
+                    boundaryMargin: const EdgeInsets.all(double.infinity),
+                    // Every direct pan path is owned below: mouse grab-pan,
+                    // bounded zoomed touch-pan, editing-overlay touch-pan, and
+                    // trackpad pan. Letting InteractiveViewer also pan was more
+                    // than redundant: a touch beginning on canvas beside a
+                    // narrow page could start its unbounded inertial pan and
+                    // push the matrix past our vertical clamp, desynchronizing
+                    // lazy page layout from the visible zoom window.
+                    panEnabled: false,
+                    // touch pinches that InteractiveViewer still wins run on
+                    // the transform mid-gesture; settle them the same way as
+                    // the eager pinch recognizer's
+                    onInteractionStart: (details) => pdfLogGesture(
+                        'InteractiveViewer interaction START',
+                        () => 'pointers=${details.pointerCount}'),
+                    onInteractionEnd: (_) {
+                      pdfLogGesture('InteractiveViewer interaction END');
+                      _settleZoomGesture();
+                      _springBackCross();
                     },
-                    // plain wheel events the list can't use (at its extents)
-                    // must not fall through to InteractiveViewer's wheel-zoom
-                    child: Listener(
-                      onPointerSignal: _onPointerSignal,
-                      // selection drags: scroll wheels and touch scrolling go to
-                      // the list (its drag recognizers win the arena for touch);
-                      // mouse drags fall through to this detector
-                      child: MouseRegion(
-                        cursor: _hoverCursor,
-                        onHover: _onHover,
-                        onExit: (_) {
-                          if (_hoverCursor != MouseCursor.defer) {
-                            setState(() => _hoverCursor = MouseCursor.defer);
-                          }
-                        },
-                        child: Listener(
-                          onPointerDown: _onPointerDown,
-                          onPointerMove: _trackTouchVelocity,
-                          onPointerUp: _onPointerUp,
-                          child: GestureDetector(
-                            onTapUp: _onTapUp,
-                            onSecondaryTapUp: _onSecondaryTapUp,
-                            child: RawGestureDetector(
-                              gestures: <Type, GestureRecognizerFactory>{
-                                // drag selection is mouse-only: touch and
-                                // stylus drags always scroll (a pan
-                                // recognizer that accepted touch claimed
-                                // any swipe with a horizontal component
-                                // before the list's vertical drag could,
-                                // and the swipe selected text instead of
-                                // scrolling)
-                                PanGestureRecognizer:
-                                    GestureRecognizerFactoryWithHandlers<
-                                        PanGestureRecognizer>(
-                                  () => PanGestureRecognizer(
-                                    debugOwner: this,
-                                    supportedDevices: const {
-                                      PointerDeviceKind.mouse,
-                                      PointerDeviceKind.trackpad,
-                                    },
-                                    // the middle button pans (see
-                                    // [_middleButtonDrag]); Flutter's default
-                                    // filter is primary-only, so without this
-                                    // a middle drag reaches no recognizer at
-                                    // all
-                                    allowedButtonsFilter: (buttons) =>
-                                        buttons == kPrimaryButton ||
-                                        buttons == kMiddleMouseButton,
-                                  ),
-                                  (recognizer) => recognizer
-                                    ..gestureSettings = gestureSettings
-                                    ..onStart = _onSelectionStart
-                                    ..onUpdate = _onSelectionUpdate
-                                    ..onEnd = _onSelectionEnd
-                                    ..onCancel = () => _onSelectionEnd(
-                                        DragEndDetails(),
-                                        cancelled: true),
-                                ),
-                                // touch text selection starts with a long
-                                // press instead; stands aside while a
-                                // drawing tool owns touch gestures
-                                _SelectionLongPressRecognizer:
-                                    GestureRecognizerFactoryWithHandlers<
-                                        _SelectionLongPressRecognizer>(
-                                  () => _SelectionLongPressRecognizer(
-                                      debugOwner: this),
-                                  (recognizer) => recognizer
-                                    ..gestureSettings = gestureSettings
-                                    ..isEnabled = _selectionLongPressEnabledAt
-                                    ..onLongPressStart = _onLongPressStart
-                                    ..onLongPressMoveUpdate = _onLongPressMove
-                                    ..onLongPressEnd =
-                                        ((_) => _onLongPressEnd())
-                                    ..onLongPressCancel =
-                                        () => _onLongPressEnd(cancelled: true),
-                                ),
-                              },
-                              child: ColoredBox(
-                                key: _listSpaceKey,
-                                color: canvasColor,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    // with ctrl/cmd held the list stops claiming
-                                    // wheel events, so they reach the
-                                    // InteractiveViewer, which zooms around the
-                                    // pointer
-                                    IgnorePointer(
-                                      ignoring: _zoomModifierDown,
-                                      child: scrollable,
+                    // all trackpad pan-zoom gestures are handled here, never by
+                    // the list's drag recognizer (whose iOS-style velocity
+                    // tracker asserts on macOS trackpad timestamps) nor by
+                    // InteractiveViewer (which would pan only within the zoom
+                    // window). Innermost recognizers win the arena, and this one
+                    // accepts eagerly.
+                    child: RawGestureDetector(
+                      gestures: <Type, GestureRecognizerFactory>{
+                        _TrackpadPanRecognizer:
+                            GestureRecognizerFactoryWithHandlers<
+                                _TrackpadPanRecognizer>(
+                          () => _TrackpadPanRecognizer(debugOwner: this),
+                          (recognizer) => recognizer
+                            ..gestureSettings = gestureSettings
+                            ..onStart = _onTrackpadPanZoomStart
+                            ..onUpdate = _onTrackpadPanZoomUpdate
+                            ..onEnd = _onTrackpadPanZoomEnd,
+                        ),
+                        // touch pinch zoom: passive for single touches,
+                        // claims the gesture when a second finger lands
+                        _EagerPinchRecognizer:
+                            GestureRecognizerFactoryWithHandlers<
+                                _EagerPinchRecognizer>(
+                          () => _EagerPinchRecognizer(debugOwner: this),
+                          (recognizer) => recognizer
+                            ..gestureSettings = gestureSettings
+                            ..onStart = _onPinchStart
+                            ..onUpdate = _onPinchUpdate
+                            ..onEnd = _onPinchEnd,
+                        ),
+                        // At zoom, the ListView's drag reaches only its
+                        // untransformed extent. This pan spills edge motion into
+                        // the transform so every page edge remains reachable.
+                        _ZoomedTouchPanRecognizer:
+                            GestureRecognizerFactoryWithHandlers<
+                                _ZoomedTouchPanRecognizer>(
+                          () => _ZoomedTouchPanRecognizer(debugOwner: this),
+                          (recognizer) => recognizer
+                            // must match InteractiveViewer's scale recognizer or
+                            // IV wins this drag and drops it (see above)
+                            ..gestureSettings = gestureSettings
+                            ..isEnabled = _touchPanEnabledAt
+                            ..onStart = _onZoomedTouchPanStart
+                            ..onUpdate = _onZoomedTouchPanUpdate
+                            ..onEnd = _onZoomedTouchPanEnd
+                            ..onCancel = _onZoomedTouchPanCancel,
+                        ),
+                      },
+                      // plain wheel events the list can't use (at its extents)
+                      // must not fall through to InteractiveViewer's wheel-zoom
+                      child: Listener(
+                        onPointerSignal: _onPointerSignal,
+                        // selection drags: scroll wheels and touch scrolling go to
+                        // the list (its drag recognizers win the arena for touch);
+                        // mouse drags fall through to this detector
+                        child: MouseRegion(
+                          cursor: _hoverCursor,
+                          onHover: _onHover,
+                          onExit: (_) {
+                            _noteShowTimer?.cancel();
+                            _pendingNote = null;
+                            _scheduleNoteHide();
+                            if (_hoverCursor != MouseCursor.defer) {
+                              setState(() => _hoverCursor = MouseCursor.defer);
+                            }
+                          },
+                          child: Listener(
+                            onPointerDown: _onPointerDown,
+                            onPointerMove: _trackTouchVelocity,
+                            onPointerUp: _onPointerUp,
+                            child: GestureDetector(
+                              onTapUp: _onTapUp,
+                              onSecondaryTapUp: _onSecondaryTapUp,
+                              child: RawGestureDetector(
+                                gestures: <Type, GestureRecognizerFactory>{
+                                  // drag selection is mouse-only: touch and
+                                  // stylus drags always scroll (a pan
+                                  // recognizer that accepted touch claimed
+                                  // any swipe with a horizontal component
+                                  // before the list's vertical drag could,
+                                  // and the swipe selected text instead of
+                                  // scrolling)
+                                  PanGestureRecognizer:
+                                      GestureRecognizerFactoryWithHandlers<
+                                          PanGestureRecognizer>(
+                                    () => PanGestureRecognizer(
+                                      debugOwner: this,
+                                      supportedDevices: const {
+                                        PointerDeviceKind.mouse,
+                                        PointerDeviceKind.trackpad,
+                                      },
                                     ),
-                                    // the Shift+drag marquee, drawn in this
-                                    // (list) space so it tracks the gesture;
-                                    // its chrome counter-scales the zoom
-                                    // transform below.
-                                    if (_marqueeStart != null &&
-                                        _marqueeCurrent != null)
-                                      Positioned.fill(
-                                        child: IgnorePointer(
-                                          child: ValueListenableBuilder<double>(
-                                            valueListenable: _transformScale,
-                                            builder: (context, zoom, _) =>
-                                                CustomPaint(
-                                              painter: _MarqueePainter(
-                                                Rect.fromPoints(_marqueeStart!,
-                                                    _marqueeCurrent!),
-                                                marqueeColor,
-                                                zoom.isFinite && zoom > 0
-                                                    ? 1 / zoom
-                                                    : 1.0,
+                                    (recognizer) => recognizer
+                                      ..gestureSettings = gestureSettings
+                                      ..onStart = _onSelectionStart
+                                      ..onUpdate = _onSelectionUpdate
+                                      ..onEnd = _onSelectionEnd
+                                      ..onCancel = () => _onSelectionEnd(
+                                          DragEndDetails(),
+                                          cancelled: true),
+                                  ),
+                                  // touch text selection starts with a long
+                                  // press instead; stands aside while a
+                                  // drawing tool owns touch gestures
+                                  _SelectionLongPressRecognizer:
+                                      GestureRecognizerFactoryWithHandlers<
+                                          _SelectionLongPressRecognizer>(
+                                    () => _SelectionLongPressRecognizer(
+                                        debugOwner: this),
+                                    (recognizer) => recognizer
+                                      ..gestureSettings = gestureSettings
+                                      ..isEnabled = _selectionLongPressEnabledAt
+                                      ..onLongPressStart = _onLongPressStart
+                                      ..onLongPressMoveUpdate = _onLongPressMove
+                                      ..onLongPressEnd =
+                                          ((_) => _onLongPressEnd())
+                                      ..onLongPressCancel = () =>
+                                          _onLongPressEnd(cancelled: true),
+                                  ),
+                                },
+                                child: ColoredBox(
+                                  key: _listSpaceKey,
+                                  color: canvasColor,
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      // with ctrl/cmd held the list stops claiming
+                                      // wheel events, so they reach the
+                                      // InteractiveViewer, which zooms around the
+                                      // pointer
+                                      IgnorePointer(
+                                        ignoring: _zoomModifierDown,
+                                        child: PdfEditingCanvasReach(
+                                          targets: () =>
+                                              _editingReachKeys.values,
+                                          overPage: _pageContainsListPoint,
+                                          child: scrollable,
+                                        ),
+                                      ),
+                                      // the Shift+drag marquee, drawn in this
+                                      // (list) space so it tracks the gesture;
+                                      // its chrome counter-scales the zoom
+                                      // transform below.
+                                      if (_marqueeStart != null &&
+                                          _marqueeCurrent != null)
+                                        Positioned.fill(
+                                          child: IgnorePointer(
+                                            child:
+                                                ValueListenableBuilder<double>(
+                                              valueListenable: _transformScale,
+                                              builder: (context, zoom, _) =>
+                                                  CustomPaint(
+                                                painter: _MarqueePainter(
+                                                  Rect.fromPoints(
+                                                      _marqueeStart!,
+                                                      _marqueeCurrent!),
+                                                  marqueeColor,
+                                                  zoom.isFinite && zoom > 0
+                                                      ? 1 / zoom
+                                                      : 1.0,
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
+                                      // Shift+wheel must pan horizontally, not
+                                      // scroll the list. The platform (browser/
+                                      // macOS) flips a shift-scroll's delta into
+                                      // dx, and a vertical Scrollable flips its
+                                      // own axis to match and consumes it as a
+                                      // vertical scroll before _onPointerSignal
+                                      // runs. This translucent, signal-only
+                                      // Listener sits in front of the list and so
+                                      // sees the wheel first; for a shift+mouse
+                                      // wheel it claims the pointer-signal
+                                      // resolver (front of the hit path registers
+                                      // first) and routes it to _onPointerSignal,
+                                      // which pans the zoom window. Every other
+                                      // signal it leaves unclaimed so the list
+                                      // scrolls as usual, and it handles no other
+                                      // pointer events, so shift+click
+                                      // multi-select and shift-resize in the
+                                      // editing overlay still reach it.
+                                      Positioned.fill(
+                                        child: Listener(
+                                          behavior: HitTestBehavior.translucent,
+                                          onPointerSignal: _onShiftWheelSignal,
+                                        ),
                                       ),
-                                    // Shift+wheel must pan horizontally, not
-                                    // scroll the list. The platform (browser/
-                                    // macOS) flips a shift-scroll's delta into
-                                    // dx, and a vertical Scrollable flips its
-                                    // own axis to match and consumes it as a
-                                    // vertical scroll before _onPointerSignal
-                                    // runs. This translucent, signal-only
-                                    // Listener sits in front of the list and so
-                                    // sees the wheel first; for a shift+mouse
-                                    // wheel it claims the pointer-signal
-                                    // resolver (front of the hit path registers
-                                    // first) and routes it to _onPointerSignal,
-                                    // which pans the zoom window. Every other
-                                    // signal it leaves unclaimed so the list
-                                    // scrolls as usual, and it handles no other
-                                    // pointer events, so shift+click
-                                    // multi-select and shift-resize in the
-                                    // editing overlay still reach it.
-                                    Positioned.fill(
-                                      child: Listener(
-                                        behavior: HitTestBehavior.translucent,
-                                        onPointerSignal: _onShiftWheelSignal,
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -10018,6 +10524,7 @@ class _PdfViewerState extends State<PdfViewer>
                   onScrollBy: _scrollbarPanBy,
                   thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
                 )),
+                if (widget.showNotePopups) _buildNotePopupLayer(),
               ]),
             ),
           ),
@@ -10745,6 +11252,8 @@ class _PdfViewerPage extends StatefulWidget {
     required this.crossPageGhost,
     required this.transformScale,
     required this.transformChanges,
+    required this.viewportChanges,
+    required this.visibleRegion,
     required this.renderScheduler,
     required this.previewCache,
     required this.renderWorker,
@@ -10856,6 +11365,13 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// The complete viewer matrix notifier, including translation-only pans.
   final Listenable transformChanges;
+
+  /// See [PdfViewerController.viewportChanges].
+  final Listenable viewportChanges;
+
+  /// See [PdfViewerController.visiblePageRegion] - this page's visible
+  /// slice as fractions of its displayed area, or null while off-screen.
+  final Rect? Function() visibleRegion;
 
   /// See [PdfPageView.renderScheduler].
   final PdfPageRenderScheduler renderScheduler;
@@ -11236,6 +11752,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                         widget.interactionSession,
                                     rasterCurrent: rasterCurrent,
                                     zoom: zoom,
+                                    viewportChanges: widget.viewportChanges,
+                                    visibleRegion: widget.visibleRegion,
                                     predictStrokes: widget.predictStrokes,
                                     contextMenuEnabled:
                                         widget.contextMenuEnabled,
@@ -11670,6 +12188,7 @@ class _PageTextSelection {
     required this.onEdit,
     required this.onMarkup,
     required this.onAddLink,
+    required this.onRedact,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -11701,6 +12220,10 @@ class _PageTextSelection {
   /// Turns the current selection into a hyperlink (opens the Add-link
   /// dialog), or null when link authoring isn't available.
   final Future<void> Function()? onAddLink;
+
+  /// Marks the current selection for redaction, or null when markup
+  /// authoring isn't available.
+  final VoidCallback? onRedact;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -11846,6 +12369,15 @@ class _TextSelectionChrome extends StatelessWidget {
                     onPressed: selection.onAddLink,
                   ),
                 ],
+                if (selection.onRedact != null) ...[
+                  const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                  IconButton(
+                    key: const ValueKey('pdf-text-selection-chip-redact'),
+                    tooltip: pdfL10n(context).tbToolRedact,
+                    icon: const Icon(Icons.gradient, size: 20),
+                    onPressed: selection.onRedact,
+                  ),
+                ],
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
                 TextButton(
                   key: const ValueKey('pdf-text-selection-chip-select-all'),
@@ -11925,6 +12457,12 @@ class _TextSelectionChrome extends StatelessWidget {
                 label: l10n.linkDialogTitle,
                 icon: Icons.link,
                 onPressed: selection.onAddLink),
+          if (selection.onRedact != null)
+            PdfActionBarAction(
+                id: 'pdf-text-selection-chip-redact',
+                label: l10n.tbToolRedact,
+                icon: Icons.gradient,
+                onPressed: selection.onRedact),
           PdfActionBarAction(
               id: 'pdf-text-selection-chip-select-all',
               label: l10n.viewerSelectAll,
@@ -12109,5 +12647,149 @@ class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
   Object? invoke(T intent) {
     _invoke(intent);
     return null;
+  }
+}
+
+/// A note card the user pinned open ([PdfViewerState._openNotes]),
+/// recorded so it finds its note again in later revisions: the page by its
+/// indirect reference, the note by /NM, falling back to its /Annots slot.
+class _OpenNote {
+  _OpenNote({
+    required this.pageRef,
+    required this.page,
+    required this.name,
+    required this.slot,
+  });
+
+  final (int, int)? pageRef;
+  final int page;
+  final String? name;
+  final int slot;
+}
+
+/// Where a [PdfNotePopupCard] shows: the note, its icon's rect in the
+/// viewport, and the pin it is open under ([open], null for a hovered or
+/// selected card). Equal for the same note dictionary at the same spot, so
+/// a fresh [PdfAnnotation] wrapper for an unchanged note doesn't rebuild.
+class _NotePopupPlacement {
+  const _NotePopupPlacement(this.page, this.note, this.anchor, this.open);
+
+  final int page;
+  final PdfAnnotation note;
+  final Rect anchor;
+  final _OpenNote? open;
+
+  /// Keeps a card's state (its text selection, its scroll) while the cards
+  /// below it come and go.
+  Key get key => open != null ? ObjectKey(open) : ObjectKey(note.dict);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _NotePopupPlacement &&
+      other.page == page &&
+      identical(other.note.dict, note.dict) &&
+      other.anchor == anchor &&
+      identical(other.open, open);
+
+  @override
+  int get hashCode => Object.hash(
+      page, identityHashCode(note.dict), anchor, identityHashCode(open));
+}
+
+/// A note card's pin button - "keep open" - or, on a card pinned open, its
+/// close button.
+class _NoteCardButton extends StatelessWidget {
+  const _NoteCardButton({required this.open, required this.onPressed});
+
+  final bool open;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    return IconButton(
+      key: ValueKey(open ? 'pdf-note-popup-close' : 'pdf-note-popup-pin'),
+      tooltip: open ? l10n.close : l10n.notePopupKeepOpen,
+      onPressed: onPressed,
+      icon: Icon(open ? Icons.close : Icons.push_pin_outlined),
+      iconSize: 16,
+      color: PdfViewerTheme.of(context).chipForeground,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+    );
+  }
+}
+
+/// Rebuilds its cards only when [resolve]'s placements change, so the
+/// listenables it watches (scroll, zoom, the editing controller) cost
+/// nothing on the many ticks that leave the cards where they were.
+class _NotePopupLayer extends StatefulWidget {
+  const _NotePopupLayer({
+    required this.listenables,
+    required this.resolve,
+    required this.builder,
+  });
+
+  final List<Listenable> listenables;
+  final List<_NotePopupPlacement> Function() resolve;
+  final Widget Function(_NotePopupPlacement placement) builder;
+
+  @override
+  State<_NotePopupLayer> createState() => _NotePopupLayerState();
+}
+
+class _NotePopupLayerState extends State<_NotePopupLayer> {
+  List<_NotePopupPlacement> _placements = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    for (final l in widget.listenables) {
+      l.addListener(_update);
+    }
+    _placements = widget.resolve();
+  }
+
+  @override
+  void didUpdateWidget(_NotePopupLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.listenables, widget.listenables)) {
+      for (final l in oldWidget.listenables) {
+        l.removeListener(_update);
+      }
+      for (final l in widget.listenables) {
+        l.addListener(_update);
+      }
+    }
+    _placements = widget.resolve();
+  }
+
+  @override
+  void dispose() {
+    for (final l in widget.listenables) {
+      l.removeListener(_update);
+    }
+    super.dispose();
+  }
+
+  void _update() {
+    final placements = widget.resolve();
+    if (listEquals(placements, _placements)) return;
+    setState(() => _placements = placements);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_placements.isEmpty) return const SizedBox.shrink();
+    return Stack(
+      children: [
+        for (final placement in _placements)
+          Positioned.fill(
+            key: placement.key,
+            child: widget.builder(placement),
+          ),
+      ],
+    );
   }
 }

@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+## 12.0.0+49
+
+- Add cloud callouts with an attached note and a marked cloud or polygon area.
+- Search for text to mark for redaction, individually or in bulk. Review marks before applying them, or mark selected text directly.
+- Save pasted vector snapshots as PNG images.
+- Keep rulers visible when zoomed and cursor guides under the pointer while scrolling.
+- Use more compact floating toolbars and simpler side docks.
+- Submit page-number changes from the keyboard, dismiss it by tapping outside and use shortcuts immediately after opening a document.
+- Fix redaction removing nearby text and keep the print-preview page range in sync.
+
+## 11.0.0+48
+
+- Create editable tables and exchange cells with spreadsheets.
+- Resume text recognition from saved-page checkpoints after an interruption.
+- Replace colours in snapshots and annotations, align text vertically and duplicate library stamps.
+- Pan with Space-drag or the middle mouse button.
+- Fix text wrapping, remembered fonts, rotated snapshots and annotation resize previews.
+- Fix detection of a running 64-bit app by the Windows installer.
+
 ## 10.0.0
 
 - Type the value shown on a drawing into a measurement, even without setting a scale.

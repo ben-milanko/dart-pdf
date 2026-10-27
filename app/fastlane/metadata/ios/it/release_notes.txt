@@ -1,3 +1,3 @@
-Novità della 10.0.0
+DartPDF 12.0.0
 
-Inserisci valori di misura anche senza scala. Modifica parole intere e riconosci meglio i link. I controlli si nascondono sui telefoni ed evitano le pieghe dello schermo. Scegli se mantenere l’OCR automatico dopo il primo utilizzo. Corretto un arresto con scansioni grandi; migliorate annotazioni e ritaglio delle immagini.
+Aggiunge richiami con nuvola. Cerca testo e contrassegna uno o tutti i risultati per la censura, poi controlla i segni prima di applicarli. Salva istantanee vettoriali incollate in PNG. Righelli e guide del cursore restano visibili durante la navigazione. Migliora barre compatte, numero di pagina e scorciatoie. Corregge la rimozione del testo vicino durante la censura.

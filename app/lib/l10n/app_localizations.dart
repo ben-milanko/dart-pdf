@@ -2127,6 +2127,30 @@ abstract class AppLocalizations {
   /// **'Release notes aren\'t available in this build.'**
   String get whatsNewUnavailable;
 
+  /// Heading of the What's new section, shown only in nightly builds, that lists the tickets (merged pull requests) since the last published release. {version} is that release's version, e.g. 10.0.0.
+  ///
+  /// In en, this message translates to:
+  /// **'Tickets since {version}'**
+  String whatsNewNightlyTickets(String version);
+
+  /// Shown in that nightly section when nothing has merged since the release.
+  ///
+  /// In en, this message translates to:
+  /// **'No new tickets since {version}.'**
+  String whatsNewNightlyNoTickets(String version);
+
+  /// Shown under that heading when the ticket list comes from a newer nightly than the running build. {commit} is a short git commit hash.
+  ///
+  /// In en, this message translates to:
+  /// **'From a newer nightly ({commit}) than this build.'**
+  String whatsNewNightlyNewer(String commit);
+
+  /// Shown in that nightly section when the ticket list could not be downloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load this nightly\'s tickets. Check your connection and try again.'**
+  String get whatsNewNightlyUnavailable;
+
   /// Title of the dialog shown when the operating system opens several PDFs in the app at once (e.g. a multi-file "Open with").
   ///
   /// In en, this message translates to:

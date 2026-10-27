@@ -264,6 +264,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Note'**
   String get annotText;
 
+  /// Tooltip on a note popup card's pin button: keep this card open after the pointer leaves, so several notes can be open at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep open'**
+  String get notePopupKeepOpen;
+
   /// Annotation type name: a text underline.
   ///
   /// In en, this message translates to:
@@ -930,6 +936,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Recolor…'**
   String get menuRecolour;
 
+  /// Annotation context-menu item that saves a pasted vector snapshot as a PNG image file.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as image…'**
+  String get menuSaveAsImage;
+
   /// Annotation context-menu item that removes the nearest vertex of a polyline or polygon.
   ///
   /// In en, this message translates to:
@@ -1440,6 +1452,24 @@ abstract class DartPdfEditorLocalizations {
   /// **'Line type'**
   String get propLineType;
 
+  /// Properties panel group title: the area a cloud callout marks (its cloud or polygon outline).
+  ///
+  /// In en, this message translates to:
+  /// **'Marked area'**
+  String get propRegion;
+
+  /// Cloud callout outline option: a plain straight-edged polygon (a rectangle when dragged out as one).
+  ///
+  /// In en, this message translates to:
+  /// **'Polygon'**
+  String get propRegionPolygon;
+
+  /// Cloud callout outline option: a scalloped revision cloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud'**
+  String get propRegionCloud;
+
   /// Font picker entry that opens a file picker to load a custom font.
   ///
   /// In en, this message translates to:
@@ -1547,6 +1577,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Content'**
   String get propSectionContent;
+
+  /// Section header for the selected annotation's comment thread (its replies, plus a field to add one) in the annotation properties panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments'**
+  String get propSectionComments;
 
   /// Section header for the form-field controls in the annotation properties panel.
   ///
@@ -1859,6 +1895,36 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}'**
   String searchReplaced(int count);
+
+  /// Tooltip on the search panel toggle that shows the find-to-redact controls (mark search hits for redaction).
+  ///
+  /// In en, this message translates to:
+  /// **'Mark for redaction'**
+  String get searchRedact;
+
+  /// Label on the search panel button that marks the current match for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark'**
+  String get searchRedactMark;
+
+  /// Label on the search panel button that marks every page-text match for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all'**
+  String get searchRedactMarkAll;
+
+  /// Note under the find-to-redact buttons: marking only flags the text; nothing is removed until redactions are applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Marks stay reviewable until you apply redactions'**
+  String get searchRedactHint;
+
+  /// Confirmation after marking search matches for redaction; 0 means every hit was already marked.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Already marked} =1{1 match marked for redaction} other{{count} matches marked for redaction}}'**
+  String searchRedactMarked(int count);
 
   /// Title of the docked search results panel.
   ///
@@ -2724,6 +2790,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Apply redactions (irreversible)'**
   String get tbApplyRedactionsTooltip;
 
+  /// Tooltip on the redact tool's toolbar button that opens the search panel to find text to mark for redaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Find text to redact'**
+  String get tbFindToRedact;
+
   /// Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut.
   ///
   /// In en, this message translates to:
@@ -3132,6 +3204,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Callout'**
   String get tbNameCallout;
 
+  /// Tool name: insert a callout whose text box is outlined by a revision cloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud callout'**
+  String get tbNameCloudCallout;
+
   /// Tool name: draw a cloud-outline polygon.
   ///
   /// In en, this message translates to:
@@ -3521,6 +3599,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Callout - drag from the point to where the box goes'**
   String get tbTipCallout;
+
+  /// Tooltip for the cloud callout tool, explaining the drag gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud callout - drag a cloud around the area, then type the note'**
+  String get tbTipCloudCallout;
 
   /// Tooltip for the page-content editing tool.
   ///
@@ -4487,6 +4571,114 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
   String get pageColorNotBakedSigned;
+
+  /// No description provided for @table.
+  ///
+  /// In en, this message translates to:
+  /// **'Table'**
+  String get table;
+
+  /// No description provided for @tableEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit table'**
+  String get tableEdit;
+
+  /// No description provided for @tableRows.
+  ///
+  /// In en, this message translates to:
+  /// **'Rows'**
+  String get tableRows;
+
+  /// No description provided for @tableColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Columns'**
+  String get tableColumns;
+
+  /// No description provided for @tableStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Table style'**
+  String get tableStyle;
+
+  /// No description provided for @tableStyleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies to the whole table.'**
+  String get tableStyleHint;
+
+  /// No description provided for @tableBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Background color'**
+  String get tableBackgroundColor;
+
+  /// No description provided for @tableHeaderColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Header color'**
+  String get tableHeaderColor;
+
+  /// No description provided for @tableTextColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Font color'**
+  String get tableTextColor;
+
+  /// No description provided for @tableGridLines.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid lines'**
+  String get tableGridLines;
+
+  /// No description provided for @tableGridColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid color'**
+  String get tableGridColor;
+
+  /// No description provided for @tableGridWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid width'**
+  String get tableGridWidth;
+
+  /// No description provided for @tableHeaderRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Header row'**
+  String get tableHeaderRow;
+
+  /// No description provided for @tableColumnWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Column width'**
+  String get tableColumnWidth;
+
+  /// No description provided for @tableRowHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Row height'**
+  String get tableRowHeight;
+
+  /// No description provided for @tableSelectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.'**
+  String get tableSelectionHint;
+
+  /// No description provided for @tableClipboardError.
+  ///
+  /// In en, this message translates to:
+  /// **'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.'**
+  String get tableClipboardError;
+
+  /// Duplicate a library item or selected annotation as an independent copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicate;
 }
 
 class _DartPdfEditorLocalizationsDelegate

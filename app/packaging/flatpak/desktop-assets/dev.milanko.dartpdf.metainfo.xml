@@ -85,6 +85,12 @@
   </screenshots>
 
   <releases>
+    <release version="12.0.0" date="2026-10-26">
+      <description><p>Add cloud callouts, find text to mark for redaction and save vector snapshots as images. Improve rulers, toolbars, page navigation and keyboard shortcuts. Preserve nearby text when applying redactions.</p></description>
+    </release>
+    <release version="11.0.0" date="2026-10-23">
+      <description><p>Create editable tables, resume interrupted text recognition, replace annotation colours and improve text editing and temporary panning.</p></description>
+    </release>
     <release version="10.0.0" date="2026-10-18">
       <description><p>Type custom measurement values, edit whole words, find links more easily, and improve image cropping and annotation visibility. Reading controls avoid display folds and hide on phones. Choose whether to keep automatic OCR after its first run.</p></description>
     </release>

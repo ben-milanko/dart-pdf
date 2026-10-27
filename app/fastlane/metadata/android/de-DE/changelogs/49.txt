@@ -1,0 +1,3 @@
+DartPDF 12.0.0
+
+Wolkenanmerkungen hinzufügen. Suchtreffer einzeln oder gesammelt zum Schwärzen markieren und vor dem Anwenden prüfen. Eingefügte Vektorausschnitte als PNG speichern. Lineale und Cursorhilfen beim Navigieren sichtbar halten. Kompakte Werkzeugleisten, Seitenzahleingabe und Tastenkürzel verbessern. Fehler beim Schwärzen benachbarter Texte beheben.

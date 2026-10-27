@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get annotText => 'โน้ต';
 
   @override
+  String get notePopupKeepOpen => 'เปิดค้างไว้';
+
+  @override
   String get annotUnderline => 'ขีดเส้นใต้';
 
   @override
@@ -447,6 +450,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuRecolour => 'เปลี่ยนสี…';
 
   @override
+  String get menuSaveAsImage => 'บันทึกเป็นรูปภาพ…';
+
+  @override
   String get menuRemoveNode => 'นำจุดออก';
 
   @override
@@ -724,6 +730,15 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get propLineType => 'ชนิดเส้น';
 
   @override
+  String get propRegion => 'พื้นที่ที่ทำเครื่องหมาย';
+
+  @override
+  String get propRegionPolygon => 'รูปหลายเหลี่ยม';
+
+  @override
+  String get propRegionCloud => 'ก้อนเมฆ';
+
+  @override
   String get propLoadFont => 'โหลดฟอนต์…';
 
   @override
@@ -778,6 +793,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'เนื้อหา';
+
+  @override
+  String get propSectionComments => 'ความคิดเห็น';
 
   @override
   String get propSectionFormField => 'ช่องแบบฟอร์ม';
@@ -959,6 +977,30 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       other: 'แทนที่แล้ว $count รายการ',
       one: 'แทนที่แล้ว 1 รายการ',
       zero: 'ไม่ได้แทนที่รายการใด',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchRedact => 'ทำเครื่องหมายเพื่อปกปิด';
+
+  @override
+  String get searchRedactMark => 'ทำเครื่องหมาย';
+
+  @override
+  String get searchRedactMarkAll => 'ทำเครื่องหมายทั้งหมด';
+
+  @override
+  String get searchRedactHint => 'ตรวจทานเครื่องหมายได้จนกว่าจะใช้การปกปิด';
+
+  @override
+  String searchRedactMarked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ทำเครื่องหมายเพื่อปกปิดแล้ว $count รายการ',
+      one: 'ทำเครื่องหมายเพื่อปกปิดแล้ว 1 รายการ',
+      zero: 'ทำเครื่องหมายไว้แล้ว',
     );
     return '$_temp0';
   }
@@ -1458,6 +1500,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'ใช้การปิดบังข้อมูล (ไม่สามารถย้อนกลับได้)';
 
   @override
+  String get tbFindToRedact => 'ค้นหาข้อความที่จะปกปิด';
+
+  @override
   String get tbAutosizeTextBox => 'ปรับขนาดกล่องข้อความอัตโนมัติ (Alt+Z)';
 
   @override
@@ -1683,6 +1728,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbNameCallout => 'คำบรรยาย';
 
   @override
+  String get tbNameCloudCallout => 'คำบรรยายแบบก้อนเมฆ';
+
+  @override
   String get tbNameCloudPolygon => 'รูปหลายเหลี่ยมแบบก้อนเมฆ';
 
   @override
@@ -1887,6 +1935,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get tbTipCallout => 'คำบรรยาย - ลากจากจุดไปยังตำแหน่งที่กล่องจะไป';
+
+  @override
+  String get tbTipCloudCallout =>
+      'คำบรรยายแบบก้อนเมฆ - ลากก้อนเมฆรอบพื้นที่ แล้วพิมพ์บันทึก';
 
   @override
   String get tbTipContent => 'แก้ไขเนื้อหาหน้า';
@@ -2465,4 +2517,60 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get pageColorNotBakedSigned =>
       'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
+
+  @override
+  String get table => 'ตาราง';
+
+  @override
+  String get tableEdit => 'แก้ไขตาราง';
+
+  @override
+  String get tableRows => 'แถว';
+
+  @override
+  String get tableColumns => 'คอลัมน์';
+
+  @override
+  String get tableStyle => 'รูปแบบตาราง';
+
+  @override
+  String get tableStyleHint => 'ใช้กับทั้งตาราง';
+
+  @override
+  String get tableBackgroundColor => 'สีพื้นหลัง';
+
+  @override
+  String get tableHeaderColor => 'สีหัวตาราง';
+
+  @override
+  String get tableTextColor => 'สีตัวอักษร';
+
+  @override
+  String get tableGridLines => 'เส้นตาราง';
+
+  @override
+  String get tableGridColor => 'สีเส้นตาราง';
+
+  @override
+  String get tableGridWidth => 'ความหนาเส้นตาราง';
+
+  @override
+  String get tableHeaderRow => 'แถวส่วนหัว';
+
+  @override
+  String get tableColumnWidth => 'ความกว้างคอลัมน์';
+
+  @override
+  String get tableRowHeight => 'ความสูงแถว';
+
+  @override
+  String get tableSelectionHint =>
+      'คลิกเซลล์เพื่อแก้ไข กด Shift พร้อมคลิกเพื่อเลือกช่วง คัดลอกและวางเพื่อแลกเปลี่ยนค่าเซลล์กับ Excel';
+
+  @override
+  String get tableClipboardError =>
+      'ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์';
+
+  @override
+  String get duplicate => 'ทำสำเนา';
 }
