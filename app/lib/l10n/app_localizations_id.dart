@@ -9,6 +9,13 @@ class AppLocalizationsId extends AppLocalizations {
   AppLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Lewati versi ini';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Versi ini dilewati. Anda tidak akan diberi tahu lagi tentang versi ini, tetapi Anda masih dapat menginstalnya di sini.';
+
+  @override
   String get add => 'Tambah';
 
   @override

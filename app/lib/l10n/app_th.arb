@@ -1,5 +1,7 @@
 {
   "@@locale": "th",
+  "updateSkipVersion": "ข้ามเวอร์ชันนี้",
+  "settingsUpdateSkipped": "ข้ามเวอร์ชันนี้แล้ว คุณจะไม่ได้รับการแจ้งเตือนเกี่ยวกับเวอร์ชันนี้อีก แต่ยังสามารถติดตั้งได้ที่นี่",
   "add": "เพิ่ม",
   "appSigAddLogo": "เพิ่มโลโก้…",
   "appSigAllPages": "ทั้งหมด {pageCount} หน้า",

@@ -9,6 +9,13 @@ class AppLocalizationsNl extends AppLocalizations {
   AppLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Deze versie overslaan';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Deze versie is overgeslagen. Je ontvangt er geen meldingen meer over, maar je kunt deze hier nog steeds installeren.';
+
+  @override
   String get add => 'Toevoegen';
 
   @override

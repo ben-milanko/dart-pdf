@@ -9,6 +9,13 @@ class AppLocalizationsHi extends AppLocalizations {
   AppLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'इस संस्करण को छोड़ें';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'इस संस्करण को छोड़ दिया गया है। आपको इसके बारे में फिर से सूचित नहीं किया जाएगा, लेकिन आप इसे यहाँ से इंस्टॉल कर सकते हैं।';
+
+  @override
   String get add => 'जोड़ें';
 
   @override

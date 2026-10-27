@@ -1,5 +1,7 @@
 {
   "@@locale": "ja",
+  "updateSkipVersion": "このバージョンをスキップ",
+  "settingsUpdateSkipped": "このバージョンはスキップされています。今後このバージョンの通知は表示されませんが、ここからインストールできます。",
   "add": "追加",
   "appSigAddLogo": "ロゴを追加…",
   "appSigAllPages": "全 {pageCount} ページ",

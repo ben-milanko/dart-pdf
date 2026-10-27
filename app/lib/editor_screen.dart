@@ -680,6 +680,14 @@ class _EditorScreenState extends State<EditorScreen>
           },
           child: Text(appL10n(context).editorUpdateLater),
         ),
+        TextButton(
+          key: const ValueKey('update-banner-skip'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.skipVersion());
+          },
+          child: Text(appL10n(context).updateSkipVersion),
+        ),
         FilledButton(
           key: const ValueKey('update-banner-download'),
           onPressed: () {

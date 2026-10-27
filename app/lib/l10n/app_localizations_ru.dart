@@ -9,6 +9,13 @@ class AppLocalizationsRu extends AppLocalizations {
   AppLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Пропустить эту версию';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Эта версия пропущена. Вы больше не будете получать уведомления о ней, но по-прежнему можете установить её здесь.';
+
+  @override
   String get add => 'Добавить';
 
   @override

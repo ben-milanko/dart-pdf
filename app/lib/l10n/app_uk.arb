@@ -1,5 +1,7 @@
 {
   "@@locale": "uk",
+  "updateSkipVersion": "Пропустити цю версію",
+  "settingsUpdateSkipped": "Цю версію пропущено. Ви більше не отримуватимете сповіщень про неї, але все ще можете встановити її тут.",
   "add": "Додати",
   "appSigAddLogo": "Додати логотип…",
   "appSigAllPages": "Усі сторінки ({pageCount})",

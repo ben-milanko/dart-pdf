@@ -9,6 +9,13 @@ class AppLocalizationsTh extends AppLocalizations {
   AppLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'ข้ามเวอร์ชันนี้';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'ข้ามเวอร์ชันนี้แล้ว คุณจะไม่ได้รับการแจ้งเตือนเกี่ยวกับเวอร์ชันนี้อีก แต่ยังสามารถติดตั้งได้ที่นี่';
+
+  @override
   String get add => 'เพิ่ม';
 
   @override

@@ -1,5 +1,7 @@
 {
   "@@locale": "fr",
+  "updateSkipVersion": "Ignorer cette version",
+  "settingsUpdateSkipped": "Cette version est ignorée. Vous ne recevrez plus de notification à son sujet, mais vous pouvez toujours l’installer ici.",
   "add": "Ajouter",
   "appSigAddLogo": "Ajouter un logo…",
   "appSigAllPages": "Les {pageCount} pages",

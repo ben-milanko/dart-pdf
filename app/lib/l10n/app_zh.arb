@@ -1,5 +1,7 @@
 {
   "@@locale": "zh",
+  "updateSkipVersion": "跳过此版本",
+  "settingsUpdateSkipped": "已跳过此版本。你不会再收到此版本的通知，但仍可在此安装。",
   "add": "添加",
   "appSigAddLogo": "添加徽标…",
   "appSigAllPages": "全部 {pageCount} 页",

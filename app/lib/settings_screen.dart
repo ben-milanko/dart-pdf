@@ -455,6 +455,14 @@ class _UpdateSection extends StatelessWidget {
               ),
             _statusLine(context, theme),
             if (updates.updateAvailable) ...[
+              if (updates.isVersionSkipped) ...[
+                const SizedBox(height: 8),
+                Text(
+                  appL10n(context).settingsUpdateSkipped,
+                  key: const ValueKey('settings-update-skipped'),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: 8),
               Align(
                 alignment: AlignmentDirectional.centerStart,
@@ -466,6 +474,12 @@ class _UpdateSection extends StatelessWidget {
                   onPressed: () => _install(context),
                 ),
               ),
+              if (!updates.isVersionSkipped)
+                TextButton(
+                  key: const ValueKey('settings-skip-update'),
+                  onPressed: () => updates.skipVersion(),
+                  child: Text(appL10n(context).updateSkipVersion),
+                ),
             ],
           ],
         );

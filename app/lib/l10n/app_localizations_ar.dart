@@ -9,6 +9,13 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'تخطي هذا الإصدار';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'تم تخطي هذا الإصدار. لن يتم إشعارك به مجددًا، ولكن لا يزال بإمكانك تثبيته هنا.';
+
+  @override
   String get add => 'إضافة';
 
   @override

@@ -9,6 +9,13 @@ class AppLocalizationsVi extends AppLocalizations {
   AppLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Bỏ qua phiên bản này';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Phiên bản này đã được bỏ qua. Bạn sẽ không nhận được thông báo về phiên bản này nữa, nhưng vẫn có thể cài đặt tại đây.';
+
+  @override
   String get add => 'Thêm';
 
   @override
