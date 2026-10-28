@@ -3,7 +3,11 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart'
-    show testCaCertPem, testChainSignerCertPem, testSignerCertPem;
+    show
+        testCaCertPem,
+        testChainSignerCertPem,
+        testSignerCertPem,
+        testSignerKeyPem;
 import 'package:test/test.dart';
 
 Uint8List hex(String s) => Uint8List.fromList([
@@ -150,6 +154,85 @@ void main() {
       final bad = Uint8List.fromList(saltlen32)..[10] ^= 1;
       expect(rsaVerifyPss(key, crypto.sha256, digest, bad), isFalse);
     });
+
+    test('signing with an empty salt reproduces openssl byte for byte', () {
+      final privateKey = RsaPrivateKey.fromPem(_testKeyPem);
+      expect(rsaSignPss(privateKey, crypto.sha256, digest, salt: const []),
+          saltlen0);
+    });
+
+    test('a salted signature verifies at the hash length', () {
+      final privateKey = RsaPrivateKey.fromPem(_testKeyPem);
+      final signature = rsaSignPss(privateKey, crypto.sha256, digest);
+      expect(
+          rsaVerifyPss(key, crypto.sha256, digest, signature, saltLength: 32),
+          isTrue);
+    });
+
+    test('the AlgorithmIdentifier matches openssl cms -keyopt pss', () {
+      // openssl cms -sign -md sha256 -keyopt rsa_padding_mode:pss
+      //   -keyopt rsa_pss_saltlen:32 -> the SignerInfo signatureAlgorithm
+      expect(
+          rsaPssSignatureAlgorithm(crypto.sha256),
+          hex('304106092a864886f70d01010a3034a00f300d0609608648016503040201'
+              '0500a11c301a06092a864886f70d010108300d0609608648016503040201'
+              '0500a203020120'));
+    });
+  });
+
+  group('signature value verification', () {
+    final privateKey = RsaPrivateKey.fromPem(testSignerKeyPem);
+    final certificate = X509Certificate.parse(pemBytes(testSignerCertPem));
+    final attributes = 'dart-pdf signed attributes'.codeUnits;
+    final digest = crypto.sha256.convert(attributes).bytes;
+
+    test('accepts PKCS#1 v1.5 and PSS values under their identifiers', () {
+      expect(
+          cmsSignatureValueVerifies(
+            certificate: certificate,
+            signatureAlgorithm: rsaPkcs1SignatureAlgorithm(),
+            signedBytes: attributes,
+            signature: rsaSign(privateKey, DigestOid.sha256, digest),
+          ),
+          isTrue);
+      expect(
+          cmsSignatureValueVerifies(
+            certificate: certificate,
+            signatureAlgorithm: rsaPssSignatureAlgorithm(crypto.sha256),
+            signedBytes: attributes,
+            signature: rsaSignPss(privateKey, crypto.sha256, digest),
+          ),
+          isTrue);
+    });
+
+    test('rejects a value under the wrong identifier', () {
+      expect(
+          cmsSignatureValueVerifies(
+            certificate: certificate,
+            signatureAlgorithm: rsaPssSignatureAlgorithm(crypto.sha256),
+            signedBytes: attributes,
+            signature: rsaSign(privateKey, DigestOid.sha256, digest),
+          ),
+          isFalse);
+    });
+
+    test('verifies ECDSA against an EC certificate', () {
+      final key = EcPrivateKey.generate(EcCurve.p256);
+      final cert = X509Certificate.parse(buildSelfSignedCertificate(
+        key: key,
+        commonName: 'ec',
+        notBefore: DateTime.utc(2026),
+        notAfter: DateTime.utc(2027),
+      ));
+      expect(
+          cmsSignatureValueVerifies(
+            certificate: cert,
+            signatureAlgorithm: ecdsaSignatureAlgorithm(crypto.sha256),
+            signedBytes: attributes,
+            signature: ecdsaSign(key, digest),
+          ),
+          isTrue);
+    });
   });
 
   group('ECDSA', () {
@@ -170,6 +253,19 @@ void main() {
           .convert('dart-pdf ecdsa test message'.codeUnits)
           .bytes;
       expect(ecdsaVerify(key, digest, signature), isTrue);
+    });
+
+    test('re-encodes a raw r || s signature as DER', () {
+      final key = EcPrivateKey.generate(EcCurve.p256);
+      final digest = crypto.sha256.convert('raw'.codeUnits).bytes;
+      final (r, s) = ecdsaSignRs(key, digest);
+      Uint8List fixed(BigInt v) => hex(v.toRadixString(16).padLeft(64, '0'));
+      final raw = Uint8List.fromList([...fixed(r), ...fixed(s)]);
+      final der = ecdsaRawSignatureToDer(raw);
+      expect(der, ecdsaSign(key, digest));
+      expect(ecdsaVerify(key.publicKey, digest, der), isTrue);
+      expect(
+          () => ecdsaRawSignatureToDer(raw.sublist(1)), throwsFormatException);
     });
 
     test('rejects a corrupted digest', () {
