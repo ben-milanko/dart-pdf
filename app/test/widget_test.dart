@@ -26,7 +26,7 @@ void main() {
 
     // No document open yet: the empty state offers a way in.
     expect(openPdfButton('Open a PDF'), findsOneWidget);
-    expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.upload_file_outlined), findsOneWidget);
   });
 
   testWidgets('switching locale at runtime immediately re-renders the UI',

@@ -1001,6 +1001,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get welcomeCopyPath => 'パスをコピー';
 
   @override
+  String get welcomeDropHeadline => 'ここに PDF をドロップ';
+
+  @override
+  String get welcomeHeadline => 'PDF を開くか作成';
+
+  @override
+  String get welcomeNewDocument => '新規ドキュメント';
+
+  @override
   String get welcomeOpen => '開く';
 
   @override
@@ -1013,6 +1022,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get welcomePickAgainToReopen => '再度開くにはもう一度選択してください';
 
   @override
+  String get welcomePrivacy => 'ドキュメントがデバイスから外に出ることはありません。';
+
+  @override
   String get welcomeRecent => '最近使用';
 
   @override
@@ -1023,6 +1035,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '最近使用したファイルから削除';
+
+  @override
+  String get welcomeSubtitle => '注釈、フォーム入力、署名、テキスト編集。';
 
   @override
   String get welcomeTapToReopen => 'タップして再度開く';

@@ -1365,6 +1365,18 @@
   "@welcomeCopyPath": {
     "description": "Recent-file context-menu item that copies the document's file path to the clipboard."
   },
+  "welcomeDropHeadline": "Drop a PDF here",
+  "@welcomeDropHeadline": {
+    "description": "Headline of the welcome screen's drop zone on platforms that accept dropped files."
+  },
+  "welcomeHeadline": "Open or create a PDF",
+  "@welcomeHeadline": {
+    "description": "Headline of the welcome screen on platforms that don't accept dropped files."
+  },
+  "welcomeNewDocument": "New document",
+  "@welcomeNewDocument": {
+    "description": "Secondary button on the welcome screen that creates a blank document."
+  },
   "welcomeOpen": "Open",
   "@welcomeOpen": {
     "description": "Recent-file context-menu item that opens the document."
@@ -1381,6 +1393,10 @@
   "@welcomePickAgainToReopen": {
     "description": "Subtitle for a recent file that must be re-selected from disk to reopen."
   },
+  "welcomePrivacy": "Your documents never leave your device.",
+  "@welcomePrivacy": {
+    "description": "Privacy promise shown under the welcome screen's drop zone."
+  },
   "welcomeRecent": "Recent",
   "@welcomeRecent": {
     "description": "Header for the recent-documents list on the welcome screen."
@@ -1396,6 +1412,10 @@
   "welcomeRemoveFromRecent": "Remove from recent",
   "@welcomeRemoveFromRecent": {
     "description": "Tooltip on the button that removes an entry from the recent-files list."
+  },
+  "welcomeSubtitle": "Annotate, fill forms, sign, and edit text.",
+  "@welcomeSubtitle": {
+    "description": "Supporting line under the welcome screen headline listing what the app does."
   },
   "welcomeTapToReopen": "Tap to reopen",
   "@welcomeTapToReopen": {

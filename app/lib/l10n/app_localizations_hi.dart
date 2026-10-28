@@ -1020,6 +1020,15 @@ class AppLocalizationsHi extends AppLocalizations {
   String get welcomeCopyPath => 'पथ कॉपी करें';
 
   @override
+  String get welcomeDropHeadline => 'PDF यहाँ छोड़ें';
+
+  @override
+  String get welcomeHeadline => 'PDF खोलें या बनाएँ';
+
+  @override
+  String get welcomeNewDocument => 'नया दस्तावेज़';
+
+  @override
   String get welcomeOpen => 'खोलें';
 
   @override
@@ -1030,6 +1039,9 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'फिर से खोलने के लिए दोबारा चुनें';
+
+  @override
+  String get welcomePrivacy => 'आपके दस्तावेज़ कभी आपका डिवाइस नहीं छोड़ते।';
 
   @override
   String get welcomeRecent => 'हाल ही में';
@@ -1043,6 +1055,10 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'हाल से हटाएँ';
+
+  @override
+  String get welcomeSubtitle =>
+      'एनोटेट करें, फ़ॉर्म भरें, हस्ताक्षर करें और टेक्स्ट संपादित करें।';
 
   @override
   String get welcomeTapToReopen => 'फिर से खोलने के लिए टैप करें';

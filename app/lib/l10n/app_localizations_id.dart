@@ -1021,6 +1021,15 @@ class AppLocalizationsId extends AppLocalizations {
   String get welcomeCopyPath => 'Salin jalur';
 
   @override
+  String get welcomeDropHeadline => 'Letakkan PDF di sini';
+
+  @override
+  String get welcomeHeadline => 'Buka atau buat PDF';
+
+  @override
+  String get welcomeNewDocument => 'Dokumen baru';
+
+  @override
   String get welcomeOpen => 'Buka';
 
   @override
@@ -1031,6 +1040,10 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Pilih lagi untuk membuka kembali';
+
+  @override
+  String get welcomePrivacy =>
+      'Dokumen Anda tidak pernah meninggalkan perangkat Anda.';
 
   @override
   String get welcomeRecent => 'Terkini';
@@ -1044,6 +1057,10 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Hapus dari terkini';
+
+  @override
+  String get welcomeSubtitle =>
+      'Anotasi, isi formulir, tanda tangani, dan edit teks.';
 
   @override
   String get welcomeTapToReopen => 'Ketuk untuk membuka kembali';

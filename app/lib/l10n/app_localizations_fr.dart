@@ -1030,6 +1030,15 @@ class AppLocalizationsFr extends AppLocalizations {
   String get welcomeCopyPath => 'Copier le chemin';
 
   @override
+  String get welcomeDropHeadline => 'Déposez un PDF ici';
+
+  @override
+  String get welcomeHeadline => 'Ouvrez ou créez un PDF';
+
+  @override
+  String get welcomeNewDocument => 'Nouveau document';
+
+  @override
   String get welcomeOpen => 'Ouvrir';
 
   @override
@@ -1040,6 +1049,10 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Sélectionnez à nouveau pour rouvrir';
+
+  @override
+  String get welcomePrivacy =>
+      'Vos documents ne quittent jamais votre appareil.';
 
   @override
   String get welcomeRecent => 'Récents';
@@ -1053,6 +1066,10 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Retirer des récents';
+
+  @override
+  String get welcomeSubtitle =>
+      'Annotez, remplissez des formulaires, signez et modifiez le texte.';
 
   @override
   String get welcomeTapToReopen => 'Appuyez pour rouvrir';

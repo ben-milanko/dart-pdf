@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show pdfSearchFieldBorderRadius;
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,25 +32,47 @@ void main() {
   testWidgets('first launch offers file picking and desktop drop guidance',
       (tester) async {
     var opened = 0;
+    var created = 0;
     await pump(
         tester,
         WelcomeScreen(
           recents: RecentsStore(),
           onOpen: () => opened++,
+          onNewDocument: () => created++,
           onOpenRecent: (_) {},
         ),
         size: wide);
     final panel = find.byKey(const ValueKey('welcome-start-panel'));
     expect(panel, findsOneWidget);
-    expect(find.text('Drop PDF to open'), findsOneWidget);
+    expect(find.text('Drop a PDF here'), findsOneWidget);
+    expect(
+        find.text('Your documents never leave your device.'), findsOneWidget);
     // The panel sizes to its content, not the 900px recents grid column, and
     // leaves the app name to the app bar.
-    expect(tester.getSize(panel).width, lessThanOrEqualTo(420));
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(560));
     expect(find.text('DartPDF'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('welcome-open-pdf')));
     expect(opened, 1);
+    await tester.tap(find.byKey(const ValueKey('welcome-new-document')));
+    expect(created, 1);
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets(
+      'touch platforms get a non-drop headline and no create button '
+      'unless the host offers one', (tester) async {
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    expect(find.text('Drop a PDF here'), findsNothing);
+    expect(find.text('Open or create a PDF'), findsOneWidget);
+    expect(find.byKey(const ValueKey('welcome-new-document')), findsNothing);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('a recent row shows its first-page thumbnail once it renders',
       (tester) async {
@@ -288,6 +311,58 @@ void main() {
     expect(store.items, isEmpty);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
+
+  testWidgets('on a mouse platform a grid tile reveals its remove button on '
+      'hover', (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', path: '/a.pdf');
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    await tester.pump();
+
+    double removeOpacity() => tester
+        .widget<AnimatedOpacity>(find.ancestor(
+            of: find.byIcon(Icons.close),
+            matching: find.byType(AnimatedOpacity)))
+        .opacity;
+    expect(removeOpacity(), 0);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+        location: tester.getCenter(
+            find.byKey(const ValueKey('recent-tile-thumb-/a.pdf'))));
+    await tester.pumpAndSettle();
+    expect(removeOpacity(), 1);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(store.items, isEmpty);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('clicking anywhere on the drop zone opens the picker',
+      (tester) async {
+    var opened = 0;
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () => opened++,
+          onOpenRecent: (_) {},
+        ),
+        size: wide);
+    await tester.tapAt(
+        tester.getTopLeft(find.byKey(const ValueKey('welcome-drop-zone'))) +
+            const Offset(16, 16));
+    expect(opened, 1);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
   testWidgets('grid tiles are shaped to the page aspect ratio', (tester) async {
     final store = RecentsStore();

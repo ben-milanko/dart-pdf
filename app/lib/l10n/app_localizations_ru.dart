@@ -1040,6 +1040,15 @@ class AppLocalizationsRu extends AppLocalizations {
   String get welcomeCopyPath => 'Копировать путь';
 
   @override
+  String get welcomeDropHeadline => 'Перетащите PDF сюда';
+
+  @override
+  String get welcomeHeadline => 'Откройте или создайте PDF';
+
+  @override
+  String get welcomeNewDocument => 'Новый документ';
+
+  @override
   String get welcomeOpen => 'Открыть';
 
   @override
@@ -1050,6 +1059,9 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Выберите снова, чтобы открыть заново';
+
+  @override
+  String get welcomePrivacy => 'Ваши документы никогда не покидают устройство.';
 
   @override
   String get welcomeRecent => 'Недавние';
@@ -1063,6 +1075,10 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Удалить из недавних';
+
+  @override
+  String get welcomeSubtitle =>
+      'Аннотации, заполнение форм, подпись и редактирование текста.';
 
   @override
   String get welcomeTapToReopen => 'Коснитесь, чтобы открыть заново';

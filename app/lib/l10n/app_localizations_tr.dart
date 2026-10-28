@@ -1017,6 +1017,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get welcomeCopyPath => 'Yolu kopyala';
 
   @override
+  String get welcomeDropHeadline => 'PDF\'yi buraya bırakın';
+
+  @override
+  String get welcomeHeadline => 'PDF açın veya oluşturun';
+
+  @override
+  String get welcomeNewDocument => 'Yeni belge';
+
+  @override
   String get welcomeOpen => 'Aç';
 
   @override
@@ -1029,6 +1038,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get welcomePickAgainToReopen => 'Yeniden açmak için tekrar seçin';
 
   @override
+  String get welcomePrivacy => 'Belgeleriniz asla cihazınızdan çıkmaz.';
+
+  @override
   String get welcomeRecent => 'Son kullanılanlar';
 
   @override
@@ -1039,6 +1051,10 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Son kullanılanlardan kaldır';
+
+  @override
+  String get welcomeSubtitle =>
+      'Açıklama ekleyin, form doldurun, imzalayın ve metin düzenleyin.';
 
   @override
   String get welcomeTapToReopen => 'Yeniden açmak için dokunun';

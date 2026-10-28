@@ -28,7 +28,10 @@ enum RecentsView {
 const double _gridDefaultBreakpoint = 700;
 
 /// The start panel's width cap, independent of the recents column's.
-const double _startPanelMaxWidth = 420;
+const double _startPanelMaxWidth = 560;
+
+/// Body height below which the hero goes compact when there are recents.
+const double _compactHeroHeight = 760;
 
 /// The landing surface shown when no document is open: a hero with the open
 /// action and, below it, the most-recent documents.
@@ -39,6 +42,7 @@ class WelcomeScreen extends StatefulWidget {
     required this.onOpen,
     required this.onOpenRecent,
     this.onOpenRecentInNewWindow,
+    this.onNewDocument,
     this.thumbnails,
     this.excludedIds = const {},
     this.showHero = true,
@@ -52,6 +56,9 @@ class WelcomeScreen extends StatefulWidget {
   /// Opens a recent entry in a second native window, offered by the entry's
   /// context menu. Null (single-window hosts, web/mobile) hides that item.
   final void Function(RecentFile entry)? onOpenRecentInNewWindow;
+
+  /// Creates a blank document, offered beside the open action. Null hides it.
+  final VoidCallback? onNewDocument;
 
   /// Recent entries already open in document tabs are omitted when this set
   /// is provided by the full recent-files browser.
@@ -168,7 +175,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final view = _view ??
@@ -206,43 +212,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(
                                 maxWidth: _startPanelMaxWidth),
-                            child: Card.filled(
-                              key: const ValueKey('welcome-start-panel'),
-                              margin: EdgeInsets.zero,
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Icon(Icons.picture_as_pdf_outlined,
-                                        size: 64,
-                                        color: theme.colorScheme.primary),
-                                    if (defaultTargetPlatform ==
-                                            TargetPlatform.linux ||
-                                        defaultTargetPlatform ==
-                                            TargetPlatform.macOS ||
-                                        defaultTargetPlatform ==
-                                            TargetPlatform.windows) ...[
-                                      const SizedBox(height: 12),
-                                      Text(appL10n(context).editorDropToOpen,
-                                          textAlign: TextAlign.center,
-                                          style: theme.textTheme.bodyLarge),
-                                    ],
-                                    const SizedBox(height: 24),
-                                    Center(
-                                      child: FilledButton.icon(
-                                        key: const ValueKey('welcome-open-pdf'),
-                                        onPressed: widget.onOpen,
-                                        icon: const Icon(Icons.folder_open),
-                                        label: Text(
-                                            appL10n(context).welcomeOpenPdf),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            child: _StartPanel(
+                              // With recents on a phone or a short window,
+                              // the recents are what a returning reader came
+                              // for; keep the hero short so they stay above
+                              // the fold.
+                              compact: allItems.isNotEmpty &&
+                                  (constraints.maxWidth <
+                                          _gridDefaultBreakpoint ||
+                                      constraints.maxHeight <
+                                          _compactHeroHeight),
+                              onOpen: widget.onOpen,
+                              onNewDocument: widget.onNewDocument,
                             ),
                           ),
                         ),
@@ -291,6 +272,278 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       },
     );
   }
+}
+
+/// Whether the host takes files dropped onto the window (desktop, and the web
+/// on a desktop browser).
+bool get _acceptsFileDrops =>
+    defaultTargetPlatform == TargetPlatform.linux ||
+    defaultTargetPlatform == TargetPlatform.macOS ||
+    defaultTargetPlatform == TargetPlatform.windows;
+
+/// The welcome hero: a drop zone holding the open/new actions, with the
+/// privacy promise underneath.
+class _StartPanel extends StatefulWidget {
+  const _StartPanel({
+    required this.onOpen,
+    this.onNewDocument,
+    this.compact = false,
+  });
+
+  final VoidCallback onOpen;
+
+  /// Drops the icon and tightens the padding.
+  final bool compact;
+  final VoidCallback? onNewDocument;
+
+  @override
+  State<_StartPanel> createState() => _StartPanelState();
+}
+
+class _StartPanelState extends State<_StartPanel> {
+  // The pointer is over the zone: the outline and fill pick up the primary
+  // colour, telling a mouse user the whole zone opens the picker.
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final onOpen = widget.onOpen;
+    final onNewDocument = widget.onNewDocument;
+    final compact = widget.compact;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = appL10n(context);
+    final drops = _acceptsFileDrops;
+    const buttonPadding = EdgeInsets.symmetric(horizontal: 24);
+    const buttonSize = Size(0, 48);
+    final openShortcut = _shortcutHint('O');
+    final newShortcut = _shortcutHint('N');
+    return Column(
+      key: const ValueKey('welcome-start-panel'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // A click anywhere on the zone opens the picker, as drop zones do. The
+        // buttons inside keep their own semantics; this is a pointer
+        // convenience, so it stays out of the semantics tree.
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            key: const ValueKey('welcome-drop-zone'),
+            behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
+            onTap: onOpen,
+            child: CustomPaint(
+              foregroundPainter: drops
+                  ? _DashedBorderPainter(
+                      color: _hovered ? scheme.primary : scheme.outlineVariant,
+                      radius: _dropZoneRadius)
+                  : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                decoration: BoxDecoration(
+                  color: _hovered
+                      ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.06),
+                          scheme.surfaceContainerLow)
+                      : scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(_dropZoneRadius),
+                ),
+                padding: compact
+                    ? const EdgeInsets.fromLTRB(24, 24, 24, 24)
+                    : const EdgeInsets.fromLTRB(32, 40, 32, 36),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!compact) ...[
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: scheme.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.upload_file_outlined,
+                            size: 36, color: scheme.onPrimaryContainer),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    Text(
+                      drops ? l10n.welcomeDropHeadline : l10n.welcomeHeadline,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.welcomeSubtitle,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                    SizedBox(height: compact ? 20 : 28),
+                    LayoutBuilder(builder: (context, constraints) {
+                      final open = FilledButton.icon(
+                        key: const ValueKey('welcome-open-pdf'),
+                        onPressed: onOpen,
+                        style: FilledButton.styleFrom(
+                            padding: buttonPadding, minimumSize: buttonSize),
+                        icon: const Icon(Icons.folder_open),
+                        label: _labelWithShortcut(
+                            l10n.welcomeOpenPdf, openShortcut),
+                      );
+                      final create = onNewDocument == null
+                          ? null
+                          : OutlinedButton.icon(
+                              key: const ValueKey('welcome-new-document'),
+                              onPressed: onNewDocument,
+                              style: OutlinedButton.styleFrom(
+                                  padding: buttonPadding,
+                                  minimumSize: buttonSize),
+                              icon: const Icon(Icons.note_add_outlined),
+                              label: _labelWithShortcut(
+                                  l10n.welcomeNewDocument, newShortcut),
+                            );
+                      if (create == null) return open;
+                      // Side by side when both labels fit; otherwise stacked at
+                      // one shared width rather than wrapping to ragged rows.
+                      final needed = _buttonGap +
+                          _buttonWidth(
+                              context, l10n.welcomeOpenPdf, openShortcut) +
+                          _buttonWidth(
+                              context, l10n.welcomeNewDocument, newShortcut);
+                      if (needed <= constraints.maxWidth) {
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            open,
+                            const SizedBox(width: _buttonGap),
+                            create
+                          ],
+                        );
+                      }
+                      return ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 280),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            open,
+                            const SizedBox(height: _buttonGap),
+                            create,
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                l10n.welcomePrivacy,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+const double _dropZoneRadius = 24;
+const double _buttonGap = 12;
+
+/// The app's open/new shortcut for [key] as a menu shows it, on native desktop
+/// only: a browser claims these chords before the page sees them, and touch
+/// platforms rarely have a keyboard. Null hides the hint.
+String? _shortcutHint(String key) {
+  if (kIsWeb) return null;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.macOS => '⌘$key',
+    TargetPlatform.linux || TargetPlatform.windows => 'Ctrl+$key',
+    _ => null,
+  };
+}
+
+/// Gap between a button label and its shortcut hint.
+const double _shortcutGap = 10;
+
+/// A button label followed by its keyboard shortcut, muted so it reads as a
+/// hint rather than part of the action's name.
+Widget _labelWithShortcut(String label, String? shortcut) {
+  if (shortcut == null) return Text(label);
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(child: Text(label)),
+      const SizedBox(width: _shortcutGap),
+      Opacity(opacity: 0.6, child: Text(shortcut)),
+    ],
+  );
+}
+
+/// The natural width of a hero button: its label (and [shortcut] hint) at the
+/// current text scale plus the icon, the icon gap and [_StartPanel]'s
+/// horizontal padding (with a little slack so a rounding difference never tips
+/// it into overflow).
+double _buttonWidth(BuildContext context, String label, String? shortcut) {
+  double measure(String text) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: Theme.of(context).textTheme.labelLarge),
+      maxLines: 1,
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: Directionality.of(context),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  final hint = shortcut == null ? 0.0 : _shortcutGap + measure(shortcut);
+  return measure(label) + hint + 18 + 8 + 2 * 24 + 4;
+}
+
+/// Strokes a dashed rounded-rectangle outline, the usual drop-zone affordance.
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter({required this.color, required this.radius});
+
+  final Color color;
+  final double radius;
+
+  static const _dash = 8.0;
+  static const _gap = 6.0;
+  static const _width = 1.5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inset = _width / 2;
+    final rrect = RRect.fromRectAndRadius(
+        (Offset.zero & size).deflate(inset), Radius.circular(radius - inset));
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _width;
+    for (final metric in (Path()..addRRect(rrect)).computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += _dash + _gap) {
+        canvas.drawPath(metric.extractPath(d, d + _dash), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorderPainter old) =>
+      old.color != color || old.radius != radius;
 }
 
 class _RecentsHeader extends StatelessWidget {
@@ -769,38 +1022,46 @@ class _RecentGridTile extends StatelessWidget {
             ? appL10n(context).welcomeTapToReopen
             : appL10n(context).welcomePickAgainToReopen;
 
-    final thumbnail = Stack(
-      children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: enabled ? onOpen : null,
-          child: _RecentThumbnail(
-            key: ValueKey('recent-tile-thumb-${entry.id}'),
-            entry: entry,
-            thumbnails: thumbnails,
-            width: _tileWidth,
-            // Aspect-aware, but bounded to the slot so it stays centred in it.
-            maxHeight: _slotHeight,
-            iconSize: 48,
-          ),
-        ),
-        Positioned(
-          top: 2,
-          right: 2,
-          child: Material(
-            color: theme.colorScheme.surface.withValues(alpha: 0.85),
-            shape: const CircleBorder(),
-            child: IconButton(
-              icon: const Icon(Icons.close, size: 16),
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.all(4),
-              constraints: const BoxConstraints(),
-              tooltip: appL10n(context).welcomeRemoveFromRecent,
-              onPressed: onRemove,
+    final thumbnail = _HoverBuilder(
+      builder: (context, hovered) => Stack(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: enabled ? onOpen : null,
+            child: _RecentThumbnail(
+              key: ValueKey('recent-tile-thumb-${entry.id}'),
+              entry: entry,
+              thumbnails: thumbnails,
+              width: _tileWidth,
+              // Aspect-aware, but bounded to the slot so it stays centred in it.
+              maxHeight: _slotHeight,
+              iconSize: 48,
             ),
           ),
-        ),
-      ],
+          Positioned(
+            top: 2,
+            right: 2,
+            // On a mouse platform the remove button waits for the pointer, so
+            // a grid of tiles isn't a grid of crosses; touch keeps it shown.
+            // Hidden, it ignores pointers but stays in the semantics tree.
+            child: _revealed(
+              hovered,
+              Material(
+                color: theme.colorScheme.surface.withValues(alpha: 0.85),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(Icons.close, size: 16),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(),
+                  tooltip: appL10n(context).welcomeRemoveFromRecent,
+                  onPressed: onRemove,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
 
     final tile = SizedBox(
@@ -861,6 +1122,51 @@ class _RecentGridTile extends StatelessWidget {
     painter.dispose();
     return height;
   }
+}
+
+/// Whether the platform has a hovering pointer, so hover-revealed controls can
+/// wait for it. Touch platforms show them always.
+bool get _hoverReveals => switch (defaultTargetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
+
+/// Shows [child] when [hovered] or on a touch platform; otherwise fades it out
+/// and lets pointers through, leaving it reachable by assistive technology.
+Widget _revealed(bool hovered, Widget child) {
+  final shown = hovered || !_hoverReveals;
+  return IgnorePointer(
+    ignoring: !shown,
+    child: AnimatedOpacity(
+      opacity: shown ? 1 : 0,
+      duration: const Duration(milliseconds: 120),
+      child: child,
+    ),
+  );
+}
+
+/// Rebuilds [builder] with whether a mouse pointer is over it.
+class _HoverBuilder extends StatefulWidget {
+  const _HoverBuilder({required this.builder});
+
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  @override
+  State<_HoverBuilder> createState() => _HoverBuilderState();
+}
+
+class _HoverBuilderState extends State<_HoverBuilder> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: widget.builder(context, _hovered),
+      );
 }
 
 /// A first-page thumbnail for a recent entry: renders once (memoized in the
@@ -929,8 +1235,20 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final placeholder = Icon(Icons.description_outlined,
-        size: widget.iconSize, color: theme.iconTheme.color);
+    final scheme = theme.colorScheme;
+    // A blank page-shaped sheet, so a tile without a render still reads as a
+    // document (and its corner remove button has something to sit on).
+    final placeholder = DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: const BorderRadius.all(Radius.circular(4)),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Center(
+        child: Icon(Icons.description_outlined,
+            size: widget.iconSize, color: scheme.onSurfaceVariant),
+      ),
+    );
     final future = _thumbnail;
     const radius = BorderRadius.all(Radius.circular(4));
 
@@ -958,14 +1276,14 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
         SizedBox(width: widget.width, height: height, child: child);
 
     if (future == null) {
-      return box(_heightFor(null), Center(child: placeholder));
+      return box(_heightFor(null), placeholder);
     }
     return FutureBuilder<RecentThumbnail?>(
       future: future,
       builder: (context, snapshot) {
         final thumb = snapshot.data;
         final height = _heightFor(thumb);
-        if (thumb == null) return box(height, Center(child: placeholder));
+        if (thumb == null) return box(height, placeholder);
         return box(height, Center(child: framed(thumb, height)));
       },
     );

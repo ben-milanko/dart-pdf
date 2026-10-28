@@ -1047,6 +1047,15 @@ class AppLocalizationsAr extends AppLocalizations {
   String get welcomeCopyPath => 'نسخ المسار';
 
   @override
+  String get welcomeDropHeadline => 'أفلت ملف PDF هنا';
+
+  @override
+  String get welcomeHeadline => 'افتح ملف PDF أو أنشئ واحدًا';
+
+  @override
+  String get welcomeNewDocument => 'مستند جديد';
+
+  @override
   String get welcomeOpen => 'فتح';
 
   @override
@@ -1059,6 +1068,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get welcomePickAgainToReopen => 'اختره مجددًا لإعادة الفتح';
 
   @override
+  String get welcomePrivacy => 'مستنداتك لا تغادر جهازك أبدًا.';
+
+  @override
   String get welcomeRecent => 'الأخيرة';
 
   @override
@@ -1069,6 +1081,10 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'إزالة من الأخيرة';
+
+  @override
+  String get welcomeSubtitle =>
+      'أضف تعليقات توضيحية، واملأ النماذج، ووقّع، وعدّل النص.';
 
   @override
   String get welcomeTapToReopen => 'انقر لإعادة الفتح';

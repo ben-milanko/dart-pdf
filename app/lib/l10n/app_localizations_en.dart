@@ -1017,6 +1017,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -1027,6 +1036,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -1040,6 +1052,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -2503,6 +2518,15 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -2513,6 +2537,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -2526,6 +2553,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -3989,6 +4019,15 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -3999,6 +4038,9 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -4012,6 +4054,9 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
