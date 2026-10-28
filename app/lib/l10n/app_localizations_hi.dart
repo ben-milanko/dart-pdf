@@ -1443,4 +1443,41 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'यह बदलाव सहेजा नहीं जा सका। फिर से कोशिश करें या «अभी नहीं» चुनें।';
+
+  @override
+  String get editorMenuImportFormData => 'फ़ॉर्म डेटा या टिप्पणियाँ आयात करें…';
+
+  @override
+  String get editorMenuExportFdf =>
+      'फ़ॉर्म डेटा को FDF के रूप में निर्यात करें…';
+
+  @override
+  String get editorMenuExportXfdf =>
+      'फ़ॉर्म डेटा को XFDF के रूप में निर्यात करें…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP के रूप में निर्यात करें…';
+
+  @override
+  String get fileTypeFormData => 'फ़ॉर्म डेटा (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP फ़ॉर्म पैकेज';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'फ़ॉर्म डेटा आयात किया गया - फ़ील्ड: $fields, टिप्पणियाँ: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'उस फ़ाइल में कुछ भी इस दस्तावेज़ से मेल नहीं खाया';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name आयात नहीं किया जा सका: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'फ़ॉर्म डेटा और टिप्पणियाँ';
 }

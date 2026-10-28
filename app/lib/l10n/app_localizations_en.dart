@@ -1439,6 +1439,41 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2876,6 +2911,41 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -4313,4 +4383,39 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }

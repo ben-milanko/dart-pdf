@@ -370,5 +370,15 @@
   "launcherOfferRegister": "设置启动器",
   "launcherOfferLater": "暂不",
   "launcherOfferNever": "不再显示",
-  "launcherOfferError": "无法保存此更改。请重试或选择“暂不”。"
+  "launcherOfferError": "无法保存此更改。请重试或选择“暂不”。",
+  "editorMenuImportFormData": "导入表单数据或注释…",
+  "editorMenuExportFdf": "将表单数据导出为 FDF…",
+  "editorMenuExportXfdf": "将表单数据导出为 XFDF…",
+  "editorMenuExportXdp": "导出为 XDP…",
+  "fileTypeFormData": "表单数据（FDF、XFDF、XDP）",
+  "fileTypeXdp": "XDP 表单包",
+  "editorImportedFormData": "已导入表单数据 - 字段：{fields}，注释：{comments}",
+  "editorImportFormDataNothing": "该文件中没有与此文档匹配的内容",
+  "editorCouldNotImportFormData": "无法导入 {name}：{error}",
+  "editorMenuFormData": "表单数据和注释"
 }

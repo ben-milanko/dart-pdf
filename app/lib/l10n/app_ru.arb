@@ -370,5 +370,15 @@
   "launcherOfferRegister": "Создать ярлык",
   "launcherOfferLater": "Не сейчас",
   "launcherOfferNever": "Больше не показывать",
-  "launcherOfferError": "Не удалось сохранить изменение. Повторите попытку или выберите «Не сейчас»."
+  "launcherOfferError": "Не удалось сохранить изменение. Повторите попытку или выберите «Не сейчас».",
+  "editorMenuImportFormData": "Импортировать данные формы или комментарии…",
+  "editorMenuExportFdf": "Экспортировать данные формы в FDF…",
+  "editorMenuExportXfdf": "Экспортировать данные формы в XFDF…",
+  "editorMenuExportXdp": "Экспортировать в XDP…",
+  "fileTypeFormData": "Данные формы (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Пакеты форм XDP",
+  "editorImportedFormData": "Данные формы импортированы — поля: {fields}, комментарии: {comments}",
+  "editorImportFormDataNothing": "В этом файле нет ничего, что подходит к этому документу",
+  "editorCouldNotImportFormData": "Не удалось импортировать {name}: {error}",
+  "editorMenuFormData": "Данные формы и комментарии"
 }

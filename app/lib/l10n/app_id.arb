@@ -370,5 +370,15 @@
   "launcherOfferRegister": "Siapkan peluncur",
   "launcherOfferLater": "Tidak sekarang",
   "launcherOfferNever": "Jangan tampilkan lagi",
-  "launcherOfferError": "Perubahan ini tidak dapat disimpan. Coba lagi atau pilih Tidak sekarang."
+  "launcherOfferError": "Perubahan ini tidak dapat disimpan. Coba lagi atau pilih Tidak sekarang.",
+  "editorMenuImportFormData": "Impor data formulir atau komentar…",
+  "editorMenuExportFdf": "Ekspor data formulir sebagai FDF…",
+  "editorMenuExportXfdf": "Ekspor data formulir sebagai XFDF…",
+  "editorMenuExportXdp": "Ekspor sebagai XDP…",
+  "fileTypeFormData": "Data formulir (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Paket formulir XDP",
+  "editorImportedFormData": "Data formulir diimpor - kolom: {fields}, komentar: {comments}",
+  "editorImportFormDataNothing": "Tidak ada isi file itu yang cocok dengan dokumen ini",
+  "editorCouldNotImportFormData": "Tidak dapat mengimpor {name}: {error}",
+  "editorMenuFormData": "Data formulir dan komentar"
 }

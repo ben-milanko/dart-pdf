@@ -1431,4 +1431,39 @@ class AppLocalizationsTh extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'บันทึกการเปลี่ยนแปลงไม่ได้ ลองอีกครั้งหรือเลือกไม่ใช่ตอนนี้';
+
+  @override
+  String get editorMenuImportFormData => 'นำเข้าข้อมูลฟอร์มหรือความคิดเห็น…';
+
+  @override
+  String get editorMenuExportFdf => 'ส่งออกข้อมูลฟอร์มเป็น FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'ส่งออกข้อมูลฟอร์มเป็น XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'ส่งออกเป็น XDP…';
+
+  @override
+  String get fileTypeFormData => 'ข้อมูลฟอร์ม (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'แพ็กเกจฟอร์ม XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'นำเข้าข้อมูลฟอร์มแล้ว - ฟิลด์: $fields, ความคิดเห็น: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'ไม่มีสิ่งใดในไฟล์นั้นที่ตรงกับเอกสารนี้';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'ไม่สามารถนำเข้า $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'ข้อมูลฟอร์มและความคิดเห็น';
 }

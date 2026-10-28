@@ -370,5 +370,15 @@
   "launcherOfferRegister": "Başlatıcıyı ayarla",
   "launcherOfferLater": "Şimdi değil",
   "launcherOfferNever": "Bir daha gösterme",
-  "launcherOfferError": "Değişiklik kaydedilemedi. Tekrar deneyin veya Şimdi değil seçeneğini seçin."
+  "launcherOfferError": "Değişiklik kaydedilemedi. Tekrar deneyin veya Şimdi değil seçeneğini seçin.",
+  "editorMenuImportFormData": "Form verilerini veya yorumları içe aktar…",
+  "editorMenuExportFdf": "Form verilerini FDF olarak dışa aktar…",
+  "editorMenuExportXfdf": "Form verilerini XFDF olarak dışa aktar…",
+  "editorMenuExportXdp": "XDP olarak dışa aktar…",
+  "fileTypeFormData": "Form verileri (FDF, XFDF, XDP)",
+  "fileTypeXdp": "XDP form paketleri",
+  "editorImportedFormData": "Form verileri içe aktarıldı – alanlar: {fields}, yorumlar: {comments}",
+  "editorImportFormDataNothing": "Bu dosyadaki hiçbir şey bu belgeyle eşleşmedi",
+  "editorCouldNotImportFormData": "{name} içe aktarılamadı: {error}",
+  "editorMenuFormData": "Form verileri ve yorumlar"
 }

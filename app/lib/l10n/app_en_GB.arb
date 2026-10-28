@@ -370,5 +370,15 @@
   "launcherOfferRegister": "Set up launcher",
   "launcherOfferLater": "Not now",
   "launcherOfferNever": "Don’t show again",
-  "launcherOfferError": "Could not save this change. Try again, or choose Not now."
+  "launcherOfferError": "Could not save this change. Try again, or choose Not now.",
+  "editorMenuImportFormData": "Import form data or comments…",
+  "editorMenuExportFdf": "Export form data as FDF…",
+  "editorMenuExportXfdf": "Export form data as XFDF…",
+  "editorMenuExportXdp": "Export as XDP…",
+  "fileTypeFormData": "Form data (FDF, XFDF, XDP)",
+  "fileTypeXdp": "XDP form packages",
+  "editorImportedFormData": "Form data imported - fields: {fields}, comments: {comments}",
+  "editorImportFormDataNothing": "Nothing in that file matched this document",
+  "editorCouldNotImportFormData": "Could not import {name}: {error}",
+  "editorMenuFormData": "Form data and comments"
 }

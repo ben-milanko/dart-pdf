@@ -1366,7 +1366,16 @@ class _EditorScreenState extends State<EditorScreen>
         .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
             '(defer=$defer, path=${originPath ?? "-"})');
     try {
-      final bytes = await bytesFuture;
+      var bytes = await bytesFuture;
+      // An XDP package opens as the PDF it embeds with its form data filled
+      // in. The result is a new document - saving must not write a PDF over
+      // the .xdp - so it keeps no origin and takes a .pdf title.
+      if (pdfFromXdpPackage(bytes) case final pdf?) {
+        bytes = pdf;
+        title = pdfTitleForXdp(title);
+        originPath = null;
+        originBookmark = null;
+      }
       AppDevTools.instance
           .addLog('open-trace: "$title" bytes ready — ${bytes.length} B; '
               'waiting for end of frame');
@@ -1982,7 +1991,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     try {
-      final files = await pickPdfFiles(l10n.fileTypePdf);
+      final files = await pickOpenableFiles(l10n.fileTypePdf, l10n.fileTypeXdp);
       if (files.isEmpty || !mounted) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
@@ -2015,8 +2024,11 @@ class _EditorScreenState extends State<EditorScreen>
     final bookmark = await securityBookmarkForPath(path);
     // A single desktop pick opens progressively (first paint from ranged
     // reads, full bytes behind it). A batch keeps the deferred whole-file
-    // path so the picker doesn't fan out many concurrent streams.
-    if (!defer && progressiveOpenSupported(path)) {
+    // path so the picker doesn't fan out many concurrent streams. An XDP
+    // package is never a PDF to range-read: it converts whole.
+    if (!defer &&
+        progressiveOpenSupported(path) &&
+        !file.name.toLowerCase().endsWith('.xdp')) {
       await _openProgressive(
           title: file.name, path: path!, bookmark: bookmark, into: loading);
     } else {
@@ -2411,7 +2423,12 @@ class _EditorScreenState extends State<EditorScreen>
     // their live geometry, which the clear repaints away.
     final at = _thumbnailDrop.indexAt(details.globalPosition);
     _thumbnailDrop.endDrag();
-    if (pdfs.isEmpty) return;
+    final exchange = [
+      for (final item in details.files)
+        if (_isFormDataFileName(item.name)) item,
+    ];
+    if (exchange.isNotEmpty) await _onFormDataFilesDropped(exchange);
+    if (pdfs.isEmpty || !mounted) return;
 
     final tab = _active;
     final session = tab?.session;
@@ -2437,6 +2454,44 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     await _openDropped(pdfs);
+  }
+
+  static bool _isFormDataFileName(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.fdf') ||
+        lower.endsWith('.xfdf') ||
+        lower.endsWith('.xdp');
+  }
+
+  /// Handles dropped Acrobat exchange files: an XDP package opens in its own
+  /// tab (as the PDF it embeds, data filled in); FDF/XFDF form data and
+  /// comments import into the document that was active when they were
+  /// dropped, when it is editable - with nothing to import into they are
+  /// ignored, like any other non-PDF drop.
+  Future<void> _onFormDataFilesDropped(List<DropItem> items) async {
+    final target = _active;
+    final xdps = [
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.xdp')) item,
+    ];
+    if (xdps.isNotEmpty) await _openDropped(xdps);
+    for (final item in items) {
+      if (xdps.contains(item)) continue;
+      if (!mounted || _readOnly || target == null) return;
+      if (target.session == null || !_tabs.contains(target)) return;
+      final Uint8List bytes;
+      try {
+        bytes = await item.readAsBytes();
+      } catch (e) {
+        if (mounted) {
+          _toast(appL10n(context)
+              .editorCouldNotImportFormData(item.name, openErrorSummary(e)));
+        }
+        continue;
+      }
+      if (!mounted) return;
+      _applyFormDataFile(target, item.name, bytes);
+    }
   }
 
   /// Tracks a file drag across the window so the thumbnail panels can mark
@@ -2478,7 +2533,9 @@ class _EditorScreenState extends State<EditorScreen>
       if (!_tabs.contains(loading)) continue;
       final path = pathOf(item);
       final bookmark = await securityBookmarkForPath(path);
-      if (!defer && progressiveOpenSupported(path)) {
+      if (!defer &&
+          progressiveOpenSupported(path) &&
+          !item.name.toLowerCase().endsWith('.xdp')) {
         await _openProgressive(
             title: item.name, path: path!, bookmark: bookmark, into: loading);
       } else {
@@ -3666,6 +3723,109 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  // --- form data exchange (FDF / XFDF / XDP) -------------------------------
+
+  /// Imports form field values and comments from an FDF, XFDF or XDP file
+  /// into [tab]'s document as one undoable edit - Acrobat's Import Data and
+  /// Import Comments in one. Comments already present (same /NM) are replaced
+  /// rather than duplicated.
+  Future<void> _importFormData(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    final (String, Uint8List)? picked;
+    try {
+      picked = await pickFormDataFile(l10n.fileTypeFormData);
+    } catch (e) {
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(
+            l10n.fileTypeFormData, openErrorSummary(e)));
+      }
+      return;
+    }
+    if (picked == null || !mounted || !identical(tab.session, session)) return;
+    final (name, bytes) = picked;
+    _applyFormDataFile(tab, name, bytes);
+  }
+
+  /// Applies the FDF/XFDF/XDP file [bytes] (named [name]) to [tab]'s document
+  /// as one undoable edit, toasting what it did.
+  void _applyFormDataFile(DocumentTab tab, String name, Uint8List bytes) {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    try {
+      // parse before touching the session, so a bad file changes nothing
+      final xdp = pdfSniffExchangeFormat(bytes) == PdfExchangeFormat.xdp
+          ? PdfXdpPackage.parse(bytes)
+          : null;
+      final data = xdp == null ? PdfFormData.parse(bytes) : null;
+      session.finishInk();
+      PdfFormDataImportResult? result;
+      session.apply((editor) => result =
+          xdp != null ? editor.importXdp(xdp) : editor.importFormData(data!));
+      final imported = result!;
+      AppDevTools.instance.addLog('form data import: $name - $imported');
+      _toast(imported.changed
+          ? l10n.editorImportedFormData(
+              imported.filledFields.length +
+                  (imported.xfaDatasetsReplaced ? 1 : 0),
+              imported.annotationsAdded + imported.annotationsReplaced)
+          : l10n.editorImportFormDataNothing);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data import failed: $name - $e',
+          level: DevLogLevel.error);
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(name, openErrorSummary(e)));
+      }
+    }
+  }
+
+  /// Exports [tab]'s form field values and comments as FDF or XFDF, or the
+  /// whole document as an XDP package ([format]). The current revision is
+  /// used, so unsaved edits are included.
+  Future<void> _exportFormData(
+      DocumentTab tab, PdfExchangeFormat format) async {
+    final session = tab.session;
+    if (session == null) return;
+    // include ink waiting for its auto-commit and the inline editor's text
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || !identical(tab.session, session)) return;
+    session.finishInk();
+    final l10n = appL10n(context);
+    final pdfName = ensurePdfName(tab.title);
+    final stem = pdfName.substring(0, pdfName.length - '.pdf'.length);
+    try {
+      final document = PdfDocument.open(Uint8List.fromList(session.bytes));
+      final (bytes, extension, mimeType) = switch (format) {
+        PdfExchangeFormat.fdf => (
+            PdfFormData.of(document, targetFile: pdfName).toFdf(),
+            'fdf',
+            'application/vnd.fdf',
+          ),
+        PdfExchangeFormat.xfdf => (
+            PdfFormData.of(document, targetFile: pdfName).toXfdf(),
+            'xfdf',
+            'application/vnd.adobe.xfdf',
+          ),
+        _ => (
+            PdfXdpPackage.build(document),
+            'xdp',
+            'application/vnd.adobe.xdp+xml',
+          ),
+      };
+      final result = await saveFormDataAs(
+          context, bytes, '$stem.$extension', mimeType,
+          extension: extension, typeLabel: l10n.fileTypeFormData);
+      if (mounted && result.message != null) _toast(result.message!);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data export failed: ${tab.title} - $e',
+          level: DevLogLevel.error);
+      if (mounted) _toast(l10n.editorCouldNotExport(tab.title));
+    }
+  }
+
   Future<void> _exportSelectedContentImage(
     BuildContext exportContext,
     DocumentTab tab,
@@ -3946,6 +4106,43 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
+  /// A popup row that opens [items] in a cascading submenu (key
+  /// `menu-group-<id>`, like the phone sheet's folded groups). Picking an
+  /// item runs it and closes the parent popup too.
+  PopupMenuItem<VoidCallback> _submenuItem(
+    BuildContext menuContext, {
+    required String id,
+    required IconData icon,
+    required String title,
+    required List<PopupMenuEntry<VoidCallback>> items,
+  }) =>
+      PopupMenuItem<VoidCallback>(
+        height: _appMenuItemHeight(),
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: ValueKey('menu-group-$id'),
+          tooltip: title,
+          onSelected: (action) {
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+            action();
+          },
+          itemBuilder: (_) => items,
+          // as Open Recent: no item padding so the button fills the row,
+          // the content inset to line up with the plain rows
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _appMenuTile(
+              icon: icon,
+              title: title,
+              trailing: const Icon(Icons.arrow_right),
+            ),
+          ),
+        ),
+      );
+
   /// The app menu's plain rows, grouped by the section they belong to.
   ///
   /// These descriptors are the single list behind two surfaces: the menu
@@ -4051,6 +4248,33 @@ class _EditorScreenState extends State<EditorScreen>
           if (tab != null) unawaited(_exportImage(tab));
         },
       ),
+      _MenuAction(
+        id: 'import-form-data',
+        requiresDocument: true,
+        sheet: _SheetPlacement.formData,
+        icon: Icons.input_outlined,
+        title: l.editorMenuImportFormData,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_importFormData(tab));
+        },
+      ),
+      for (final (id, format, title) in [
+        ('export-fdf', PdfExchangeFormat.fdf, l.editorMenuExportFdf),
+        ('export-xfdf', PdfExchangeFormat.xfdf, l.editorMenuExportXfdf),
+        ('export-xdp', PdfExchangeFormat.xdp, l.editorMenuExportXdp),
+      ])
+        _MenuAction(
+          id: id,
+          requiresDocument: true,
+          sheet: _SheetPlacement.formData,
+          icon: Icons.output_outlined,
+          title: title,
+          run: () {
+            final tab = _active;
+            if (tab != null) unawaited(_exportFormData(tab, format));
+          },
+        ),
       _MenuAction(
         id: 'digital-signature',
         requiresDocument: true,
@@ -4193,10 +4417,28 @@ class _EditorScreenState extends State<EditorScreen>
       ..._fileActions().map(item),
       ..._recentMenuItems(menuContext),
     ];
-    final document = <PopupMenuEntry<VoidCallback>>[
+    final documentActions = [
       if (hasDocument)
         for (final action in _documentActions())
-          if (!(action.hiddenWhenReadOnly && _readOnly)) item(action),
+          if (!(action.hiddenWhenReadOnly && _readOnly)) action,
+    ];
+    final formData = [
+      for (final action in documentActions)
+        if (action.sheet == _SheetPlacement.formData) action,
+    ];
+    final document = <PopupMenuEntry<VoidCallback>>[
+      for (final action in documentActions)
+        if (action.sheet != _SheetPlacement.formData)
+          item(action)
+        // the group takes the place of its first action
+        else if (identical(action, formData.first))
+          _submenuItem(
+            menuContext,
+            id: 'form-data',
+            icon: Icons.swap_vert_outlined,
+            title: l.editorMenuFormData,
+            items: formData.map(item).toList(),
+          ),
     ];
     final app = <PopupMenuEntry<VoidCallback>>[
       if (hasDocument) _readOnlyMenuItem(),
@@ -4953,6 +5195,7 @@ class _EditorScreenState extends State<EditorScreen>
             )
           : null,
       export: placed(_SheetPlacement.export),
+      formData: placed(_SheetPlacement.formData),
       moreTools: placed(_SheetPlacement.moreTools),
       readOnly: hasDocument ? _readOnly : null,
       onToggleReadOnly: () => setState(() => _readOnly = !_readOnly),
@@ -7111,6 +7354,10 @@ enum _SheetPlacement {
 
   /// Folded under More tools.
   moreTools,
+
+  /// Folded under Form data and comments: the FDF/XFDF/XDP import and
+  /// export actions. The desktop popup shows the same group as a submenu.
+  formData,
 
   /// The rows at the foot of the sheet.
   app,

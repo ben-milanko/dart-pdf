@@ -1468,4 +1468,40 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Не удалось сохранить изменение. Повторите попытку или выберите «Не сейчас».';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Импортировать данные формы или комментарии…';
+
+  @override
+  String get editorMenuExportFdf => 'Экспортировать данные формы в FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Экспортировать данные формы в XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Экспортировать в XDP…';
+
+  @override
+  String get fileTypeFormData => 'Данные формы (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Пакеты форм XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Данные формы импортированы — поля: $fields, комментарии: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'В этом файле нет ничего, что подходит к этому документу';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Не удалось импортировать $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Данные формы и комментарии';
 }

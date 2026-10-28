@@ -370,5 +370,15 @@
   "launcherOfferRegister": "إعداد المشغّل",
   "launcherOfferLater": "ليس الآن",
   "launcherOfferNever": "عدم الإظهار مجددًا",
-  "launcherOfferError": "تعذّر حفظ هذا التغيير. حاول مجددًا أو اختر «ليس الآن»."
+  "launcherOfferError": "تعذّر حفظ هذا التغيير. حاول مجددًا أو اختر «ليس الآن».",
+  "editorMenuImportFormData": "استيراد بيانات النموذج أو التعليقات…",
+  "editorMenuExportFdf": "تصدير بيانات النموذج بتنسيق FDF…",
+  "editorMenuExportXfdf": "تصدير بيانات النموذج بتنسيق XFDF…",
+  "editorMenuExportXdp": "تصدير بتنسيق XDP…",
+  "fileTypeFormData": "بيانات النموذج (FDF وXFDF وXDP)",
+  "fileTypeXdp": "حزم نماذج XDP",
+  "editorImportedFormData": "تم استيراد بيانات النموذج - الحقول: {fields}، التعليقات: {comments}",
+  "editorImportFormDataNothing": "لا شيء في هذا الملف يطابق هذا المستند",
+  "editorCouldNotImportFormData": "تعذّر استيراد {name}: {error}",
+  "editorMenuFormData": "بيانات النموذج والتعليقات"
 }

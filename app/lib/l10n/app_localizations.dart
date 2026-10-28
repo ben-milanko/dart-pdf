@@ -2360,6 +2360,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not save this change. Try again, or choose Not now.'**
   String get launcherOfferError;
+
+  /// App menu item to import form field values and/or comments from an FDF, XFDF or XDP file into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Import form data or comments…'**
+  String get editorMenuImportFormData;
+
+  /// App menu item to export the document's form field values and comments as an FDF (Forms Data Format) file. FDF is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export form data as FDF…'**
+  String get editorMenuExportFdf;
+
+  /// App menu item to export the document's form field values and comments as an XFDF (XML Forms Data Format) file. XFDF is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export form data as XFDF…'**
+  String get editorMenuExportXfdf;
+
+  /// App menu item to export the document as an XDP (XML Data Package) file, the PDF embedded with its form data. XDP is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export as XDP…'**
+  String get editorMenuExportXdp;
+
+  /// File-picker filter label for form-data exchange files. FDF, XFDF and XDP are format names; keep them untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data (FDF, XFDF, XDP)'**
+  String get fileTypeFormData;
+
+  /// Open-dialog filter label for XDP form packages (a PDF embedded with XFA form data). XDP is a format name.
+  ///
+  /// In en, this message translates to:
+  /// **'XDP form packages'**
+  String get fileTypeXdp;
+
+  /// Toast after importing form data: how many form fields were filled and how many comments were added or updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data imported - fields: {fields}, comments: {comments}'**
+  String editorImportedFormData(int fields, int comments);
+
+  /// Toast when an imported form-data file had no field values or comments that apply to the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in that file matched this document'**
+  String get editorImportFormDataNothing;
+
+  /// Toast when a form-data file could not be read or applied, with the file name and the error detail.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not import {name}: {error}'**
+  String editorCouldNotImportFormData(String name, String error);
+
+  /// App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data and comments'**
+  String get editorMenuFormData;
 }
 
 class _AppLocalizationsDelegate
