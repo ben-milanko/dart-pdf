@@ -39,6 +39,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_auto.dart';
 import 'ocr_status_chip.dart';
+import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'recent_thumbnails.dart';
@@ -2840,7 +2841,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
-    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
     await _snapshotOpenedDocument(tab, result);
