@@ -191,6 +191,27 @@ void main() {
         throwsA(isA<http.ClientException>()));
   });
 
+  test('fetchLatestReleaseChangelog reads CHANGELOG.md at the latest tag',
+      () async {
+    final requested = <Uri>[];
+    final client = MockClient((request) async {
+      requested.add(request.url);
+      if (request.url.host == 'api.github.com') {
+        return http.Response('{"tag_name": "app-v12.0.0"}', 200);
+      }
+      return http.Response('## 12.0.0\n\n- Latest.\n', 200);
+    });
+    expect(await fetchLatestReleaseChangelog(client: client),
+        '## 12.0.0\n\n- Latest.\n');
+    expect(requested.first.path, endsWith('/releases/latest'));
+    expect(requested.last.toString(),
+        'https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v12.0.0/app/CHANGELOG.md');
+
+    final failing = MockClient((_) async => http.Response('', 404));
+    expect(fetchLatestReleaseChangelog(client: failing),
+        throwsA(isA<http.ClientException>()));
+  });
+
   group('the dialog', () {
     late PdfEditingPreferences prefs;
 
@@ -209,13 +230,16 @@ void main() {
       WidgetTester tester,
       String changelog, {
       NightlyNotesFetcher? nightlyNotes,
+      ReleaseChangelogFetcher? releaseChangelog,
     }) async {
       await tester.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
               onPressed: () => showWhatsNew(context,
-                  bundle: _FakeBundle(changelog), nightlyNotes: nightlyNotes),
+                  bundle: _FakeBundle(changelog),
+                  nightlyNotes: nightlyNotes,
+                  releaseChangelog: releaseChangelog),
               child: const Text('open'),
             ),
           ),
@@ -292,6 +316,28 @@ void main() {
         tester.getTopLeft(find.text('Tickets since 10.0.0')).dy,
         lessThan(tester.getTopLeft(find.text('1.0.0')).dy),
       );
+    });
+
+    testWidgets('a nightly shows the latest release, not its own changelog',
+        (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Bundled.\n',
+          nightlyNotes: () async => _nightlyBody,
+          releaseChangelog: () async =>
+              '# Changelog\n\n## ${AppInfo.version}\n\n- Released.\n');
+
+      expect(find.text('Released.'), findsOneWidget);
+      expect(find.text('Bundled.'), findsNothing);
+      // A nightly is not the release it shares a package version with.
+      expect(find.byKey(const ValueKey('whats-new-installed')), findsNothing);
+    });
+
+    testWidgets('an offline nightly falls back to the bundled changelog',
+        (tester) async {
+      await pumpDialog(tester, '## 1.0.0\n\n- Bundled.\n',
+          nightlyNotes: () async => _nightlyBody,
+          releaseChangelog: () async => throw http.ClientException('offline'));
+
+      expect(find.text('Bundled.'), findsOneWidget);
     });
 
     testWidgets('a nightly with nothing new says so', (tester) async {
