@@ -28,7 +28,10 @@ enum RecentsView {
 const double _gridDefaultBreakpoint = 700;
 
 /// The start panel's width cap, independent of the recents column's.
-const double _startPanelMaxWidth = 420;
+const double _startPanelMaxWidth = 560;
+
+/// Body height below which the hero goes compact when there are recents.
+const double _compactHeroHeight = 760;
 
 /// The landing surface shown when no document is open: a hero with the open
 /// action and, below it, the most-recent documents.
@@ -39,6 +42,7 @@ class WelcomeScreen extends StatefulWidget {
     required this.onOpen,
     required this.onOpenRecent,
     this.onOpenRecentInNewWindow,
+    this.onNewDocument,
     this.thumbnails,
     this.excludedIds = const {},
     this.showHero = true,
@@ -52,6 +56,9 @@ class WelcomeScreen extends StatefulWidget {
   /// Opens a recent entry in a second native window, offered by the entry's
   /// context menu. Null (single-window hosts, web/mobile) hides that item.
   final void Function(RecentFile entry)? onOpenRecentInNewWindow;
+
+  /// Creates a blank document, offered beside the open action. Null hides it.
+  final VoidCallback? onNewDocument;
 
   /// Recent entries already open in document tabs are omitted when this set
   /// is provided by the full recent-files browser.
@@ -168,7 +175,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final view = _view ??
@@ -206,43 +212,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(
                                 maxWidth: _startPanelMaxWidth),
-                            child: Card.filled(
-                              key: const ValueKey('welcome-start-panel'),
-                              margin: EdgeInsets.zero,
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Icon(Icons.picture_as_pdf_outlined,
-                                        size: 64,
-                                        color: theme.colorScheme.primary),
-                                    if (defaultTargetPlatform ==
-                                            TargetPlatform.linux ||
-                                        defaultTargetPlatform ==
-                                            TargetPlatform.macOS ||
-                                        defaultTargetPlatform ==
-                                            TargetPlatform.windows) ...[
-                                      const SizedBox(height: 12),
-                                      Text(appL10n(context).editorDropToOpen,
-                                          textAlign: TextAlign.center,
-                                          style: theme.textTheme.bodyLarge),
-                                    ],
-                                    const SizedBox(height: 24),
-                                    Center(
-                                      child: FilledButton.icon(
-                                        key: const ValueKey('welcome-open-pdf'),
-                                        onPressed: widget.onOpen,
-                                        icon: const Icon(Icons.folder_open),
-                                        label: Text(
-                                            appL10n(context).welcomeOpenPdf),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            child: _StartPanel(
+                              // With recents on a phone or a short window,
+                              // the recents are what a returning reader came
+                              // for; keep the hero short so they stay above
+                              // the fold.
+                              compact: allItems.isNotEmpty &&
+                                  (constraints.maxWidth <
+                                          _gridDefaultBreakpoint ||
+                                      constraints.maxHeight <
+                                          _compactHeroHeight),
+                              onOpen: widget.onOpen,
+                              onNewDocument: widget.onNewDocument,
                             ),
                           ),
                         ),
@@ -291,6 +272,205 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       },
     );
   }
+}
+
+/// Whether the host takes files dropped onto the window (desktop, and the web
+/// on a desktop browser).
+bool get _acceptsFileDrops =>
+    defaultTargetPlatform == TargetPlatform.linux ||
+    defaultTargetPlatform == TargetPlatform.macOS ||
+    defaultTargetPlatform == TargetPlatform.windows;
+
+/// The welcome hero: a drop zone holding the open/new actions, with the
+/// privacy promise underneath.
+class _StartPanel extends StatelessWidget {
+  const _StartPanel({
+    required this.onOpen,
+    this.onNewDocument,
+    this.compact = false,
+  });
+
+  final VoidCallback onOpen;
+
+  /// Drops the icon and tightens the padding.
+  final bool compact;
+  final VoidCallback? onNewDocument;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = appL10n(context);
+    final drops = _acceptsFileDrops;
+    const buttonPadding = EdgeInsets.symmetric(horizontal: 24);
+    const buttonSize = Size(0, 48);
+    return Column(
+      key: const ValueKey('welcome-start-panel'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        CustomPaint(
+          foregroundPainter: drops
+              ? _DashedBorderPainter(
+                  color: scheme.outlineVariant, radius: _dropZoneRadius)
+              : null,
+          child: Container(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(_dropZoneRadius),
+            ),
+            padding: compact
+                ? const EdgeInsets.fromLTRB(24, 24, 24, 24)
+                : const EdgeInsets.fromLTRB(32, 40, 32, 36),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!compact) ...[
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.upload_file_outlined,
+                        size: 36, color: scheme.onPrimaryContainer),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                Text(
+                  drops ? l10n.welcomeDropHeadline : l10n.welcomeHeadline,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.welcomeSubtitle,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                SizedBox(height: compact ? 20 : 28),
+                LayoutBuilder(builder: (context, constraints) {
+                  final open = FilledButton.icon(
+                    key: const ValueKey('welcome-open-pdf'),
+                    onPressed: onOpen,
+                    style: FilledButton.styleFrom(
+                        padding: buttonPadding, minimumSize: buttonSize),
+                    icon: const Icon(Icons.folder_open),
+                    label: Text(l10n.welcomeOpenPdf),
+                  );
+                  final create = onNewDocument == null
+                      ? null
+                      : OutlinedButton.icon(
+                          key: const ValueKey('welcome-new-document'),
+                          onPressed: onNewDocument,
+                          style: OutlinedButton.styleFrom(
+                              padding: buttonPadding, minimumSize: buttonSize),
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: Text(l10n.welcomeNewDocument),
+                        );
+                  if (create == null) return open;
+                  // Side by side when both labels fit; otherwise stacked at
+                  // one shared width rather than wrapping to ragged rows.
+                  final labels = [l10n.welcomeOpenPdf, l10n.welcomeNewDocument];
+                  final needed = labels.fold<double>(_buttonGap,
+                      (sum, label) => sum + _buttonWidth(context, label));
+                  if (needed <= constraints.maxWidth) {
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        open,
+                        const SizedBox(width: _buttonGap),
+                        create
+                      ],
+                    );
+                  }
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        open,
+                        const SizedBox(height: _buttonGap),
+                        create,
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                l10n.welcomePrivacy,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+const double _dropZoneRadius = 24;
+const double _buttonGap = 12;
+
+/// The natural width of a hero button: its label at the current text scale
+/// plus the icon, the icon gap and [_StartPanel]'s horizontal padding (with a
+/// little slack so a rounding difference never tips it into overflow).
+double _buttonWidth(BuildContext context, String label) {
+  final painter = TextPainter(
+    text: TextSpan(text: label, style: Theme.of(context).textTheme.labelLarge),
+    maxLines: 1,
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: Directionality.of(context),
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  return width + 18 + 8 + 2 * 24 + 4;
+}
+
+/// Strokes a dashed rounded-rectangle outline, the usual drop-zone affordance.
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter({required this.color, required this.radius});
+
+  final Color color;
+  final double radius;
+
+  static const _dash = 8.0;
+  static const _gap = 6.0;
+  static const _width = 1.5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inset = _width / 2;
+    final rrect = RRect.fromRectAndRadius(
+        (Offset.zero & size).deflate(inset), Radius.circular(radius - inset));
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _width;
+    for (final metric in (Path()..addRRect(rrect)).computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += _dash + _gap) {
+        canvas.drawPath(metric.extractPath(d, d + _dash), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorderPainter old) =>
+      old.color != color || old.radius != radius;
 }
 
 class _RecentsHeader extends StatelessWidget {
@@ -929,8 +1109,20 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final placeholder = Icon(Icons.description_outlined,
-        size: widget.iconSize, color: theme.iconTheme.color);
+    final scheme = theme.colorScheme;
+    // A blank page-shaped sheet, so a tile without a render still reads as a
+    // document (and its corner remove button has something to sit on).
+    final placeholder = DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: const BorderRadius.all(Radius.circular(4)),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Center(
+        child: Icon(Icons.description_outlined,
+            size: widget.iconSize, color: scheme.onSurfaceVariant),
+      ),
+    );
     final future = _thumbnail;
     const radius = BorderRadius.all(Radius.circular(4));
 
@@ -958,14 +1150,14 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
         SizedBox(width: widget.width, height: height, child: child);
 
     if (future == null) {
-      return box(_heightFor(null), Center(child: placeholder));
+      return box(_heightFor(null), placeholder);
     }
     return FutureBuilder<RecentThumbnail?>(
       future: future,
       builder: (context, snapshot) {
         final thumb = snapshot.data;
         final height = _heightFor(thumb);
-        if (thumb == null) return box(height, Center(child: placeholder));
+        if (thumb == null) return box(height, placeholder);
         return box(height, Center(child: framed(thumb, height)));
       },
     );

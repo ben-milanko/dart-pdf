@@ -1677,6 +1677,24 @@ abstract class AppLocalizations {
   /// **'Copy path'**
   String get welcomeCopyPath;
 
+  /// Headline of the welcome screen's drop zone on platforms that accept dropped files.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop a PDF here'**
+  String get welcomeDropHeadline;
+
+  /// Headline of the welcome screen on platforms that don't accept dropped files.
+  ///
+  /// In en, this message translates to:
+  /// **'Open or create a PDF'**
+  String get welcomeHeadline;
+
+  /// Secondary button on the welcome screen that creates a blank document.
+  ///
+  /// In en, this message translates to:
+  /// **'New document'**
+  String get welcomeNewDocument;
+
   /// Recent-file context-menu item that opens the document.
   ///
   /// In en, this message translates to:
@@ -1701,6 +1719,12 @@ abstract class AppLocalizations {
   /// **'Pick again to reopen'**
   String get welcomePickAgainToReopen;
 
+  /// Privacy promise shown under the welcome screen's drop zone.
+  ///
+  /// In en, this message translates to:
+  /// **'Your documents never leave your device.'**
+  String get welcomePrivacy;
+
   /// Header for the recent-documents list on the welcome screen.
   ///
   /// In en, this message translates to:
@@ -1724,6 +1748,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove from recent'**
   String get welcomeRemoveFromRecent;
+
+  /// Supporting line under the welcome screen headline listing what the app does.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotate, fill forms, sign, and edit text.'**
+  String get welcomeSubtitle;
 
   /// Subtitle for a recent file that can be reopened directly from a saved snapshot.
   ///

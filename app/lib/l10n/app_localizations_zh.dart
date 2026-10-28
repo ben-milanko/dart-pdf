@@ -983,6 +983,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get welcomeCopyPath => '复制路径';
 
   @override
+  String get welcomeDropHeadline => '将 PDF 拖放到此处';
+
+  @override
+  String get welcomeHeadline => '打开或创建 PDF';
+
+  @override
+  String get welcomeNewDocument => '新建文档';
+
+  @override
   String get welcomeOpen => '打开';
 
   @override
@@ -995,6 +1004,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get welcomePickAgainToReopen => '重新选择以打开';
 
   @override
+  String get welcomePrivacy => '您的文档绝不离开您的设备。';
+
+  @override
   String get welcomeRecent => '最近';
 
   @override
@@ -1005,6 +1017,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '从最近中移除';
+
+  @override
+  String get welcomeSubtitle => '批注、填写表单、签名和编辑文本。';
 
   @override
   String get welcomeTapToReopen => '点按以重新打开';
@@ -2380,6 +2395,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get welcomeCopyPath => '複製路徑';
 
   @override
+  String get welcomeDropHeadline => '將 PDF 拖放到這裡';
+
+  @override
+  String get welcomeHeadline => '開啟或建立 PDF';
+
+  @override
+  String get welcomeNewDocument => '新增文件';
+
+  @override
   String get welcomeOpen => '開啟';
 
   @override
@@ -2392,6 +2416,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get welcomePickAgainToReopen => '再次選取以重新開啟';
 
   @override
+  String get welcomePrivacy => '您的文件永遠不會離開您的裝置。';
+
+  @override
   String get welcomeRecent => '最近使用';
 
   @override
@@ -2402,6 +2429,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get welcomeRemoveFromRecent => '從最近使用中移除';
+
+  @override
+  String get welcomeSubtitle => '註解、填寫表單、簽署及編輯文字。';
 
   @override
   String get welcomeTapToReopen => '點一下以重新開啟';

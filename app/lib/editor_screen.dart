@@ -4674,6 +4674,7 @@ class _EditorScreenState extends State<EditorScreen>
       return WelcomeScreen(
         recents: _recents,
         onOpen: _pickAndOpen,
+        onNewDocument: () => unawaited(_newDocument()),
         onOpenRecent: _openRecent,
         onOpenRecentInNewWindow: _openRecentInNewWindow,
         // Recents can load before the session list. Starting their first-page

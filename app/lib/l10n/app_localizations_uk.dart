@@ -1027,6 +1027,15 @@ class AppLocalizationsUk extends AppLocalizations {
   String get welcomeCopyPath => 'Копіювати шлях';
 
   @override
+  String get welcomeDropHeadline => 'Перетягніть PDF сюди';
+
+  @override
+  String get welcomeHeadline => 'Відкрийте або створіть PDF';
+
+  @override
+  String get welcomeNewDocument => 'Новий документ';
+
+  @override
   String get welcomeOpen => 'Відкрити';
 
   @override
@@ -1040,6 +1049,10 @@ class AppLocalizationsUk extends AppLocalizations {
       'Виберіть знову, щоб повторно відкрити';
 
   @override
+  String get welcomePrivacy =>
+      'Ваші документи ніколи не залишають ваш пристрій.';
+
+  @override
   String get welcomeRecent => 'Нещодавні';
 
   @override
@@ -1051,6 +1064,10 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Вилучити з нещодавніх';
+
+  @override
+  String get welcomeSubtitle =>
+      'Анотації, заповнення форм, підпис і редагування тексту.';
 
   @override
   String get welcomeTapToReopen => 'Торкніться, щоб повторно відкрити';

@@ -999,6 +999,15 @@ class AppLocalizationsTh extends AppLocalizations {
   String get welcomeCopyPath => 'คัดลอกเส้นทาง';
 
   @override
+  String get welcomeDropHeadline => 'วาง PDF ที่นี่';
+
+  @override
+  String get welcomeHeadline => 'เปิดหรือสร้าง PDF';
+
+  @override
+  String get welcomeNewDocument => 'เอกสารใหม่';
+
+  @override
   String get welcomeOpen => 'เปิด';
 
   @override
@@ -1011,6 +1020,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get welcomePickAgainToReopen => 'เลือกอีกครั้งเพื่อเปิดใหม่';
 
   @override
+  String get welcomePrivacy => 'เอกสารของคุณไม่มีวันออกจากอุปกรณ์ของคุณ';
+
+  @override
   String get welcomeRecent => 'ล่าสุด';
 
   @override
@@ -1021,6 +1033,10 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'นำออกจากรายการล่าสุด';
+
+  @override
+  String get welcomeSubtitle =>
+      'ใส่คำอธิบายประกอบ กรอกแบบฟอร์ม ลงนาม และแก้ไขข้อความ';
 
   @override
   String get welcomeTapToReopen => 'แตะเพื่อเปิดใหม่';

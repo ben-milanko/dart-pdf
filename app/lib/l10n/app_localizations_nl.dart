@@ -1014,6 +1014,15 @@ class AppLocalizationsNl extends AppLocalizations {
   String get welcomeCopyPath => 'Pad kopiëren';
 
   @override
+  String get welcomeDropHeadline => 'Zet hier een pdf neer';
+
+  @override
+  String get welcomeHeadline => 'Open of maak een pdf';
+
+  @override
+  String get welcomeNewDocument => 'Nieuw document';
+
+  @override
   String get welcomeOpen => 'Openen';
 
   @override
@@ -1024,6 +1033,9 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Kies opnieuw om te heropenen';
+
+  @override
+  String get welcomePrivacy => 'Je documenten verlaten je apparaat nooit.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -1037,6 +1049,10 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Verwijderen uit recent';
+
+  @override
+  String get welcomeSubtitle =>
+      'Annoteer, vul formulieren in, onderteken en bewerk tekst.';
 
   @override
   String get welcomeTapToReopen => 'Tik om te heropenen';

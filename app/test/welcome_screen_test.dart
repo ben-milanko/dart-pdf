@@ -31,25 +31,47 @@ void main() {
   testWidgets('first launch offers file picking and desktop drop guidance',
       (tester) async {
     var opened = 0;
+    var created = 0;
     await pump(
         tester,
         WelcomeScreen(
           recents: RecentsStore(),
           onOpen: () => opened++,
+          onNewDocument: () => created++,
           onOpenRecent: (_) {},
         ),
         size: wide);
     final panel = find.byKey(const ValueKey('welcome-start-panel'));
     expect(panel, findsOneWidget);
-    expect(find.text('Drop PDF to open'), findsOneWidget);
+    expect(find.text('Drop a PDF here'), findsOneWidget);
+    expect(
+        find.text('Your documents never leave your device.'), findsOneWidget);
     // The panel sizes to its content, not the 900px recents grid column, and
     // leaves the app name to the app bar.
-    expect(tester.getSize(panel).width, lessThanOrEqualTo(420));
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(560));
     expect(find.text('DartPDF'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('welcome-open-pdf')));
     expect(opened, 1);
+    await tester.tap(find.byKey(const ValueKey('welcome-new-document')));
+    expect(created, 1);
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets(
+      'touch platforms get a non-drop headline and no create button '
+      'unless the host offers one', (tester) async {
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    expect(find.text('Drop a PDF here'), findsNothing);
+    expect(find.text('Open or create a PDF'), findsOneWidget);
+    expect(find.byKey(const ValueKey('welcome-new-document')), findsNothing);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('a recent row shows its first-page thumbnail once it renders',
       (tester) async {

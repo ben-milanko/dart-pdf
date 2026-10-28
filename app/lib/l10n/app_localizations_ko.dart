@@ -985,6 +985,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get welcomeCopyPath => '경로 복사';
 
   @override
+  String get welcomeDropHeadline => '여기에 PDF를 놓으세요';
+
+  @override
+  String get welcomeHeadline => 'PDF 열기 또는 만들기';
+
+  @override
+  String get welcomeNewDocument => '새 문서';
+
+  @override
   String get welcomeOpen => '열기';
 
   @override
@@ -997,6 +1006,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get welcomePickAgainToReopen => '다시 열려면 다시 선택하세요';
 
   @override
+  String get welcomePrivacy => '문서가 기기를 벗어나지 않습니다.';
+
+  @override
   String get welcomeRecent => '최근';
 
   @override
@@ -1007,6 +1019,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '최근 항목에서 제거';
+
+  @override
+  String get welcomeSubtitle => '주석 달기, 양식 작성, 서명, 텍스트 편집.';
 
   @override
   String get welcomeTapToReopen => '탭하여 다시 열기';

@@ -1004,6 +1004,15 @@ class AppLocalizationsVi extends AppLocalizations {
   String get welcomeCopyPath => 'Sao chép đường dẫn';
 
   @override
+  String get welcomeDropHeadline => 'Thả tệp PDF vào đây';
+
+  @override
+  String get welcomeHeadline => 'Mở hoặc tạo PDF';
+
+  @override
+  String get welcomeNewDocument => 'Tài liệu mới';
+
+  @override
   String get welcomeOpen => 'Mở';
 
   @override
@@ -1014,6 +1023,10 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Chọn lại để mở lại';
+
+  @override
+  String get welcomePrivacy =>
+      'Tài liệu của bạn không bao giờ rời khỏi thiết bị.';
 
   @override
   String get welcomeRecent => 'Gần đây';
@@ -1027,6 +1040,10 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Gỡ khỏi danh sách gần đây';
+
+  @override
+  String get welcomeSubtitle =>
+      'Chú thích, điền biểu mẫu, ký và chỉnh sửa văn bản.';
 
   @override
   String get welcomeTapToReopen => 'Nhấn để mở lại';
