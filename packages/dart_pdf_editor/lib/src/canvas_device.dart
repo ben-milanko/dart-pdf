@@ -88,9 +88,10 @@ class CanvasPdfDevice
   /// (rendering modes 1/2/5/6) is linework, and a `0 w` stroked run used to
   /// read as blank paper for exactly the reason above (#912).
   ///
-  /// An opaque path stroke narrower than a pixel is not replaced, though: it
-  /// keeps its width and gains a hairline overlay ([_thinStrokeOverlay]), so
-  /// it still grows when the picture is replayed zoomed in.
+  /// An opaque path stroke between [thinStrokeTrueWidthMin] and one pixel is
+  /// not replaced, though: it keeps its width and gains a hairline overlay
+  /// ([_thinStrokeOverlay]), so it still grows when the picture is replayed
+  /// zoomed in.
   @visibleForTesting
   double strokeWidthFor(double width) {
     if (pixelRatio <= 0) return width;
@@ -102,6 +103,18 @@ class CanvasPdfDevice
     // for all of them.
     return width * pixelRatio < 1 ? 0 : width;
   }
+
+  /// Narrowest sub-pixel stroke, in recorded device pixels (page units at
+  /// the default [pixelRatio] 1), that keeps its true width under a hairline
+  /// overlay ([_thinStrokeOverlay]) so it grows when zoomed in. Anything
+  /// thinner is a plain hairline at every zoom: a 0.25 pt line only passes
+  /// one pixel beyond 4x, while the 0.06-0.12 pt "hairline" widths CAD
+  /// producers emit would pay the overlay's second draw for nothing.
+  ///
+  /// Measured on dense CAD sheets at 2x (headless raster), true width plus
+  /// overlay for *every* sub-pixel stroke cost +25-66% render time; this
+  /// band keeps the 0.48-0.72 pt linework that visibly mis-renders.
+  static double thinStrokeTrueWidthMin = 0.25;
 
   /// Darkens small glyph fills so their stems read as ink rather than haze
   /// (#912). **Off by default** - a deliberate deviation from exact coverage.
@@ -875,9 +888,14 @@ class CanvasPdfDevice
   /// paint that is idempotent over itself - opaque, and a blend mode that
   /// leaves a pixel already painted in that colour unchanged. Anything else
   /// keeps the plain hairline, since painting it twice would darken it.
+  ///
+  /// The overlay is a second draw per stroke, and drawing at true width
+  /// costs more than a hairline too, so it is confined to the band where it
+  /// pays: a stroke under [thinStrokeTrueWidthMin] recorded pixels stays a
+  /// plain hairline, since it only outgrows one pixel at extreme zoom.
   bool _thinStrokeOverlay(double width, double alpha, BlendMode blend) =>
       pixelRatio > 0 &&
-      width > 0 &&
+      width * pixelRatio >= thinStrokeTrueWidthMin &&
       width * pixelRatio < 1 &&
       alpha >= 1 &&
       (blend == BlendMode.srcOver ||

@@ -139,4 +139,23 @@ void main() {
         '/GS1 gs 0 G 0.72 w 100 400 m 300 400 l S', 396, 404, [4]);
     expect(total, closeTo(0.5, 0.2));
   });
+
+  test('a stroke under the true-width band stays a plain hairline', () async {
+    // 0.12 pt is the CAD "hairline" width: one pixel at every zoom, with no
+    // overlay to pay for (CanvasPdfDevice.thinStrokeTrueWidthMin)
+    final results =
+        await _columnInk('0 G 0.12 w 100 400 m 300 400 l S', 396, 404, [1, 4]);
+    for (final (peak, total) in results) {
+      expect(peak, greaterThan(0.5));
+      expect(total, closeTo(1, 0.35));
+    }
+  });
+
+  test('the band starts at thinStrokeTrueWidthMin', () async {
+    // 0.3 pt is inside it: 1.2 px at 4x rather than a one-pixel hairline
+    // (centred on a pixel row, so the overlay hairline lies inside it)
+    final [(_, total)] = await _columnInk(
+        '0 G 0.3 w 100 400.125 m 300 400.125 l S', 396, 404, [4]);
+    expect(total, closeTo(1.2, 0.3));
+  });
 }
