@@ -2324,12 +2324,12 @@ extension PdfAnnotationEditing on PdfEditor {
   }) {
     final lines = [
       for (var i = 0; i < leaders.length; i++)
-        _calloutLine(
-            box,
-            i == 0 && region != null
-                ? _calloutRegionTip(region, box, strokeWidth)
-                : leaders[i].target,
-            attach: leaders[i].attach),
+        pdfCalloutLeaderLine(box, (
+          target: i == 0 && region != null
+              ? _calloutRegionTip(region, box, strokeWidth)
+              : leaders[i].target,
+          attach: leaders[i].attach,
+        )),
     ];
     return _calloutPolylineGeometry(box, lines, ending, strokeWidth,
         pad: pad, region: region);
@@ -2500,79 +2500,6 @@ extension PdfAnnotationEditing on PdfEditor {
     } else {
       dict.entries.remove(kPdfCalloutLeadersKey);
     }
-  }
-
-  /// The leader-line points for a callout whose text box is [box] and whose
-  /// arrow points at [target]: `[target, knee, attach]`, where `attach`
-  /// meets the box (the caller's [attach], clamped to the perimeter, else the
-  /// edge nearest the target) and `knee` gives the leader a short stub out of
-  /// that edge (Acrobat/Bluebeam house style). Collapses to `[target, attach]`
-  /// when a knee would be degenerate.
-  List<(double, double)> _calloutLine(
-    PdfRect box,
-    (double, double) target, {
-    (double, double)? attach,
-  }) {
-    final a = attach != null
-        ? _clampToBoxPerimeter(box, attach)
-        : _calloutAttach(box, target);
-    final knee = _calloutKnee(box, a, target);
-    return knee == null ? [target, a] : [target, knee, a];
-  }
-
-  /// Where the leader meets [box] when the base isn't pinned: the point on the
-  /// edge facing [target].
-  (double, double) _calloutAttach(PdfRect box, (double, double) target) {
-    final (tx, ty) = target;
-    if (tx < box.left) {
-      return (box.left, ty.clamp(box.bottom + 2, box.top - 2).toDouble());
-    }
-    if (tx > box.right) {
-      return (box.right, ty.clamp(box.bottom + 2, box.top - 2).toDouble());
-    }
-    final x = tx.clamp(box.left + 2, box.right - 2).toDouble();
-    if (ty > box.top) return (x, box.top);
-    if (ty < box.bottom) return (x, box.bottom);
-    return (x, (box.bottom + box.top) / 2); // target inside the box
-  }
-
-  /// A short stub out of the edge [a] sits on, toward [target] - null when the
-  /// target is on the box's side of that edge (a straight leader reads better).
-  (double, double)? _calloutKnee(
-    PdfRect box,
-    (double, double) a,
-    (double, double) target,
-  ) {
-    const stub = 14.0;
-    const eps = 0.5;
-    final (ax, ay) = a;
-    final (tx, ty) = target;
-    if ((ax - box.left).abs() < eps && tx < box.left) {
-      return (box.left - math.min(stub, (box.left - tx) * 0.5), ay);
-    }
-    if ((ax - box.right).abs() < eps && tx > box.right) {
-      return (box.right + math.min(stub, (tx - box.right) * 0.5), ay);
-    }
-    if ((ay - box.top).abs() < eps && ty > box.top) {
-      return (ax, box.top + math.min(stub, (ty - box.top) * 0.5));
-    }
-    if ((ay - box.bottom).abs() < eps && ty < box.bottom) {
-      return (ax, box.bottom - math.min(stub, (box.bottom - ty) * 0.5));
-    }
-    return null;
-  }
-
-  /// Snaps [p] onto the nearest point of [box]'s perimeter - how a dragged
-  /// arrow base stays glued to the text box edge.
-  (double, double) _clampToBoxPerimeter(PdfRect box, (double, double) p) {
-    final (px, py) = p;
-    final dl = (px - box.left).abs(), dr = (px - box.right).abs();
-    final db = (py - box.bottom).abs(), dt = (py - box.top).abs();
-    final m = math.min(math.min(dl, dr), math.min(db, dt));
-    if (m == dl) return (box.left, py.clamp(box.bottom, box.top).toDouble());
-    if (m == dr) return (box.right, py.clamp(box.bottom, box.top).toDouble());
-    if (m == db) return (px.clamp(box.left, box.right).toDouble(), box.bottom);
-    return (px.clamp(box.left, box.right).toDouble(), box.top);
   }
 
   /// Persists the free-text spacing/decoration that /DA and /Q cannot carry
@@ -2815,7 +2742,7 @@ extension PdfAnnotationEditing on PdfEditor {
 
   /// Where a leader base at [current] on [oldBox] lands when the box becomes
   /// [newBox]: the same relative spot (snapped back onto the perimeter by
-  /// [_calloutLine]). Unchanged when the box isn't changing.
+  /// [pdfCalloutLeaderLine]). Unchanged when the box isn't changing.
   (double, double) _carryCalloutAttach(
     (double, double) current,
     PdfRect oldBox,
