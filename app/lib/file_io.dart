@@ -335,6 +335,10 @@ class SaveResult {
       SaveResult._('Saved to $path', path: path, succeeded: true);
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
+  factory SaveResult.savedCount(int count, String directory) =>
+      SaveResult._('Saved $count files to $directory', succeeded: true);
+  factory SaveResult.downloadedCount(int count) =>
+      SaveResult._('Downloaded $count files', succeeded: true);
   factory SaveResult.shared() => const SaveResult._('Shared', succeeded: true);
   factory SaveResult.failed(Object error) =>
       SaveResult._('Save failed: $error');
@@ -589,6 +593,102 @@ Future<SaveResult> saveBytesAs(
       } catch (e) {
         return SaveResult.failed(e);
       }
+  }
+}
+
+/// One PDF handed to [shareDocumentsAs]: its bytes and the file name it
+/// should carry (`.pdf` is added when missing).
+typedef SharedDocument = ({Uint8List bytes, String name});
+
+/// [saveBytesAs] for several PDFs at once: one share sheet carrying every file
+/// on phones and tablets, a download per file on the web, and on desktop a
+/// folder picker that receives a copy of each. Copies never overwrite: a name
+/// already taken in the folder (or earlier in this batch) gets ` (2)`, ` (3)`
+/// and so on.
+Future<SaveResult> shareDocumentsAs(
+  BuildContext context,
+  List<SharedDocument> documents,
+) async {
+  if (documents.isEmpty) return SaveResult.cancelled;
+  final names = _uniqueNames([for (final d in documents) d.name]);
+  final files = [
+    for (var i = 0; i < documents.length; i++)
+      XFile.fromData(documents[i].bytes,
+          mimeType: 'application/pdf', name: names[i]),
+  ];
+
+  if (kIsWeb) {
+    for (var i = 0; i < files.length; i++) {
+      await files[i].saveTo(names[i]);
+    }
+    return SaveResult.downloadedCount(files.length);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: files,
+        fileNameOverrides: names,
+        // required on iPad: the share popover anchors to this rect
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final directory = await getDirectoryPath();
+      if (directory == null) return SaveResult.cancelled;
+      final separator =
+          directory.contains('\\') && !directory.contains('/') ? '\\' : '/';
+      final base =
+          directory.endsWith(separator) ? directory : '$directory$separator';
+      try {
+        for (var i = 0; i < files.length; i++) {
+          await files[i].saveTo(await _freePath(base, names[i]));
+        }
+        return SaveResult.savedCount(files.length, directory);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// [names] made `.pdf` and distinct (case-insensitively, as macOS and Windows
+/// file systems compare them), suffixing repeats with ` (2)`, ` (3)`, ...
+List<String> _uniqueNames(List<String> names) {
+  final seen = <String>{};
+  return [
+    for (final raw in names)
+      () {
+        final name = ensurePdfName(raw);
+        var candidate = name;
+        for (var n = 2; !seen.add(candidate.toLowerCase()); n++) {
+          candidate = _numberedName(name, n);
+        }
+        return candidate;
+      }(),
+  ];
+}
+
+/// `report.pdf` -> `report (n).pdf`.
+String _numberedName(String name, int n) {
+  final dot = name.lastIndexOf('.');
+  return dot <= 0
+      ? '$name ($n)'
+      : '${name.substring(0, dot)} ($n)${name.substring(dot)}';
+}
+
+/// The first of `base + name`, `base + name (2)`, ... that does not exist on
+/// disk yet, so a batch copy never overwrites a file.
+Future<String> _freePath(String base, String name) async {
+  for (var n = 1;; n++) {
+    final path = '$base${n == 1 ? name : _numberedName(name, n)}';
+    try {
+      await XFile(path).length();
+    } catch (_) {
+      return path; // nothing there
+    }
   }
 }
 

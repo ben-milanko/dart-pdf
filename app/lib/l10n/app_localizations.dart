@@ -1131,6 +1131,30 @@ abstract class AppLocalizations {
   /// **'{count} open'**
   String editorTabsOpenCount(int count);
 
+  /// Tooltip of the open-tabs grid button that switches the grid into multi-select, so several tabs can be shared or closed together.
+  ///
+  /// In en, this message translates to:
+  /// **'Select tabs'**
+  String get editorSelectTabs;
+
+  /// Tooltip of the open-tabs grid selection header button that closes every checked tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Close selected'**
+  String get editorCloseSelectedTabs;
+
+  /// Tooltip of the open-tabs grid selection header button that saves a copy of every checked tab (desktop: into a chosen folder; web: one download each). Phones show the platform's Share label instead.
+  ///
+  /// In en, this message translates to:
+  /// **'Save copies'**
+  String get editorSaveCopies;
+
+  /// Toast after sharing the checked tabs when some of them had no readable document (still loading, failed, or their file is gone) and were left out.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 tab couldn\'t be read and was left out.} other{{count} tabs couldn\'t be read and were left out.}}'**
+  String editorTabsNotShared(int count);
+
   /// Discard-confirmation message stating how many open documents have unsaved edits.
   ///
   /// In en, this message translates to:

@@ -659,6 +659,27 @@ class AppLocalizationsNl extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Tabbladen selecteren';
+
+  @override
+  String get editorCloseSelectedTabs => 'Selectie sluiten';
+
+  @override
+  String get editorSaveCopies => 'Kopieën opslaan';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count tabbladen konden niet worden gelezen en zijn overgeslagen.',
+      one: '1 tabblad kon niet worden gelezen en is overgeslagen.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

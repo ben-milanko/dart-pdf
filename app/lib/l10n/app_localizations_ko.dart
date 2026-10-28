@@ -641,6 +641,25 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => '탭 선택';
+
+  @override
+  String get editorCloseSelectedTabs => '선택한 탭 닫기';
+
+  @override
+  String get editorSaveCopies => '사본 저장';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '탭 $count개를 읽을 수 없어 제외했습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

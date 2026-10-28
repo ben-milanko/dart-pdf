@@ -886,6 +886,27 @@
       }
     }
   },
+  "editorSelectTabs": "Select tabs",
+  "@editorSelectTabs": {
+    "description": "Tooltip of the open-tabs grid button that switches the grid into multi-select, so several tabs can be shared or closed together."
+  },
+  "editorCloseSelectedTabs": "Close selected",
+  "@editorCloseSelectedTabs": {
+    "description": "Tooltip of the open-tabs grid selection header button that closes every checked tab."
+  },
+  "editorSaveCopies": "Save copies",
+  "@editorSaveCopies": {
+    "description": "Tooltip of the open-tabs grid selection header button that saves a copy of every checked tab (desktop: into a chosen folder; web: one download each). Phones show the platform's Share label instead."
+  },
+  "editorTabsNotShared": "{count, plural, =1{1 tab couldn't be read and was left out.} other{{count} tabs couldn't be read and were left out.}}",
+  "@editorTabsNotShared": {
+    "description": "Toast after sharing the checked tabs when some of them had no readable document (still loading, failed, or their file is gone) and were left out.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "editorUnsavedChangesCount": "{count, plural, =1{A document has unsaved changes.} other{{count} documents have unsaved changes.}}",
   "@editorUnsavedChangesCount": {
     "description": "Discard-confirmation message stating how many open documents have unsaved edits.",

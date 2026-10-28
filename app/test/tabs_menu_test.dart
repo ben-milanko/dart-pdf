@@ -763,4 +763,93 @@ void main() {
             ?.fontWeight,
         FontWeight.normal);
   });
+
+  testWidgets('tabs grid multi-selects tabs to share and close together',
+      (tester) async {
+    setDesktopSize(tester);
+    List<SharedDocument>? shared;
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        shareDocuments: (context, documents) async {
+          shared = documents;
+          return SaveResult.cancelled;
+        },
+      ),
+    ));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+    await openTab(tester, 'beta.pdf');
+    await openTab(tester, 'gamma.pdf');
+    await openTabsGrid(tester);
+
+    // Selecting: a tap checks a tile instead of switching to it.
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-select')));
+    await tester.pumpAndSettle();
+    final share = find.byKey(const ValueKey('desktop-tabs-share-selected'));
+    expect(tester.widget<IconButton>(share).onPressed, isNull);
+    await tester.tap(gridTile('gamma.pdf'));
+    await tester.tap(gridTile('alpha.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('desktop-tabs-grid')), findsOneWidget);
+    expect(find.text('2 items selected'), findsOneWidget);
+
+    // Shared in strip order, whatever order they were checked in.
+    await tester.tap(share);
+    await tester.pumpAndSettle();
+    expect(shared?.map((d) => d.name), ['alpha.pdf', 'gamma.pdf']);
+    expect(shared!.first.bytes, isNotEmpty);
+
+    // Select all checks every tab; pressing it again clears them.
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-select-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('3 items selected'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-select-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('No items selected'), findsOneWidget);
+
+    // Close the checked tabs together; the grid stays open on the rest.
+    await tester.tap(gridTile('alpha.pdf'));
+    await tester.tap(gridTile('beta.pdf'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-close-selected')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mobile-tab-tile')), findsOneWidget);
+    expect(gridTile('gamma.pdf'), findsOneWidget);
+    expect(find.text('No items selected'), findsOneWidget);
+
+    // Leaving selection brings back tap-to-switch.
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-select-done')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('desktop-tabs-select')), findsOneWidget);
+  });
+
+  testWidgets('long-pressing a tile in the phone tabs sheet starts selecting',
+      (tester) async {
+    await setMobileSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+    await openTab(tester, 'beta.pdf');
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+
+    Finder tile(String name) => find.ancestor(
+          of: find.descendant(
+            of: find.byKey(const ValueKey('mobile-tabs-grid')),
+            matching: middleText(name),
+          ),
+          matching: find.byKey(const ValueKey('mobile-tab-tile')),
+        );
+    await tester.longPress(tile('alpha.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 item selected'), findsOneWidget);
+    expect(find.byKey(const ValueKey('mobile-tab-tile-checkbox')),
+        findsNWidgets(2));
+    await tester.tap(tile('beta.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 items selected'), findsOneWidget);
+    // Still in the sheet: the tap checked beta rather than switching to it.
+    expect(find.byKey(const ValueKey('mobile-tabs-grid')), findsOneWidget);
+  });
 }

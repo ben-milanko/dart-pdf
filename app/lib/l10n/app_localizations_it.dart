@@ -659,6 +659,26 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Seleziona schede';
+
+  @override
+  String get editorCloseSelectedTabs => 'Chiudi selezionate';
+
+  @override
+  String get editorSaveCopies => 'Salva copie';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Impossibile leggere $count schede, sono state escluse.',
+      one: 'Impossibile leggere 1 scheda, è stata esclusa.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

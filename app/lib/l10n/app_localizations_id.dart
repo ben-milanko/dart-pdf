@@ -658,6 +658,25 @@ class AppLocalizationsId extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Pilih tab';
+
+  @override
+  String get editorCloseSelectedTabs => 'Tutup yang dipilih';
+
+  @override
+  String get editorSaveCopies => 'Simpan salinan';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tab tidak dapat dibaca dan dilewati.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -639,6 +639,25 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => '选择标签页';
+
+  @override
+  String get editorCloseSelectedTabs => '关闭所选';
+
+  @override
+  String get editorSaveCopies => '保存副本';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '有 $count 个标签页无法读取，已略过。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2014,6 +2033,25 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String editorTabsOpenCount(int count) {
     return '已開啟 $count 個';
+  }
+
+  @override
+  String get editorSelectTabs => '選取分頁';
+
+  @override
+  String get editorCloseSelectedTabs => '關閉所選';
+
+  @override
+  String get editorSaveCopies => '儲存副本';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '有 $count 個分頁無法讀取，已略過。',
+    );
+    return '$_temp0';
   }
 
   @override

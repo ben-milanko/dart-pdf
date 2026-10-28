@@ -654,6 +654,25 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Sekmeleri seç';
+
+  @override
+  String get editorCloseSelectedTabs => 'Seçilenleri kapat';
+
+  @override
+  String get editorSaveCopies => 'Kopyaları kaydet';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sekme okunamadı ve dışarıda bırakıldı.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -662,6 +662,26 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Tabs auswählen';
+
+  @override
+  String get editorCloseSelectedTabs => 'Auswahl schließen';
+
+  @override
+  String get editorSaveCopies => 'Kopien speichern';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tabs konnten nicht gelesen werden und wurden ausgelassen.',
+      one: '1 Tab konnte nicht gelesen werden und wurde ausgelassen.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

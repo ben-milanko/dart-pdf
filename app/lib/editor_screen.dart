@@ -144,6 +144,7 @@ class EditorScreen extends StatefulWidget {
     this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
+    this.shareDocuments,
     this.compressDocument,
     this.snapshotClipboardWriter,
     this.pdfClipboardReader,
@@ -223,6 +224,13 @@ class EditorScreen extends StatefulWidget {
     String path, {
     String? bookmark,
   })? saveDocumentToPath;
+
+  /// Overrides the multi-document share/save-copies backend the tabs
+  /// overview's selection uses (see [shareDocumentsAs]).
+  final Future<SaveResult> Function(
+    BuildContext context,
+    List<SharedDocument> documents,
+  )? shareDocuments;
 
   /// Overrides the optimizer worker for tests or a host-provided executor.
   /// Results are offered as a copy through [saveDocumentAs].
@@ -3308,6 +3316,52 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  /// Shares [tabs] in one go (the tabs overview's selection): one share sheet
+  /// on phones, a download each on the web, copies into a chosen folder on
+  /// desktop. Each document goes out as its current revision, unsaved edits
+  /// included, exactly as Save As would write it. A restored tab that was never
+  /// opened is read from its file; tabs with nothing to send (still loading,
+  /// failed, a comparison) or whose file can no longer be read are left out,
+  /// with a toast saying how many.
+  Future<void> _shareTabs(List<DocumentTab> tabs) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final documents = <SharedDocument>[];
+    var skipped = 0;
+    for (final tab in tabs) {
+      final bytes = await _shareableBytes(tab);
+      if (!mounted) return;
+      if (bytes == null) {
+        skipped++;
+      } else {
+        documents.add((bytes: bytes, name: tab.title));
+      }
+    }
+    if (skipped > 0) _toast(appL10n(context).editorTabsNotShared(skipped));
+    if (documents.isEmpty) return;
+    final share = widget.shareDocuments ?? shareDocumentsAs;
+    final result = await share(context, documents);
+    if (mounted && result.message != null) _toast(result.message!);
+  }
+
+  /// The bytes [tab] would save, or null when it has none to give.
+  Future<Uint8List?> _shareableBytes(DocumentTab tab) async {
+    tab.session?.finishInk();
+    final session = tab.session;
+    if (session != null) {
+      return _withBakedPageColor(session.bytes, source: session.document);
+    }
+    final deferred = tab.deferredBytes;
+    if (deferred != null) return _withBakedPageColor(deferred);
+    final path = tab.originPath;
+    if (!tab.isDeferredPath || path == null) return null;
+    try {
+      return _withBakedPageColor(
+          await _readOriginFully(path: path, bookmark: tab.originBookmark));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Mobile picks are app-managed copies; their title is the share filename.
   /// Keep the live edit session and its saved baseline while renaming the copy.
   Future<void> _renameDocument(DocumentTab tab) async {
@@ -5133,13 +5187,23 @@ class _EditorScreenState extends State<EditorScreen>
         unawaited(_pickAndOpen());
       },
       onActivate: activate,
-      tileBuilder: (context, index) {
+      shareLabel: _usesMobileShare
+          ? WidgetsLocalizations.of(context).shareButtonLabel
+          : appL10n(context).editorSaveCopies,
+      shareIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+      onShare: _shareTabs,
+      onCloseTabs: (tabs) async {
+        await _closeTabs(tabs);
+        refreshOverlay();
+      },
+      tileBuilder: (context, index, selection) {
         final tab = _tabs[index];
         return _MobileTabTile(
           key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
           tab: tab,
           storedThumbnails: _recentThumbnails,
           selected: index == _activeIndex,
+          selection: selection,
           onTap: () => activate(index),
           onClose: () async {
             await _closeTabs([tab]);
@@ -6061,9 +6125,20 @@ class _DropOverlay extends StatelessWidget {
   }
 }
 
+/// A grid tile's part in the tabs overview's multi-select: whether the grid
+/// is selecting at all, whether this tile is checked, and how to flip it
+/// (which also starts selecting, from a long-press).
+typedef _TabTileSelection = ({
+  bool selecting,
+  bool checked,
+  VoidCallback toggle,
+});
+
 /// The open-tabs grid shown in the compact bottom sheet and the desktop
 /// dialog: a title-search field over a thumbnail grid that opens scrolled to
-/// the active tab.
+/// the active tab. The header's select button (or a long-press on a tile)
+/// switches the grid into a multi-select whose header shares or closes the
+/// checked tabs together.
 class _TabsOverview extends StatefulWidget {
   const _TabsOverview({
     required this.tabs,
@@ -6073,6 +6148,10 @@ class _TabsOverview extends StatefulWidget {
     required this.autofocusSearch,
     required this.onOpen,
     required this.onActivate,
+    required this.shareLabel,
+    required this.shareIcon,
+    required this.onShare,
+    required this.onCloseTabs,
     required this.tileBuilder,
   });
 
@@ -6085,7 +6164,21 @@ class _TabsOverview extends StatefulWidget {
   final bool autofocusSearch;
   final VoidCallback onOpen;
   final void Function(int index) onActivate;
-  final Widget Function(BuildContext context, int index) tileBuilder;
+
+  /// The selection header's share action: its label and icon (Share on a
+  /// phone, Save copies elsewhere) and what it does with the checked tabs.
+  final String shareLabel;
+  final IconData shareIcon;
+  final Future<void> Function(List<DocumentTab> tabs) onShare;
+
+  /// Closes the checked tabs (confirming unsaved edits once for all of them).
+  final Future<void> Function(List<DocumentTab> tabs) onCloseTabs;
+
+  final Widget Function(
+    BuildContext context,
+    int index,
+    _TabTileSelection selection,
+  ) tileBuilder;
 
   static const double _padding = 12;
   static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
@@ -6102,6 +6195,32 @@ class _TabsOverview extends StatefulWidget {
 class _TabsOverviewState extends State<_TabsOverview> {
   final _query = TextEditingController();
   ScrollController? _scroll;
+
+  /// The checked tabs while the grid is selecting; null when it is not.
+  /// Held by identity, so a tab closed meanwhile simply drops out.
+  Set<DocumentTab>? _selected;
+
+  void _toggle(DocumentTab tab) => setState(() {
+        final selected = _selected ??= {};
+        if (!selected.remove(tab)) selected.add(tab);
+      });
+
+  /// Checks every tab the search shows, or unchecks them when they all are.
+  void _toggleAll(List<int> matches) => setState(() {
+        final selected = _selected ??= {};
+        final shown = [for (final i in matches) widget.tabs[i]];
+        if (shown.every(selected.contains)) {
+          selected.removeAll(shown);
+        } else {
+          selected.addAll(shown);
+        }
+      });
+
+  /// The checked tabs in strip order.
+  List<DocumentTab> get _checkedTabs => [
+        for (final tab in widget.tabs)
+          if (_selected!.contains(tab)) tab
+      ];
 
   @override
   void dispose() {
@@ -6155,6 +6274,62 @@ class _TabsOverviewState extends State<_TabsOverview> {
     return centred.clamp(0.0, maxOffset);
   }
 
+  /// The header while selecting: leave, the count, then select all, share
+  /// and close for the checked tabs.
+  Widget _buildSelectionHeader(
+    BuildContext context,
+    Set<DocumentTab> selected,
+    List<int> matches,
+  ) {
+    final l10n = appL10n(context);
+    final material = MaterialLocalizations.of(context);
+    final prefix = widget.keyPrefix;
+    final none = selected.isEmpty;
+    return Row(
+      children: [
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-done'),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: material.cancelButtonLabel,
+          onPressed: () => setState(() => _selected = null),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            material.selectedRowCountTitle(selected.length),
+            key: ValueKey('$prefix-tabs-selected-count'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-all'),
+          icon: const Icon(Icons.select_all),
+          tooltip: material.selectAllButtonLabel,
+          onPressed: matches.isEmpty ? null : () => _toggleAll(matches),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-share-selected'),
+          icon: Icon(widget.shareIcon),
+          tooltip: widget.shareLabel,
+          onPressed: none ? null : () => widget.onShare(_checkedTabs),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-close-selected'),
+          icon: const Icon(Icons.close),
+          tooltip: l10n.editorCloseSelectedTabs,
+          onPressed: none
+              ? null
+              : () async {
+                  await widget.onCloseTabs(_checkedTabs);
+                  if (mounted) setState(() {});
+                },
+        ),
+      ],
+    );
+  }
+
   void _onQueryChanged(String _) {
     setState(() {});
     // A new result set starts from its first match.
@@ -6169,24 +6344,35 @@ class _TabsOverviewState extends State<_TabsOverview> {
     final scheme = theme.colorScheme;
     final prefix = widget.keyPrefix;
     final matches = _matches();
+    _selected?.removeWhere((tab) => !widget.tabs.contains(tab));
+    final selected = _selected;
     return Column(
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(20, widget.headerTopPadding, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child:
-                    Text(l10n.editorTabs, style: theme.textTheme.titleMedium),
-              ),
-              IconButton(
-                key: ValueKey('$prefix-tabs-open'),
-                icon: const Icon(Icons.add),
-                tooltip: l10n.editorOpenPdfNewTab,
-                onPressed: widget.onOpen,
-              ),
-            ],
-          ),
+          padding: EdgeInsets.fromLTRB(
+              selected == null ? 20 : 8, widget.headerTopPadding, 12, 8),
+          child: selected == null
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: Text(l10n.editorTabs,
+                          style: theme.textTheme.titleMedium),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-select'),
+                      icon: const Icon(Icons.checklist),
+                      tooltip: l10n.editorSelectTabs,
+                      onPressed: () => setState(() => _selected = {}),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-open'),
+                      icon: const Icon(Icons.add),
+                      tooltip: l10n.editorOpenPdfNewTab,
+                      onPressed: widget.onOpen,
+                    ),
+                  ],
+                )
+              : _buildSelectionHeader(context, selected, matches),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -6213,9 +6399,15 @@ class _TabsOverviewState extends State<_TabsOverview> {
               border: const OutlineInputBorder(),
             ),
             onChanged: _onQueryChanged,
-            // Enter opens the best (first) match, like a quick switcher.
+            // Enter opens the best (first) match, like a quick switcher
+            // (or checks it, while selecting).
             onSubmitted: (_) {
-              if (matches.isNotEmpty) widget.onActivate(matches.first);
+              if (matches.isEmpty) return;
+              if (selected != null) {
+                _toggle(widget.tabs[matches.first]);
+              } else {
+                widget.onActivate(matches.first);
+              }
             },
           ),
         ),
@@ -6249,8 +6441,14 @@ class _TabsOverviewState extends State<_TabsOverview> {
                     padding: const EdgeInsets.all(_TabsOverview._padding),
                     gridDelegate: _TabsOverview.gridDelegate,
                     itemCount: matches.length,
-                    itemBuilder: (context, i) =>
-                        widget.tileBuilder(context, matches[i]),
+                    itemBuilder: (context, i) {
+                      final tab = widget.tabs[matches[i]];
+                      return widget.tileBuilder(context, matches[i], (
+                        selecting: selected != null,
+                        checked: selected?.contains(tab) ?? false,
+                        toggle: () => _toggle(tab),
+                      ));
+                    },
                   );
                 },
               ),
@@ -6286,15 +6484,23 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.selection,
     this.onContextMenu,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
+
+  /// Whether this is the active tab.
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// The overview's multi-select: while it is selecting a tap checks the tile
+  /// instead of switching to it and a checkbox stands in for the close
+  /// button; a long-press starts selecting with this tile checked.
+  final _TabTileSelection? selection;
 
   /// Opens the tab's context menu at the given global position (right-click on
   /// desktop, long-press on touch). Null disables the affordance.
@@ -6312,31 +6518,40 @@ class _MobileTabTile extends StatelessWidget {
 
   Widget _build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final selection = this.selection;
+    final selecting = selection?.selecting ?? false;
+    final checked = selection?.checked ?? false;
+    final highlighted = selecting ? checked : selected;
     return Material(
       key: const ValueKey('mobile-tab-tile'),
       color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
+          color: highlighted ? scheme.primary : scheme.outlineVariant,
+          width: highlighted ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
-        onSecondaryTapUp: onContextMenu == null
+        onTap: selecting ? selection!.toggle : onTap,
+        onSecondaryTapUp: onContextMenu == null || selecting
             ? null
             : (details) => onContextMenu!(details.globalPosition),
-        onLongPress: onContextMenu == null
-            ? null
-            : () {
-                // InkWell's long-press carries no position, so anchor the menu
-                // at the tile's centre (touch parity for the right-click menu).
-                final box = context.findRenderObject() as RenderBox?;
-                if (box == null || !box.hasSize) return;
-                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
-              },
+        // A long-press starts (or extends) a multi-select, the touch
+        // convention; without one it opens the context menu instead.
+        onLongPress: selection != null
+            ? selection.toggle
+            : onContextMenu == null
+                ? null
+                : () {
+                    // InkWell's long-press carries no position, so anchor the menu
+                    // at the tile's centre (touch parity for the right-click menu).
+                    final box = context.findRenderObject() as RenderBox?;
+                    if (box == null || !box.hasSize) return;
+                    onContextMenu!(
+                        box.localToGlobal(box.size.center(Offset.zero)));
+                  },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -6376,15 +6591,26 @@ class _MobileTabTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: appL10n(context).editorCloseTab,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 32, height: 32),
-                    onPressed: onClose,
-                  ),
+                  if (selecting)
+                    SizedBox.square(
+                      dimension: 32,
+                      child: Checkbox(
+                        key: const ValueKey('mobile-tab-tile-checkbox'),
+                        value: checked,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: (_) => selection!.toggle(),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: appL10n(context).editorCloseTab,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 32, height: 32),
+                      onPressed: onClose,
+                    ),
                 ],
               ),
             ),

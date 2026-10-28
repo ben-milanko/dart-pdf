@@ -661,6 +661,26 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Sélectionner des onglets';
+
+  @override
+  String get editorCloseSelectedTabs => 'Fermer la sélection';
+
+  @override
+  String get editorSaveCopies => 'Enregistrer des copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count onglets n\'ont pas pu être lus et ont été ignorés.',
+      one: '1 onglet n\'a pas pu être lu et a été ignoré.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

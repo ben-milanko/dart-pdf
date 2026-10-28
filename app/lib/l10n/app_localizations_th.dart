@@ -651,6 +651,25 @@ class AppLocalizationsTh extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'เลือกแท็บ';
+
+  @override
+  String get editorCloseSelectedTabs => 'ปิดที่เลือก';
+
+  @override
+  String get editorSaveCopies => 'บันทึกสำเนา';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'อ่านไม่ได้ $count แท็บ จึงไม่ได้รวมไว้',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

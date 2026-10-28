@@ -659,6 +659,26 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Seleccionar pestañas';
+
+  @override
+  String get editorCloseSelectedTabs => 'Cerrar seleccionadas';
+
+  @override
+  String get editorSaveCopies => 'Guardar copias';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'No se pudieron leer $count pestañas y se omitieron.',
+      one: 'No se pudo leer 1 pestaña y se omitió.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -676,6 +676,28 @@ class AppLocalizationsPl extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Zaznacz karty';
+
+  @override
+  String get editorCloseSelectedTabs => 'Zamknij zaznaczone';
+
+  @override
+  String get editorSaveCopies => 'Zapisz kopie';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Nie udało się odczytać $count kart i zostały pominięte.',
+      many: 'Nie udało się odczytać $count kart i zostały pominięte.',
+      few: 'Nie udało się odczytać $count kart i zostały pominięte.',
+      one: 'Nie udało się odczytać 1 karty i została pominięta.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
