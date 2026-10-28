@@ -448,6 +448,94 @@ void main() {
       await settle(tester);
     });
 
+    Future<void> pressAltZ(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+    }
+
+    testWidgets('Alt+Z autosizes a box whose editor still has focus',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontFamily = PdfStandardFont.courier
+        ..preferences.fontSize = 18
+        ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+
+      await tap(tester, view(200, 680)); // first tap selects
+      await tap(tester, view(200, 680)); // second tap edits
+      expect(find.byKey(editorKey), findsOneWidget);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Wide line!',
+        selection: TextSelection.collapsed(offset: 4),
+      );
+      await tester.pump();
+
+      await pressAltZ(tester);
+
+      // typed text committed, the box fitted to it, and still editing with
+      // the caret where it was
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'Wide line!');
+      final expectedWidth =
+          measureStandardText('Wide line!', 18, font: PdfStandardFont.courier) +
+              6;
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+      final reopened = tester.widget<TextField>(find.byKey(editorKey));
+      expect(reopened.controller!.text, 'Wide line!');
+      expect(reopened.controller!.selection,
+          const TextSelection.collapsed(offset: 4));
+      expect(reopened.focusNode!.hasFocus, isTrue);
+
+      await tap(tester, view(450, 400)); // outside: commit
+      editing
+        ..fontFamily = PdfStandardFont.helvetica
+        ..preferences.fontSize = 14;
+      await settle(tester);
+    });
+
+    testWidgets('Alt+Z autosizes a freshly placed box while typing',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..fontFamily = PdfStandardFont.courier
+        ..preferences.fontSize = 18
+        ..tool = PdfEditTool.freeText;
+      await tester.pump();
+      await drag(tester, view(100, 700), view(500, 600));
+      expect(find.byKey(editorKey), findsOneWidget);
+      final field = tester.widget<TextField>(find.byKey(editorKey));
+      field.controller!.value = const TextEditingValue(
+        text: 'Short',
+        selection: TextSelection.collapsed(offset: 5),
+      );
+      await tester.pump();
+
+      await pressAltZ(tester);
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'Short');
+      final expectedWidth =
+          measureStandardText('Short', 18, font: PdfStandardFont.courier) + 6;
+      expect(annotation.rect.width, closeTo(expectedWidth, 0.01));
+      expect(find.byKey(editorKey), findsOneWidget);
+      expect(editing.isEditingText, isTrue);
+
+      await tap(tester, view(450, 400)); // outside: commit
+      expect(editing.document.page(0).annotations, hasLength(1));
+      editing
+        ..fontFamily = PdfStandardFont.helvetica
+        ..preferences.fontSize = 14;
+      await settle(tester);
+    });
+
     testWidgets('selection toolbar can fit the font to the text box',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
