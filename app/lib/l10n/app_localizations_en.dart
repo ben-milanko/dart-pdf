@@ -2492,7 +2492,7 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get welcomeRemoveFromRecent => 'Remove from recent';
 
   @override
-  String get welcomeSubtitle => 'Annotate, fill forms, sign and edit text.';
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -3944,7 +3944,7 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String get welcomeRemoveFromRecent => 'Remove from recent';
 
   @override
-  String get welcomeSubtitle => 'Annotate, fill forms, sign and edit text.';
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
