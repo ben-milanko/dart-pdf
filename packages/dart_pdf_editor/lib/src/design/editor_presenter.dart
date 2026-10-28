@@ -157,7 +157,9 @@ class PdfEditorPresenter {
       showPdfAddLinkDialog(context,
           pageCount: request.pageCount,
           currentPage: request.currentPage,
-          initialUrl: request.initialUrl);
+          initialUrl: request.initialUrl,
+          initialPage: request.initialPage,
+          editing: request.editing);
 
   /// Asks for a colour. The result is either a picked colour or, when
   /// [PdfColorRequest.allowSampleFromPage] is set, a request to sample one
@@ -682,6 +684,8 @@ class PdfLinkRequest {
     required this.pageCount,
     required this.currentPage,
     this.initialUrl = '',
+    this.initialPage,
+    this.editing = false,
   });
 
   /// The document's page count (bounds a page target).
@@ -692,6 +696,14 @@ class PdfLinkRequest {
 
   /// A web address to pre-fill.
   final String initialUrl;
+
+  /// A zero-based target page to pre-fill. When set the dialog opens on
+  /// the page choice - an existing internal link being edited.
+  final int? initialPage;
+
+  /// Whether this re-targets an existing link (Edit link) rather than
+  /// placing a new one.
+  final bool editing;
 }
 
 /// What [PdfEditorPresenter.color] asks for.

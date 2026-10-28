@@ -462,6 +462,15 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'เพิ่มบันทึกที่นี่';
 
   @override
+  String get menuEditLink => 'แก้ไขลิงก์…';
+
+  @override
+  String get menuRemoveLink => 'ลบลิงก์';
+
+  @override
+  String get linkEditDialogTitle => 'แก้ไขลิงก์';
+
+  @override
   String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';
 
   @override

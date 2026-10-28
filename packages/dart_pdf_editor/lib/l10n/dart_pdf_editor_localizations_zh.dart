@@ -462,6 +462,15 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => '在此添加注释';
 
   @override
+  String get menuEditLink => '编辑链接…';
+
+  @override
+  String get menuRemoveLink => '移除链接';
+
+  @override
+  String get linkEditDialogTitle => '编辑链接';
+
+  @override
   String get menuSaveToStamps => '保存到图章';
 
   @override
@@ -3004,6 +3013,15 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get menuAddNoteHere => '在此新增註解';
+
+  @override
+  String get menuEditLink => '編輯連結…';
+
+  @override
+  String get menuRemoveLink => '移除連結';
+
+  @override
+  String get linkEditDialogTitle => '編輯連結';
 
   @override
   String get menuSaveToStamps => '儲存至戳記';

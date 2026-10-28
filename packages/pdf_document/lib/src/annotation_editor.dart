@@ -4920,6 +4920,60 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotationChanged(pageIndex, dict, visual: false);
   }
 
+  /// Points the existing /Link [annotation] at the external [uri] in
+  /// place - the edit counterpart of [addLinkToUri]. The link keeps its
+  /// region, decoration, and name; only its action changes. A /Dest the
+  /// link carried instead of an action is dropped (§12.5.6.5: /A and /Dest
+  /// are mutually exclusive).
+  void setLinkUri(int pageIndex, PdfAnnotation annotation, String uri) {
+    if (uri.isEmpty) {
+      throw ArgumentError.value(uri, 'uri', 'must not be empty');
+    }
+    _setLinkAction(
+      pageIndex,
+      annotation,
+      CosDictionary({
+        'Type': const CosName('Action'),
+        'S': const CosName('URI'),
+        'URI': CosString.fromText(uri),
+      }),
+    );
+  }
+
+  /// Points the existing /Link [annotation] at [destination] in this
+  /// document in place - the edit counterpart of [addLinkToDestination].
+  /// Semantics as [setLinkUri].
+  void setLinkDestination(
+    int pageIndex,
+    PdfAnnotation annotation,
+    PdfExplicitDestination destination,
+  ) {
+    _setLinkAction(
+      pageIndex,
+      annotation,
+      CosDictionary({
+        'Type': const CosName('Action'),
+        'S': const CosName('GoTo'),
+        'D': destination.toCosArray(_linkPageReference(destination.pageIndex)),
+      }),
+    );
+  }
+
+  void _setLinkAction(
+    int pageIndex,
+    PdfAnnotation annotation,
+    CosDictionary action,
+  ) {
+    if (annotation.subtype != 'Link') {
+      throw ArgumentError.value(
+          annotation.subtype, 'annotation', 'is not a /Link annotation');
+    }
+    final dict = annotation.dict;
+    dict.entries.remove('Dest');
+    dict['A'] = action;
+    _markAnnotationChanged(pageIndex, dict, visual: false);
+  }
+
   /// Sets [annotation]'s author (/T, §12.5.6.2) in place; null or empty
   /// removes it. Refused for form widgets, where /T is the field's
   /// partial name, not an author.

@@ -463,6 +463,15 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Notitie hier toevoegen';
 
   @override
+  String get menuEditLink => 'Link bewerken…';
+
+  @override
+  String get menuRemoveLink => 'Link verwijderen';
+
+  @override
+  String get linkEditDialogTitle => 'Link bewerken';
+
+  @override
   String get menuSaveToStamps => 'Opslaan bij stempels';
 
   @override

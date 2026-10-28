@@ -7203,9 +7203,15 @@ class _PdfViewerState extends State<PdfViewer>
         // actions), not a Paste-only annotation menu (#1004).
         final onSelectedText =
             hit == null && _clickInTextSelection(details.localPosition);
-        // an annotation, or empty page area with something to paste,
-        // gets the annotation menu
+        // a link can't be selected (a click follows it), so a right-click
+        // on one is how it gets edited or removed
+        final link = hit == null && !onSelectedText && !takeover
+            ? editing.linkAnnotationAt(page, x, y)
+            : null;
+        // an annotation, a link, or empty page area with something to
+        // paste, gets the annotation menu
         if (hit != null ||
+            link != null ||
             (!onSelectedText &&
                 (editing.hasAnnotationClipboard ||
                     editing.hasSnapshotClipboard ||
@@ -7648,7 +7654,20 @@ class _PdfViewerState extends State<PdfViewer>
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
       onSelectAllText: () => _selectAllTextOn(pageIndex),
+      linkTarget: _linkTargetAt(editing, pageIndex, pagePoint),
     );
+  }
+
+  /// The /Link under [pagePoint] that the annotation menu offers Edit link
+  /// and Remove link for - only when no selectable annotation is there to
+  /// claim the press instead.
+  (int, int)? _linkTargetAt(PdfEditingController editing, int pageIndex,
+      (double, double)? pagePoint) {
+    if (pagePoint == null) return null;
+    final (x, y) = pagePoint;
+    if (editing.selectableAnnotationAt(pageIndex, x, y) != null) return null;
+    final link = editing.linkAnnotationAt(pageIndex, x, y);
+    return link == null ? null : (pageIndex, link.$1);
   }
 
   /// The form-field context menu, shared by right-click and the editing

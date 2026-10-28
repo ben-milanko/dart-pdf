@@ -464,6 +464,15 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Tambahkan catatan di sini';
 
   @override
+  String get menuEditLink => 'Edit tautan…';
+
+  @override
+  String get menuRemoveLink => 'Hapus tautan';
+
+  @override
+  String get linkEditDialogTitle => 'Edit tautan';
+
+  @override
   String get menuSaveToStamps => 'Simpan ke stempel';
 
   @override
