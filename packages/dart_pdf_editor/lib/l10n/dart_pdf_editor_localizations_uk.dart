@@ -469,6 +469,15 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Додати нотатку тут';
 
   @override
+  String get menuEditLink => 'Редагувати посилання…';
+
+  @override
+  String get menuRemoveLink => 'Видалити посилання';
+
+  @override
+  String get linkEditDialogTitle => 'Редагувати посилання';
+
+  @override
   String get menuSaveToStamps => 'Зберегти у штампи';
 
   @override

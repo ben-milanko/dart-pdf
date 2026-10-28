@@ -462,6 +462,15 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Buraya not ekle';
 
   @override
+  String get menuEditLink => 'Bağlantıyı düzenle…';
+
+  @override
+  String get menuRemoveLink => 'Bağlantıyı kaldır';
+
+  @override
+  String get linkEditDialogTitle => 'Bağlantıyı düzenle';
+
+  @override
   String get menuSaveToStamps => 'Damgalara kaydet';
 
   @override

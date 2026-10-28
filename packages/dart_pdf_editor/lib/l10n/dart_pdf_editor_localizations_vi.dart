@@ -463,6 +463,15 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
+  String get menuEditLink => 'Sửa liên kết…';
+
+  @override
+  String get menuRemoveLink => 'Xóa liên kết';
+
+  @override
+  String get linkEditDialogTitle => 'Sửa liên kết';
+
+  @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
 
   @override

@@ -3394,6 +3394,72 @@ class PdfEditingController extends ChangeNotifier {
     });
   }
 
+  /// The topmost editable /Link annotation under ([x], [y]) on [pageIndex],
+  /// with its /Annots slot - the hit test behind the context menu's "Edit
+  /// link" and "Remove link". Links aren't selectable (a click follows
+  /// them), so this is their way in. It tests /Rect, as the viewer's
+  /// click-to-follow does. Skips hidden links and ones
+  /// the host or the /F flags protect ([isAnnotationEditable]).
+  (int index, PdfLinkAnnotation)? linkAnnotationAt(
+    int pageIndex,
+    double x,
+    double y,
+  ) {
+    final annotations = _page(pageIndex).annotations;
+    for (var i = annotations.length - 1; i >= 0; i--) {
+      final annotation = annotations[i];
+      if (annotation is! PdfLinkAnnotation ||
+          annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
+          !isAnnotationEditable(annotation) ||
+          !annotation.rect.contains(x, y)) {
+        continue;
+      }
+      return (i, annotation);
+    }
+    return null;
+  }
+
+  /// The [PdfLinkTarget] the /Link in slot [index] of [pageIndex] points
+  /// at - what an Edit-link dialog pre-fills - or null when the slot isn't
+  /// a link, or its action is neither a /URI nor a /GoTo in this document
+  /// (a launch, a remote go-to, a named or script action).
+  PdfLinkTarget? linkTargetAt(int pageIndex, int index) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation is! PdfLinkAnnotation) return null;
+    return switch (annotation.action) {
+      PdfUriAction(:final uri) => PdfLinkTarget.uri(uri),
+      PdfGoToAction(:final destination) =>
+        PdfLinkTarget.page(destination.pageIndex),
+      _ => null,
+    };
+  }
+
+  /// Re-points the existing /Link in slot [index] of [pageIndex] at
+  /// [target], keeping its region and decoration - a link's appearance
+  /// doesn't depend on where it goes. Returns false (and changes nothing)
+  /// when the slot isn't an editable link.
+  bool editLink(int pageIndex, int index, PdfLinkTarget target) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation is! PdfLinkAnnotation || !isAnnotationEditable(annotation)) {
+      return false;
+    }
+    final uri = target.uri;
+    if (uri != null && uri.isEmpty) return false;
+    apply((e) {
+      if (uri != null) {
+        e.setLinkUri(pageIndex, annotation, uri);
+      } else {
+        e.setLinkDestination(
+            pageIndex,
+            annotation,
+            target.destination ??
+                PdfExplicitDestination.fit(target.page ?? pageIndex));
+      }
+    });
+    return true;
+  }
+
   /// Emits one link annotation for [target] over [quads]. When no
   /// decoration is specified a border and a link badge are drawn (so a bare
   /// box link is visible and recognisable); a negative colour clears that

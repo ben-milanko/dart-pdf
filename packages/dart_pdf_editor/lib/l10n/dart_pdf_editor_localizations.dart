@@ -960,6 +960,24 @@ abstract class DartPdfEditorLocalizations {
   /// **'Add note here'**
   String get menuAddNoteHere;
 
+  /// Page context-menu item (right-click or long-press on a hyperlink) that opens the link dialog to change where an existing link goes.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit link…'**
+  String get menuEditLink;
+
+  /// Page context-menu item (right-click or long-press on a hyperlink) that deletes the link annotation, leaving the page content beneath it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove link'**
+  String get menuRemoveLink;
+
+  /// Title of the link dialog when it re-targets an existing hyperlink.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit link'**
+  String get linkEditDialogTitle;
+
   /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
   ///
   /// In en, this message translates to:

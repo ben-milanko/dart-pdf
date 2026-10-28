@@ -464,6 +464,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
+  String get menuEditLink => 'دەستکاریکردنی بەستەر…';
+
+  @override
+  String get menuRemoveLink => 'لابردنی بەستەر';
+
+  @override
+  String get linkEditDialogTitle => 'دەستکاریکردنی بەستەر';
+
+  @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
 
   @override

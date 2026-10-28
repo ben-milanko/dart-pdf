@@ -469,6 +469,15 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Добавить заметку здесь';
 
   @override
+  String get menuEditLink => 'Изменить ссылку…';
+
+  @override
+  String get menuRemoveLink => 'Удалить ссылку';
+
+  @override
+  String get linkEditDialogTitle => 'Изменить ссылку';
+
+  @override
   String get menuSaveToStamps => 'Сохранить в штампы';
 
   @override

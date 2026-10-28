@@ -462,6 +462,15 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Add note here';
 
   @override
+  String get menuEditLink => 'Edit link…';
+
+  @override
+  String get menuRemoveLink => 'Remove link';
+
+  @override
+  String get linkEditDialogTitle => 'Edit link';
+
+  @override
   String get menuSaveToStamps => 'Save to stamps';
 
   @override
@@ -3052,6 +3061,15 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get menuAddNoteHere => 'Add note here';
 
   @override
+  String get menuEditLink => 'Edit link…';
+
+  @override
+  String get menuRemoveLink => 'Remove link';
+
+  @override
+  String get linkEditDialogTitle => 'Edit link';
+
+  @override
   String get menuSaveToStamps => 'Save to stamps';
 
   @override
@@ -5640,6 +5658,15 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get menuAddNoteHere => 'Add note here';
+
+  @override
+  String get menuEditLink => 'Edit link…';
+
+  @override
+  String get menuRemoveLink => 'Remove link';
+
+  @override
+  String get linkEditDialogTitle => 'Edit link';
 
   @override
   String get menuSaveToStamps => 'Save to stamps';

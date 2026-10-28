@@ -471,6 +471,15 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'إضافة ملاحظة هنا';
 
   @override
+  String get menuEditLink => 'تعديل الرابط…';
+
+  @override
+  String get menuRemoveLink => 'إزالة الرابط';
+
+  @override
+  String get linkEditDialogTitle => 'تعديل الرابط';
+
+  @override
   String get menuSaveToStamps => 'حفظ في الأختام';
 
   @override
