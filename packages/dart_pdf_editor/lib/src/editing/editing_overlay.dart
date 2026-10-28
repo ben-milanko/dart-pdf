@@ -1116,6 +1116,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // view rect stale, so the box would drift across the page - build
   // refreshes _textEditRect from this through the live geometry
   PdfRect? _textEditPageRect;
+
+  /// Set while Alt+Z commits the editor it is about to reopen on the
+  /// fitted box, so closing it keeps the keyboard on the field.
+  bool _textEditReopening = false;
   bool _textEditExisting = false;
   (int, int)? _textEditAnnotationSlot;
   PdfEditTool? _textEditTool;
@@ -4328,7 +4332,63 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         return KeyEventResult.handled;
       }
     }
+    // Alt+Z fits the box to its text while the caret is still in it - the
+    // viewer's own binding never sees the key once the field has focus
+    if (event is KeyDownEvent &&
+        _textEditRect != null &&
+        event.logicalKey == LogicalKeyboardKey.keyZ &&
+        HardwareKeyboard.instance.isAltPressed &&
+        !HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isMetaPressed &&
+        !HardwareKeyboard.instance.isShiftPressed) {
+      _autosizeTextEdit();
+      return KeyEventResult.handled;
+    }
     return KeyEventResult.ignored;
+  }
+
+  /// Alt+Z mid-edit: commits what was typed, fits the box to it
+  /// ([PdfEditingController.autosizeSelectedTextBox]) and reopens the editor
+  /// on the fitted box with the caret where it was, so typing carries on.
+  /// A fresh box with nothing typed yet has nothing to fit.
+  void _autosizeTextEdit() {
+    if (_textEditText.text.trim().isEmpty) return;
+    final selection = _textEditText.selection;
+    final existing = _textEditExisting;
+    final page = widget.pageIndex;
+    final countBefore = _controller.document.page(page).annotations.length;
+    // the editor reopens in this same handler, before any rebuild drops the
+    // field: keep the keyboard on it rather than handing it to the viewer,
+    // whose focus change would then commit and close the reopened editor
+    _textEditReopening = true;
+    try {
+      _commitTextEdit();
+    } finally {
+      _textEditReopening = false;
+    }
+    if (!existing) {
+      // a new box was just added as this page's last annotation
+      final annotations = _controller.document.page(page).annotations;
+      if (annotations.length <= countBefore ||
+          !_controller.selectAnnotation(page, annotations.length - 1)) {
+        return;
+      }
+    }
+    if (_controller.selectedAnnotationSlot?.$1 != page ||
+        _controller.selectedAnnotation?.subtype != 'FreeText') {
+      return;
+    }
+    _controller.autosizeSelectedTextBox();
+    final rect = _selectedViewRect;
+    if (rect == null) return;
+    _openTextEditor(rect, existing: true);
+    final length = _textEditText.text.length;
+    if (selection.isValid) {
+      _textEditText.selection = TextSelection(
+        baseOffset: math.min(selection.baseOffset, length),
+        extentOffset: math.min(selection.extentOffset, length),
+      );
+    }
   }
 
   void _closeTextEditor() {
@@ -4359,7 +4419,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // so a *second* Escape lands on its handler; fall back to a plain
     // unfocus in hosts that supply no hook. rect is already null, so the
     // focus-loss listener's commit is a no-op.
-    if (ownedFocus) {
+    if (ownedFocus && !_textEditReopening) {
       if (_host.textEditClosed != null) {
         _host.textEditClosed!();
       } else if (_textEditFocus.hasFocus) {
