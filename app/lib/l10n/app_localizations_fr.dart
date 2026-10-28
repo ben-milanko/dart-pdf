@@ -1443,4 +1443,39 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Impossible d’enregistrer ce changement. Réessayez ou choisissez « Pas maintenant ».';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Importer des données de formulaire ou des commentaires…';
+
+  @override
+  String get editorMenuExportFdf =>
+      'Exporter les données du formulaire en FDF…';
+
+  @override
+  String get editorMenuExportXfdf =>
+      'Exporter les données du formulaire en XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Exporter en XDP…';
+
+  @override
+  String get fileTypeFormData => 'Données de formulaire (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Paquets de formulaire XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Données de formulaire importées – champs : $fields, commentaires : $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Rien dans ce fichier ne correspond à ce document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Impossible d’importer $name : $error';
+  }
 }

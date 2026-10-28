@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Starter instellen",
   "launcherOfferLater": "Niet nu",
   "launcherOfferNever": "Niet meer tonen",
-  "launcherOfferError": "Deze wijziging kon niet worden opgeslagen. Probeer het opnieuw of kies Niet nu."
+  "launcherOfferError": "Deze wijziging kon niet worden opgeslagen. Probeer het opnieuw of kies Niet nu.",
+  "editorMenuImportFormData": "Formuliergegevens of opmerkingen importeren…",
+  "editorMenuExportFdf": "Formuliergegevens exporteren als FDF…",
+  "editorMenuExportXfdf": "Formuliergegevens exporteren als XFDF…",
+  "editorMenuExportXdp": "Exporteren als XDP…",
+  "fileTypeFormData": "Formuliergegevens (FDF, XFDF, XDP)",
+  "fileTypeXdp": "XDP-formulierpakketten",
+  "editorImportedFormData": "Formuliergegevens geïmporteerd – velden: {fields}, opmerkingen: {comments}",
+  "editorImportFormDataNothing": "Niets in dat bestand komt overeen met dit document",
+  "editorCouldNotImportFormData": "Kan {name} niet importeren: {error}"
 }

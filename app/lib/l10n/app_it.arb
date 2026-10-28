@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Configura collegamento",
   "launcherOfferLater": "Non ora",
   "launcherOfferNever": "Non mostrare più",
-  "launcherOfferError": "Impossibile salvare la modifica. Riprova o scegli «Non ora»."
+  "launcherOfferError": "Impossibile salvare la modifica. Riprova o scegli «Non ora».",
+  "editorMenuImportFormData": "Importa dati del modulo o commenti…",
+  "editorMenuExportFdf": "Esporta dati del modulo come FDF…",
+  "editorMenuExportXfdf": "Esporta dati del modulo come XFDF…",
+  "editorMenuExportXdp": "Esporta come XDP…",
+  "fileTypeFormData": "Dati del modulo (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Pacchetti di moduli XDP",
+  "editorImportedFormData": "Dati del modulo importati – campi: {fields}, commenti: {comments}",
+  "editorImportFormDataNothing": "Nulla in quel file corrisponde a questo documento",
+  "editorCouldNotImportFormData": "Impossibile importare {name}: {error}"
 }

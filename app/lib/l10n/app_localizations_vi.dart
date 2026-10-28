@@ -1424,4 +1424,36 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Không thể lưu thay đổi. Hãy thử lại hoặc chọn Để sau.';
+
+  @override
+  String get editorMenuImportFormData => 'Nhập dữ liệu biểu mẫu hoặc nhận xét…';
+
+  @override
+  String get editorMenuExportFdf => 'Xuất dữ liệu biểu mẫu dưới dạng FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Xuất dữ liệu biểu mẫu dưới dạng XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Xuất dưới dạng XDP…';
+
+  @override
+  String get fileTypeFormData => 'Dữ liệu biểu mẫu (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Gói biểu mẫu XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Đã nhập dữ liệu biểu mẫu - trường: $fields, nhận xét: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Không có gì trong tệp đó khớp với tài liệu này';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Không thể nhập $name: $error';
+  }
 }

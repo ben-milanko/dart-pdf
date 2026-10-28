@@ -366,5 +366,14 @@
   "launcherOfferRegister": "लॉन्चर सेट अप करें",
   "launcherOfferLater": "अभी नहीं",
   "launcherOfferNever": "फिर न दिखाएँ",
-  "launcherOfferError": "यह बदलाव सहेजा नहीं जा सका। फिर से कोशिश करें या «अभी नहीं» चुनें।"
+  "launcherOfferError": "यह बदलाव सहेजा नहीं जा सका। फिर से कोशिश करें या «अभी नहीं» चुनें।",
+  "editorMenuImportFormData": "फ़ॉर्म डेटा या टिप्पणियाँ आयात करें…",
+  "editorMenuExportFdf": "फ़ॉर्म डेटा को FDF के रूप में निर्यात करें…",
+  "editorMenuExportXfdf": "फ़ॉर्म डेटा को XFDF के रूप में निर्यात करें…",
+  "editorMenuExportXdp": "XDP के रूप में निर्यात करें…",
+  "fileTypeFormData": "फ़ॉर्म डेटा (FDF, XFDF, XDP)",
+  "fileTypeXdp": "XDP फ़ॉर्म पैकेज",
+  "editorImportedFormData": "फ़ॉर्म डेटा आयात किया गया - फ़ील्ड: {fields}, टिप्पणियाँ: {comments}",
+  "editorImportFormDataNothing": "उस फ़ाइल में कुछ भी इस दस्तावेज़ से मेल नहीं खाया",
+  "editorCouldNotImportFormData": "{name} आयात नहीं किया जा सका: {error}"
 }

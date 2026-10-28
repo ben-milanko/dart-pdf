@@ -366,5 +366,14 @@
   "launcherOfferRegister": "ランチャーを設定",
   "launcherOfferLater": "後で",
   "launcherOfferNever": "今後表示しない",
-  "launcherOfferError": "変更を保存できませんでした。再試行するか「後で」を選んでください。"
+  "launcherOfferError": "変更を保存できませんでした。再試行するか「後で」を選んでください。",
+  "editorMenuImportFormData": "フォームデータまたは注釈を読み込む…",
+  "editorMenuExportFdf": "フォームデータを FDF で書き出す…",
+  "editorMenuExportXfdf": "フォームデータを XFDF で書き出す…",
+  "editorMenuExportXdp": "XDP で書き出す…",
+  "fileTypeFormData": "フォームデータ (FDF、XFDF、XDP)",
+  "fileTypeXdp": "XDP フォームパッケージ",
+  "editorImportedFormData": "フォームデータを読み込みました - フィールド: {fields}、注釈: {comments}",
+  "editorImportFormDataNothing": "このファイルにはこの文書に一致するものがありません",
+  "editorCouldNotImportFormData": "{name} を読み込めませんでした: {error}"
 }

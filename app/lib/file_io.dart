@@ -5,6 +5,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:pdf_document/pdf_document.dart'
+    show PdfExchangeFormat, PdfXdpPackage, pdfSniffExchangeFormat;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -52,6 +54,51 @@ XTypeGroup stampBundleTypeGroup(String label) => XTypeGroup(
     );
 
 const _stampBundleFormat = 'dev.milanko.dartpdf.custom-stamps';
+
+/// Acrobat form-data and comment exchange files: FDF, XFDF and XDP (plus
+/// plain `.xml`, which is how some producers name XFDF/XDP). The contents are
+/// sniffed after the pick, so the extension list only narrows the dialog;
+/// Apple pickers match on `public.data` because these formats have no
+/// registered uniform type identifiers there.
+XTypeGroup formDataTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['fdf', 'xfdf', 'xdp', 'xml'],
+      mimeTypes: const [
+        'application/vnd.fdf',
+        'application/vnd.adobe.xfdf',
+        'application/vnd.adobe.xdp+xml',
+        'application/xml',
+        'text/xml',
+      ],
+      uniformTypeIdentifiers: const ['public.data'],
+    );
+
+/// XDP packages for the Open dialog, next to [pdfTypeGroup]. Left out on
+/// Apple platforms (see [openableTypeGroups]).
+XTypeGroup xdpTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['xdp'],
+      mimeTypes: const ['application/vnd.adobe.xdp+xml'],
+    );
+
+/// The Open dialog's filters: PDFs, plus XDP packages where the picker
+/// filters by extension or MIME type. macOS/iOS filter by uniform type
+/// identifier and XDP has none, so there an XDP comes in through "Import
+/// form data" or a drop instead.
+List<XTypeGroup> openableTypeGroups(String pdfLabel, String xdpLabel) => [
+      pdfTypeGroup(pdfLabel),
+      if (defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.iOS)
+        xdpTypeGroup(xdpLabel),
+    ];
+
+/// Picks an FDF/XFDF/XDP file and returns its name and bytes, or null when
+/// the dialog was cancelled.
+Future<(String, Uint8List)?> pickFormDataFile(String label) async {
+  final file = await openFile(acceptedTypeGroups: [formDataTypeGroup(label)]);
+  if (file == null) return null;
+  return (file.name, await file.readAsBytes());
+}
 
 /// A PDF the user picked to open, or null when the dialog was cancelled.
 class PickedPdf {
@@ -187,6 +234,31 @@ Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
 Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
     ? pickPdfFilesWeb()
     : openFiles(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
+
+/// [pickPdfFiles] for the Open action: PDFs, plus XDP packages where the
+/// platform picker can offer them ([openableTypeGroups]). An XDP opens as the
+/// PDF it embeds, with its data filled in - see [pdfFromXdpPackage].
+Future<List<XFile>> pickOpenableFiles(String pdfLabel, String xdpLabel) =>
+    kIsWeb
+        ? pickPdfFilesWeb()
+        : openFiles(acceptedTypeGroups: openableTypeGroups(pdfLabel, xdpLabel));
+
+/// When [bytes] are an XDP package, the PDF it embeds with the package's form
+/// data (and comments) applied - what opening the `.xdp` in Acrobat shows.
+/// Null when [bytes] are anything else. Throws [StateError] for a package that
+/// only references its PDF, and [FormatException] for a malformed one.
+Uint8List? pdfFromXdpPackage(Uint8List bytes) {
+  if (pdfSniffExchangeFormat(bytes) != PdfExchangeFormat.xdp) return null;
+  return PdfXdpPackage.parse(bytes).toPdf();
+}
+
+/// The tab title for a PDF opened out of an XDP package: `form.xdp` reads
+/// `form.pdf`, so a later Save As suggests a PDF name.
+String pdfTitleForXdp(String name) {
+  final dot = name.lastIndexOf('.');
+  final stem = dot > 0 ? name.substring(0, dot) : name;
+  return '$stem.pdf';
+}
 
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read - callers surface that.
@@ -641,6 +713,56 @@ Future<SaveResult> saveJsonAs(
       );
       if (location == null) return SaveResult.cancelled;
       final path = ensureJsonExtension(location.path);
+      try {
+        await file.saveTo(path);
+        return SaveResult.saved(path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// Save-as for an exported FDF/XFDF/XDP file ([bytes], typed [mimeType]),
+/// using the same platform behaviour as [saveBytesAs]: a save dialog on
+/// desktop, a browser download on the web, the share sheet on phones. [name]
+/// is the suggested filename, extension included; the desktop dialog's path
+/// gets [extension] back when the user cleared it.
+Future<SaveResult> saveFormDataAs(
+  BuildContext context,
+  Uint8List bytes,
+  String name,
+  String mimeType, {
+  required String extension,
+  required String typeLabel,
+}) async {
+  final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        title: name,
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: [formDataTypeGroup(typeLabel)],
+      );
+      if (location == null) return SaveResult.cancelled;
+      final path = location.path.toLowerCase().endsWith('.$extension')
+          ? location.path
+          : '${location.path}.$extension';
       try {
         await file.saveTo(path);
         return SaveResult.saved(path);

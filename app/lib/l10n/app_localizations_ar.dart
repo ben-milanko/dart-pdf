@@ -1443,4 +1443,36 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'تعذّر حفظ هذا التغيير. حاول مجددًا أو اختر «ليس الآن».';
+
+  @override
+  String get editorMenuImportFormData => 'استيراد بيانات النموذج أو التعليقات…';
+
+  @override
+  String get editorMenuExportFdf => 'تصدير بيانات النموذج بتنسيق FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'تصدير بيانات النموذج بتنسيق XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'تصدير بتنسيق XDP…';
+
+  @override
+  String get fileTypeFormData => 'بيانات النموذج (FDF وXFDF وXDP)';
+
+  @override
+  String get fileTypeXdp => 'حزم نماذج XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'تم استيراد بيانات النموذج - الحقول: $fields، التعليقات: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'لا شيء في هذا الملف يطابق هذا المستند';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'تعذّر استيراد $name: $error';
+  }
 }

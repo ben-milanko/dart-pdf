@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Configurar atalho",
   "launcherOfferLater": "Agora não",
   "launcherOfferNever": "Não mostrar novamente",
-  "launcherOfferError": "Não foi possível salvar a alteração. Tente novamente ou escolha “Agora não”."
+  "launcherOfferError": "Não foi possível salvar a alteração. Tente novamente ou escolha “Agora não”.",
+  "editorMenuImportFormData": "Importar dados de formulário ou comentários…",
+  "editorMenuExportFdf": "Exportar dados de formulário como FDF…",
+  "editorMenuExportXfdf": "Exportar dados de formulário como XFDF…",
+  "editorMenuExportXdp": "Exportar como XDP…",
+  "fileTypeFormData": "Dados de formulário (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Pacotes de formulário XDP",
+  "editorImportedFormData": "Dados de formulário importados – campos: {fields}, comentários: {comments}",
+  "editorImportFormDataNothing": "Nada nesse arquivo corresponde a este documento",
+  "editorCouldNotImportFormData": "Não foi possível importar {name}: {error}"
 }

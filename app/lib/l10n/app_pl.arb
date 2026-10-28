@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Utwórz skrót",
   "launcherOfferLater": "Nie teraz",
   "launcherOfferNever": "Nie pokazuj ponownie",
-  "launcherOfferError": "Nie udało się zapisać zmiany. Spróbuj ponownie lub wybierz „Nie teraz”."
+  "launcherOfferError": "Nie udało się zapisać zmiany. Spróbuj ponownie lub wybierz „Nie teraz”.",
+  "editorMenuImportFormData": "Importuj dane formularza lub komentarze…",
+  "editorMenuExportFdf": "Eksportuj dane formularza jako FDF…",
+  "editorMenuExportXfdf": "Eksportuj dane formularza jako XFDF…",
+  "editorMenuExportXdp": "Eksportuj jako XDP…",
+  "fileTypeFormData": "Dane formularza (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Pakiety formularzy XDP",
+  "editorImportedFormData": "Zaimportowano dane formularza – pola: {fields}, komentarze: {comments}",
+  "editorImportFormDataNothing": "Nic w tym pliku nie pasuje do tego dokumentu",
+  "editorCouldNotImportFormData": "Nie udało się zaimportować {name}: {error}"
 }

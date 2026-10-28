@@ -132,6 +132,11 @@ has to happen on the page. See
 doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
+Acrobat data exchange is in: `PdfFormData` (FDF/XFDF fields + comments,
+`form_data_exchange.dart` + `fdf_codec.dart`/`xfdf_codec.dart`) and
+`PdfXdpPackage` (`xdp_codec.dart`); comments upsert by /NM and get
+generated appearances when the file has none. See
+doc/dev-log/2026-10-28-fdf-xfdf-xdp-exchange.md.
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
 the page tree (materializing inherited attributes), `appendPagesFrom`
 deep-copies pages across documents, `extractPages` splits into a fresh

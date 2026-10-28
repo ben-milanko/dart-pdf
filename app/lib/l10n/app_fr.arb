@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Configurer le lanceur",
   "launcherOfferLater": "Pas maintenant",
   "launcherOfferNever": "Ne plus afficher",
-  "launcherOfferError": "Impossible d’enregistrer ce changement. Réessayez ou choisissez « Pas maintenant »."
+  "launcherOfferError": "Impossible d’enregistrer ce changement. Réessayez ou choisissez « Pas maintenant ».",
+  "editorMenuImportFormData": "Importer des données de formulaire ou des commentaires…",
+  "editorMenuExportFdf": "Exporter les données du formulaire en FDF…",
+  "editorMenuExportXfdf": "Exporter les données du formulaire en XFDF…",
+  "editorMenuExportXdp": "Exporter en XDP…",
+  "fileTypeFormData": "Données de formulaire (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Paquets de formulaire XDP",
+  "editorImportedFormData": "Données de formulaire importées – champs : {fields}, commentaires : {comments}",
+  "editorImportFormDataNothing": "Rien dans ce fichier ne correspond à ce document",
+  "editorCouldNotImportFormData": "Impossible d’importer {name} : {error}"
 }

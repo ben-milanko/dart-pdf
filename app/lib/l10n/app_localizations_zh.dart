@@ -1380,6 +1380,37 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get launcherOfferError => '无法保存此更改。请重试或选择“暂不”。';
+
+  @override
+  String get editorMenuImportFormData => '导入表单数据或注释…';
+
+  @override
+  String get editorMenuExportFdf => '将表单数据导出为 FDF…';
+
+  @override
+  String get editorMenuExportXfdf => '将表单数据导出为 XFDF…';
+
+  @override
+  String get editorMenuExportXdp => '导出为 XDP…';
+
+  @override
+  String get fileTypeFormData => '表单数据（FDF、XFDF、XDP）';
+
+  @override
+  String get fileTypeXdp => 'XDP 表单包';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '已导入表单数据 - 字段：$fields，注释：$comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '该文件中没有与此文档匹配的内容';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '无法导入 $name：$error';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2759,4 +2790,35 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get launcherOfferError => '無法儲存此變更。請重試或選擇「稍後再說」。';
+
+  @override
+  String get editorMenuImportFormData => '匯入表單資料或註解…';
+
+  @override
+  String get editorMenuExportFdf => '將表單資料匯出為 FDF…';
+
+  @override
+  String get editorMenuExportXfdf => '將表單資料匯出為 XFDF…';
+
+  @override
+  String get editorMenuExportXdp => '匯出為 XDP…';
+
+  @override
+  String get fileTypeFormData => '表單資料（FDF、XFDF、XDP）';
+
+  @override
+  String get fileTypeXdp => 'XDP 表單套件';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '已匯入表單資料 - 欄位：$fields，註解：$comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '該檔案中沒有與此文件相符的內容';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '無法匯入 $name：$error';
+  }
 }

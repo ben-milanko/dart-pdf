@@ -1438,4 +1438,36 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Impossibile salvare la modifica. Riprova o scegli «Non ora».';
+
+  @override
+  String get editorMenuImportFormData => 'Importa dati del modulo o commenti…';
+
+  @override
+  String get editorMenuExportFdf => 'Esporta dati del modulo come FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Esporta dati del modulo come XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Esporta come XDP…';
+
+  @override
+  String get fileTypeFormData => 'Dati del modulo (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Pacchetti di moduli XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Dati del modulo importati – campi: $fields, commenti: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nulla in quel file corrisponde a questo documento';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Impossibile importare $name: $error';
+  }
 }

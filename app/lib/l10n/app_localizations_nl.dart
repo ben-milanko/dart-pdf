@@ -1436,4 +1436,37 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Deze wijziging kon niet worden opgeslagen. Probeer het opnieuw of kies Niet nu.';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Formuliergegevens of opmerkingen importeren…';
+
+  @override
+  String get editorMenuExportFdf => 'Formuliergegevens exporteren als FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Formuliergegevens exporteren als XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Exporteren als XDP…';
+
+  @override
+  String get fileTypeFormData => 'Formuliergegevens (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP-formulierpakketten';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Formuliergegevens geïmporteerd – velden: $fields, opmerkingen: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Niets in dat bestand komt overeen met dit document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Kan $name niet importeren: $error';
+  }
 }

@@ -366,5 +366,14 @@
   "launcherOfferRegister": "Thiết lập trình khởi chạy",
   "launcherOfferLater": "Để sau",
   "launcherOfferNever": "Không hiện lại",
-  "launcherOfferError": "Không thể lưu thay đổi. Hãy thử lại hoặc chọn Để sau."
+  "launcherOfferError": "Không thể lưu thay đổi. Hãy thử lại hoặc chọn Để sau.",
+  "editorMenuImportFormData": "Nhập dữ liệu biểu mẫu hoặc nhận xét…",
+  "editorMenuExportFdf": "Xuất dữ liệu biểu mẫu dưới dạng FDF…",
+  "editorMenuExportXfdf": "Xuất dữ liệu biểu mẫu dưới dạng XFDF…",
+  "editorMenuExportXdp": "Xuất dưới dạng XDP…",
+  "fileTypeFormData": "Dữ liệu biểu mẫu (FDF, XFDF, XDP)",
+  "fileTypeXdp": "Gói biểu mẫu XDP",
+  "editorImportedFormData": "Đã nhập dữ liệu biểu mẫu - trường: {fields}, nhận xét: {comments}",
+  "editorImportFormDataNothing": "Không có gì trong tệp đó khớp với tài liệu này",
+  "editorCouldNotImportFormData": "Không thể nhập {name}: {error}"
 }

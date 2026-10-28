@@ -366,5 +366,14 @@
   "launcherOfferRegister": "設定啟動器",
   "launcherOfferLater": "稍後再說",
   "launcherOfferNever": "不再顯示",
-  "launcherOfferError": "無法儲存此變更。請重試或選擇「稍後再說」。"
+  "launcherOfferError": "無法儲存此變更。請重試或選擇「稍後再說」。",
+  "editorMenuImportFormData": "匯入表單資料或註解…",
+  "editorMenuExportFdf": "將表單資料匯出為 FDF…",
+  "editorMenuExportXfdf": "將表單資料匯出為 XFDF…",
+  "editorMenuExportXdp": "匯出為 XDP…",
+  "fileTypeFormData": "表單資料（FDF、XFDF、XDP）",
+  "fileTypeXdp": "XDP 表單套件",
+  "editorImportedFormData": "已匯入表單資料 - 欄位：{fields}，註解：{comments}",
+  "editorImportFormDataNothing": "該檔案中沒有與此文件相符的內容",
+  "editorCouldNotImportFormData": "無法匯入 {name}：{error}"
 }
