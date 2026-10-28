@@ -369,6 +369,17 @@ and the `read` ones (`read-text`) for page-to-page navigation. The two are
 gated by different things; `read` alone hid the scrolling problem entirely.
 See doc/dev-log/2026-08-19-motion-safe-renders.md and
 doc/dev-log/2026-08-19-motion-lane-image-budget.md.
+Live annotation sync through a shared folder is in, experimental and desktop
+only. In the app it is **Start live sync (experimental)** in the app menu
+(`app/lib/live_sync.dart`). Each open session writes only its own immutable
+op files (plus a presence file carrying its name) into a hidden
+`.<file>.dartpdf-sync` folder beside the PDF (`PdfSharedFolderSyncTransport`
+over a `PdfSyncStore`), so OneDrive/Drive/iCloud/Dropbox never see two writers.
+`PdfEditingSync` merges last-writer-wins per /NM (`PdfSyncClock`) into the
+controller and holds `pageStructureLocked` while it runs. One live peer, the
+lowest writer id, folds the merged state back into the PDF. See
+doc/dev-log/2026-10-28-shared-folder-live-sync.md and
+doc/dev-log/2026-10-28-live-sync-app.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a

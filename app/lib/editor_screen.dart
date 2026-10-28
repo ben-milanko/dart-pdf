@@ -34,6 +34,9 @@ import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
+import 'live_sync.dart';
+import 'live_sync_chip.dart';
+import 'live_sync_store.dart';
 import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
@@ -161,6 +164,7 @@ class EditorScreen extends StatefulWidget {
     this.recentThumbnails,
     this.ocr,
     this.autoOcr,
+    this.liveSyncBackend,
   });
 
   final PdfEditingPreferences prefs;
@@ -310,6 +314,11 @@ class EditorScreen extends StatefulWidget {
   /// The "Automatically OCR scans" choice. Null uses the app-wide
   /// [AutoOcrSetting.instance]; tests inject their own.
   final AutoOcrSetting? autoOcr;
+
+  /// Where live sync reaches the folder beside a PDF; null uses the
+  /// platform's (`platformLiveSyncBackend` - desktop file system, none on
+  /// web and phones). Tests inject an in-memory one.
+  final LiveSyncBackend? liveSyncBackend;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -3187,6 +3196,16 @@ class _EditorScreenState extends State<EditorScreen>
     tab.session?.finishInk();
     final session = tab.session;
     if (session == null) return;
+    // While live-syncing, the shared folder is the save: changes go out now
+    // and the writer folds them into the PDF (live_sync.dart).
+    if (tab.liveSync case final liveSync? when !saveAs) {
+      await liveSync.saveNow();
+      if (!mounted) return;
+      setState(tab.markSaved);
+      unawaited(_autosave.noteSaved(tab));
+      _toast(appL10n(context).liveSyncSaved);
+      return;
+    }
     // the file on disk may carry the page colour; the session never does,
     // so the next save bakes over the same base again
     final bytes = _withBakedPageColor(session.bytes, source: session.document);
@@ -3388,6 +3407,107 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   // --- printing ------------------------------------------------------------
+
+  LiveSyncBackend? get _liveSyncBackend =>
+      widget.liveSyncBackend ?? platformLiveSyncBackend;
+
+  /// The name the others see this session as: the annotation author name
+  /// when one is set, else this device's name.
+  String _liveSyncName(LiveSyncBackend backend) {
+    final author = _prefs.author?.trim();
+    return author == null || author.isEmpty ? backend.deviceName : author;
+  }
+
+  /// Turns live sync on or off for [tab]: annotations sync with everyone who
+  /// has the same PDF open from the same shared folder (see live_sync.dart).
+  Future<void> _toggleLiveSync(DocumentTab tab) async {
+    final l = appL10n(context);
+    if (tab.liveSync != null) {
+      await _stopLiveSync(tab);
+      if (mounted) _toast(l.liveSyncStopped);
+      return;
+    }
+    final backend = _liveSyncBackend;
+    final path = tab.originPath;
+    final controller = tab.session;
+    final store = backend == null || path == null || controller == null
+        ? null
+        : backend.storeFor(path);
+    if (backend == null ||
+        store == null ||
+        path == null ||
+        controller == null) {
+      _toast(l.liveSyncUnavailable, duration: const Duration(seconds: 5));
+      return;
+    }
+    if (!await backend.requestFolderAccess(path)) {
+      if (mounted) {
+        _toast(l.liveSyncFolderAccessDenied,
+            duration: const Duration(seconds: 5));
+      }
+      return;
+    }
+    if (!mounted || tab.liveSync != null) return;
+    // Edits made before joining would never reach the others: put them in
+    // the file first, where everyone starts from.
+    if (tab.isDirty) {
+      await _save(tab);
+      if (!mounted || tab.isDirty || tab.liveSync != null) return;
+    }
+    final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
+    final session = LiveSyncSession(
+      controller: controller,
+      store: store,
+      name: _liveSyncName(backend),
+      device: backend.deviceName,
+      writtenLength: controller.bytes.length,
+      writePdf: (bytes) async {
+        final result =
+            await saveToPath(bytes, path, bookmark: tab.originBookmark);
+        return result.succeeded;
+      },
+    );
+    controller.onPageStructureLocked = () {
+      if (mounted) {
+        _toast(appL10n(context).liveSyncPageEditsLocked,
+            duration: const Duration(seconds: 4));
+      }
+    };
+    session.addListener(() => _onLiveSyncChanged(tab, session));
+    session.peerChanges.listen((change) {
+      if (!mounted || !identical(_active, tab)) return;
+      final l = appL10n(context);
+      _toast(change.joined
+          ? l.liveSyncJoined(change.peer.name)
+          : l.liveSyncLeft(change.peer.name));
+    });
+    setState(() => tab.liveSync = session);
+    _toast(l.liveSyncStarted, duration: const Duration(seconds: 5));
+    await session.start();
+  }
+
+  /// Keeps [tab]'s unsaved state honest while it syncs: once the shared
+  /// folder holds every change there is nothing left to lose - the writer
+  /// folds them into the PDF and a reopen replays them.
+  void _onLiveSyncChanged(DocumentTab tab, LiveSyncSession session) {
+    if (!mounted || !identical(tab.liveSync, session)) return;
+    if (session.status == LiveSyncStatus.live &&
+        session.isFlushed &&
+        tab.isDirty &&
+        !(tab.session?.hasPendingInk ?? false)) {
+      setState(tab.markSaved);
+      unawaited(_autosave.noteSaved(tab));
+    }
+  }
+
+  Future<void> _stopLiveSync(DocumentTab tab) async {
+    final session = tab.liveSync;
+    if (session == null) return;
+    setState(() => tab.liveSync = null);
+    tab.session?.onPageStructureLocked = null;
+    await session.close();
+    session.dispose();
+  }
 
   Future<void> _reduceFileSize(DocumentTab tab) async {
     final session = tab.session;
@@ -4027,6 +4147,21 @@ class _EditorScreenState extends State<EditorScreen>
           if (tab != null) unawaited(_reduceFileSize(tab));
         },
       ),
+      if (_liveSyncBackend != null)
+        _MenuAction(
+          id: 'live-sync',
+          requiresDocument: true,
+          hiddenWhenReadOnly: true,
+          sheet: _SheetPlacement.moreTools,
+          icon: _active?.liveSync == null ? Icons.sync : Icons.sync_disabled,
+          title: _active?.liveSync == null
+              ? l.liveSyncMenuStart
+              : l.liveSyncMenuStop,
+          run: () {
+            final tab = _active;
+            if (tab != null) unawaited(_toggleLiveSync(tab));
+          },
+        ),
       _MenuAction(
         id: 'print',
         requiresDocument: true,
@@ -4867,6 +5002,12 @@ class _EditorScreenState extends State<EditorScreen>
                     _toast(appL10n(context).editorCopiedToClipboard);
                   },
                 ),
+        ),
+      if (tab?.liveSync case final liveSync?)
+        LiveSyncChip(
+          session: liveSync,
+          selfName: liveSync.name,
+          onStop: () => unawaited(_toggleLiveSync(tab!)),
         ),
       if (compact && _tabs.isNotEmpty) _buildMobileTabsButton(),
     ];

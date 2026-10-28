@@ -41,10 +41,11 @@ Tests are in `dart_pdf_editor/test/editing_sync_session_test.dart`:
 
 ## Still the host's job, documented on the class
 
-- Lock page insert/remove/reorder while a session is live. Changes carry page
-  indices, so a structural edit on one device puts every other device's
-  annotations on the wrong pages. Content, form and signing edits aren't
-  synced at all.
+- Page insert/remove/reorder: changes carry page indices, so a structural
+  edit on one device would put every other device's annotations on the wrong
+  pages. (Update, same PR: `PdfEditingSync` now sets the controller's new
+  `pageStructureLocked` for its lifetime; see `2026-10-28-live-sync-app.md`.)
+  Content, form and signing edits aren't synced at all.
 - Every participant must start from bytes in which every annotation already
   has its /NM. Only the first participant may run `ensureAnnotationNames`,
   and must share the named bytes before anyone joins.

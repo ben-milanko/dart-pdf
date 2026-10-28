@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:pdf_document/pdf_document.dart';
 
@@ -20,9 +21,11 @@ import 'editing_controller.dart';
 /// Experimental scope, which the host is responsible for:
 ///
 /// - **Annotations and comment threads only.** Changes carry a page index,
-///   so page insert/remove/reorder on one device puts the other devices'
-///   annotations on the wrong pages; disable those tools (and content,
-///   form and signing edits, which are not synced) while a session is live.
+///   so page insert/remove/reorder on one device would put the other
+///   devices' annotations on the wrong pages: the sync turns on
+///   [PdfEditingController.pageStructureLocked] while it runs (wire
+///   [PdfEditingController.onPageStructureLocked] to tell the user). Content,
+///   form and signing edits are not synced at all.
 /// - **Identity.** Every participant must start from bytes in which every
 ///   annotation already has its /NM. Only the first participant may run
 ///   [PdfEditingController.ensureAnnotationNames], and it must share the
@@ -35,7 +38,9 @@ import 'editing_controller.dart';
 ///   older ones.
 class PdfEditingSync {
   PdfEditingSync({required this.controller, required this.transport})
-      : _clock = PdfSyncClock(transport.sessionId) {
+      : _clock = PdfSyncClock(transport.sessionId),
+        _wasPageStructureLocked = controller.pageStructureLocked {
+    controller.pageStructureLocked = true;
     _incoming = transport.incoming.listen(_onRemote);
     _outgoing = controller.annotationChanges.listen(_onLocal);
   }
@@ -48,6 +53,7 @@ class PdfEditingSync {
   final PdfSyncTransport transport;
 
   final PdfSyncClock _clock;
+  final bool _wasPageStructureLocked;
   late final StreamSubscription<PdfSyncMessage> _incoming;
   late final StreamSubscription<List<PdfAnnotationChange>> _outgoing;
   final StreamController<List<PdfAnnotationChange>> _remoteChanges =
@@ -77,9 +83,26 @@ class PdfEditingSync {
   void _onRemote(PdfSyncMessage message) {
     if (_disposed) return;
     if (!_clock.accept(message)) return;
+    if (_alreadyHolds(message.change)) return;
     if (controller.applyRemoteChange(message.change)) {
       _remoteChanges.add([message.change]);
     }
+  }
+
+  /// Whether the document already holds [change]'s exact annotation - the
+  /// common case when a reopened document replays a log it was saved from.
+  /// Skipping it saves a revision (and an undo checkpoint) per replayed op.
+  bool _alreadyHolds(PdfAnnotationChange change) {
+    final snapshot = change.snapshot;
+    final name = change.name;
+    if (snapshot == null || name == null) return false;
+    final found = controller.findAnnotationByName(name);
+    if (found == null || found.$1 != change.pageIndex) return false;
+    final page = controller.document.page(found.$1);
+    final held = PdfAnnotationSnapshot.capture(controller.document, found.$2,
+        keepName: true, sourcePageRotation: page.rotation);
+    return held != null &&
+        jsonEncode(held.toJson()) == jsonEncode(snapshot.toJson());
   }
 
   /// Stops syncing: local edits are no longer sent and remote ones no
@@ -87,6 +110,7 @@ class PdfEditingSync {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    controller.pageStructureLocked = _wasPageStructureLocked;
     await _outgoing.cancel();
     await _incoming.cancel();
     await _remoteChanges.close();

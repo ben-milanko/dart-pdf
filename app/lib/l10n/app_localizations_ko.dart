@@ -1410,4 +1410,83 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get launcherOfferError => '변경 사항을 저장하지 못했습니다. 다시 시도하거나 나중에를 선택하세요.';
+
+  @override
+  String get liveSyncMenuStart => '실시간 동기화 시작(실험적 기능)';
+
+  @override
+  String get liveSyncMenuStop => '실시간 동기화 중지';
+
+  @override
+  String get liveSyncUnavailable =>
+      '실시간 동기화를 사용하려면 PDF가 이 컴퓨터의 폴더(예: OneDrive, Google Drive, iCloud, Dropbox 폴더)에 저장되어 있어야 합니다.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      '실시간 동기화를 사용하려면 이 PDF가 있는 폴더에 대한 접근 권한이 필요합니다.';
+
+  @override
+  String get liveSyncStarted =>
+      '실시간 동기화가 켜져 있습니다. 같은 공유 폴더에서 이 PDF를 열고 실시간 동기화를 켠 사람은 내 주석을 볼 수 있습니다.';
+
+  @override
+  String get liveSyncStopped => '실시간 동기화가 꺼져 있습니다.';
+
+  @override
+  String get liveSyncConnecting => '연결 중…';
+
+  @override
+  String get liveSyncLive => '실시간';
+
+  @override
+  String get liveSyncOffline => '오프라인';
+
+  @override
+  String get liveSyncOfflineDetail => '동기화 폴더에 연결할 수 없습니다. 다시 시도하는 중…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name 님이 참여했습니다';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name 님이 나갔습니다';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      '실시간 동기화 중에는 페이지 추가, 삭제, 순서 변경을 할 수 없습니다.';
+
+  @override
+  String get liveSyncSaved => '변경 사항이 동기화되었습니다. 공유 PDF는 자동으로 업데이트됩니다.';
+
+  @override
+  String get liveSyncDetailsTitle => '실시간 동기화(실험적 기능)';
+
+  @override
+  String get liveSyncNobodyElse => '아직 이 PDF를 연 다른 사람이 없습니다.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name(나)';
+  }
+
+  @override
+  String get liveSyncWritesPdf => '이 기기가 모든 사람의 변경 사항을 공유 PDF에 기록합니다.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      '다른 사람의 기기가 모든 사람의 변경 사항을 공유 PDF에 기록합니다.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '나와 다른 $count명',
+      zero: '나만',
+    );
+    return '$_temp0';
+  }
 }

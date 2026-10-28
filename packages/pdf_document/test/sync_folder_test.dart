@@ -193,6 +193,40 @@ void main() {
     ta.close();
   });
 
+  test('peers publish who they are through their presence files', () async {
+    final store = PdfMemorySyncStore();
+    final ta = PdfSharedFolderSyncTransport(
+        store: store,
+        sessionId: 'a',
+        presenceInfo: const {'name': 'Alice', 'device': 'laptop'});
+    final tb = PdfSharedFolderSyncTransport(
+        store: store, sessionId: 'b', presenceInfo: const {'name': 'Bob'});
+    addTearDown(ta.close);
+    addTearDown(tb.close);
+
+    await ta.poll();
+    await tb.poll();
+    await ta.poll();
+    expect(ta.peerInfo, {
+      'b': {'name': 'Bob'},
+    });
+    expect(tb.peerInfo, {
+      'a': {'name': 'Alice', 'device': 'laptop'},
+    });
+  });
+
+  test('background poll failures are reported, not thrown', () async {
+    final store = _FlakyStore();
+    final ta = folder(store, 'a');
+    addTearDown(ta.close);
+    final errors = <Object>[];
+    ta.errors.listen(errors.add);
+    await ta.startPolling(const Duration(milliseconds: 5));
+    store.failLists = true;
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(errors, isNotEmpty);
+  });
+
   test('a failed write keeps the batch pending for the next flush', () async {
     final store = _FlakyStore();
     final ta = folder(store, 'a');
@@ -211,6 +245,13 @@ void main() {
 
 class _FlakyStore extends PdfMemorySyncStore {
   bool failNext = false;
+  bool failLists = false;
+
+  @override
+  Future<List<PdfSyncStoreEntry>> list() {
+    if (failLists) throw StateError('offline');
+    return super.list();
+  }
 
   @override
   Future<void> write(String name, Uint8List bytes) {

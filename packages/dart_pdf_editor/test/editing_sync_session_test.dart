@@ -19,6 +19,14 @@ Uint8List seeded() => (PdfEditor(PdfDocument.open(buildClassicPdf()))
           strokeColor: 0x000000, name: 'shared-1'))
     .save();
 
+/// [pages] blank pages, the first carrying the named square of [seeded].
+Uint8List seededPages(int pages) {
+  final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(pages)))
+    ..addSquare(0, const PdfRect(100, 600, 200, 680),
+        strokeColor: 0x000000, name: 'shared-1');
+  return editor.save();
+}
+
 /// /NM -> snapshot JSON for every named annotation: equal digests mean the
 /// two documents hold the same annotations.
 Map<String, String> digest(PdfEditingController editing) => {
@@ -170,6 +178,70 @@ void main() {
       expect(digest(b), hasLength(2));
       expect(digest(a), isNot(digest(b)));
     });
+  });
+
+  group('page-structure lock', () {
+    test('a sync locks page edits for its lifetime and says so', () async {
+      final hub = PdfLoopbackSyncHub();
+      final a = controller(seededPages(3));
+      var refusals = 0;
+      a.onPageStructureLocked = () => refusals++;
+
+      final s = PdfEditingSync(controller: a, transport: hub.connect('a'));
+      expect(a.pageStructureLocked, isTrue);
+      final before = a.bytes.length;
+      a.removePage(1);
+      a.addBlankPage();
+      a.movePage(0, 2);
+      expect(a.document.pageCount, 3);
+      expect(a.bytes.length, before, reason: 'nothing was committed');
+      expect(refusals, 3);
+
+      // annotations still work, and the document reads back unharmed
+      a.addRectangle(2, const PdfRect(300, 300, 360, 360));
+      expect(a.document.page(2).annotations, hasLength(1));
+
+      await s.dispose();
+      expect(a.pageStructureLocked, isFalse);
+      a.removePage(1);
+      expect(a.document.pageCount, 2);
+    });
+
+    test('undo and redo do not cross a page edit while locked', () {
+      final a = controller(seededPages(3));
+      var refusals = 0;
+      a.onPageStructureLocked = () => refusals++;
+      a.removePage(2);
+      expect(a.document.pageCount, 2);
+
+      a.pageStructureLocked = true;
+      a.undo();
+      expect(a.document.pageCount, 2);
+      expect(refusals, 1);
+
+      a.pageStructureLocked = false;
+      a.undo();
+      expect(a.document.pageCount, 3);
+      a.pageStructureLocked = true;
+      a.redo();
+      expect(a.document.pageCount, 3);
+      expect(refusals, 2);
+    });
+  });
+
+  test('replaying a change the document already holds adds no revision',
+      () async {
+    final hub = PdfLoopbackSyncHub();
+    final base = seeded();
+    final a = controller(base);
+    sync(a, hub.connect('a'));
+    final b = hub.connect('b');
+    final held = a.annotationBaseline().single;
+
+    final before = a.bytes.length;
+    b.send(PdfSyncMessage(change: held, origin: 'b', clock: 5));
+    await pumpEventQueue();
+    expect(a.bytes.length, before);
   });
 
   group('shared folder', () {

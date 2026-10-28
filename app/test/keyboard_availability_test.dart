@@ -126,8 +126,9 @@ void main() {
         find.byKey(const ValueKey('command-palette-field')), 'print');
     await tester.pumpAndSettle();
     expect(find.text('Ctrl+P'), findsNothing);
-    // A disabled command still explains why it is unavailable.
-    expect(find.text('Needs an open document'), findsOneWidget);
+    // A disabled command still explains why it is unavailable. (The fuzzy
+    // match also finds "Start live sync (ex-p-e-r-i-me-n-t-al)" on desktop.)
+    expect(find.text('Needs an open document'), findsWidgets);
     await notify(tester, true);
     expect(find.textContaining('↑'), findsOneWidget);
     await notify(tester, false);

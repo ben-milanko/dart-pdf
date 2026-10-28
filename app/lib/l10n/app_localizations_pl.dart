@@ -1487,4 +1487,91 @@ class AppLocalizationsPl extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Nie udało się zapisać zmiany. Spróbuj ponownie lub wybierz „Nie teraz”.';
+
+  @override
+  String get liveSyncMenuStart =>
+      'Rozpocznij synchronizację na żywo (eksperymentalne)';
+
+  @override
+  String get liveSyncMenuStop => 'Zatrzymaj synchronizację na żywo';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Synchronizacja na żywo wymaga pliku PDF zapisanego w folderze na tym komputerze, np. w folderze OneDrive, Google Drive, iCloud lub Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Synchronizacja na żywo wymaga dostępu do folderu z tym plikiem PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Synchronizacja na żywo jest włączona. Każdy, kto otworzy ten PDF z tego samego folderu udostępnionego i włączy synchronizację na żywo, zobaczy Twoje adnotacje.';
+
+  @override
+  String get liveSyncStopped => 'Synchronizacja na żywo jest wyłączona.';
+
+  @override
+  String get liveSyncConnecting => 'Łączenie…';
+
+  @override
+  String get liveSyncLive => 'Na żywo';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Nie można połączyć się z folderem synchronizacji. Ponawianie…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name dołącza';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name wychodzi';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Dodawanie, usuwanie i zmiana kolejności stron są wyłączone podczas synchronizacji na żywo.';
+
+  @override
+  String get liveSyncSaved =>
+      'Zmiany zsynchronizowane. Udostępniony PDF aktualizuje się automatycznie.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Synchronizacja na żywo (eksperymentalne)';
+
+  @override
+  String get liveSyncNobodyElse =>
+      'Nikt inny nie ma jeszcze otwartego tego pliku PDF.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (Ty)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'To urządzenie zapisuje zmiany wszystkich w udostępnionym pliku PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Urządzenie innej osoby zapisuje zmiany wszystkich w udostępnionym pliku PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ty i $count innej osoby',
+      many: 'Ty i $count innych osób',
+      few: 'Ty i $count inne osoby',
+      one: 'Ty i 1 inna osoba',
+      zero: 'Tylko Ty',
+    );
+    return '$_temp0';
+  }
 }

@@ -1449,4 +1449,86 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Perubahan ini tidak dapat disimpan. Coba lagi atau pilih Tidak sekarang.';
+
+  @override
+  String get liveSyncMenuStart => 'Mulai sinkronisasi langsung (eksperimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Hentikan sinkronisasi langsung';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Sinkronisasi langsung memerlukan PDF yang disimpan di folder pada komputer ini, misalnya folder OneDrive, Google Drive, iCloud, atau Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Sinkronisasi langsung memerlukan akses ke folder yang berisi PDF ini.';
+
+  @override
+  String get liveSyncStarted =>
+      'Sinkronisasi langsung aktif. Siapa pun yang membuka PDF ini dari folder bersama yang sama dan menyalakan sinkronisasi langsung akan melihat anotasi Anda.';
+
+  @override
+  String get liveSyncStopped => 'Sinkronisasi langsung nonaktif.';
+
+  @override
+  String get liveSyncConnecting => 'Menghubungkan…';
+
+  @override
+  String get liveSyncLive => 'Langsung';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Folder sinkronisasi tidak dapat dijangkau. Mencoba lagi…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name bergabung';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name keluar';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Menambah, menghapus, dan mengurutkan ulang halaman dinonaktifkan selama sinkronisasi langsung aktif.';
+
+  @override
+  String get liveSyncSaved =>
+      'Perubahan disinkronkan. PDF bersama diperbarui secara otomatis.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Sinkronisasi langsung (eksperimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Belum ada orang lain yang membuka PDF ini.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (Anda)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Perangkat ini menulis perubahan semua orang ke PDF bersama.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Perangkat orang lain menulis perubahan semua orang ke PDF bersama.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Anda dan $count orang lainnya',
+      zero: 'Hanya Anda',
+    );
+    return '$_temp0';
+  }
 }

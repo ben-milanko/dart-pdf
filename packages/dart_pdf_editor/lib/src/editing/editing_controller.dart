@@ -1137,6 +1137,10 @@ class PdfEditingController extends ChangeNotifier {
     }
     if (!canUndo) return;
     final impact = _revisionImpacts[_cursor];
+    if (_pageStructureLocked && impact.pageStructureChanged) {
+      onPageStructureLocked?.call();
+      return;
+    }
     // reverting revision N un-renders exactly the pages N touched
     _bumpStampsFor(impact);
     _cursor--;
@@ -1166,6 +1170,11 @@ class PdfEditingController extends ChangeNotifier {
       // the normal auto-commit so visible ink does not stay a draft forever.
       if (_undoneInk.isEmpty) cancelInkStroke();
       notifyListeners();
+      return;
+    }
+    if (_pageStructureLocked &&
+        _revisionImpacts[_cursor + 1].pageStructureChanged) {
+      onPageStructureLocked?.call();
       return;
     }
     final beforeLength = _revisions[_cursor];
@@ -1298,6 +1307,37 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
+  bool _pageStructureLocked = false;
+
+  /// While true, edits that insert, remove or reorder pages are refused -
+  /// through [apply] and every page method built on it, and as an
+  /// [undo]/[redo] across such a revision - and [onPageStructureLocked] is
+  /// called instead. Live annotation sync ([PdfEditingSync]) sets it:
+  /// synced changes carry page indices, so a structural edit on one device
+  /// would put every other device's annotations on the wrong pages.
+  bool get pageStructureLocked => _pageStructureLocked;
+  set pageStructureLocked(bool value) {
+    if (value == _pageStructureLocked) return;
+    _pageStructureLocked = value;
+    notifyListeners();
+  }
+
+  /// Called when [pageStructureLocked] refuses an edit, so the host can say
+  /// why nothing happened.
+  VoidCallback? onPageStructureLocked;
+
+  /// Drops a refused edit. The editor has already staged it against the
+  /// open document's objects, so the current revision is reopened from its
+  /// bytes rather than trusted.
+  void _discardRefusedEdit() {
+    _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
+    _selected.clear();
+    _invalidateElements();
+    notifyListeners();
+    onPageStructureLocked?.call();
+  }
+
   /// Runs [edit] against the current document and commits the result as a
   /// new revision. Returns false (and changes nothing) if [edit] staged no
   /// changes. Redoable revisions are discarded, like any editor's redo
@@ -1316,6 +1356,10 @@ class PdfEditingController extends ChangeNotifier {
     final editor = PdfEditor(_document);
     edit(editor);
     if (!editor.hasChanges) return false;
+    if (_pageStructureLocked && editor.impact.pageStructureChanged) {
+      _discardRefusedEdit();
+      return false;
+    }
     _undoneInk.clear();
     final impact = pages != null || contentPages != null
         ? PdfEditImpact.legacy(pages: pages, contentPages: contentPages)

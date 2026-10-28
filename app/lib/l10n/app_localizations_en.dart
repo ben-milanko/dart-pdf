@@ -1439,6 +1439,88 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get liveSyncMenuStart => 'Start live sync (experimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Stop live sync';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Live sync needs a PDF saved in a folder on this computer, such as a OneDrive, Google Drive, iCloud or Dropbox folder.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Live sync needs access to the folder that holds this PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Live sync is on. Anyone who opens this PDF from the same shared folder and turns on live sync sees your annotations.';
+
+  @override
+  String get liveSyncStopped => 'Live sync is off.';
+
+  @override
+  String get liveSyncConnecting => 'Connecting…';
+
+  @override
+  String get liveSyncLive => 'Live';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail => 'Can\'t reach the sync folder. Retrying…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name joined';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name left';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Adding, removing and reordering pages is off while live sync is on.';
+
+  @override
+  String get liveSyncSaved =>
+      'Changes synced. The shared PDF updates automatically.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Live sync (experimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Nobody else has this PDF open yet.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (you)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'This device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Another person\'s device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'You and $count other people',
+      one: 'You and 1 other person',
+      zero: 'Only you',
+    );
+    return '$_temp0';
+  }
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2876,6 +2958,88 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get liveSyncMenuStart => 'Start live sync (experimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Stop live sync';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Live sync needs a PDF saved in a folder on this computer, such as a OneDrive, Google Drive, iCloud or Dropbox folder.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Live sync needs access to the folder that holds this PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Live sync is on. Anyone who opens this PDF from the same shared folder and turns on live sync sees your annotations.';
+
+  @override
+  String get liveSyncStopped => 'Live sync is off.';
+
+  @override
+  String get liveSyncConnecting => 'Connecting…';
+
+  @override
+  String get liveSyncLive => 'Live';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail => 'Can\'t reach the sync folder. Retrying…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name joined';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name left';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Adding, removing and reordering pages is off while live sync is on.';
+
+  @override
+  String get liveSyncSaved =>
+      'Changes synced. The shared PDF updates automatically.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Live sync (experimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Nobody else has this PDF open yet.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (you)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'This device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Another person\'s device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'You and $count other people',
+      one: 'You and 1 other person',
+      zero: 'Only you',
+    );
+    return '$_temp0';
+  }
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -4313,4 +4477,86 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get launcherOfferError =>
       'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get liveSyncMenuStart => 'Start live sync (experimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Stop live sync';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Live sync needs a PDF saved in a folder on this computer, such as a OneDrive, Google Drive, iCloud or Dropbox folder.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Live sync needs access to the folder that holds this PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Live sync is on. Anyone who opens this PDF from the same shared folder and turns on live sync sees your annotations.';
+
+  @override
+  String get liveSyncStopped => 'Live sync is off.';
+
+  @override
+  String get liveSyncConnecting => 'Connecting…';
+
+  @override
+  String get liveSyncLive => 'Live';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail => 'Can\'t reach the sync folder. Retrying…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name joined';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name left';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Adding, removing and reordering pages is off while live sync is on.';
+
+  @override
+  String get liveSyncSaved =>
+      'Changes synced. The shared PDF updates automatically.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Live sync (experimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Nobody else has this PDF open yet.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (you)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'This device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Another person\'s device writes everyone\'s changes into the shared PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'You and $count other people',
+      one: 'You and 1 other person',
+      zero: 'Only you',
+    );
+    return '$_temp0';
+  }
 }

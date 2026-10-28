@@ -2,6 +2,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
 import 'form_secrets.dart';
+import 'live_sync.dart';
 import 'signature_trust.dart';
 
 /// A detached snapshot used to move a live document into another native
@@ -349,7 +350,14 @@ class DocumentTab {
   /// scroll position and zoom across reopens.
   String get documentId => title;
 
+  /// The document's live sync, while it is on (see live_sync.dart).
+  LiveSyncSession? liveSync;
+
   void dispose() {
+    // Leave the shared folder first: closing reads the controller one last
+    // time (to fold this session's changes into the PDF if it is the writer).
+    liveSync?.dispose();
+    liveSync = null;
     // Closing a still-loading preview cancels its ranged fetch and background
     // full read so a closed tab stops pulling bytes.
     cancel?.cancel();
