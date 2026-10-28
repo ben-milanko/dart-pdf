@@ -959,6 +959,20 @@ class AppLocalizationsTh extends AppLocalizations {
       'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows/macOS ที่ไม่ได้ลงนามจาก main';
 
   @override
+  String get settingsWebNightly => 'ลองใช้เว็บแอปรุ่น nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'เปิดเว็บแอปรุ่นทดสอบที่สร้างทุกคืนจาก main ไฟล์ เอกสารล่าสุด และการตั้งค่าจะแยกเก็บสำหรับแต่ละเว็บไซต์';
+
+  @override
+  String get settingsWebStable => 'สลับไปใช้เว็บแอปรุ่นเสถียร';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'เปิดรุ่นที่เผยแพร่ปัจจุบัน ไฟล์ เอกสารล่าสุด และการตั้งค่าจะแยกเก็บสำหรับแต่ละเว็บไซต์';
+
+  @override
   String get settingsUpdates => 'การอัปเดต';
 
   @override

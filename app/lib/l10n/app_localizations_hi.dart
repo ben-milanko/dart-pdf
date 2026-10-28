@@ -965,6 +965,20 @@ class AppLocalizationsHi extends AppLocalizations {
       'main से बिना हस्ताक्षर वाले Windows/macOS परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।';
 
   @override
+  String get settingsWebNightly => 'नाइटली वेब ऐप आज़माएँ';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main से हर रात बनने वाला वेब ऐप का टेस्ट बिल्ड खोलता है। फ़ाइलें, हाल के दस्तावेज़ और सेटिंग्स हर साइट के लिए अलग रखी जाती हैं।';
+
+  @override
+  String get settingsWebStable => 'स्थिर वेब ऐप पर जाएँ';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'मौजूदा रिलीज़ खोलता है। फ़ाइलें, हाल के दस्तावेज़ और सेटिंग्स हर साइट के लिए अलग रखी जाती हैं।';
+
+  @override
   String get settingsUpdates => 'अपडेट';
 
   @override

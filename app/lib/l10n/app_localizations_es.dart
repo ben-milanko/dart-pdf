@@ -973,6 +973,20 @@ class AppLocalizationsEs extends AppLocalizations {
       'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows/macOS sin firmar desde main.';
 
   @override
+  String get settingsWebNightly => 'Probar la app web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Abre una versión de prueba de la app web compilada cada noche desde main. Los archivos, documentos recientes y ajustes se guardan por separado en cada sitio.';
+
+  @override
+  String get settingsWebStable => 'Cambiar a la app web estable';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Abre la versión actual. Los archivos, documentos recientes y ajustes se guardan por separado en cada sitio.';
+
+  @override
   String get settingsUpdates => 'Actualizaciones';
 
   @override

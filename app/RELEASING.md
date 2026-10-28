@@ -108,6 +108,23 @@ This checks ML Kit's manifest-registered constructors in the minified DEX.
 Debug builds and Flutter tests cannot detect release shrinking breaking scanner
 initialization. CI runs the same check before uploading Android artifacts.
 
+## Nightly web app
+
+`.github/workflows/deploy-app-web-nightly.yml` rebuilds the web app from `main`
+each night (`PDF_BUILD_CHANNEL=nightly`, dark blue icon, "DartPDF Nightly") and
+deploys it to the `dartpdf-app-nightly` Firebase site at
+<https://app-nightly.dart-pdf.com>. It skips the build when the site's
+`build-commit.txt` already matches `main`; run it by hand (with **force** to
+redeploy the same commit) for an off-cycle build. The nightly site is
+`noindex`. Settings on the web shows **Try the nightly web app** on
+app.dart-pdf.com and **Switch to the stable web app** on the nightly; each opens
+the other site in a new tab. The two are separate origins, so recents,
+settings, cached PDFs and unsaved-changes recovery are not shared.
+
+One-time setup: `firebase hosting:sites:create dartpdf-app-nightly --project
+dart-pdf-demo`, then add the custom domain `app-nightly.dart-pdf.com` to that
+site in the Firebase console and create the DNS records it lists.
+
 ## In-app update checker
 
 The app checks these Releases for a newer build (`app/lib/update.dart`,

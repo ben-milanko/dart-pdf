@@ -962,6 +962,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -2379,6 +2393,20 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -3794,6 +3822,20 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get settingsNightlyUpdatesSubtitle =>
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
+
+  @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
 
   @override
   String get settingsUpdates => 'Updates';

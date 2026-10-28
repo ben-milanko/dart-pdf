@@ -947,6 +947,20 @@ class AppLocalizationsJa extends AppLocalizations {
       'main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。';
 
   @override
+  String get settingsWebNightly => 'ナイトリー版 Web アプリを試す';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main から毎晩ビルドされる Web アプリのテスト版を開きます。ファイル、最近使ったドキュメント、設定はサイトごとに別々に保存されます。';
+
+  @override
+  String get settingsWebStable => '安定版 Web アプリに切り替える';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      '現在のリリースを開きます。ファイル、最近使ったドキュメント、設定はサイトごとに別々に保存されます。';
+
+  @override
   String get settingsUpdates => 'アップデート';
 
   @override

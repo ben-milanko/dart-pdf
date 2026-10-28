@@ -963,6 +963,20 @@ class AppLocalizationsTr extends AppLocalizations {
       'main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.';
 
   @override
+  String get settingsWebNightly => 'Nightly web uygulamasını dene';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main dalından her gece derlenen web uygulamasının test sürümünü açar. Dosyalar, son belgeler ve ayarlar her site için ayrı tutulur.';
+
+  @override
+  String get settingsWebStable => 'Kararlı web uygulamasına geç';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Güncel sürümü açar. Dosyalar, son belgeler ve ayarlar her site için ayrı tutulur.';
+
+  @override
   String get settingsUpdates => 'Güncellemeler';
 
   @override

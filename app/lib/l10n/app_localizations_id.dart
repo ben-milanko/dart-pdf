@@ -967,6 +967,20 @@ class AppLocalizationsId extends AppLocalizations {
       'Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.';
 
   @override
+  String get settingsWebNightly => 'Coba aplikasi web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Membuka build uji aplikasi web yang dibuat setiap malam dari main. File, dokumen terbaru, dan pengaturan disimpan terpisah untuk setiap situs.';
+
+  @override
+  String get settingsWebStable => 'Beralih ke aplikasi web stabil';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Membuka rilis saat ini. File, dokumen terbaru, dan pengaturan disimpan terpisah untuk setiap situs.';
+
+  @override
   String get settingsUpdates => 'Pembaruan';
 
   @override

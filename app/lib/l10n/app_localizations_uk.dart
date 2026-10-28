@@ -984,6 +984,20 @@ class AppLocalizationsUk extends AppLocalizations {
       'Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows/macOS із гілки main.';
 
   @override
+  String get settingsWebNightly => 'Спробувати нічну вебверсію';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Відкриває тестову збірку вебзастосунку, що збирається щоночі з main. Файли, нещодавні документи й налаштування зберігаються окремо для кожного сайту.';
+
+  @override
+  String get settingsWebStable => 'Перейти на стабільну вебверсію';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Відкриває поточний випуск. Файли, нещодавні документи й налаштування зберігаються окремо для кожного сайту.';
+
+  @override
   String get settingsUpdates => 'Оновлення';
 
   @override

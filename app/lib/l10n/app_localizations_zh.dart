@@ -943,6 +943,19 @@ class AppLocalizationsZh extends AppLocalizations {
       '自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。';
 
   @override
+  String get settingsWebNightly => '试用每夜构建版网页应用';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      '打开每晚从 main 构建的网页应用测试版。文件、最近文档和设置在每个站点分别保存。';
+
+  @override
+  String get settingsWebStable => '切换到稳定版网页应用';
+
+  @override
+  String get settingsWebStableSubtitle => '打开当前发布版本。文件、最近文档和设置在每个站点分别保存。';
+
+  @override
   String get settingsUpdates => '更新';
 
   @override
@@ -2319,6 +2332,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get settingsNightlyUpdatesSubtitle =>
       '自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。';
+
+  @override
+  String get settingsWebNightly => '試用每夜建置版網頁應用程式';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      '開啟每晚從 main 建置的網頁應用程式測試版。檔案、最近的文件和設定會在各網站分別儲存。';
+
+  @override
+  String get settingsWebStable => '切換到穩定版網頁應用程式';
+
+  @override
+  String get settingsWebStableSubtitle => '開啟目前的發行版本。檔案、最近的文件和設定會在各網站分別儲存。';
 
   @override
   String get settingsUpdates => '更新';

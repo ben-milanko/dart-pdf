@@ -983,6 +983,20 @@ class AppLocalizationsRu extends AppLocalizations {
       'Получайте автоматические уведомления о неподписанных тестовых сборках Windows/macOS из main.';
 
   @override
+  String get settingsWebNightly => 'Попробовать ночную веб-версию';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Открывает тестовую сборку веб-приложения, собираемую каждую ночь из main. Файлы, недавние документы и настройки хранятся отдельно для каждого сайта.';
+
+  @override
+  String get settingsWebStable => 'Перейти на стабильную веб-версию';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Открывает текущий выпуск. Файлы, недавние документы и настройки хранятся отдельно для каждого сайта.';
+
+  @override
   String get settingsUpdates => 'Обновления';
 
   @override
