@@ -996,6 +996,20 @@ class AppLocalizationsDe extends AppLocalizations {
       'Automatische Update-Benachrichtigungen für unsignierte Windows-/macOS-Testbuilds aus main erhalten.';
 
   @override
+  String get settingsWebNightly => 'Nightly-Web-App testen';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Öffnet einen Testbuild der Web-App, der jede Nacht aus main erstellt wird. Dateien, zuletzt verwendete Dokumente und Einstellungen werden je Website getrennt gespeichert.';
+
+  @override
+  String get settingsWebStable => 'Zur stabilen Web-App wechseln';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Öffnet die aktuelle Version. Dateien, zuletzt verwendete Dokumente und Einstellungen werden je Website getrennt gespeichert.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override

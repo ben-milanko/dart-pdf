@@ -1021,6 +1021,20 @@ class AppLocalizationsPl extends AppLocalizations {
       'Otrzymuj automatyczne powiadomienia o niepodpisanych testowych kompilacjach Windows/macOS z gałęzi main.';
 
   @override
+  String get settingsWebNightly => 'Wypróbuj nocną wersję aplikacji webowej';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Otwiera testową wersję aplikacji webowej budowaną co noc z gałęzi main. Pliki, ostatnie dokumenty i ustawienia są przechowywane osobno dla każdej witryny.';
+
+  @override
+  String get settingsWebStable => 'Przełącz na stabilną aplikację webową';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Otwiera bieżące wydanie. Pliki, ostatnie dokumenty i ustawienia są przechowywane osobno dla każdej witryny.';
+
+  @override
   String get settingsUpdates => 'Aktualizacje';
 
   @override

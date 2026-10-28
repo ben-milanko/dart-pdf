@@ -1635,6 +1635,30 @@ abstract class AppLocalizations {
   /// **'Receive automatic update notifications for unsigned Windows and macOS test builds from main.'**
   String get settingsNightlyUpdatesSubtitle;
 
+  /// Web-only Settings row that opens the nightly web app (app-nightly.dart-pdf.com) in a new tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Try the nightly web app'**
+  String get settingsWebNightly;
+
+  /// Explains the nightly web app and that each site keeps its own files and settings (browser storage is per site).
+  ///
+  /// In en, this message translates to:
+  /// **'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.'**
+  String get settingsWebNightlySubtitle;
+
+  /// Web-only Settings row, shown in the nightly web app, that opens the stable web app (app.dart-pdf.com) in a new tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to the stable web app'**
+  String get settingsWebStable;
+
+  /// Explains the stable web app and that each site keeps its own files and settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Opens the current release. Files, recent documents and settings are kept separately for each site.'**
+  String get settingsWebStableSubtitle;
+
   /// Section header for the software-update block in settings.
   ///
   /// In en, this message translates to:

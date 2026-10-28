@@ -1012,6 +1012,20 @@ class AppLocalizationsAr extends AppLocalizations {
       'تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.';
 
   @override
+  String get settingsWebNightly => 'تجربة تطبيق الويب الليلي';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'يفتح إصدارًا تجريبيًا من تطبيق الويب يُبنى كل ليلة من main. تُحفظ الملفات والمستندات الأخيرة والإعدادات بشكل منفصل لكل موقع.';
+
+  @override
+  String get settingsWebStable => 'التبديل إلى تطبيق الويب المستقر';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'يفتح الإصدار الحالي. تُحفظ الملفات والمستندات الأخيرة والإعدادات بشكل منفصل لكل موقع.';
+
+  @override
   String get settingsUpdates => 'التحديثات';
 
   @override

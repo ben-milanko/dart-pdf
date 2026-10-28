@@ -993,6 +993,20 @@ class AppLocalizationsNl extends AppLocalizations {
       'Ontvang automatische updatemeldingen voor niet-ondertekende Windows-/macOS-testbuilds van main.';
 
   @override
+  String get settingsWebNightly => 'Nightly-webapp proberen';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opent een testversie van de webapp die elke nacht vanuit main wordt gebouwd. Bestanden, recente documenten en instellingen worden per site apart bewaard.';
+
+  @override
+  String get settingsWebStable => 'Overschakelen naar de stabiele webapp';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opent de huidige release. Bestanden, recente documenten en instellingen worden per site apart bewaard.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override

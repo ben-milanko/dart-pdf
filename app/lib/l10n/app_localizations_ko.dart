@@ -964,6 +964,20 @@ class AppLocalizationsKo extends AppLocalizations {
       'main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
 
   @override
+  String get settingsWebNightly => '나이틀리 웹 앱 사용해 보기';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main에서 매일 밤 빌드되는 웹 앱 테스트 버전을 엽니다. 파일, 최근 문서, 설정은 사이트별로 따로 저장됩니다.';
+
+  @override
+  String get settingsWebStable => '안정 버전 웹 앱으로 전환';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      '현재 릴리스를 엽니다. 파일, 최근 문서, 설정은 사이트별로 따로 저장됩니다.';
+
+  @override
   String get settingsUpdates => '업데이트';
 
   @override

@@ -993,6 +993,20 @@ class AppLocalizationsIt extends AppLocalizations {
       'Ricevi notifiche automatiche per le build di test Windows/macOS non firmate da main.';
 
   @override
+  String get settingsWebNightly => 'Prova l\'app web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Apre una build di test dell\'app web creata ogni notte da main. File, documenti recenti e impostazioni sono conservati separatamente per ogni sito.';
+
+  @override
+  String get settingsWebStable => 'Passa all\'app web stabile';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Apre la versione attuale. File, documenti recenti e impostazioni sono conservati separatamente per ogni sito.';
+
+  @override
   String get settingsUpdates => 'Aggiornamenti';
 
   @override

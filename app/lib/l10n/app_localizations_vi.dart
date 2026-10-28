@@ -983,6 +983,20 @@ class AppLocalizationsVi extends AppLocalizations {
       'Nhận thông báo cập nhật tự động cho các bản dựng thử nghiệm Windows/macOS chưa ký từ main.';
 
   @override
+  String get settingsWebNightly => 'Dùng thử ứng dụng web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Mở bản thử nghiệm của ứng dụng web được dựng mỗi đêm từ main. Tệp, tài liệu gần đây và cài đặt được lưu riêng cho từng trang.';
+
+  @override
+  String get settingsWebStable => 'Chuyển sang ứng dụng web ổn định';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Mở bản phát hành hiện tại. Tệp, tài liệu gần đây và cài đặt được lưu riêng cho từng trang.';
+
+  @override
   String get settingsUpdates => 'Cập nhật';
 
   @override

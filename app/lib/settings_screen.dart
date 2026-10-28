@@ -17,6 +17,7 @@ import 'signature_trust.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
 import 'update_installer.dart';
+import 'web_channel.dart';
 import 'whats_new.dart';
 
 // The platform-specific default-app help lives in the ARB as one ICU `select`
@@ -298,6 +299,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
                 ),
+                if (kIsWeb) const WebChannelSwitchTile(),
                 if (widget.onOpenDevTools != null)
                   ListTile(
                     key: const ValueKey('settings-devtools'),

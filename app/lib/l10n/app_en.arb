@@ -1321,6 +1321,22 @@
   "@settingsNightlyUpdatesSubtitle": {
     "description": "Explains the risk and behavior of the nightly update channel."
   },
+  "settingsWebNightly": "Try the nightly web app",
+  "@settingsWebNightly": {
+    "description": "Web-only Settings row that opens the nightly web app (app-nightly.dart-pdf.com) in a new tab."
+  },
+  "settingsWebNightlySubtitle": "Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.",
+  "@settingsWebNightlySubtitle": {
+    "description": "Explains the nightly web app and that each site keeps its own files and settings (browser storage is per site)."
+  },
+  "settingsWebStable": "Switch to the stable web app",
+  "@settingsWebStable": {
+    "description": "Web-only Settings row, shown in the nightly web app, that opens the stable web app (app.dart-pdf.com) in a new tab."
+  },
+  "settingsWebStableSubtitle": "Opens the current release. Files, recent documents and settings are kept separately for each site.",
+  "@settingsWebStableSubtitle": {
+    "description": "Explains the stable web app and that each site keeps its own files and settings."
+  },
   "settingsUpdates": "Updates",
   "@settingsUpdates": {
     "description": "Section header for the software-update block in settings."

@@ -991,6 +991,20 @@ class AppLocalizationsPt extends AppLocalizations {
       'Receba notificações automáticas para compilações de teste do Windows/macOS não assinadas da main.';
 
   @override
+  String get settingsWebNightly => 'Experimentar a app web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Abre uma versão de teste da app web gerada todas as noites a partir de main. Arquivos, documentos recentes e configurações ficam separados em cada site.';
+
+  @override
+  String get settingsWebStable => 'Mudar para a app web estável';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Abre a versão atual. Arquivos, documentos recentes e configurações ficam separados em cada site.';
+
+  @override
   String get settingsUpdates => 'Atualizações';
 
   @override
