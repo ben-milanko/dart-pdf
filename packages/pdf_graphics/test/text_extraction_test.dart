@@ -692,6 +692,81 @@ void main() {
     expect((page.items[1] as PdfReflowBlock).text, 'First paragraph');
     expect((page.items[2] as PdfReflowBlock).text, 'Second paragraph');
   });
+
+  group('invisible text over drawn lettering (CAD exports)', () {
+    // MicroStation draws its lettering as vector paths and lays a `3 Tr` run
+    // in a base-14 font with no /Widths over it for search. CAD text height
+    // is the cap height, so the drawn capitals stand on the baseline and reach
+    // the font size: the MTM-CAM-GSR-0182 drawing's "STAGE 3" at 14.173pt has
+    // glyphs from y 136.5 to 151.2 over a baseline at 136.77.
+    const overlay = 'BT 3 Tr /F1 14.173 Tf 1.0794 0 0 1 406.7401 136.7681 Tm '
+        '(STAGE 3) Tj ET';
+
+    test('the band runs from the baseline to the font size', () {
+      final text = PdfTextExtractor.extract(
+          PdfDocument.open(_buildTextPdf([overlay])), 0);
+      final run = text.runs.single;
+      expect(run.descent, 0);
+      expect(run.ascent, 1);
+      expect(run.bounds.bottom, closeTo(136.7681, 1e-6));
+      expect(run.bounds.top, closeTo(136.7681 + 14.173, 1e-6));
+      final rect = text.rectsFor(0, 'STAGE'.length).single;
+      expect(rect.bottom, closeTo(136.7681, 1e-6));
+      expect(rect.top, closeTo(136.7681 + 14.173, 1e-6));
+    });
+
+    test('a recorded page gives the same band', () {
+      final document = PdfDocument.open(_buildTextPdf([overlay]));
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(
+              cos: document.cos, device: recorder, collectCharOffsets: true)
+          .drawPage(document.page(0));
+      final recorded = PdfTextExtractor.fromRecordedText(
+          PdfRecordedText.capture(recorder.commands), 0);
+      expect(recorded.runs.single.bounds,
+          PdfTextExtractor.extract(document, 0).runs.single.bounds);
+    });
+
+    test('visible text keeps the default band', () {
+      final run = PdfTextExtractor.extract(
+              PdfDocument.open(
+                  _buildTextPdf([overlay.replaceFirst('3 Tr', '0 Tr')])),
+              0)
+          .runs
+          .single;
+      expect(run.descent, -0.25);
+      expect(run.ascent, 0.75);
+    });
+
+    test('an OCR-shaped layer with explicit /Widths keeps the default band',
+        () {
+      // OCR writers (injectTextLayer included) size each word to its box and
+      // state the widths they measured with; the band they aim for is the
+      // default one.
+      final run = PdfTextExtractor.extract(
+              PdfDocument.open(_buildTextPdf([overlay],
+                  font: '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+                      '/FirstChar 32 /LastChar 126 '
+                      '/Widths [${List.filled(95, 500).join(' ')}] >>')),
+              0)
+          .runs
+          .single;
+      expect(run.descent, -0.25);
+      expect(run.ascent, 0.75);
+    });
+
+    test('invisible text with its own glyphs keeps the default band', () {
+      // An embedded font (here Type3) is an OCR layer sized to its own
+      // outlines, not a stand-in for lettering drawn elsewhere.
+      final run =
+          PdfTextExtractor.extract(PdfDocument.open(_invisibleType3Pdf()), 0)
+              .runs
+              .single;
+      expect(run.text, 'AB');
+      expect(run.descent, -0.25);
+      expect(run.ascent, 0.75);
+    });
+  });
 }
 
 /// Page text for hand-built [runs], through the recorded-text entry point
@@ -890,7 +965,8 @@ String _textAt(num x, num y, String text) =>
 String _escapePdfText(String text) =>
     text.replaceAll('\\', r'\\').replaceAll('(', r'\(').replaceAll(')', r'\)');
 
-Uint8List _buildTextPdf(List<String> operations) {
+Uint8List _buildTextPdf(List<String> operations,
+    {String font = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'}) {
   final content = operations.join('\n');
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -898,7 +974,7 @@ Uint8List _buildTextPdf(List<String> operations) {
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
         '/Resources << /Font << /F1 5 0 R >> >> >>',
     '<< /Length ${content.length} >>\nstream\n$content\nendstream',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    font,
   ];
   return _assemblePdf(objects);
 }
@@ -982,6 +1058,31 @@ Uint8List _buildArabicGlyphPdf(List<String> glyphTexts,
     font,
     '<< /Length ${cmap.length} >>\nstream\n$cmap\nendstream',
     '<< /Length ${charProc.length} >>\nstream\n$charProc\nendstream',
+  ];
+  return _assemblePdf(objects);
+}
+
+/// One `3 Tr` line in a two-glyph Type3 font with a /ToUnicode map.
+Uint8List _invisibleType3Pdf() {
+  const content = 'BT 3 Tr /T3 20 Tf 72 700 Td (AB) Tj ET';
+  const glyph = '1000 0 0 0 1000 1000 d1 0 0 1000 1000 re f';
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap '
+      '1 begincodespacerange <00> <FF> endcodespacerange '
+      '2 beginbfchar <41> <0041> <42> <0042> endbfchar '
+      'endcmap CMapName currentdict /CMap defineresource pop end end';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /T3 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] '
+        '/FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /A 6 0 R /B 6 0 R >> '
+        '/Encoding << /Type /Encoding /Differences [65 /A /B] >> '
+        '/FirstChar 65 /LastChar 66 /Widths [1000 1000] /Resources << >> '
+        '/ToUnicode 7 0 R >>',
+    '<< /Length ${glyph.length} >>\nstream\n$glyph\nendstream',
+    '<< /Length ${cmap.length} >>\nstream\n$cmap\nendstream',
   ];
   return _assemblePdf(objects);
 }

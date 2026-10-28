@@ -822,6 +822,9 @@ class PdfTextExtractor {
     final transform = x0 == 0
         ? source.transform
         : PdfMatrix.translation(x0, 0).concat(source.transform);
+    final overlay = source.overlaysDrawnText;
+    final descent = overlay ? _overlayTextDescent : _defaultTextDescent;
+    final top = overlay ? _overlayTextAscent : ascent;
     final start = buffer.length;
     buffer.write(text);
     runs.add(PdfExtractedRun(
@@ -829,8 +832,9 @@ class PdfTextExtractor {
       startIndex: start,
       transform: transform,
       width: width,
-      bounds: _boundsOf(transform, 0, width, ascent: ascent),
-      ascent: ascent,
+      bounds: _boundsOf(transform, 0, width, descent: descent, ascent: top),
+      descent: descent,
+      ascent: top,
       charOffsets: offsets,
       isRightToLeft: rightToLeft,
       mcid: source.mcid,
@@ -1498,6 +1502,12 @@ class _Column {
 const _defaultTextDescent = -0.25;
 const _defaultTextAscent = 0.75;
 const _expandedTextAscent = 1.0;
+
+/// The band of a [PdfTextRun.overlaysDrawnText] run: CAD text height is the
+/// cap height, so the lettering it stands in for runs from the baseline to
+/// the nominal font size, where the default band would sit a quarter em low.
+const _overlayTextDescent = 0.0;
+const _overlayTextAscent = 1.0;
 
 bool _isCjkRune(int rune) =>
     (rune >= 0x2E80 && rune <= 0x33FF) ||
