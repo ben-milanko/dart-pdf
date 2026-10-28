@@ -2840,7 +2840,11 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
-    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    // Keep `.pdf` last: "Scan.pdf" becomes "Scan (OCR).pdf", not
+    // "Scan.pdf (OCR)", which saves as "Scan.pdf (OCR).pdf".
+    final stem = pdfDisplayName(title);
+    final ocrTitle = appL10n(context).editorOcrTitle(stem);
+    _openBytes(result, stem == title ? ocrTitle : '$ocrTitle.pdf');
     final tab = _active;
     if (tab == null) return;
     await _snapshotOpenedDocument(tab, result);
