@@ -6249,6 +6249,13 @@ class PdfEditingController extends ChangeNotifier {
         }
         continue;
       }
+      // Line work (polylines, unfilled polygons, callout leaders) is hit on
+      // its stroke, not its /Rect - the bounding box of a diagonal or
+      // open shape is mostly empty page that belongs to whatever is behind.
+      if (_strokeHit(annotation, x, y) case final hit?) {
+        if (hit) return (i, annotation);
+        continue;
+      }
       if (annotation.rect.contains(x, y)) return (i, annotation);
     }
     for (final slot in _selected.reversed) {
@@ -6397,6 +6404,132 @@ class PdfEditingController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  /// How far (page units) past a drawn stroke's edge a select-tool press
+  /// still lands on it.
+  static const double _strokeHitTolerance = 4;
+
+  /// The select tool's precise hit test for annotations drawn as lines:
+  /// whether ([x], [y]) lands on a /PolyLine's segments, an unfilled
+  /// /Polygon's outline (inside it too when filled), or a callout's text
+  /// box, leaders, or marked region. Null when [annotation] isn't
+  /// one of those shapes (or lacks usable geometry), so the caller falls
+  /// back to /Rect. Measurements keep the /Rect hit: their caption is
+  /// drawn off the line and has to stay clickable.
+  bool? _strokeHit(PdfAnnotation annotation, double x, double y) {
+    final width = annotation.borderWidth ?? 1;
+    final reach = _strokeHitTolerance + width / 2;
+    switch (annotation.subtype) {
+      case 'PolyLine' || 'Polygon':
+        if (annotation.measure != null ||
+            annotation.takeoff?.valueText != null) {
+          return null;
+        }
+        final points = annotation.vertices;
+        if (points == null || points.isEmpty) return null;
+        final closed = annotation.subtype == 'Polygon';
+        if (closed &&
+            annotation.interiorColor != null &&
+            _polygonContains(points, x, y)) {
+          return true;
+        }
+        // cloud scallops stand out past the polygon edge
+        final outline = closed && annotation.hasCloudyBorder
+            ? reach +
+                math.max(width * 4.0, 12.0 * annotation.cloudBorderScale) * 1.15
+            : reach;
+        if (_nearPolyline(points, x, y, outline, closed: closed)) return true;
+        return !closed &&
+            _hasLineEnding(annotation) &&
+            _nearEndpoints(points, x, y, reach + math.max(10.0, width * 5));
+      case 'FreeText' when annotation.isCallout:
+        final leaders = annotation.calloutLeaders;
+        if (leaders == null) return null;
+        if ((annotation.calloutBox ?? annotation.rect).contains(x, y)) {
+          return true;
+        }
+        final style = annotation.calloutLeaderStyle;
+        final leaderReach = _strokeHitTolerance + (style?.width ?? width) / 2;
+        final tip = _hasLineEnding(annotation)
+            ? leaderReach + math.max(10.0, (style?.width ?? width) * 5)
+            : leaderReach;
+        for (final leader in leaders) {
+          if (_nearPolyline(leader, x, y, leaderReach)) return true;
+          final (tx, ty) = leader.first;
+          if (_distanceSquared(x, y, tx, ty) <= tip * tip) return true;
+        }
+        if (annotation.calloutRegion case final region?) {
+          final outline = region.shape == PdfCalloutRegionShape.cloud
+              ? leaderReach +
+                  math.max((style?.width ?? width) * 4.0,
+                          12.0 * region.cloudScale) *
+                      1.15
+              : leaderReach;
+          // the marked area is grabbed whole, the way the cloud is dragged
+          if (_polygonContains(region.vertices, x, y) ||
+              _nearPolyline(region.vertices, x, y, outline, closed: true)) {
+            return true;
+          }
+        }
+        return false;
+    }
+    return null;
+  }
+
+  /// Whether [annotation]'s /LE names any ending other than /None - its
+  /// arrowheads (or squares, circles, ...) are hit as part of the stroke.
+  static bool _hasLineEnding(PdfAnnotation annotation) {
+    final cos = annotation.document.cos;
+    final le = cos.resolve(annotation.dict['LE']);
+    bool drawn(CosObject? o) => o is CosName && o.value != 'None';
+    if (le is CosArray) return le.items.any((o) => drawn(cos.resolve(o)));
+    return drawn(le);
+  }
+
+  /// Whether ([x], [y]) is within [reach] of the path through [points]
+  /// (closing back to the first point when [closed]).
+  static bool _nearPolyline(
+    List<(double, double)> points,
+    double x,
+    double y,
+    double reach, {
+    bool closed = false,
+  }) {
+    final r2 = reach * reach;
+    if (points.length == 1) {
+      final (px, py) = points.single;
+      return _distanceSquared(x, y, px, py) <= r2;
+    }
+    final segments = closed ? points.length : points.length - 1;
+    for (var p = 0; p < segments; p++) {
+      final a = points[p], b = points[(p + 1) % points.length];
+      if (_segmentDistanceSquared(x, y, a, b) <= r2) return true;
+    }
+    return false;
+  }
+
+  static bool _nearEndpoints(
+    List<(double, double)> points,
+    double x,
+    double y,
+    double reach,
+  ) =>
+      [points.first, points.last]
+          .any((p) => _distanceSquared(x, y, p.$1, p.$2) <= reach * reach);
+
+  /// Even-odd point-in-polygon test.
+  static bool _polygonContains(
+      List<(double, double)> points, double x, double y) {
+    var inside = false;
+    for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
+      final (xi, yi) = points[i];
+      final (xj, yj) = points[j];
+      if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   static double _distanceSquared(double x, double y, double px, double py) {
