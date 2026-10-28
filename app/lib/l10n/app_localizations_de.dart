@@ -1475,4 +1475,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '$name konnte nicht importiert werden: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Formulardaten und Kommentare';
 }

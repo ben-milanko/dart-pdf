@@ -375,5 +375,6 @@
   "fileTypeXdp": "แพ็กเกจฟอร์ม XDP",
   "editorImportedFormData": "นำเข้าข้อมูลฟอร์มแล้ว - ฟิลด์: {fields}, ความคิดเห็น: {comments}",
   "editorImportFormDataNothing": "ไม่มีสิ่งใดในไฟล์นั้นที่ตรงกับเอกสารนี้",
-  "editorCouldNotImportFormData": "ไม่สามารถนำเข้า {name}: {error}"
+  "editorCouldNotImportFormData": "ไม่สามารถนำเข้า {name}: {error}",
+  "editorMenuFormData": "ข้อมูลฟอร์มและความคิดเห็น"
 }

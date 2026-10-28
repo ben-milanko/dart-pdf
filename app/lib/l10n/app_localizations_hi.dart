@@ -1457,4 +1457,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '$name आयात नहीं किया जा सका: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'फ़ॉर्म डेटा और टिप्पणियाँ';
 }

@@ -375,5 +375,6 @@
   "fileTypeXdp": "Paquets de formulaire XDP",
   "editorImportedFormData": "Données de formulaire importées – champs : {fields}, commentaires : {comments}",
   "editorImportFormDataNothing": "Rien dans ce fichier ne correspond à ce document",
-  "editorCouldNotImportFormData": "Impossible d’importer {name} : {error}"
+  "editorCouldNotImportFormData": "Impossible d’importer {name} : {error}",
+  "editorMenuFormData": "Données de formulaire et commentaires"
 }

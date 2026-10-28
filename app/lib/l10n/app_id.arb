@@ -375,5 +375,6 @@
   "fileTypeXdp": "Paket formulir XDP",
   "editorImportedFormData": "Data formulir diimpor - kolom: {fields}, komentar: {comments}",
   "editorImportFormDataNothing": "Tidak ada isi file itu yang cocok dengan dokumen ini",
-  "editorCouldNotImportFormData": "Tidak dapat mengimpor {name}: {error}"
+  "editorCouldNotImportFormData": "Tidak dapat mengimpor {name}: {error}",
+  "editorMenuFormData": "Data formulir dan komentar"
 }

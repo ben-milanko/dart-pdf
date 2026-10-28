@@ -1444,4 +1444,7 @@ class AppLocalizationsTh extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'ไม่สามารถนำเข้า $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'ข้อมูลฟอร์มและความคิดเห็น';
 }

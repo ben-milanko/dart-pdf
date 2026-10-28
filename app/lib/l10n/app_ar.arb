@@ -375,5 +375,6 @@
   "fileTypeXdp": "حزم نماذج XDP",
   "editorImportedFormData": "تم استيراد بيانات النموذج - الحقول: {fields}، التعليقات: {comments}",
   "editorImportFormDataNothing": "لا شيء في هذا الملف يطابق هذا المستند",
-  "editorCouldNotImportFormData": "تعذّر استيراد {name}: {error}"
+  "editorCouldNotImportFormData": "تعذّر استيراد {name}: {error}",
+  "editorMenuFormData": "بيانات النموذج والتعليقات"
 }

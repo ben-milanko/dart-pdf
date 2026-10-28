@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP 表单包",
   "editorImportedFormData": "已导入表单数据 - 字段：{fields}，注释：{comments}",
   "editorImportFormDataNothing": "该文件中没有与此文档匹配的内容",
-  "editorCouldNotImportFormData": "无法导入 {name}：{error}"
+  "editorCouldNotImportFormData": "无法导入 {name}：{error}",
+  "editorMenuFormData": "表单数据和注释"
 }

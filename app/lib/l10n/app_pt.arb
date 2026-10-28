@@ -375,5 +375,6 @@
   "fileTypeXdp": "Pacotes de formulário XDP",
   "editorImportedFormData": "Dados de formulário importados – campos: {fields}, comentários: {comments}",
   "editorImportFormDataNothing": "Nada nesse arquivo corresponde a este documento",
-  "editorCouldNotImportFormData": "Não foi possível importar {name}: {error}"
+  "editorCouldNotImportFormData": "Não foi possível importar {name}: {error}",
+  "editorMenuFormData": "Dados de formulário e comentários"
 }

@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP 表單套件",
   "editorImportedFormData": "已匯入表單資料 - 欄位：{fields}，註解：{comments}",
   "editorImportFormDataNothing": "該檔案中沒有與此文件相符的內容",
-  "editorCouldNotImportFormData": "無法匯入 {name}：{error}"
+  "editorCouldNotImportFormData": "無法匯入 {name}：{error}",
+  "editorMenuFormData": "表單資料和註解"
 }

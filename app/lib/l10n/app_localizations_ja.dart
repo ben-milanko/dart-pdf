@@ -1422,4 +1422,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '$name を読み込めませんでした: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'フォームデータと注釈';
 }

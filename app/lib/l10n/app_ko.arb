@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP 양식 패키지",
   "editorImportedFormData": "양식 데이터를 가져왔습니다 - 필드: {fields}, 주석: {comments}",
   "editorImportFormDataNothing": "이 파일에는 이 문서와 일치하는 항목이 없습니다",
-  "editorCouldNotImportFormData": "{name}을(를) 가져올 수 없습니다: {error}"
+  "editorCouldNotImportFormData": "{name}을(를) 가져올 수 없습니다: {error}",
+  "editorMenuFormData": "양식 데이터 및 주석"
 }

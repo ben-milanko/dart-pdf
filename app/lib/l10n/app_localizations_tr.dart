@@ -1455,4 +1455,7 @@ class AppLocalizationsTr extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '$name içe aktarılamadı: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Form verileri ve yorumlar';
 }

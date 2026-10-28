@@ -64,11 +64,15 @@ wiring.
 
 ## App
 
-- The menu export sheet gets "Import form data or comments…" and "Export
-  form data as FDF/XFDF…" / "Export as XDP…" (`_importFormData`,
-  `_exportFormData`, `_applyFormDataFile`). Import is one undoable
-  `session.apply`. Export uses the current revision bytes, so unsaved edits
-  are included.
+- The four actions ("Import form data or comments…", "Export form data as
+  FDF…/XFDF…", "Export as XDP…") live under one "Form data and comments"
+  entry (`_SheetPlacement.formData`, key `menu-group-form-data`). It is a
+  cascading submenu in the desktop popup (`_submenuItem`, built like Open
+  Recent) and a folded page in the phone sheet (`AppMenuSheet.formData`).
+  The command palette still lists each action on its own. Handlers:
+  `_importFormData`, `_exportFormData`, `_applyFormDataFile`. Import is one
+  undoable `session.apply`. Export uses the current revision bytes, so
+  unsaved edits are included.
 - Open: `_openLoadedBytes` converts an XDP to its PDF (no origin path, so
   Save never writes a PDF over the .xdp; the title becomes `.pdf`). The
   progressive-open path is skipped for `.xdp`. The Open dialog offers XDP

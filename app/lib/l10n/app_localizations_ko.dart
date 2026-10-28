@@ -1422,4 +1422,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '$name을(를) 가져올 수 없습니다: $error';
   }
+
+  @override
+  String get editorMenuFormData => '양식 데이터 및 주석';
 }

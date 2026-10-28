@@ -1470,4 +1470,7 @@ class AppLocalizationsIt extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Impossibile importare $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Dati del modulo e commenti';
 }

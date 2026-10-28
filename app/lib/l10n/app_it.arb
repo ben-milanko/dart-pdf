@@ -375,5 +375,6 @@
   "fileTypeXdp": "Pacchetti di moduli XDP",
   "editorImportedFormData": "Dati del modulo importati – campi: {fields}, commenti: {comments}",
   "editorImportFormDataNothing": "Nulla in quel file corrisponde a questo documento",
-  "editorCouldNotImportFormData": "Impossibile importare {name}: {error}"
+  "editorCouldNotImportFormData": "Impossibile importare {name}: {error}",
+  "editorMenuFormData": "Dati del modulo e commenti"
 }

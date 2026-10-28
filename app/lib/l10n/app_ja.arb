@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP フォームパッケージ",
   "editorImportedFormData": "フォームデータを読み込みました - フィールド: {fields}、注釈: {comments}",
   "editorImportFormDataNothing": "このファイルにはこの文書に一致するものがありません",
-  "editorCouldNotImportFormData": "{name} を読み込めませんでした: {error}"
+  "editorCouldNotImportFormData": "{name} を読み込めませんでした: {error}",
+  "editorMenuFormData": "フォームデータと注釈"
 }

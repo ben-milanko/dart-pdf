@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP form paketleri",
   "editorImportedFormData": "Form verileri içe aktarıldı – alanlar: {fields}, yorumlar: {comments}",
   "editorImportFormDataNothing": "Bu dosyadaki hiçbir şey bu belgeyle eşleşmedi",
-  "editorCouldNotImportFormData": "{name} içe aktarılamadı: {error}"
+  "editorCouldNotImportFormData": "{name} içe aktarılamadı: {error}",
+  "editorMenuFormData": "Form verileri ve yorumlar"
 }

@@ -1462,4 +1462,7 @@ class AppLocalizationsId extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Tidak dapat mengimpor $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Data formulir dan komentar';
 }

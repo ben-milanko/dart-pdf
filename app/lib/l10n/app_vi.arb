@@ -375,5 +375,6 @@
   "fileTypeXdp": "Gói biểu mẫu XDP",
   "editorImportedFormData": "Đã nhập dữ liệu biểu mẫu - trường: {fields}, nhận xét: {comments}",
   "editorImportFormDataNothing": "Không có gì trong tệp đó khớp với tài liệu này",
-  "editorCouldNotImportFormData": "Không thể nhập {name}: {error}"
+  "editorCouldNotImportFormData": "Không thể nhập {name}: {error}",
+  "editorMenuFormData": "Dữ liệu biểu mẫu và nhận xét"
 }

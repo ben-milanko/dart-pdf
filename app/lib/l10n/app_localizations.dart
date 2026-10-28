@@ -2390,6 +2390,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not import {name}: {error}'**
   String editorCouldNotImportFormData(String name, String error);
+
+  /// App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data and comments'**
+  String get editorMenuFormData;
 }
 
 class _AppLocalizationsDelegate

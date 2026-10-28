@@ -1475,4 +1475,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'تعذّر استيراد $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'بيانات النموذج والتعليقات';
 }

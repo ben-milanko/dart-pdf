@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP form packages",
   "editorImportedFormData": "Form data imported - fields: {fields}, comments: {comments}",
   "editorImportFormDataNothing": "Nothing in that file matched this document",
-  "editorCouldNotImportFormData": "Could not import {name}: {error}"
+  "editorCouldNotImportFormData": "Could not import {name}: {error}",
+  "editorMenuFormData": "Form data and comments"
 }

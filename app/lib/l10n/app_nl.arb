@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP-formulierpakketten",
   "editorImportedFormData": "Formuliergegevens geïmporteerd – velden: {fields}, opmerkingen: {comments}",
   "editorImportFormDataNothing": "Niets in dat bestand komt overeen met dit document",
-  "editorCouldNotImportFormData": "Kan {name} niet importeren: {error}"
+  "editorCouldNotImportFormData": "Kan {name} niet importeren: {error}",
+  "editorMenuFormData": "Formuliergegevens en opmerkingen"
 }

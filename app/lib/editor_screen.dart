@@ -4051,6 +4051,43 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
+  /// A popup row that opens [items] in a cascading submenu (key
+  /// `menu-group-<id>`, like the phone sheet's folded groups). Picking an
+  /// item runs it and closes the parent popup too.
+  PopupMenuItem<VoidCallback> _submenuItem(
+    BuildContext menuContext, {
+    required String id,
+    required IconData icon,
+    required String title,
+    required List<PopupMenuEntry<VoidCallback>> items,
+  }) =>
+      PopupMenuItem<VoidCallback>(
+        height: _appMenuItemHeight(),
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: ValueKey('menu-group-$id'),
+          tooltip: title,
+          onSelected: (action) {
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+            action();
+          },
+          itemBuilder: (_) => items,
+          // as Open Recent: no item padding so the button fills the row,
+          // the content inset to line up with the plain rows
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _appMenuTile(
+              icon: icon,
+              title: title,
+              trailing: const Icon(Icons.arrow_right),
+            ),
+          ),
+        ),
+      );
+
   /// The app menu's plain rows, grouped by the section they belong to.
   ///
   /// These descriptors are the single list behind two surfaces: the menu
@@ -4159,7 +4196,7 @@ class _EditorScreenState extends State<EditorScreen>
       _MenuAction(
         id: 'import-form-data',
         requiresDocument: true,
-        sheet: _SheetPlacement.export,
+        sheet: _SheetPlacement.formData,
         icon: Icons.input_outlined,
         title: l.editorMenuImportFormData,
         run: () {
@@ -4175,7 +4212,7 @@ class _EditorScreenState extends State<EditorScreen>
         _MenuAction(
           id: id,
           requiresDocument: true,
-          sheet: _SheetPlacement.export,
+          sheet: _SheetPlacement.formData,
           icon: Icons.output_outlined,
           title: title,
           run: () {
@@ -4325,10 +4362,28 @@ class _EditorScreenState extends State<EditorScreen>
       ..._fileActions().map(item),
       ..._recentMenuItems(menuContext),
     ];
-    final document = <PopupMenuEntry<VoidCallback>>[
+    final documentActions = [
       if (hasDocument)
         for (final action in _documentActions())
-          if (!(action.hiddenWhenReadOnly && _readOnly)) item(action),
+          if (!(action.hiddenWhenReadOnly && _readOnly)) action,
+    ];
+    final formData = [
+      for (final action in documentActions)
+        if (action.sheet == _SheetPlacement.formData) action,
+    ];
+    final document = <PopupMenuEntry<VoidCallback>>[
+      for (final action in documentActions)
+        if (action.sheet != _SheetPlacement.formData)
+          item(action)
+        // the group takes the place of its first action
+        else if (identical(action, formData.first))
+          _submenuItem(
+            menuContext,
+            id: 'form-data',
+            icon: Icons.swap_vert_outlined,
+            title: l.editorMenuFormData,
+            items: formData.map(item).toList(),
+          ),
     ];
     final app = <PopupMenuEntry<VoidCallback>>[
       if (hasDocument) _readOnlyMenuItem(),
@@ -5085,6 +5140,7 @@ class _EditorScreenState extends State<EditorScreen>
             )
           : null,
       export: placed(_SheetPlacement.export),
+      formData: placed(_SheetPlacement.formData),
       moreTools: placed(_SheetPlacement.moreTools),
       readOnly: hasDocument ? _readOnly : null,
       onToggleReadOnly: () => setState(() => _readOnly = !_readOnly),
@@ -7071,6 +7127,10 @@ enum _SheetPlacement {
 
   /// Folded under More tools.
   moreTools,
+
+  /// Folded under Form data and comments: the FDF/XFDF/XDP import and
+  /// export actions. The desktop popup shows the same group as a submenu.
+  formData,
 
   /// The rows at the foot of the sheet.
   app,

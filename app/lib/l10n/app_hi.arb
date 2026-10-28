@@ -375,5 +375,6 @@
   "fileTypeXdp": "XDP फ़ॉर्म पैकेज",
   "editorImportedFormData": "फ़ॉर्म डेटा आयात किया गया - फ़ील्ड: {fields}, टिप्पणियाँ: {comments}",
   "editorImportFormDataNothing": "उस फ़ाइल में कुछ भी इस दस्तावेज़ से मेल नहीं खाया",
-  "editorCouldNotImportFormData": "{name} आयात नहीं किया जा सका: {error}"
+  "editorCouldNotImportFormData": "{name} आयात नहीं किया जा सका: {error}",
+  "editorMenuFormData": "फ़ॉर्म डेटा और टिप्पणियाँ"
 }

@@ -1456,4 +1456,7 @@ class AppLocalizationsVi extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Không thể nhập $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Dữ liệu biểu mẫu và nhận xét';
 }

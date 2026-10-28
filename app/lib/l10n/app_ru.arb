@@ -375,5 +375,6 @@
   "fileTypeXdp": "Пакеты форм XDP",
   "editorImportedFormData": "Данные формы импортированы — поля: {fields}, комментарии: {comments}",
   "editorImportFormDataNothing": "В этом файле нет ничего, что подходит к этому документу",
-  "editorCouldNotImportFormData": "Не удалось импортировать {name}: {error}"
+  "editorCouldNotImportFormData": "Не удалось импортировать {name}: {error}",
+  "editorMenuFormData": "Данные формы и комментарии"
 }

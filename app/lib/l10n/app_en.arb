@@ -1870,5 +1870,7 @@
   "editorImportFormDataNothing": "Nothing in that file matched this document",
   "@editorImportFormDataNothing": {"description": "Toast when an imported form-data file had no field values or comments that apply to the open document."},
   "editorCouldNotImportFormData": "Could not import {name}: {error}",
-  "@editorCouldNotImportFormData": {"description": "Toast when a form-data file could not be read or applied, with the file name and the error detail.", "placeholders": {"name": {"type": "String"}, "error": {"type": "String"}}}
+  "@editorCouldNotImportFormData": {"description": "Toast when a form-data file could not be read or applied, with the file name and the error detail.", "placeholders": {"name": {"type": "String"}, "error": {"type": "String"}}},
+  "editorMenuFormData": "Form data and comments",
+  "@editorMenuFormData": {"description": "App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats."}
 }

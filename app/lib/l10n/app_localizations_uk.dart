@@ -1481,4 +1481,7 @@ class AppLocalizationsUk extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Не вдалося імпортувати $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Дані форми та коментарі';
 }

@@ -1451,6 +1451,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Could not import $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2900,6 +2903,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Could not import $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -4349,4 +4355,7 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Could not import $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }

@@ -1479,4 +1479,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return 'Не удалось импортировать $name: $error';
   }
+
+  @override
+  String get editorMenuFormData => 'Данные формы и комментарии';
 }

@@ -30,8 +30,7 @@ void main() {
   });
   tearDown(() => prefs.dispose());
 
-  testWidgets('the menu offers form-data import and export with a document',
-      (tester) async {
+  Future<void> pumpWithForm(WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: EditorScreen(
         prefs: prefs,
@@ -40,10 +39,9 @@ void main() {
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
+  }
 
-    await tester.tap(find.byTooltip('DartPDF menu'));
-    await tester.pumpAndSettle();
-
+  void expectEntries() {
     for (final id in _menuIds) {
       expect(find.byKey(ValueKey(id)), findsOneWidget, reason: id);
     }
@@ -51,6 +49,51 @@ void main() {
     expect(find.text('Export form data as FDF…'), findsOneWidget);
     expect(find.text('Export form data as XFDF…'), findsOneWidget);
     expect(find.text('Export as XDP…'), findsOneWidget);
+  }
+
+  testWidgets('the menu keeps form-data import and export in a submenu',
+      (tester) async {
+    await pumpWithForm(tester);
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+
+    // folded away: only the submenu row shows in the menu itself
+    for (final id in _menuIds) {
+      expect(find.byKey(ValueKey(id)), findsNothing, reason: id);
+    }
+    final group = find.byKey(const ValueKey('menu-group-form-data'));
+    expect(group, findsOneWidget);
+    expect(find.text('Form data and comments'), findsOneWidget);
+
+    await tester.ensureVisible(group);
+    await tester.pumpAndSettle();
+    await tester.tap(group);
+    await tester.pumpAndSettle();
+    expectEntries();
+  });
+
+  testWidgets('the phone sheet folds them into their own page', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpWithForm(tester);
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('app-menu-sheet')), findsOneWidget);
+    final group = find.byKey(const ValueKey('menu-group-form-data'));
+    expect(group, findsOneWidget);
+    expect(find.byKey(const ValueKey('menu-export-fdf')), findsNothing);
+
+    await tester.ensureVisible(group);
+    await tester.pumpAndSettle();
+    await tester.tap(group);
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('app-menu-sheet-form-data')), findsOneWidget);
+    expectEntries();
   });
 
   testWidgets('no form-data entries without a document', (tester) async {
@@ -63,6 +106,7 @@ void main() {
     for (final id in _menuIds) {
       expect(find.byKey(ValueKey(id)), findsNothing, reason: id);
     }
+    expect(find.byKey(const ValueKey('menu-group-form-data')), findsNothing);
   });
 
   group('opening an XDP package', () {

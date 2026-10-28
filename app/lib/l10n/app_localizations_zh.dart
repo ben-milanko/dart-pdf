@@ -1411,6 +1411,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String editorCouldNotImportFormData(String name, String error) {
     return '无法导入 $name：$error';
   }
+
+  @override
+  String get editorMenuFormData => '表单数据和注释';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2821,4 +2824,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String editorCouldNotImportFormData(String name, String error) {
     return '無法匯入 $name：$error';
   }
+
+  @override
+  String get editorMenuFormData => '表單資料和註解';
 }
