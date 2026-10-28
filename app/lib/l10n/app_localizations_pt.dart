@@ -659,6 +659,26 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Selecionar abas';
+
+  @override
+  String get editorCloseSelectedTabs => 'Fechar selecionadas';
+
+  @override
+  String get editorSaveCopies => 'Salvar cópias';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Não foi possível ler $count abas, que foram deixadas de fora.',
+      one: 'Não foi possível ler 1 aba, que foi deixada de fora.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

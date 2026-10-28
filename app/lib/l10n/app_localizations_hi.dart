@@ -654,6 +654,26 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'टैब चुनें';
+
+  @override
+  String get editorCloseSelectedTabs => 'चयनित बंद करें';
+
+  @override
+  String get editorSaveCopies => 'प्रतियाँ सहेजें';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count टैब पढ़े नहीं जा सके और छोड़ दिए गए।',
+      one: '1 टैब पढ़ा नहीं जा सका और छोड़ दिया गया।',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -643,6 +643,25 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'タブを選択';
+
+  @override
+  String get editorCloseSelectedTabs => '選択したタブを閉じる';
+
+  @override
+  String get editorSaveCopies => 'コピーを保存';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個のタブを読み取れなかったため除外しました。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -662,6 +662,28 @@ class AppLocalizationsUk extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Вибрати вкладки';
+
+  @override
+  String get editorCloseSelectedTabs => 'Закрити вибрані';
+
+  @override
+  String get editorSaveCopies => 'Зберегти копії';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Не вдалося прочитати $count вкладки, їх пропущено.',
+      many: 'Не вдалося прочитати $count вкладок, їх пропущено.',
+      few: 'Не вдалося прочитати $count вкладки, їх пропущено.',
+      one: 'Не вдалося прочитати 1 вкладку, її пропущено.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

@@ -670,6 +670,29 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'تحديد علامات التبويب';
+
+  @override
+  String get editorCloseSelectedTabs => 'إغلاق المحدد';
+
+  @override
+  String get editorSaveCopies => 'حفظ نسخ';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تعذّرت قراءة $count علامة تبويب فاستُبعدت.',
+      many: 'تعذّرت قراءة $count علامة تبويب فاستُبعدت.',
+      few: 'تعذّرت قراءة $count علامات تبويب فاستُبعدت.',
+      two: 'تعذّرت قراءة علامتي تبويب فاستُبعدتا.',
+      one: 'تعذّرت قراءة علامة تبويب واحدة فاستُبعدت.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

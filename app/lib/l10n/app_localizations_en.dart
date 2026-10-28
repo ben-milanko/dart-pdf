@@ -653,6 +653,26 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2070,6 +2090,26 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   }
 
   @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3484,6 +3524,26 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String editorTabsOpenCount(int count) {
     return '$count open';
+  }
+
+  @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
   }
 
   @override

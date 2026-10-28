@@ -652,6 +652,25 @@ class AppLocalizationsVi extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Chọn thẻ';
+
+  @override
+  String get editorCloseSelectedTabs => 'Đóng mục đã chọn';
+
+  @override
+  String get editorSaveCopies => 'Lưu bản sao';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Không đọc được $count thẻ nên đã bỏ qua.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
