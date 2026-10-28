@@ -1443,6 +1443,42 @@ class AppLocalizationsTr extends AppLocalizations {
       'Değişiklik kaydedilemedi. Tekrar deneyin veya Şimdi değil seçeneğini seçin.';
 
   @override
+  String get editorMenuImportFormData =>
+      'Form verilerini veya yorumları içe aktar…';
+
+  @override
+  String get editorMenuExportFdf => 'Form verilerini FDF olarak dışa aktar…';
+
+  @override
+  String get editorMenuExportXfdf => 'Form verilerini XFDF olarak dışa aktar…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP olarak dışa aktar…';
+
+  @override
+  String get fileTypeFormData => 'Form verileri (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form paketleri';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form verileri içe aktarıldı – alanlar: $fields, yorumlar: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Bu dosyadaki hiçbir şey bu belgeyle eşleşmedi';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name içe aktarılamadı: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form verileri ve yorumlar';
+
+  @override
   String get liveSyncMenuStart => 'Canlı eşitlemeyi başlat (deneysel)';
 
   @override

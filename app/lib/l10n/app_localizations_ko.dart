@@ -1412,6 +1412,40 @@ class AppLocalizationsKo extends AppLocalizations {
   String get launcherOfferError => '변경 사항을 저장하지 못했습니다. 다시 시도하거나 나중에를 선택하세요.';
 
   @override
+  String get editorMenuImportFormData => '양식 데이터 또는 주석 가져오기…';
+
+  @override
+  String get editorMenuExportFdf => '양식 데이터를 FDF로 내보내기…';
+
+  @override
+  String get editorMenuExportXfdf => '양식 데이터를 XFDF로 내보내기…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP로 내보내기…';
+
+  @override
+  String get fileTypeFormData => '양식 데이터(FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP 양식 패키지';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '양식 데이터를 가져왔습니다 - 필드: $fields, 주석: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '이 파일에는 이 문서와 일치하는 항목이 없습니다';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name을(를) 가져올 수 없습니다: $error';
+  }
+
+  @override
+  String get editorMenuFormData => '양식 데이터 및 주석';
+
+  @override
   String get liveSyncMenuStart => '실시간 동기화 시작(실험적 기능)';
 
   @override

@@ -1489,6 +1489,42 @@ class AppLocalizationsPl extends AppLocalizations {
       'Nie udało się zapisać zmiany. Spróbuj ponownie lub wybierz „Nie teraz”.';
 
   @override
+  String get editorMenuImportFormData =>
+      'Importuj dane formularza lub komentarze…';
+
+  @override
+  String get editorMenuExportFdf => 'Eksportuj dane formularza jako FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Eksportuj dane formularza jako XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Eksportuj jako XDP…';
+
+  @override
+  String get fileTypeFormData => 'Dane formularza (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Pakiety formularzy XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Zaimportowano dane formularza – pola: $fields, komentarze: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nic w tym pliku nie pasuje do tego dokumentu';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Nie udało się zaimportować $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Dane formularza i komentarze';
+
+  @override
   String get liveSyncMenuStart =>
       'Rozpocznij synchronizację na żywo (eksperymentalne)';
 

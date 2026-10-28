@@ -1412,6 +1412,40 @@ class AppLocalizationsJa extends AppLocalizations {
   String get launcherOfferError => '変更を保存できませんでした。再試行するか「後で」を選んでください。';
 
   @override
+  String get editorMenuImportFormData => 'フォームデータまたは注釈を読み込む…';
+
+  @override
+  String get editorMenuExportFdf => 'フォームデータを FDF で書き出す…';
+
+  @override
+  String get editorMenuExportXfdf => 'フォームデータを XFDF で書き出す…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP で書き出す…';
+
+  @override
+  String get fileTypeFormData => 'フォームデータ (FDF、XFDF、XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP フォームパッケージ';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'フォームデータを読み込みました - フィールド: $fields、注釈: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => 'このファイルにはこの文書に一致するものがありません';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name を読み込めませんでした: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'フォームデータと注釈';
+
+  @override
   String get liveSyncMenuStart => 'ライブ同期を開始（試験運用）';
 
   @override

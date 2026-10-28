@@ -1472,6 +1472,42 @@ class AppLocalizationsUk extends AppLocalizations {
       'Не вдалося зберегти зміну. Спробуйте ще раз або виберіть «Не зараз».';
 
   @override
+  String get editorMenuImportFormData =>
+      'Імпортувати дані форми або коментарі…';
+
+  @override
+  String get editorMenuExportFdf => 'Експортувати дані форми у FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Експортувати дані форми у XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Експортувати у XDP…';
+
+  @override
+  String get fileTypeFormData => 'Дані форми (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Пакети форм XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Дані форми імпортовано — поля: $fields, коментарі: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'У цьому файлі немає нічого, що підходить до цього документа';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Не вдалося імпортувати $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Дані форми та коментарі';
+
+  @override
   String get liveSyncMenuStart =>
       'Почати синхронізацію в реальному часі (експериментально)';
 

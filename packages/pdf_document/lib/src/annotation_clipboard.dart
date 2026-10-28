@@ -81,7 +81,7 @@ class PdfAnnotationSnapshot {
     if (const {'Popup', 'Widget', 'Link'}.contains(annotation.subtype)) {
       return null;
     }
-    final copier = _SnapshotCopier(document);
+    final copier = _SnapshotCopier(document.cos);
     final out = CosDictionary();
     annotation.dict.entries.forEach((key, value) {
       // /NM and /RT travel only for sync (keepName): a reply needs its
@@ -278,14 +278,16 @@ CosObject _copyDetached(CosObject value) {
 class _SnapshotCopier {
   _SnapshotCopier(this.source);
 
-  final PdfDocument source;
+  /// The document the copied graph lives in - a PDF's, or an FDF file's
+  /// (form-data exchange reads annotations out of one).
+  final CosDocument source;
   final Set<CosReference> _visiting = {};
 
   CosObject copy(CosObject value) {
     switch (value) {
       case CosReference ref:
         if (!_visiting.add(ref)) return CosNull.instance; // cycle
-        final out = copy(source.cos.resolve(ref));
+        final out = copy(source.resolve(ref));
         _visiting.remove(ref);
         return out;
       case CosStream stream:
@@ -317,7 +319,7 @@ class _SnapshotCopier {
   /// intact - same approach as page imports: stop the decode before the
   /// first filter so only the encryption comes off.
   Uint8List _payloadOf(CosStream stream) {
-    final cos = source.cos;
+    final cos = source;
     if (!cos.isEncrypted) return stream.rawBytes;
     final filter = cos.resolve(stream.dictionary['Filter']);
     final first = switch (filter) {

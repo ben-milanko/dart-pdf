@@ -1451,6 +1451,41 @@ class AppLocalizationsId extends AppLocalizations {
       'Perubahan ini tidak dapat disimpan. Coba lagi atau pilih Tidak sekarang.';
 
   @override
+  String get editorMenuImportFormData => 'Impor data formulir atau komentar…';
+
+  @override
+  String get editorMenuExportFdf => 'Ekspor data formulir sebagai FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Ekspor data formulir sebagai XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Ekspor sebagai XDP…';
+
+  @override
+  String get fileTypeFormData => 'Data formulir (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Paket formulir XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Data formulir diimpor - kolom: $fields, komentar: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Tidak ada isi file itu yang cocok dengan dokumen ini';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Tidak dapat mengimpor $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Data formulir dan komentar';
+
+  @override
   String get liveSyncMenuStart => 'Mulai sinkronisasi langsung (eksperimental)';
 
   @override
