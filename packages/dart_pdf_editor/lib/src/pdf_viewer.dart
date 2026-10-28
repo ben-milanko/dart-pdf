@@ -10647,6 +10647,10 @@ class _PdfViewerState extends State<PdfViewer>
       PdfArmToolIntent: action<PdfArmToolIntent>(
           (intent) => _armTool(intent.tool),
           enabled: editing),
+      PdfArmLastToolIntent: action<PdfArmLastToolIntent>((_) {
+        final last = widget.editing?.lastUsedTool;
+        if (last != null) _armTool(last);
+      }, enabled: (_) => widget.editing?.lastUsedTool != null),
     };
   }();
 

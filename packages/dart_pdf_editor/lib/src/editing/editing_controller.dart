@@ -2322,6 +2322,27 @@ class PdfEditingController extends ChangeNotifier {
   /// leave this value null so normal text-selection gestures remain active.
   PdfEditTool? get tool => _tool;
 
+  /// The tool armed most recently before the current one, skipping Select -
+  /// what [PdfArmLastToolIntent] (X by default) re-arms. Finishing a shape
+  /// and dropping back to Select leaves that shape's tool here; from another
+  /// tool it is the one armed before it, so the key flips between two
+  /// tools. Null until a second tool has been armed.
+  PdfEditTool? get lastUsedTool =>
+      _recentTool != _tool ? _recentTool : _olderTool;
+
+  // the last two distinct non-Select tools left, newest first
+  PdfEditTool? _recentTool;
+  PdfEditTool? _olderTool;
+
+  void _rememberToolLeft(PdfEditTool? next) {
+    final left = _tool;
+    if (left == null || left == PdfEditTool.select || left == next) return;
+    if (left != _recentTool) {
+      _olderTool = _recentTool;
+      _recentTool = left;
+    }
+  }
+
   set tool(PdfEditTool? value) {
     // Assigning null while a markup tool is armed is an intentional clear
     // (Escape and the mobile tool switcher's Clear both use this path).
@@ -2350,6 +2371,7 @@ class PdfEditingController extends ChangeNotifier {
     // double-tap pairing (see [togglePencilEraser]) - the remembered tool
     // is only valid while the eraser stays the toggled-on partner
     if (value != PdfEditTool.eraser) _eraserToggledOn = false;
+    _rememberToolLeft(value);
     _tool = value;
     _markupTool = null;
     _handMode = false;
