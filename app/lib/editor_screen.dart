@@ -39,6 +39,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_auto.dart';
 import 'ocr_status_chip.dart';
+import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'recent_thumbnails.dart';
@@ -2840,11 +2841,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
-    // Keep `.pdf` last: "Scan.pdf" becomes "Scan (OCR).pdf", not
-    // "Scan.pdf (OCR)", which saves as "Scan.pdf (OCR).pdf".
-    final stem = pdfDisplayName(title);
-    final ocrTitle = appL10n(context).editorOcrTitle(stem);
-    _openBytes(result, stem == title ? ocrTitle : '$ocrTitle.pdf');
+    _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
     await _snapshotOpenedDocument(tab, result);
