@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show pdfSearchFieldBorderRadius;
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -310,6 +311,58 @@ void main() {
     expect(store.items, isEmpty);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
+
+  testWidgets('on a mouse platform a grid tile reveals its remove button on '
+      'hover', (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', path: '/a.pdf');
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    await tester.pump();
+
+    double removeOpacity() => tester
+        .widget<AnimatedOpacity>(find.ancestor(
+            of: find.byIcon(Icons.close),
+            matching: find.byType(AnimatedOpacity)))
+        .opacity;
+    expect(removeOpacity(), 0);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+        location: tester.getCenter(
+            find.byKey(const ValueKey('recent-tile-thumb-/a.pdf'))));
+    await tester.pumpAndSettle();
+    expect(removeOpacity(), 1);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(store.items, isEmpty);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('clicking anywhere on the drop zone opens the picker',
+      (tester) async {
+    var opened = 0;
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: RecentsStore(),
+          onOpen: () => opened++,
+          onOpenRecent: (_) {},
+        ),
+        size: wide);
+    await tester.tapAt(
+        tester.getTopLeft(find.byKey(const ValueKey('welcome-drop-zone'))) +
+            const Offset(16, 16));
+    expect(opened, 1);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
   testWidgets('grid tiles are shaped to the page aspect ratio', (tester) async {
     final store = RecentsStore();

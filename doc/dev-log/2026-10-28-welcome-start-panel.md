@@ -39,3 +39,18 @@ something instead of floating in space.
 
 New strings: `welcomeDropHeadline`, `welcomeHeadline`, `welcomeNewDocument`,
 `welcomePrivacy`, `welcomeSubtitle` (all 22 app locales).
+
+## Second pass
+
+- The **whole zone opens the picker** (`welcome-drop-zone`, a semantics-free
+  `GestureDetector` - the buttons keep the accessible actions), and on hover
+  the dashes turn `primary` and the fill takes a 6% primary tint.
+- **Shortcut hints** inside the buttons (`⌘O`/`⌘N`, `Ctrl+O`/`Ctrl+N`) on
+  native desktop only (`_shortcutHint`; the browser claims these chords, and
+  touch rarely has a keyboard). `_buttonWidth` includes the hint, so the
+  side-by-side/stacked decision still holds.
+- Recent grid tiles' **remove button waits for hover** on mouse platforms
+  (`_HoverBuilder` + `_revealed`): faded out it ignores pointers but stays in
+  the semantics tree; touch platforms keep it shown.
+- Harness gotcha: hover fades are `AnimatedOpacity`/`AnimatedContainer`, so a
+  single `pump(duration)` captures their first frame - `pumpAndSettle` first.
