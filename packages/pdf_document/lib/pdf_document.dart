@@ -13,6 +13,7 @@ export 'src/compressor.dart';
 export 'src/conformance.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';
+export 'src/csc.dart';
 export 'src/disk_cache.dart';
 export 'src/document.dart';
 export 'src/document_identity.dart';

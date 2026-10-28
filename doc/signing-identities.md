@@ -223,6 +223,79 @@ Because the Actalis chain includes real intermediates, embed them and add a
 trusted timestamp (B-T) so the signature validates offline; add long-term
 validation material (B-LT/B-LTA) for archival signatures.
 
+## Tier 5 — remote signing with a publicly-trusted certificate (CSC)
+
+The only route to Acrobat's green check that doesn't need us to become a CA:
+a signing service on the AATL or an EU trusted list holds the key in its HSM,
+and the Cloud Signature Consortium API (CSC v1.0.4 and v2) lets any client
+ask it to sign a hash. The certificate is the user's own, paid for with the
+provider. dart-pdf only builds the requests and assembles the PAdES
+signature around the value that comes back.
+
+```dart
+final client = PdfCscClient(
+  transport: myCscTransport,          // POST JSON to <service>/<method>
+  accessToken: serviceToken,          // from the provider's OAuth2 'service' flow
+  version: (await client.info()).version, // or set PdfCscApiVersion.v2
+);
+final credential = (await client.listCredentials()).first;
+
+final signed = await PdfEditor(document).saveSignedPadesRemote(
+  signer: cscRemoteSigner(
+    client: client,
+    credential: credential,
+    authorizer: (request) async {
+      // explicit credentials: prompt for what credential.inputs asks for
+      if (request.credential.inputs.any((i) => i.onlineOtp)) {
+        await request.client.sendOtp(request.credential);
+      }
+      return PdfCscAuthorization.secrets(pin: await askPin(), otp: await askOtp());
+      // oauth2code credentials: open cscOAuthAuthorizationUrl(credential:,
+      // hashes: request.hashes) and return .credentialToken(accessToken)
+    },
+  ),
+  level: PdfPadesLevel.bLT,           // timestamp + /DSS: LTV-enabled in Acrobat
+  timestampClient: myTimestampClient,
+  revocationClient: myRevocationClient,
+);
+```
+
+What the library does (`csc.dart`, `PdfRemoteSigner` in `pades.dart`):
+
+- **Credentials.** `listCredentials` follows page tokens and reads each
+  credential's chain, key algorithms, auth mode (implicit / explicit PIN-OTP /
+  OAuth2 `credential`), its PIN/OTP prompts, SCAL and multisign, from v1
+  (`credentials/info` per id) or v2 (inline `credentialInfos`, `auth.objects`).
+- **SCAL2.** The authorizer is called with the exact SHA-256 digest of the
+  CAdES signed attributes, after the revision is laid out, so a SAD or OAuth
+  `credential` grant that names its hashes works. One authorization per
+  signature; batch signing several documents under one is not wired yet.
+- **Algorithms.** `cscSigningAlgorithmFor` picks from the key's `algo` list:
+  PKCS#1 v1.5 first (sha256WithRSAEncryption or rsaEncryption), then
+  RSASSA-PSS (sending RSASSA-PSS-params as `signAlgoParams`, and naming the
+  same AlgorithmIdentifier in the SignerInfo), and ECDSA with SHA-256. SHA-256
+  only for now.
+- **Defensive checks.** ECDSA values that arrive as raw `r || s` are re-encoded
+  as DER, and every value is verified against the signer certificate before
+  anything is written (`PdfRemoteSigningException` otherwise). Service errors
+  surface as `PdfCscException` carrying the provider's `error_description` -
+  a wrong PIN arrives that way.
+- **OAuth2 pieces** (`cscOAuthAuthorizationUrl`, `cscOAuthTokenRequestBody`,
+  `PdfCscOAuthTokens`) build the authorize URL for scope `service` or
+  `credential` (v1 `hash` / v2 `hashes` + `hashAlgorithmOID`) and redeem the
+  code. Running the browser flow is the host's job, as with keyless signing.
+
+`PdfRemoteSigner` is not CSC-specific: a hardware token or platform keystore
+can implement it and get the same PAdES levels.
+
+Caveats: every CSC provider needs its own OAuth2 client registration (unlike
+Sigstore's public broker), and the certificate costs the user money. Providers
+differ in the details, so each new one should be smoke-tested against its
+sandbox. Testing here runs against `TestCscService` (`pdf_test_fixtures`), an
+in-process service that enforces tokens, PINs, OTPs, SCAL2 hash binding and
+SAD exhaustion, and can answer with raw ECDSA values;
+`pdf_document/tool/emit_csc_signed.dart` writes sample files for pyHanko.
+
 ## Summary
 
 | Option | Setup | Acrobat | This library's viewer |
@@ -232,6 +305,7 @@ validation material (B-LT/B-LTA) for archival signatures.
 | Tier 2 timestamp | none (free TSA) | trusted *time* | trusted time |
 | Tier 3 Fulcio keyless | OAuth sign-in | validity unknown, real email | trusted if Sigstore root added |
 | Tier 4 Actalis import | manual enrollment | not AATL | trusted (public root) |
+| Tier 5 CSC remote signing | provider account + OAuth client | **trusted** with an AATL certificate | trusted with the list or root added |
 
 ## Validating: trust lists and revocation
 
