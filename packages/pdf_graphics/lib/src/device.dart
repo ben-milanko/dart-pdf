@@ -70,6 +70,7 @@ class PdfTextRun {
     this.glyphs,
     this.charOffsets,
     this.invisible = false,
+    this.overlaysDrawnText = false,
     this.fill = true,
     this.strokeColor,
     this.strokeWidth = 0,
@@ -112,6 +113,14 @@ class PdfTextRun {
   /// its geometry - the OCR text layer of scanned documents. Painting
   /// devices must skip it; text extraction wants it like any other run.
   final bool invisible;
+
+  /// An [invisible] (mode 3) run in a font with no outlines and no /Widths -
+  /// the searchable layer CAD exporters such as MicroStation lay over
+  /// lettering they draw as vector paths. CAD text height is the cap height,
+  /// so that lettering stands on the baseline and reaches the font size;
+  /// selection and search band such a run 0..1 em instead of the default
+  /// -0.25..0.75. OCR layers (ours included) state /Widths and are not this.
+  final bool overlaysDrawnText;
 
   /// Best-effort Unicode (via ToUnicode CMaps or the font's encoding).
   final String text;

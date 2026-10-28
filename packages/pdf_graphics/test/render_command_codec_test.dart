@@ -109,7 +109,8 @@ class _TranscriptDevice implements PdfDevice {
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
       'font=${run.fontName} serif=${run.serif} size=${run.fontSize} '
       'fill=${run.fill} '
-      'invisible=${run.invisible} sw=${run.strokeWidth} '
+      'invisible=${run.invisible} overlay=${run.overlaysDrawnText} '
+      'sw=${run.strokeWidth} '
       'ls=${run.letterSpacing} ws=${run.wordSpacing} '
       'ld=${run.leadingSpace} vw=${run.visibleWidth} '
       'glyphs=${run.glyphs?.length} offsets=${run.charOffsets}');
@@ -255,6 +256,27 @@ void main() {
           .run;
       expect(restored.serif, serif);
       expect(restored.fontName, 'Unknown-Regular');
+    }
+  });
+
+  test('a CAD text overlay keeps its flag across the wire', () {
+    // Search over a worker recording bands it from that flag; losing it would
+    // put the highlight a quarter em low only on the worker path.
+    for (final overlay in [false, true]) {
+      final restored = (deserializeCommands(serializeCommands([
+        PdfDrawTextCommand(PdfTextRun(
+          text: 'STAGE 3',
+          transform: PdfMatrix.identity,
+          color: PdfColor.black,
+          width: 3.972,
+          invisible: true,
+          overlaysDrawnText: overlay,
+        )),
+      ])!)
+              .single as PdfDrawTextCommand)
+          .run;
+      expect(restored.overlaysDrawnText, overlay);
+      expect(restored.invisible, isTrue);
     }
   });
 
