@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get annotText => 'Not';
 
   @override
+  String get notePopupKeepOpen => 'Açık tut';
+
+  @override
   String get annotUnderline => 'Altı çizili';
 
   @override
@@ -459,6 +462,15 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Buraya not ekle';
 
   @override
+  String get menuEditLink => 'Bağlantıyı düzenle…';
+
+  @override
+  String get menuRemoveLink => 'Bağlantıyı kaldır';
+
+  @override
+  String get linkEditDialogTitle => 'Bağlantıyı düzenle';
+
+  @override
   String get menuSaveToStamps => 'Damgalara kaydet';
 
   @override
@@ -790,6 +802,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'İçerik';
+
+  @override
+  String get propSectionComments => 'Yorumlar';
 
   @override
   String get propSectionFormField => 'Form alanı';

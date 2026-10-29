@@ -9,6 +9,13 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -646,6 +653,26 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -955,6 +982,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -976,6 +1017,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -986,6 +1036,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -999,6 +1052,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -1392,6 +1448,61 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -1399,6 +1510,13 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   AppLocalizationsEnAu() : super('en_AU');
 
   @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -2036,6 +2154,26 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   }
 
   @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2345,6 +2483,20 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -2366,6 +2518,15 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -2376,6 +2537,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -2389,6 +2553,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -2782,6 +2949,61 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognise text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -2789,6 +3011,13 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   AppLocalizationsEnGb() : super('en_GB');
 
   @override
+  String get updateSkipVersion => 'Skip this version';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'This version is skipped. You won’t be notified about it again, but you can still install it here.';
+
+  @override
   String get add => 'Add';
 
   @override
@@ -3426,6 +3655,26 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   }
 
   @override
+  String get editorSelectTabs => 'Select tabs';
+
+  @override
+  String get editorCloseSelectedTabs => 'Close selected';
+
+  @override
+  String get editorSaveCopies => 'Save copies';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs couldn\'t be read and were left out.',
+      one: '1 tab couldn\'t be read and was left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3735,6 +3984,20 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
       'Receive automatic update notifications for unsigned Windows and macOS test builds from main.';
 
   @override
+  String get settingsWebNightly => 'Try the nightly web app';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.';
+
+  @override
+  String get settingsWebStable => 'Switch to the stable web app';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opens the current release. Files, recent documents and settings are kept separately for each site.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -3756,6 +4019,15 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   String get welcomeCopyPath => 'Copy path';
 
   @override
+  String get welcomeDropHeadline => 'Drop a PDF here';
+
+  @override
+  String get welcomeHeadline => 'Open or create a PDF';
+
+  @override
+  String get welcomeNewDocument => 'New document';
+
+  @override
   String get welcomeOpen => 'Open';
 
   @override
@@ -3766,6 +4038,9 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get welcomePickAgainToReopen => 'Pick again to reopen';
+
+  @override
+  String get welcomePrivacy => 'Your documents never leave your device.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -3779,6 +4054,9 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get welcomeRemoveFromRecent => 'Remove from recent';
+
+  @override
+  String get welcomeSubtitle => 'Annotate, fill forms, sign, and edit text.';
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
@@ -4172,4 +4450,59 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognise text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Add DartPDF to Applications?';
+
+  @override
+  String get launcherOfferBody =>
+      'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.';
+
+  @override
+  String get launcherOfferRegister => 'Set up launcher';
+
+  @override
+  String get launcherOfferLater => 'Not now';
+
+  @override
+  String get launcherOfferNever => 'Don’t show again';
+
+  @override
+  String get launcherOfferError =>
+      'Could not save this change. Try again, or choose Not now.';
+
+  @override
+  String get editorMenuImportFormData => 'Import form data or comments…';
+
+  @override
+  String get editorMenuExportFdf => 'Export form data as FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Export form data as XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Export as XDP…';
+
+  @override
+  String get fileTypeFormData => 'Form data (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form packages';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form data imported - fields: $fields, comments: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nothing in that file matched this document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Could not import $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form data and comments';
 }

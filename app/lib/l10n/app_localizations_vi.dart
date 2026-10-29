@@ -9,6 +9,13 @@ class AppLocalizationsVi extends AppLocalizations {
   AppLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Bỏ qua phiên bản này';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Phiên bản này đã được bỏ qua. Bạn sẽ không nhận được thông báo về phiên bản này nữa, nhưng vẫn có thể cài đặt tại đây.';
+
+  @override
   String get add => 'Thêm';
 
   @override
@@ -645,6 +652,25 @@ class AppLocalizationsVi extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Chọn thẻ';
+
+  @override
+  String get editorCloseSelectedTabs => 'Đóng mục đã chọn';
+
+  @override
+  String get editorSaveCopies => 'Lưu bản sao';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Không đọc được $count thẻ nên đã bỏ qua.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -957,6 +983,20 @@ class AppLocalizationsVi extends AppLocalizations {
       'Nhận thông báo cập nhật tự động cho các bản dựng thử nghiệm Windows/macOS chưa ký từ main.';
 
   @override
+  String get settingsWebNightly => 'Dùng thử ứng dụng web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Mở bản thử nghiệm của ứng dụng web được dựng mỗi đêm từ main. Tệp, tài liệu gần đây và cài đặt được lưu riêng cho từng trang.';
+
+  @override
+  String get settingsWebStable => 'Chuyển sang ứng dụng web ổn định';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Mở bản phát hành hiện tại. Tệp, tài liệu gần đây và cài đặt được lưu riêng cho từng trang.';
+
+  @override
   String get settingsUpdates => 'Cập nhật';
 
   @override
@@ -978,6 +1018,15 @@ class AppLocalizationsVi extends AppLocalizations {
   String get welcomeCopyPath => 'Sao chép đường dẫn';
 
   @override
+  String get welcomeDropHeadline => 'Thả tệp PDF vào đây';
+
+  @override
+  String get welcomeHeadline => 'Mở hoặc tạo PDF';
+
+  @override
+  String get welcomeNewDocument => 'Tài liệu mới';
+
+  @override
   String get welcomeOpen => 'Mở';
 
   @override
@@ -988,6 +1037,10 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Chọn lại để mở lại';
+
+  @override
+  String get welcomePrivacy =>
+      'Tài liệu của bạn không bao giờ rời khỏi thiết bị.';
 
   @override
   String get welcomeRecent => 'Gần đây';
@@ -1001,6 +1054,10 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Gỡ khỏi danh sách gần đây';
+
+  @override
+  String get welcomeSubtitle =>
+      'Chú thích, điền biểu mẫu, ký và chỉnh sửa văn bản.';
 
   @override
   String get welcomeTapToReopen => 'Nhấn để mở lại';
@@ -1397,4 +1454,59 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Thêm DartPDF vào ứng dụng?';
+
+  @override
+  String get launcherOfferBody =>
+      'Thiết lập trình khởi chạy để tìm DartPDF trong tìm kiếm ứng dụng. Trình đọc PDF mặc định sẽ không thay đổi.';
+
+  @override
+  String get launcherOfferRegister => 'Thiết lập trình khởi chạy';
+
+  @override
+  String get launcherOfferLater => 'Để sau';
+
+  @override
+  String get launcherOfferNever => 'Không hiện lại';
+
+  @override
+  String get launcherOfferError =>
+      'Không thể lưu thay đổi. Hãy thử lại hoặc chọn Để sau.';
+
+  @override
+  String get editorMenuImportFormData => 'Nhập dữ liệu biểu mẫu hoặc nhận xét…';
+
+  @override
+  String get editorMenuExportFdf => 'Xuất dữ liệu biểu mẫu dưới dạng FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Xuất dữ liệu biểu mẫu dưới dạng XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Xuất dưới dạng XDP…';
+
+  @override
+  String get fileTypeFormData => 'Dữ liệu biểu mẫu (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Gói biểu mẫu XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Đã nhập dữ liệu biểu mẫu - trường: $fields, nhận xét: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Không có gì trong tệp đó khớp với tài liệu này';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Không thể nhập $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Dữ liệu biểu mẫu và nhận xét';
 }

@@ -9,6 +9,13 @@ class AppLocalizationsIt extends AppLocalizations {
   AppLocalizationsIt([String locale = 'it']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Salta questa versione';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Questa versione è stata saltata. Non riceverai altre notifiche al riguardo, ma puoi comunque installarla qui.';
+
+  @override
   String get add => 'Aggiungi';
 
   @override
@@ -652,6 +659,26 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Seleziona schede';
+
+  @override
+  String get editorCloseSelectedTabs => 'Chiudi selezionate';
+
+  @override
+  String get editorSaveCopies => 'Salva copie';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Impossibile leggere $count schede, sono state escluse.',
+      one: 'Impossibile leggere 1 scheda, è stata esclusa.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -966,6 +993,20 @@ class AppLocalizationsIt extends AppLocalizations {
       'Ricevi notifiche automatiche per le build di test Windows/macOS non firmate da main.';
 
   @override
+  String get settingsWebNightly => 'Prova l\'app web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Apre una build di test dell\'app web creata ogni notte da main. File, documenti recenti e impostazioni sono conservati separatamente per ogni sito.';
+
+  @override
+  String get settingsWebStable => 'Passa all\'app web stabile';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Apre la versione attuale. File, documenti recenti e impostazioni sono conservati separatamente per ogni sito.';
+
+  @override
   String get settingsUpdates => 'Aggiornamenti';
 
   @override
@@ -987,6 +1028,15 @@ class AppLocalizationsIt extends AppLocalizations {
   String get welcomeCopyPath => 'Copia percorso';
 
   @override
+  String get welcomeDropHeadline => 'Trascina qui un PDF';
+
+  @override
+  String get welcomeHeadline => 'Apri o crea un PDF';
+
+  @override
+  String get welcomeNewDocument => 'Nuovo documento';
+
+  @override
   String get welcomeOpen => 'Apri';
 
   @override
@@ -997,6 +1047,10 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Riseleziona per riaprire';
+
+  @override
+  String get welcomePrivacy =>
+      'I tuoi documenti non lasciano mai il tuo dispositivo.';
 
   @override
   String get welcomeRecent => 'Recenti';
@@ -1010,6 +1064,10 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Rimuovi dai recenti';
+
+  @override
+  String get welcomeSubtitle =>
+      'Annota, compila moduli, firma e modifica il testo.';
 
   @override
   String get welcomeTapToReopen => 'Tocca per riaprire';
@@ -1411,4 +1469,59 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Aggiungere DartPDF alle applicazioni?';
+
+  @override
+  String get launcherOfferBody =>
+      'Configura un collegamento per trovare DartPDF nella ricerca delle applicazioni. Il lettore PDF predefinito non cambierà.';
+
+  @override
+  String get launcherOfferRegister => 'Configura collegamento';
+
+  @override
+  String get launcherOfferLater => 'Non ora';
+
+  @override
+  String get launcherOfferNever => 'Non mostrare più';
+
+  @override
+  String get launcherOfferError =>
+      'Impossibile salvare la modifica. Riprova o scegli «Non ora».';
+
+  @override
+  String get editorMenuImportFormData => 'Importa dati del modulo o commenti…';
+
+  @override
+  String get editorMenuExportFdf => 'Esporta dati del modulo come FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Esporta dati del modulo come XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Esporta come XDP…';
+
+  @override
+  String get fileTypeFormData => 'Dati del modulo (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Pacchetti di moduli XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Dati del modulo importati – campi: $fields, commenti: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nulla in quel file corrisponde a questo documento';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Impossibile importare $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Dati del modulo e commenti';
 }

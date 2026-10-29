@@ -9,6 +9,13 @@ class AppLocalizationsRu extends AppLocalizations {
   AppLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Пропустить эту версию';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Эта версия пропущена. Вы больше не будете получать уведомления о ней, но по-прежнему можете установить её здесь.';
+
+  @override
   String get add => 'Добавить';
 
   @override
@@ -656,6 +663,28 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Выбрать вкладки';
+
+  @override
+  String get editorCloseSelectedTabs => 'Закрыть выбранные';
+
+  @override
+  String get editorSaveCopies => 'Сохранить копии';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Не удалось прочитать $count вкладки, они пропущены.',
+      many: 'Не удалось прочитать $count вкладок, они пропущены.',
+      few: 'Не удалось прочитать $count вкладки, они пропущены.',
+      one: 'Не удалось прочитать 1 вкладку, она пропущена.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -976,6 +1005,20 @@ class AppLocalizationsRu extends AppLocalizations {
       'Получайте автоматические уведомления о неподписанных тестовых сборках Windows/macOS из main.';
 
   @override
+  String get settingsWebNightly => 'Попробовать ночную веб-версию';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Открывает тестовую сборку веб-приложения, собираемую каждую ночь из main. Файлы, недавние документы и настройки хранятся отдельно для каждого сайта.';
+
+  @override
+  String get settingsWebStable => 'Перейти на стабильную веб-версию';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Открывает текущий выпуск. Файлы, недавние документы и настройки хранятся отдельно для каждого сайта.';
+
+  @override
   String get settingsUpdates => 'Обновления';
 
   @override
@@ -997,6 +1040,15 @@ class AppLocalizationsRu extends AppLocalizations {
   String get welcomeCopyPath => 'Копировать путь';
 
   @override
+  String get welcomeDropHeadline => 'Перетащите PDF сюда';
+
+  @override
+  String get welcomeHeadline => 'Откройте или создайте PDF';
+
+  @override
+  String get welcomeNewDocument => 'Новый документ';
+
+  @override
   String get welcomeOpen => 'Открыть';
 
   @override
@@ -1007,6 +1059,9 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Выберите снова, чтобы открыть заново';
+
+  @override
+  String get welcomePrivacy => 'Ваши документы никогда не покидают устройство.';
 
   @override
   String get welcomeRecent => 'Недавние';
@@ -1020,6 +1075,10 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Удалить из недавних';
+
+  @override
+  String get welcomeSubtitle =>
+      'Аннотации, заполнение форм, подпись и редактирование текста.';
 
   @override
   String get welcomeTapToReopen => 'Коснитесь, чтобы открыть заново';
@@ -1419,4 +1478,60 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Добавить DartPDF в приложения?';
+
+  @override
+  String get launcherOfferBody =>
+      'Создайте ярлык, чтобы находить DartPDF через поиск приложений. Программа для чтения PDF по умолчанию не изменится.';
+
+  @override
+  String get launcherOfferRegister => 'Создать ярлык';
+
+  @override
+  String get launcherOfferLater => 'Не сейчас';
+
+  @override
+  String get launcherOfferNever => 'Больше не показывать';
+
+  @override
+  String get launcherOfferError =>
+      'Не удалось сохранить изменение. Повторите попытку или выберите «Не сейчас».';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Импортировать данные формы или комментарии…';
+
+  @override
+  String get editorMenuExportFdf => 'Экспортировать данные формы в FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Экспортировать данные формы в XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Экспортировать в XDP…';
+
+  @override
+  String get fileTypeFormData => 'Данные формы (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Пакеты форм XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Данные формы импортированы — поля: $fields, комментарии: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'В этом файле нет ничего, что подходит к этому документу';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Не удалось импортировать $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Данные формы и комментарии';
 }

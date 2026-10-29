@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get annotText => '메모';
 
   @override
+  String get notePopupKeepOpen => '열어 두기';
+
+  @override
   String get annotUnderline => '밑줄';
 
   @override
@@ -459,6 +462,15 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => '여기에 메모 추가';
 
   @override
+  String get menuEditLink => '링크 편집…';
+
+  @override
+  String get menuRemoveLink => '링크 제거';
+
+  @override
+  String get linkEditDialogTitle => '링크 편집';
+
+  @override
   String get menuSaveToStamps => '스탬프에 저장';
 
   @override
@@ -789,6 +801,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => '내용';
+
+  @override
+  String get propSectionComments => '댓글';
 
   @override
   String get propSectionFormField => '양식 필드';

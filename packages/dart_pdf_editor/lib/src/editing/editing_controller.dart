@@ -2322,6 +2322,27 @@ class PdfEditingController extends ChangeNotifier {
   /// leave this value null so normal text-selection gestures remain active.
   PdfEditTool? get tool => _tool;
 
+  /// The tool armed most recently before the current one, skipping Select -
+  /// what [PdfArmLastToolIntent] (X by default) re-arms. Finishing a shape
+  /// and dropping back to Select leaves that shape's tool here; from another
+  /// tool it is the one armed before it, so the key flips between two
+  /// tools. Null until a second tool has been armed.
+  PdfEditTool? get lastUsedTool =>
+      _recentTool != _tool ? _recentTool : _olderTool;
+
+  // the last two distinct non-Select tools left, newest first
+  PdfEditTool? _recentTool;
+  PdfEditTool? _olderTool;
+
+  void _rememberToolLeft(PdfEditTool? next) {
+    final left = _tool;
+    if (left == null || left == PdfEditTool.select || left == next) return;
+    if (left != _recentTool) {
+      _olderTool = _recentTool;
+      _recentTool = left;
+    }
+  }
+
   set tool(PdfEditTool? value) {
     // Assigning null while a markup tool is armed is an intentional clear
     // (Escape and the mobile tool switcher's Clear both use this path).
@@ -2350,6 +2371,7 @@ class PdfEditingController extends ChangeNotifier {
     // double-tap pairing (see [togglePencilEraser]) - the remembered tool
     // is only valid while the eraser stays the toggled-on partner
     if (value != PdfEditTool.eraser) _eraserToggledOn = false;
+    _rememberToolLeft(value);
     _tool = value;
     _markupTool = null;
     _handMode = false;
@@ -3392,6 +3414,72 @@ class PdfEditingController extends ChangeNotifier {
         );
       });
     });
+  }
+
+  /// The topmost editable /Link annotation under ([x], [y]) on [pageIndex],
+  /// with its /Annots slot - the hit test behind the context menu's "Edit
+  /// link" and "Remove link". Links aren't selectable (a click follows
+  /// them), so this is their way in. It tests /Rect, as the viewer's
+  /// click-to-follow does. Skips hidden links and ones
+  /// the host or the /F flags protect ([isAnnotationEditable]).
+  (int index, PdfLinkAnnotation)? linkAnnotationAt(
+    int pageIndex,
+    double x,
+    double y,
+  ) {
+    final annotations = _page(pageIndex).annotations;
+    for (var i = annotations.length - 1; i >= 0; i--) {
+      final annotation = annotations[i];
+      if (annotation is! PdfLinkAnnotation ||
+          annotation.isHidden ||
+          _hiddenFromDisplay(annotation) ||
+          !isAnnotationEditable(annotation) ||
+          !annotation.rect.contains(x, y)) {
+        continue;
+      }
+      return (i, annotation);
+    }
+    return null;
+  }
+
+  /// The [PdfLinkTarget] the /Link in slot [index] of [pageIndex] points
+  /// at - what an Edit-link dialog pre-fills - or null when the slot isn't
+  /// a link, or its action is neither a /URI nor a /GoTo in this document
+  /// (a launch, a remote go-to, a named or script action).
+  PdfLinkTarget? linkTargetAt(int pageIndex, int index) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation is! PdfLinkAnnotation) return null;
+    return switch (annotation.action) {
+      PdfUriAction(:final uri) => PdfLinkTarget.uri(uri),
+      PdfGoToAction(:final destination) =>
+        PdfLinkTarget.page(destination.pageIndex),
+      _ => null,
+    };
+  }
+
+  /// Re-points the existing /Link in slot [index] of [pageIndex] at
+  /// [target], keeping its region and decoration - a link's appearance
+  /// doesn't depend on where it goes. Returns false (and changes nothing)
+  /// when the slot isn't an editable link.
+  bool editLink(int pageIndex, int index, PdfLinkTarget target) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation is! PdfLinkAnnotation || !isAnnotationEditable(annotation)) {
+      return false;
+    }
+    final uri = target.uri;
+    if (uri != null && uri.isEmpty) return false;
+    apply((e) {
+      if (uri != null) {
+        e.setLinkUri(pageIndex, annotation, uri);
+      } else {
+        e.setLinkDestination(
+            pageIndex,
+            annotation,
+            target.destination ??
+                PdfExplicitDestination.fit(target.page ?? pageIndex));
+      }
+    });
+    return true;
   }
 
   /// Emits one link annotation for [target] over [quads]. When no
@@ -6204,6 +6292,14 @@ class PdfEditingController extends ChangeNotifier {
   bool _hiddenFromDisplay(PdfAnnotation annotation) =>
       preferences.hiddenAnnotationSubtypes.contains(annotation.subtype);
 
+  /// Whether [annotation] is comment-thread content - a reply or a review
+  /// state (§12.5.6.2). The renderer never paints those (they live in the
+  /// thread, the way Acrobat shows them), and Acrobat stacks a reply on its
+  /// parent's /Rect, so an on-page hit test that reached one would pick an
+  /// invisible reply over the note the user actually tapped.
+  static bool _isThreadContent(PdfAnnotation annotation) =>
+      annotation.isReply || annotation.isStateAnnotation;
+
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
   /// draw on top, so they win). Subtypes hidden by
@@ -6216,8 +6312,14 @@ class PdfEditingController extends ChangeNotifier {
     final annotations = _page(pageIndex).annotations;
     for (var i = annotations.length - 1; i >= 0; i--) {
       final annotation = annotations[i];
+      // replies and review-state records share their root's /Rect but are
+      // never painted: a click on a note must select the note, not the
+      // invisible reply stacked over it
       if (annotation.isHidden ||
+          annotation.isReply ||
+          annotation.isStateAnnotation ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;
@@ -6233,6 +6335,13 @@ class PdfEditingController extends ChangeNotifier {
         for (final q in quads) {
           if (q.contains(x, y)) return (i, annotation);
         }
+        continue;
+      }
+      // Line work (polylines, unfilled polygons, callout leaders) is hit on
+      // its stroke, not its /Rect - the bounding box of a diagonal or
+      // open shape is mostly empty page that belongs to whatever is behind.
+      if (_strokeHit(annotation, x, y) case final hit?) {
+        if (hit) return (i, annotation);
         continue;
       }
       if (annotation.rect.contains(x, y)) return (i, annotation);
@@ -6262,6 +6371,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.isLocked ||
           !isAnnotationLockManageable(annotation)) {
         continue;
@@ -6384,6 +6494,132 @@ class PdfEditingController extends ChangeNotifier {
     return null;
   }
 
+  /// How far (page units) past a drawn stroke's edge a select-tool press
+  /// still lands on it.
+  static const double _strokeHitTolerance = 4;
+
+  /// The select tool's precise hit test for annotations drawn as lines:
+  /// whether ([x], [y]) lands on a /PolyLine's segments, an unfilled
+  /// /Polygon's outline (inside it too when filled), or a callout's text
+  /// box, leaders, or marked region. Null when [annotation] isn't
+  /// one of those shapes (or lacks usable geometry), so the caller falls
+  /// back to /Rect. Measurements keep the /Rect hit: their caption is
+  /// drawn off the line and has to stay clickable.
+  bool? _strokeHit(PdfAnnotation annotation, double x, double y) {
+    final width = annotation.borderWidth ?? 1;
+    final reach = _strokeHitTolerance + width / 2;
+    switch (annotation.subtype) {
+      case 'PolyLine' || 'Polygon':
+        if (annotation.measure != null ||
+            annotation.takeoff?.valueText != null) {
+          return null;
+        }
+        final points = annotation.vertices;
+        if (points == null || points.isEmpty) return null;
+        final closed = annotation.subtype == 'Polygon';
+        if (closed &&
+            annotation.interiorColor != null &&
+            _polygonContains(points, x, y)) {
+          return true;
+        }
+        // cloud scallops stand out past the polygon edge
+        final outline = closed && annotation.hasCloudyBorder
+            ? reach +
+                math.max(width * 4.0, 12.0 * annotation.cloudBorderScale) * 1.15
+            : reach;
+        if (_nearPolyline(points, x, y, outline, closed: closed)) return true;
+        return !closed &&
+            _hasLineEnding(annotation) &&
+            _nearEndpoints(points, x, y, reach + math.max(10.0, width * 5));
+      case 'FreeText' when annotation.isCallout:
+        final leaders = annotation.calloutLeaders;
+        if (leaders == null) return null;
+        if ((annotation.calloutBox ?? annotation.rect).contains(x, y)) {
+          return true;
+        }
+        final style = annotation.calloutLeaderStyle;
+        final leaderReach = _strokeHitTolerance + (style?.width ?? width) / 2;
+        final tip = _hasLineEnding(annotation)
+            ? leaderReach + math.max(10.0, (style?.width ?? width) * 5)
+            : leaderReach;
+        for (final leader in leaders) {
+          if (_nearPolyline(leader, x, y, leaderReach)) return true;
+          final (tx, ty) = leader.first;
+          if (_distanceSquared(x, y, tx, ty) <= tip * tip) return true;
+        }
+        if (annotation.calloutRegion case final region?) {
+          final outline = region.shape == PdfCalloutRegionShape.cloud
+              ? leaderReach +
+                  math.max((style?.width ?? width) * 4.0,
+                          12.0 * region.cloudScale) *
+                      1.15
+              : leaderReach;
+          // the marked area is grabbed whole, the way the cloud is dragged
+          if (_polygonContains(region.vertices, x, y) ||
+              _nearPolyline(region.vertices, x, y, outline, closed: true)) {
+            return true;
+          }
+        }
+        return false;
+    }
+    return null;
+  }
+
+  /// Whether [annotation]'s /LE names any ending other than /None - its
+  /// arrowheads (or squares, circles, ...) are hit as part of the stroke.
+  static bool _hasLineEnding(PdfAnnotation annotation) {
+    final cos = annotation.document.cos;
+    final le = cos.resolve(annotation.dict['LE']);
+    bool drawn(CosObject? o) => o is CosName && o.value != 'None';
+    if (le is CosArray) return le.items.any((o) => drawn(cos.resolve(o)));
+    return drawn(le);
+  }
+
+  /// Whether ([x], [y]) is within [reach] of the path through [points]
+  /// (closing back to the first point when [closed]).
+  static bool _nearPolyline(
+    List<(double, double)> points,
+    double x,
+    double y,
+    double reach, {
+    bool closed = false,
+  }) {
+    final r2 = reach * reach;
+    if (points.length == 1) {
+      final (px, py) = points.single;
+      return _distanceSquared(x, y, px, py) <= r2;
+    }
+    final segments = closed ? points.length : points.length - 1;
+    for (var p = 0; p < segments; p++) {
+      final a = points[p], b = points[(p + 1) % points.length];
+      if (_segmentDistanceSquared(x, y, a, b) <= r2) return true;
+    }
+    return false;
+  }
+
+  static bool _nearEndpoints(
+    List<(double, double)> points,
+    double x,
+    double y,
+    double reach,
+  ) =>
+      [points.first, points.last]
+          .any((p) => _distanceSquared(x, y, p.$1, p.$2) <= reach * reach);
+
+  /// Even-odd point-in-polygon test.
+  static bool _polygonContains(
+      List<(double, double)> points, double x, double y) {
+    var inside = false;
+    for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
+      final (xi, yi) = points[i];
+      final (xj, yj) = points[j];
+      if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
   static double _distanceSquared(double x, double y, double px, double py) {
     final dx = x - px, dy = y - py;
     return dx * dx + dy * dy;
@@ -6443,6 +6679,7 @@ class PdfEditingController extends ChangeNotifier {
       final annotation = annotations[i];
       if (annotation.isHidden ||
           _hiddenFromDisplay(annotation) ||
+          _isThreadContent(annotation) ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
         continue;

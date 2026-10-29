@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Importez et exportez les données de formulaires et les commentaires en FDF, XFDF et XDP. Modifiez les liens existants. Lisez les fils de notes à côté de la page et gardez plusieurs notes ouvertes. Partagez les onglets sélectionnés ensemble. Amélioration de l’accueil, de l’ouverture des PDF et des mises à jour. L’aperçu avant impression suit les pages sélectionnées.

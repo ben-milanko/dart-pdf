@@ -9,6 +9,13 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Bu sürümü atla';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Bu sürüm atlandı. Bu sürüm hakkında tekrar bildirim almayacaksınız, ancak yine de buradan yükleyebilirsiniz.';
+
+  @override
   String get add => 'Ekle';
 
   @override
@@ -647,6 +654,25 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Sekmeleri seç';
+
+  @override
+  String get editorCloseSelectedTabs => 'Seçilenleri kapat';
+
+  @override
+  String get editorSaveCopies => 'Kopyaları kaydet';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sekme okunamadı ve dışarıda bırakıldı.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -956,6 +982,20 @@ class AppLocalizationsTr extends AppLocalizations {
       'main dalındaki imzasız Windows/macOS test derlemeleri için otomatik güncelleme bildirimleri alın.';
 
   @override
+  String get settingsWebNightly => 'Nightly web uygulamasını dene';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main dalından her gece derlenen web uygulamasının test sürümünü açar. Dosyalar, son belgeler ve ayarlar her site için ayrı tutulur.';
+
+  @override
+  String get settingsWebStable => 'Kararlı web uygulamasına geç';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Güncel sürümü açar. Dosyalar, son belgeler ve ayarlar her site için ayrı tutulur.';
+
+  @override
   String get settingsUpdates => 'Güncellemeler';
 
   @override
@@ -977,6 +1017,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get welcomeCopyPath => 'Yolu kopyala';
 
   @override
+  String get welcomeDropHeadline => 'PDF\'yi buraya bırakın';
+
+  @override
+  String get welcomeHeadline => 'PDF açın veya oluşturun';
+
+  @override
+  String get welcomeNewDocument => 'Yeni belge';
+
+  @override
   String get welcomeOpen => 'Aç';
 
   @override
@@ -989,6 +1038,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get welcomePickAgainToReopen => 'Yeniden açmak için tekrar seçin';
 
   @override
+  String get welcomePrivacy => 'Belgeleriniz asla cihazınızdan çıkmaz.';
+
+  @override
   String get welcomeRecent => 'Son kullanılanlar';
 
   @override
@@ -999,6 +1051,10 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Son kullanılanlardan kaldır';
+
+  @override
+  String get welcomeSubtitle =>
+      'Açıklama ekleyin, form doldurun, imzalayın ve metin düzenleyin.';
 
   @override
   String get welcomeTapToReopen => 'Yeniden açmak için dokunun';
@@ -1395,4 +1451,60 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'DartPDF uygulamalara eklensin mi?';
+
+  @override
+  String get launcherOfferBody =>
+      'DartPDF’yi uygulama aramasında bulmak için bir başlatıcı ayarlayın. Varsayılan PDF okuyucunuz değişmez.';
+
+  @override
+  String get launcherOfferRegister => 'Başlatıcıyı ayarla';
+
+  @override
+  String get launcherOfferLater => 'Şimdi değil';
+
+  @override
+  String get launcherOfferNever => 'Bir daha gösterme';
+
+  @override
+  String get launcherOfferError =>
+      'Değişiklik kaydedilemedi. Tekrar deneyin veya Şimdi değil seçeneğini seçin.';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Form verilerini veya yorumları içe aktar…';
+
+  @override
+  String get editorMenuExportFdf => 'Form verilerini FDF olarak dışa aktar…';
+
+  @override
+  String get editorMenuExportXfdf => 'Form verilerini XFDF olarak dışa aktar…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP olarak dışa aktar…';
+
+  @override
+  String get fileTypeFormData => 'Form verileri (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP form paketleri';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Form verileri içe aktarıldı – alanlar: $fields, yorumlar: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Bu dosyadaki hiçbir şey bu belgeyle eşleşmedi';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name içe aktarılamadı: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Form verileri ve yorumlar';
 }

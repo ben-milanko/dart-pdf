@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, immutable, kIsWeb, visibleForTesting;
+    show ValueListenable, immutable, kIsWeb, listEquals, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/physics.dart';
@@ -19,6 +19,7 @@ import 'annotation_display_filter.dart';
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
+import 'note_popup.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -56,6 +57,7 @@ import 'theme.dart';
 import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 import 'design/editor_presenter.dart';
+import 'design/material_host.dart' show pdfHostRoute;
 import 'text_selection_geometry.dart';
 import 'viewer_intents.dart';
 import 'viewport.dart';
@@ -1439,6 +1441,7 @@ class PdfViewer extends StatefulWidget {
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.hiddenAnnotationSubtypes = const {},
+    this.showNotePopups = true,
     this.showScrollbarChapters = false,
     this.highlightFormFields = true,
     this.interactiveForms = true,
@@ -1931,6 +1934,17 @@ class PdfViewer extends StatefulWidget {
   /// taps, hover, or editing selection either, so a hidden link can't be
   /// followed. Usually fed from [PdfEditingPreferences.hiddenAnnotationSubtypes].
   final Set<String> hiddenAnnotationSubtypes;
+
+  /// Whether a sticky note's text pops up beside its icon: a
+  /// [PdfNotePopupCard] while the mouse rests on a note (not while a
+  /// drawing tool is armed), and for as long as a single note is selected,
+  /// which is how touch reaches it. The card's pin button keeps it open
+  /// until its close button, so several notes can be open at once. A note's
+  /// icon carries none of its text,
+  /// so without this it can only be read in a properties or annotation
+  /// panel. Highlights and shapes carrying a comment get the same card
+  /// ([pdfIsNotePopupTarget]), and the card's text is selectable.
+  final bool showNotePopups;
 
   /// Whether outline/bookmark destinations are shown as labelled markers on
   /// the main scrollbar. Off by default to keep the scrollbar uncluttered.
@@ -2609,6 +2623,46 @@ class _PdfViewerState extends State<PdfViewer>
   /// the page below once the drag crosses a page boundary, so the viewer
   /// paints it in list space (above the whole list) instead.
   PdfMoveDragPreview? _movePreview;
+
+  /// The note the mouse rests on, shown in a [PdfNotePopupCard]
+  /// ([PdfViewer.showNotePopups]); null when none is.
+  ({int page, PdfAnnotation note})? _hoveredNote;
+
+  /// The note under the mouse that [_noteShowTimer] will show.
+  ({int page, PdfAnnotation note})? _pendingNote;
+
+  /// Delays showing a hovered note, so a pointer sweeping across the page
+  /// doesn't flash cards.
+  Timer? _noteShowTimer;
+
+  /// Delays hiding it, so the pointer can cross the gap onto the card to
+  /// scroll it.
+  Timer? _noteHideTimer;
+
+  /// Notes the user pinned open with a card's pin button, oldest first. Any
+  /// number stay up at once, beside the hovered or selected one, until their
+  /// close button dismisses them; an unrelated document clears them.
+  final List<_OpenNote> _openNotes = [];
+
+  /// Whether the pointer is over a popup card.
+  bool _overNoteCard = false;
+
+  /// Whether a press that began on the popup card is still down - a drag
+  /// selecting its text, which may wander off the card without closing it.
+  bool _noteCardPressed = false;
+
+  /// Keys the viewport Stack the popup card is positioned in.
+  final GlobalKey _noteLayerKey = GlobalKey();
+
+  /// Ticks when [_hoveredNote] or [_openNotes] changes, so only the popup
+  /// layer rebuilds.
+  final ValueNotifier<int> _noteHoverTick = ValueNotifier(0);
+
+  /// The popup layer, kept as one instance per editing controller so a
+  /// viewer rebuild skips it entirely (it updates itself from its
+  /// listenables).
+  Widget? _notePopupLayer;
+  PdfEditingController? _notePopupLayerEditing;
 
   /// Set when a raw-pointer gesture (mouse double-click word select) has
   /// consumed the press, so the tap recognizer's late-firing callback for
@@ -4583,6 +4637,7 @@ class _PdfViewerState extends State<PdfViewer>
     }
     if (!preserveRevisionViewport) {
       _incrementalFallbackReason = 'unrelated-document-swap';
+      _openNotes.clear();
     }
     _lastIncrementallyReconciledPages = null;
     final sameGeometry = _sameGeometryAs(document);
@@ -5393,6 +5448,9 @@ class _PdfViewerState extends State<PdfViewer>
     _lifecycle.dispose();
     _renderScheduler.activity.removeListener(_onRenderSchedulerActivity);
     _settleTimer?.cancel();
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
+    _noteHoverTick.dispose();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
     _gestureQuietTimer?.cancel();
@@ -7145,9 +7203,15 @@ class _PdfViewerState extends State<PdfViewer>
         // actions), not a Paste-only annotation menu (#1004).
         final onSelectedText =
             hit == null && _clickInTextSelection(details.localPosition);
-        // an annotation, or empty page area with something to paste,
-        // gets the annotation menu
+        // a link can't be selected (a click follows it), so a right-click
+        // on one is how it gets edited or removed
+        final link = hit == null && !onSelectedText && !takeover
+            ? editing.linkAnnotationAt(page, x, y)
+            : null;
+        // an annotation, a link, or empty page area with something to
+        // paste, gets the annotation menu
         if (hit != null ||
+            link != null ||
             (!onSelectedText &&
                 (editing.hasAnnotationClipboard ||
                     editing.hasSnapshotClipboard ||
@@ -7590,7 +7654,20 @@ class _PdfViewerState extends State<PdfViewer>
           ? null
           : () => _onPaste(pageIndex: pageIndex, at: pagePoint),
       onSelectAllText: () => _selectAllTextOn(pageIndex),
+      linkTarget: _linkTargetAt(editing, pageIndex, pagePoint),
     );
+  }
+
+  /// The /Link under [pagePoint] that the annotation menu offers Edit link
+  /// and Remove link for - only when no selectable annotation is there to
+  /// claim the press instead.
+  (int, int)? _linkTargetAt(PdfEditingController editing, int pageIndex,
+      (double, double)? pagePoint) {
+    if (pagePoint == null) return null;
+    final (x, y) = pagePoint;
+    if (editing.selectableAnnotationAt(pageIndex, x, y) != null) return null;
+    final link = editing.linkAnnotationAt(pageIndex, x, y);
+    return link == null ? null : (pageIndex, link.$1);
   }
 
   /// The form-field context menu, shared by right-click and the editing
@@ -7761,7 +7838,291 @@ class _PdfViewerState extends State<PdfViewer>
       cursor = grabCursor;
     }
     if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
+    _trackHoveredNote(event.localPosition);
   }
+
+  /// The note or commented markup topmost under [local] (list space), or
+  /// null - only while a mouse hover may pop one up
+  /// ([PdfViewer.showNotePopups], no drawing tool armed).
+  ({int page, PdfAnnotation note})? _noteAt(Offset local) {
+    if (!widget.showNotePopups || !widget.showAnnotations) return null;
+    final editing = widget.editing;
+    if (editing != null &&
+        ((editing.tool != null && editing.tool != PdfEditTool.select) ||
+            editing.isPickingColor)) {
+      return null;
+    }
+    final point = _pagePointAt(local);
+    if (point == null) return null;
+    final (i, x, y) = point;
+    final hidden = widget.hiddenAnnotationSubtypes;
+    for (final annotation in _visibleAnnots(i).reversed) {
+      // replies and state records aren't painted, so they can't cover
+      // anything; any other annotation drawn over the note wins
+      if (annotation.isReply ||
+          annotation.isStateAnnotation ||
+          annotation.subtype == 'Popup' ||
+          hidden.contains(annotation.subtype) ||
+          // a commented highlight's runs, not the gaps its /Rect spans
+          !(_textMarkupQuadHit(annotation, x, y) ??
+              annotation.rect.contains(x, y))) {
+        continue;
+      }
+      return pdfIsNotePopupTarget(annotation)
+          ? (page: i, note: annotation)
+          : null;
+    }
+    return null;
+  }
+
+  static bool _sameNote(({int page, PdfAnnotation note})? a,
+          ({int page, PdfAnnotation note})? b) =>
+      a != null &&
+      b != null &&
+      a.page == b.page &&
+      identical(a.note.dict, b.note.dict);
+
+  void _trackHoveredNote(Offset local) {
+    final note = _noteAt(local);
+    if (note == null) {
+      _noteShowTimer?.cancel();
+      _pendingNote = null;
+      _scheduleNoteHide();
+      return;
+    }
+    _noteHideTimer?.cancel();
+    if (_sameNote(note, _hoveredNote) || _sameNote(note, _pendingNote)) {
+      return;
+    }
+    _pendingNote = note;
+    _noteShowTimer?.cancel();
+    // already showing one: move straight to the next, no second wait
+    _noteShowTimer =
+        Timer(_hoveredNote == null ? _noteShowDelay : Duration.zero, () {
+      if (!mounted) return;
+      _hoveredNote = _pendingNote;
+      _pendingNote = null;
+      _noteHoverTick.value++;
+    });
+  }
+
+  static const _noteShowDelay = Duration(milliseconds: 300);
+  static const _noteHideDelay = Duration(milliseconds: 250);
+
+  void _scheduleNoteHide() {
+    if (_hoveredNote == null || _overNoteCard || _noteCardPressed) return;
+    if (_noteHideTimer?.isActive ?? false) return;
+    _noteHideTimer = Timer(_noteHideDelay, _hideHoveredNote);
+  }
+
+  void _hideHoveredNote() {
+    _noteShowTimer?.cancel();
+    _noteHideTimer?.cancel();
+    _pendingNote = null;
+    if (_hoveredNote == null || !mounted) return;
+    _hoveredNote = null;
+    _noteHoverTick.value++;
+  }
+
+  /// The notes whose cards show, bottom to top: the ones pinned open, then
+  /// a single selected note (it stays up while selected - the touch path),
+  /// then the hovered one. A note shows once, as the first of those it is.
+  List<({int page, PdfAnnotation note, _OpenNote? open})> _notePopupTargets() {
+    if (!widget.showNotePopups || !widget.showAnnotations) return const [];
+    final editing = widget.editing;
+    final shown = Set<CosDictionary>.identity();
+    // a move drag rides a ghost; a moving note's card would sit at the old
+    // spot
+    if (editing != null && _movePreview != null) {
+      for (final (page, slot) in editing.selectedAnnotationSlots) {
+        if (editing.annotationAt(page, slot) case final moving?) {
+          shown.add(moving.dict);
+        }
+      }
+    }
+    final out = <({int page, PdfAnnotation note, _OpenNote? open})>[];
+    void add(int page, PdfAnnotation note, _OpenNote? open) {
+      if (shown.add(note.dict)) out.add((page: page, note: note, open: open));
+    }
+
+    for (final open in _openNotes) {
+      if (_resolveOpenNote(open) case final r?) add(r.page, r.note, open);
+    }
+    if (editing != null) {
+      final slots = editing.selectedAnnotationSlots;
+      final selected = editing.selectedAnnotation;
+      if (slots.length == 1 &&
+          selected != null &&
+          pdfIsNotePopupTarget(selected) &&
+          !editing.isEditingText) {
+        add(slots.single.$1, selected, null);
+      }
+    }
+    final hovered = _hoveredNote;
+    if (hovered != null && hovered.page < _pages.length) {
+      add(hovered.page, hovered.note, null);
+    }
+    return out;
+  }
+
+  /// [open]'s note in the current revision: on the page with the same
+  /// indirect reference (pages move), by /NM, else by its /Annots slot.
+  /// Null while it is gone - deleted, hidden, or no longer commented - so
+  /// an undo that brings it back reopens its card.
+  ({int page, PdfAnnotation note})? _resolveOpenNote(_OpenNote open) {
+    final page =
+        open.pageRef == null ? open.page : _pageRefs.indexOf(open.pageRef);
+    if (page < 0 || page >= _pages.length) return null;
+    final annotations = _pages[page].annotations;
+    final name = open.name;
+    final note = name != null
+        ? annotations.where((a) => a.name == name).firstOrNull
+        : (open.slot >= 0 && open.slot < annotations.length
+            ? annotations[open.slot]
+            : null);
+    if (note == null ||
+        note.isHidden ||
+        note.isNoView ||
+        widget.hiddenAnnotationSubtypes.contains(note.subtype) ||
+        !pdfIsNotePopupTarget(note)) {
+      return null;
+    }
+    return (page: page, note: note);
+  }
+
+  /// Pins [note]'s card open, so it stays up beside any others.
+  void _openNote(int page, PdfAnnotation note) {
+    if (page >= _pages.length) return;
+    final slot = _pages[page]
+        .annotations
+        .indexWhere((a) => identical(a.dict, note.dict));
+    _openNotes.add(_OpenNote(
+      pageRef: _pageRefs[page],
+      page: page,
+      name: note.name,
+      slot: slot,
+    ));
+    _noteCardsChanged();
+  }
+
+  void _closeNote(_OpenNote open) {
+    if (!_openNotes.remove(open)) return;
+    _noteCardsChanged();
+  }
+
+  void _noteCardsChanged() {
+    // the card under the pointer is rebuilt under a new key; its replacement
+    // reports the pointer again, the old one never reports leaving
+    _overNoteCard = false;
+    _noteCardPressed = false;
+    _noteHoverTick.value++;
+  }
+
+  /// Where the popup cards go right now: each note and its icon's rect in
+  /// the viewport Stack, bottom to top. Cards for notes scrolled out of view
+  /// are left out.
+  List<_NotePopupPlacement> _notePopupPlacements() {
+    final targets = _notePopupTargets();
+    if (targets.isEmpty) return const [];
+    final layer =
+        _noteLayerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (layer == null || !layer.hasSize) return const [];
+    final bounds = Offset.zero & layer.size;
+    final out = <_NotePopupPlacement>[];
+    for (final target in targets) {
+      final global = _globalRectOf(target.page, target.note.rect);
+      if (global == null) continue;
+      final anchor = layer.globalToLocal(global.topLeft) & global.size;
+      // scrolled out of view: no card floating over the margin
+      if (!anchor.overlaps(bounds)) continue;
+      out.add(
+          _NotePopupPlacement(target.page, target.note, anchor, target.open));
+    }
+    return out;
+  }
+
+  /// The popup card layer over the viewport ([PdfViewer.showNotePopups]),
+  /// following the notes through scrolls and zooms. It rebuilds only when
+  /// the placements change - not on every editing-controller tick.
+  Widget _buildNotePopupLayer() {
+    final editing = widget.editing;
+    final cached = _notePopupLayer;
+    if (cached != null && identical(_notePopupLayerEditing, editing)) {
+      return cached;
+    }
+    _notePopupLayerEditing = editing;
+    return _notePopupLayer = Positioned.fill(
+        child: _NotePopupLayer(
+      listenables: [
+        _scroll,
+        _transform,
+        _noteHoverTick,
+        if (editing != null) editing,
+      ],
+      resolve: _notePopupPlacements,
+      builder: (placement) => CustomSingleChildLayout(
+        delegate: PdfNotePopupLayout(placement.anchor),
+        child: MouseRegion(
+          onEnter: (_) {
+            _overNoteCard = true;
+            _noteHideTimer?.cancel();
+          },
+          onExit: (_) {
+            _overNoteCard = false;
+            _scheduleNoteHide();
+          },
+          child: Listener(
+            onPointerDown: (_) => _noteCardPressed = true,
+            onPointerUp: (_) => _releaseNoteCard(),
+            onPointerCancel: (_) => _releaseNoteCard(),
+            // the comment text is selectable; the card's own copy and
+            // select-all keys win over the viewer's (which copy page text
+            // and select annotations)
+            child: Shortcuts(
+              shortcuts: _noteCardShortcuts,
+              child: SelectionArea(
+                contextMenuBuilder: (context, state) => pdfHostRoute(
+                  context,
+                  AdaptiveTextSelectionToolbar.selectableRegion(
+                      selectableRegionState: state),
+                  themesFrom: state.context,
+                ),
+                child: PdfNotePopupCard(
+                  note: placement.note,
+                  replies: PdfNotePopupCard.repliesOf(
+                      _document, placement.page, placement.note),
+                  trailing: _NoteCardButton(
+                    open: placement.open != null,
+                    onPressed: () => switch (placement.open) {
+                      final open? => _closeNote(open),
+                      null => _openNote(placement.page, placement.note),
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  void _releaseNoteCard() {
+    _noteCardPressed = false;
+    _scheduleNoteHide();
+  }
+
+  /// Copy and select-all inside the popup card act on its text.
+  static const Map<ShortcutActivator, Intent> _noteCardShortcuts = {
+    SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyC, control: true):
+        CopySelectionTextIntent.copy,
+    SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+    SingleActivator(LogicalKeyboardKey.keyA, control: true):
+        SelectAllTextIntent(SelectionChangedCause.keyboard),
+  };
 
   /// ⌘C/Ctrl+C: an annotation selection copies to the editing
   /// controller's clipboard; otherwise the text selection copies to the
@@ -9901,7 +10262,7 @@ class _PdfViewerState extends State<PdfViewer>
               // the canvas color behind the page: visible as margins when
               // zoomed out past fit-width
               color: canvasColor,
-              child: Stack(children: [
+              child: Stack(key: _noteLayerKey, children: [
                 PdfTemporaryPanRegion(
                   wantsPan: _wantsTemporaryPan,
                   cursor: _temporaryPanPointer != null && !_temporaryPanStopped
@@ -10005,6 +10366,9 @@ class _PdfViewerState extends State<PdfViewer>
                           cursor: _hoverCursor,
                           onHover: _onHover,
                           onExit: (_) {
+                            _noteShowTimer?.cancel();
+                            _pendingNote = null;
+                            _scheduleNoteHide();
                             if (_hoverCursor != MouseCursor.defer) {
                               setState(() => _hoverCursor = MouseCursor.defer);
                             }
@@ -10179,6 +10543,7 @@ class _PdfViewerState extends State<PdfViewer>
                   onScrollBy: _scrollbarPanBy,
                   thumbKey: const ValueKey('pdf-hscrollbar-thumb'),
                 )),
+                if (widget.showNotePopups) _buildNotePopupLayer(),
               ]),
             ),
           ),
@@ -10301,6 +10666,10 @@ class _PdfViewerState extends State<PdfViewer>
       PdfArmToolIntent: action<PdfArmToolIntent>(
           (intent) => _armTool(intent.tool),
           enabled: editing),
+      PdfArmLastToolIntent: action<PdfArmLastToolIntent>((_) {
+        final last = widget.editing?.lastUsedTool;
+        if (last != null) _armTool(last);
+      }, enabled: (_) => widget.editing?.lastUsedTool != null),
     };
   }();
 
@@ -12301,5 +12670,149 @@ class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
   Object? invoke(T intent) {
     _invoke(intent);
     return null;
+  }
+}
+
+/// A note card the user pinned open ([PdfViewerState._openNotes]),
+/// recorded so it finds its note again in later revisions: the page by its
+/// indirect reference, the note by /NM, falling back to its /Annots slot.
+class _OpenNote {
+  _OpenNote({
+    required this.pageRef,
+    required this.page,
+    required this.name,
+    required this.slot,
+  });
+
+  final (int, int)? pageRef;
+  final int page;
+  final String? name;
+  final int slot;
+}
+
+/// Where a [PdfNotePopupCard] shows: the note, its icon's rect in the
+/// viewport, and the pin it is open under ([open], null for a hovered or
+/// selected card). Equal for the same note dictionary at the same spot, so
+/// a fresh [PdfAnnotation] wrapper for an unchanged note doesn't rebuild.
+class _NotePopupPlacement {
+  const _NotePopupPlacement(this.page, this.note, this.anchor, this.open);
+
+  final int page;
+  final PdfAnnotation note;
+  final Rect anchor;
+  final _OpenNote? open;
+
+  /// Keeps a card's state (its text selection, its scroll) while the cards
+  /// below it come and go.
+  Key get key => open != null ? ObjectKey(open) : ObjectKey(note.dict);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _NotePopupPlacement &&
+      other.page == page &&
+      identical(other.note.dict, note.dict) &&
+      other.anchor == anchor &&
+      identical(other.open, open);
+
+  @override
+  int get hashCode => Object.hash(
+      page, identityHashCode(note.dict), anchor, identityHashCode(open));
+}
+
+/// A note card's pin button - "keep open" - or, on a card pinned open, its
+/// close button.
+class _NoteCardButton extends StatelessWidget {
+  const _NoteCardButton({required this.open, required this.onPressed});
+
+  final bool open;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = pdfL10n(context);
+    return IconButton(
+      key: ValueKey(open ? 'pdf-note-popup-close' : 'pdf-note-popup-pin'),
+      tooltip: open ? l10n.close : l10n.notePopupKeepOpen,
+      onPressed: onPressed,
+      icon: Icon(open ? Icons.close : Icons.push_pin_outlined),
+      iconSize: 16,
+      color: PdfViewerTheme.of(context).chipForeground,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+    );
+  }
+}
+
+/// Rebuilds its cards only when [resolve]'s placements change, so the
+/// listenables it watches (scroll, zoom, the editing controller) cost
+/// nothing on the many ticks that leave the cards where they were.
+class _NotePopupLayer extends StatefulWidget {
+  const _NotePopupLayer({
+    required this.listenables,
+    required this.resolve,
+    required this.builder,
+  });
+
+  final List<Listenable> listenables;
+  final List<_NotePopupPlacement> Function() resolve;
+  final Widget Function(_NotePopupPlacement placement) builder;
+
+  @override
+  State<_NotePopupLayer> createState() => _NotePopupLayerState();
+}
+
+class _NotePopupLayerState extends State<_NotePopupLayer> {
+  List<_NotePopupPlacement> _placements = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    for (final l in widget.listenables) {
+      l.addListener(_update);
+    }
+    _placements = widget.resolve();
+  }
+
+  @override
+  void didUpdateWidget(_NotePopupLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.listenables, widget.listenables)) {
+      for (final l in oldWidget.listenables) {
+        l.removeListener(_update);
+      }
+      for (final l in widget.listenables) {
+        l.addListener(_update);
+      }
+    }
+    _placements = widget.resolve();
+  }
+
+  @override
+  void dispose() {
+    for (final l in widget.listenables) {
+      l.removeListener(_update);
+    }
+    super.dispose();
+  }
+
+  void _update() {
+    final placements = widget.resolve();
+    if (listEquals(placements, _placements)) return;
+    setState(() => _placements = placements);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_placements.isEmpty) return const SizedBox.shrink();
+    return Stack(
+      children: [
+        for (final placement in _placements)
+          Positioned.fill(
+            key: placement.key,
+            child: widget.builder(placement),
+          ),
+      ],
+    );
   }
 }

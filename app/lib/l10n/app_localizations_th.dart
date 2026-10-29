@@ -9,6 +9,13 @@ class AppLocalizationsTh extends AppLocalizations {
   AppLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'ข้ามเวอร์ชันนี้';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'ข้ามเวอร์ชันนี้แล้ว คุณจะไม่ได้รับการแจ้งเตือนเกี่ยวกับเวอร์ชันนี้อีก แต่ยังสามารถติดตั้งได้ที่นี่';
+
+  @override
   String get add => 'เพิ่ม';
 
   @override
@@ -644,6 +651,25 @@ class AppLocalizationsTh extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'เลือกแท็บ';
+
+  @override
+  String get editorCloseSelectedTabs => 'ปิดที่เลือก';
+
+  @override
+  String get editorSaveCopies => 'บันทึกสำเนา';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'อ่านไม่ได้ $count แท็บ จึงไม่ได้รวมไว้',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -952,6 +978,20 @@ class AppLocalizationsTh extends AppLocalizations {
       'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows/macOS ที่ไม่ได้ลงนามจาก main';
 
   @override
+  String get settingsWebNightly => 'ลองใช้เว็บแอปรุ่น nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'เปิดเว็บแอปรุ่นทดสอบที่สร้างทุกคืนจาก main ไฟล์ เอกสารล่าสุด และการตั้งค่าจะแยกเก็บสำหรับแต่ละเว็บไซต์';
+
+  @override
+  String get settingsWebStable => 'สลับไปใช้เว็บแอปรุ่นเสถียร';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'เปิดรุ่นที่เผยแพร่ปัจจุบัน ไฟล์ เอกสารล่าสุด และการตั้งค่าจะแยกเก็บสำหรับแต่ละเว็บไซต์';
+
+  @override
   String get settingsUpdates => 'การอัปเดต';
 
   @override
@@ -973,6 +1013,15 @@ class AppLocalizationsTh extends AppLocalizations {
   String get welcomeCopyPath => 'คัดลอกเส้นทาง';
 
   @override
+  String get welcomeDropHeadline => 'วาง PDF ที่นี่';
+
+  @override
+  String get welcomeHeadline => 'เปิดหรือสร้าง PDF';
+
+  @override
+  String get welcomeNewDocument => 'เอกสารใหม่';
+
+  @override
   String get welcomeOpen => 'เปิด';
 
   @override
@@ -985,6 +1034,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get welcomePickAgainToReopen => 'เลือกอีกครั้งเพื่อเปิดใหม่';
 
   @override
+  String get welcomePrivacy => 'เอกสารของคุณไม่มีวันออกจากอุปกรณ์ของคุณ';
+
+  @override
   String get welcomeRecent => 'ล่าสุด';
 
   @override
@@ -995,6 +1047,10 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'นำออกจากรายการล่าสุด';
+
+  @override
+  String get welcomeSubtitle =>
+      'ใส่คำอธิบายประกอบ กรอกแบบฟอร์ม ลงนาม และแก้ไขข้อความ';
 
   @override
   String get welcomeTapToReopen => 'แตะเพื่อเปิดใหม่';
@@ -1385,4 +1441,59 @@ class AppLocalizationsTh extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'เพิ่ม DartPDF ในแอปพลิเคชันไหม';
+
+  @override
+  String get launcherOfferBody =>
+      'ตั้งค่าตัวเรียกใช้งานเพื่อค้นหา DartPDF ในการค้นหาแอปพลิเคชัน โปรแกรมอ่าน PDF เริ่มต้นจะไม่เปลี่ยนแปลง';
+
+  @override
+  String get launcherOfferRegister => 'ตั้งค่าตัวเรียกใช้งาน';
+
+  @override
+  String get launcherOfferLater => 'ไม่ใช่ตอนนี้';
+
+  @override
+  String get launcherOfferNever => 'ไม่ต้องแสดงอีก';
+
+  @override
+  String get launcherOfferError =>
+      'บันทึกการเปลี่ยนแปลงไม่ได้ ลองอีกครั้งหรือเลือกไม่ใช่ตอนนี้';
+
+  @override
+  String get editorMenuImportFormData => 'นำเข้าข้อมูลฟอร์มหรือความคิดเห็น…';
+
+  @override
+  String get editorMenuExportFdf => 'ส่งออกข้อมูลฟอร์มเป็น FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'ส่งออกข้อมูลฟอร์มเป็น XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'ส่งออกเป็น XDP…';
+
+  @override
+  String get fileTypeFormData => 'ข้อมูลฟอร์ม (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'แพ็กเกจฟอร์ม XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'นำเข้าข้อมูลฟอร์มแล้ว - ฟิลด์: $fields, ความคิดเห็น: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'ไม่มีสิ่งใดในไฟล์นั้นที่ตรงกับเอกสารนี้';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'ไม่สามารถนำเข้า $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'ข้อมูลฟอร์มและความคิดเห็น';
 }

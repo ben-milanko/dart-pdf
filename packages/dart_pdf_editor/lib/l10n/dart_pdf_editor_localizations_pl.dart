@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get annotText => 'Notatka';
 
   @override
+  String get notePopupKeepOpen => 'Pozostaw otwartą';
+
+  @override
   String get annotUnderline => 'Podkreślenie';
 
   @override
@@ -467,6 +470,15 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Dodaj notatkę tutaj';
 
   @override
+  String get menuEditLink => 'Edytuj link…';
+
+  @override
+  String get menuRemoveLink => 'Usuń link';
+
+  @override
+  String get linkEditDialogTitle => 'Edytuj link';
+
+  @override
   String get menuSaveToStamps => 'Zapisz w stemplach';
 
   @override
@@ -803,6 +815,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Zawartość';
+
+  @override
+  String get propSectionComments => 'Komentarze';
 
   @override
   String get propSectionFormField => 'Pole formularza';

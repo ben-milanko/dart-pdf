@@ -142,7 +142,8 @@ class PdfToolShortcut {
 /// are surfaced in the editing toolbar's tooltips for discoverability.
 ///
 /// Pressing a tool's key arms it; pressing it again drops back to
-/// [PdfEditTool.select], mirroring the toolbar chips.
+/// [PdfEditTool.select], mirroring the toolbar chips. X (a viewer binding,
+/// [PdfArmLastToolIntent]) re-arms the last used tool.
 /// With a rotatable selection, the stock R rectangle binding yields to
 /// clockwise selection rotation; Shift+R rotates counterclockwise.
 ///

@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get annotText => 'تێبینی';
 
   @override
+  String get notePopupKeepOpen => 'بە کراوەیی بهێڵەرەوە';
+
+  @override
   String get annotUnderline => 'هێڵی ژێرەوە';
 
   @override
@@ -461,6 +464,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
+  String get menuEditLink => 'دەستکاریکردنی بەستەر…';
+
+  @override
+  String get menuRemoveLink => 'لابردنی بەستەر';
+
+  @override
+  String get linkEditDialogTitle => 'دەستکاریکردنی بەستەر';
+
+  @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
 
   @override
@@ -792,6 +804,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'ناوەڕۆک';
+
+  @override
+  String get propSectionComments => 'لێدوانەکان';
 
   @override
   String get propSectionFormField => 'خانەی فۆرم';

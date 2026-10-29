@@ -1,5 +1,13 @@
 {
   "@@locale": "en",
+  "updateSkipVersion": "Skip this version",
+  "settingsUpdateSkipped": "This version is skipped. You won’t be notified about it again, but you can still install it here.",
+  "@updateSkipVersion": {
+    "description": "Button to skip notifications for this exact update while retaining manual installation."
+  },
+  "@settingsUpdateSkipped": {
+    "description": "Explanation for a skipped update; manual installation remains available."
+  },
   "add": "Add",
   "@add": {
     "description": "Generic button that adds a new item."
@@ -878,6 +886,27 @@
       }
     }
   },
+  "editorSelectTabs": "Select tabs",
+  "@editorSelectTabs": {
+    "description": "Tooltip of the open-tabs grid button that switches the grid into multi-select, so several tabs can be shared or closed together."
+  },
+  "editorCloseSelectedTabs": "Close selected",
+  "@editorCloseSelectedTabs": {
+    "description": "Tooltip of the open-tabs grid selection header button that closes every checked tab."
+  },
+  "editorSaveCopies": "Save copies",
+  "@editorSaveCopies": {
+    "description": "Tooltip of the open-tabs grid selection header button that saves a copy of every checked tab (desktop: into a chosen folder; web: one download each). Phones show the platform's Share label instead."
+  },
+  "editorTabsNotShared": "{count, plural, =1{1 tab couldn't be read and was left out.} other{{count} tabs couldn't be read and were left out.}}",
+  "@editorTabsNotShared": {
+    "description": "Toast after sharing the checked tabs when some of them had no readable document (still loading, failed, or their file is gone) and were left out.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "editorUnsavedChangesCount": "{count, plural, =1{A document has unsaved changes.} other{{count} documents have unsaved changes.}}",
   "@editorUnsavedChangesCount": {
     "description": "Discard-confirmation message stating how many open documents have unsaved edits.",
@@ -1292,6 +1321,22 @@
   "@settingsNightlyUpdatesSubtitle": {
     "description": "Explains the risk and behavior of the nightly update channel."
   },
+  "settingsWebNightly": "Try the nightly web app",
+  "@settingsWebNightly": {
+    "description": "Web-only Settings row that opens the nightly web app (app-nightly.dart-pdf.com) in a new tab."
+  },
+  "settingsWebNightlySubtitle": "Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.",
+  "@settingsWebNightlySubtitle": {
+    "description": "Explains the nightly web app and that each site keeps its own files and settings (browser storage is per site)."
+  },
+  "settingsWebStable": "Switch to the stable web app",
+  "@settingsWebStable": {
+    "description": "Web-only Settings row, shown in the nightly web app, that opens the stable web app (app.dart-pdf.com) in a new tab."
+  },
+  "settingsWebStableSubtitle": "Opens the current release. Files, recent documents and settings are kept separately for each site.",
+  "@settingsWebStableSubtitle": {
+    "description": "Explains the stable web app and that each site keeps its own files and settings."
+  },
   "settingsUpdates": "Updates",
   "@settingsUpdates": {
     "description": "Section header for the software-update block in settings."
@@ -1320,6 +1365,18 @@
   "@welcomeCopyPath": {
     "description": "Recent-file context-menu item that copies the document's file path to the clipboard."
   },
+  "welcomeDropHeadline": "Drop a PDF here",
+  "@welcomeDropHeadline": {
+    "description": "Headline of the welcome screen's drop zone on platforms that accept dropped files."
+  },
+  "welcomeHeadline": "Open or create a PDF",
+  "@welcomeHeadline": {
+    "description": "Headline of the welcome screen on platforms that don't accept dropped files."
+  },
+  "welcomeNewDocument": "New document",
+  "@welcomeNewDocument": {
+    "description": "Secondary button on the welcome screen that creates a blank document."
+  },
   "welcomeOpen": "Open",
   "@welcomeOpen": {
     "description": "Recent-file context-menu item that opens the document."
@@ -1336,6 +1393,10 @@
   "@welcomePickAgainToReopen": {
     "description": "Subtitle for a recent file that must be re-selected from disk to reopen."
   },
+  "welcomePrivacy": "Your documents never leave your device.",
+  "@welcomePrivacy": {
+    "description": "Privacy promise shown under the welcome screen's drop zone."
+  },
   "welcomeRecent": "Recent",
   "@welcomeRecent": {
     "description": "Header for the recent-documents list on the welcome screen."
@@ -1351,6 +1412,10 @@
   "welcomeRemoveFromRecent": "Remove from recent",
   "@welcomeRemoveFromRecent": {
     "description": "Tooltip on the button that removes an entry from the recent-files list."
+  },
+  "welcomeSubtitle": "Annotate, fill forms, sign, and edit text.",
+  "@welcomeSubtitle": {
+    "description": "Supporting line under the welcome screen headline listing what the app does."
   },
   "welcomeTapToReopen": "Tap to reopen",
   "@welcomeTapToReopen": {
@@ -1832,5 +1897,37 @@
   "ocrAutoTurnedOff": "Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.",
   "@ocrAutoTurnedOff": {
     "description": "Toast after the user turned automatic OCR off from the one-time dialog."
-  }
+  },
+  "launcherOfferTitle": "Add DartPDF to Applications?",
+  "launcherOfferBody": "Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.",
+  "launcherOfferRegister": "Set up launcher",
+  "launcherOfferLater": "Not now",
+  "launcherOfferNever": "Don’t show again",
+  "launcherOfferError": "Could not save this change. Try again, or choose Not now.",
+  "@launcherOfferTitle": {"description": "Linux portable launcher startup offer: launcherOfferTitle"},
+  "@launcherOfferBody": {"description": "Linux portable launcher startup offer: launcherOfferBody"},
+  "@launcherOfferRegister": {"description": "Linux portable launcher startup offer: launcherOfferRegister"},
+  "@launcherOfferLater": {"description": "Linux portable launcher startup offer: launcherOfferLater"},
+  "@launcherOfferNever": {"description": "Linux portable launcher startup offer: launcherOfferNever"},
+  "@launcherOfferError": {"description": "Linux portable launcher startup offer: launcherOfferError"},
+  "editorMenuImportFormData": "Import form data or comments…",
+  "@editorMenuImportFormData": {"description": "App menu item to import form field values and/or comments from an FDF, XFDF or XDP file into the open document."},
+  "editorMenuExportFdf": "Export form data as FDF…",
+  "@editorMenuExportFdf": {"description": "App menu item to export the document's form field values and comments as an FDF (Forms Data Format) file. FDF is a format name; keep it untranslated."},
+  "editorMenuExportXfdf": "Export form data as XFDF…",
+  "@editorMenuExportXfdf": {"description": "App menu item to export the document's form field values and comments as an XFDF (XML Forms Data Format) file. XFDF is a format name; keep it untranslated."},
+  "editorMenuExportXdp": "Export as XDP…",
+  "@editorMenuExportXdp": {"description": "App menu item to export the document as an XDP (XML Data Package) file, the PDF embedded with its form data. XDP is a format name; keep it untranslated."},
+  "fileTypeFormData": "Form data (FDF, XFDF, XDP)",
+  "@fileTypeFormData": {"description": "File-picker filter label for form-data exchange files. FDF, XFDF and XDP are format names; keep them untranslated."},
+  "fileTypeXdp": "XDP form packages",
+  "@fileTypeXdp": {"description": "Open-dialog filter label for XDP form packages (a PDF embedded with XFA form data). XDP is a format name."},
+  "editorImportedFormData": "Form data imported - fields: {fields}, comments: {comments}",
+  "@editorImportedFormData": {"description": "Toast after importing form data: how many form fields were filled and how many comments were added or updated.", "placeholders": {"fields": {"type": "int"}, "comments": {"type": "int"}}},
+  "editorImportFormDataNothing": "Nothing in that file matched this document",
+  "@editorImportFormDataNothing": {"description": "Toast when an imported form-data file had no field values or comments that apply to the open document."},
+  "editorCouldNotImportFormData": "Could not import {name}: {error}",
+  "@editorCouldNotImportFormData": {"description": "Toast when a form-data file could not be read or applied, with the file name and the error detail.", "placeholders": {"name": {"type": "String"}, "error": {"type": "String"}}},
+  "editorMenuFormData": "Form data and comments",
+  "@editorMenuFormData": {"description": "App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats."}
 }

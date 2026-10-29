@@ -9,6 +9,13 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Omitir esta versión';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Esta versión se ha omitido. No volverás a recibir avisos sobre ella, pero puedes instalarla aquí.';
+
+  @override
   String get add => 'Añadir';
 
   @override
@@ -652,6 +659,26 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Seleccionar pestañas';
+
+  @override
+  String get editorCloseSelectedTabs => 'Cerrar seleccionadas';
+
+  @override
+  String get editorSaveCopies => 'Guardar copias';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'No se pudieron leer $count pestañas y se omitieron.',
+      one: 'No se pudo leer 1 pestaña y se omitió.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -966,6 +993,20 @@ class AppLocalizationsEs extends AppLocalizations {
       'Recibe notificaciones automáticas de actualizaciones para compilaciones de prueba de Windows/macOS sin firmar desde main.';
 
   @override
+  String get settingsWebNightly => 'Probar la app web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Abre una versión de prueba de la app web compilada cada noche desde main. Los archivos, documentos recientes y ajustes se guardan por separado en cada sitio.';
+
+  @override
+  String get settingsWebStable => 'Cambiar a la app web estable';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Abre la versión actual. Los archivos, documentos recientes y ajustes se guardan por separado en cada sitio.';
+
+  @override
   String get settingsUpdates => 'Actualizaciones';
 
   @override
@@ -987,6 +1028,15 @@ class AppLocalizationsEs extends AppLocalizations {
   String get welcomeCopyPath => 'Copiar ruta';
 
   @override
+  String get welcomeDropHeadline => 'Suelta un PDF aquí';
+
+  @override
+  String get welcomeHeadline => 'Abre o crea un PDF';
+
+  @override
+  String get welcomeNewDocument => 'Nuevo documento';
+
+  @override
   String get welcomeOpen => 'Abrir';
 
   @override
@@ -1000,6 +1050,9 @@ class AppLocalizationsEs extends AppLocalizations {
       'Selecciónalo de nuevo para volver a abrirlo';
 
   @override
+  String get welcomePrivacy => 'Tus documentos nunca salen de tu dispositivo.';
+
+  @override
   String get welcomeRecent => 'Recientes';
 
   @override
@@ -1011,6 +1064,10 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Quitar de recientes';
+
+  @override
+  String get welcomeSubtitle =>
+      'Anota, rellena formularios, firma y edita texto.';
 
   @override
   String get welcomeTapToReopen => 'Toca para volver a abrir';
@@ -1411,4 +1468,60 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => '¿Añadir DartPDF a las aplicaciones?';
+
+  @override
+  String get launcherOfferBody =>
+      'Configura un acceso para encontrar DartPDF en la búsqueda de aplicaciones. El lector PDF predeterminado no cambiará.';
+
+  @override
+  String get launcherOfferRegister => 'Configurar acceso';
+
+  @override
+  String get launcherOfferLater => 'Ahora no';
+
+  @override
+  String get launcherOfferNever => 'No volver a mostrar';
+
+  @override
+  String get launcherOfferError =>
+      'No se pudo guardar este cambio. Inténtalo de nuevo o elige «Ahora no».';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Importar datos de formulario o comentarios…';
+
+  @override
+  String get editorMenuExportFdf => 'Exportar datos de formulario como FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Exportar datos de formulario como XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Exportar como XDP…';
+
+  @override
+  String get fileTypeFormData => 'Datos de formulario (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Paquetes de formulario XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Datos de formulario importados: campos: $fields, comentarios: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Nada de ese archivo coincide con este documento';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'No se pudo importar $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Datos de formulario y comentarios';
 }

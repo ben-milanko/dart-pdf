@@ -219,9 +219,12 @@ jobs:
       - name: Test DartPDF app
         working-directory: app
         run: flutter test --coverage
-      - name: Test browser PDF snapshot cache
+      - name: Test browser PDF snapshot cache and file picker
         working-directory: app
-        run: flutter test --platform chrome test/web/pdf_cache_web_test.dart
+        run: >-
+          flutter test --platform chrome
+          test/web/pdf_cache_web_test.dart
+          test/web/web_file_picker_test.dart
       - name: Test browser English regional localisation
         working-directory: app
         run: >-
@@ -857,7 +860,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
-            desktop-file-utils xvfb x11-utils python3-venv \
+            desktop-file-utils xvfb x11-utils python3-venv python3-gi \
             libcurl4-openssl-dev libxml2-dev libyaml-dev libstemmer-dev \
             libsystemd-dev liblzma-dev libzstd-dev gperf gettext xsltproc docbook-xsl itstool
       - name: Test Windows clipboard DIB decode (host-portable C++)
@@ -914,6 +917,7 @@ jobs:
         run: |
           set -euo pipefail
           bundle=build/linux/x64/release/bundle
+          test -x "$bundle/install-desktop.py"
           test -f "$bundle/share/applications/dev.milanko.dartpdf.desktop"
           test -f "$bundle/share/applications/dev.milanko.dartpdf.combine.desktop"
           test -x "$bundle/share/kio/servicemenus/dev.milanko.dartpdf.combine.desktop"

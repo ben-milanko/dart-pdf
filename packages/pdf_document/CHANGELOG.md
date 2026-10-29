@@ -1,5 +1,13 @@
 # Changelog
 
+## 13.0.0
+
+- Import and export form data and comments with FDF, XFDF and XDP, including structured preview and explicit apply operations.
+- Add remote PAdES signing through a CSC v1/v2 client, verifying the signature against the signer certificate before writing.
+- Add an experimental shared-folder annotation-sync transport for library consumers; it is not enabled in the app.
+- Share callout leader geometry between saved appearances and editing previews.
+- Require the 13.0.0 package suite.
+
 ## 12.0.0
 
 - Add cloud and polygon regions to callouts, preserving their geometry through moves, resizing, rotation, styling and copying.
