@@ -15,6 +15,8 @@ import 'printing.dart';
 /// prints to the selected Windows queue or opens the system print dialog. Dismissing the preview submits nothing.
 ///
 /// [currentPage] and [selectedPages] are zero-based source page indices.
+/// Two or more [selectedPages] (the thumbnail strip's selection) open the
+/// preview on the Selected range.
 /// [addFiles] optionally lets the host supply extra PDFs for this job; file
 /// selection and password prompting remain under the host's control.
 ///
