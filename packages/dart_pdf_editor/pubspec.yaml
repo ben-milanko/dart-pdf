@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF editor and viewer for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 12.0.0
+version: 13.0.0
 homepage: https://dart-pdf.com/flutter-pdf-editor
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
@@ -22,7 +22,7 @@ dependencies:
   archive: ^4.3.0
   # The iOS/macOS text-selection menus and their localizations (material_ui
   # depends on it too; listed because the library imports it directly).
-  cupertino_ui: ^1.1.2
+  cupertino_ui: ^1.1.4
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -32,7 +32,7 @@ dependencies:
   intl: ^0.20.2
   # The Material design library (the stock chrome). 7.0 moved off
   # package:flutter/material.dart; see doc/MIGRATING-7.0.0.md.
-  material_ui: ^1.6.0
+  material_ui: ^1.8.0
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
   flutter_secure_storage: ^11.2.0
@@ -41,19 +41,19 @@ dependencies:
   # code. See src/http_byte_source.dart.
   http: ^1.2.0
   image: ^4.12.0
-  pdf_cos: ^12.0.0
-  pdf_document: ^12.0.0
-  pdf_graphics: ^12.0.0
+  pdf_cos: ^13.0.0
+  pdf_document: ^13.0.0
+  pdf_graphics: ^13.0.0
   shared_preferences: ^2.5.6
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
   url_launcher: ^6.3.3
   # Web-only: the Web Worker render backend (render_worker_web.dart) talks to a
   # Worker over package:web's typed bindings. A no-op everywhere else.
-  web: ^1.1.0
+  web: ^1.1.2
 
 dev_dependencies:
-  pdf_test_fixtures: ^12.0.0
+  pdf_test_fixtures: ^13.0.0
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

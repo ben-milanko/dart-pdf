@@ -1,3 +1,3 @@
-DartPDF 12.0.0
+DartPDF 13.0.0
 
-Dodano dymki z chmurką. Wyszukaj tekst i oznacz jeden lub wszystkie wyniki do redakcji, a następnie sprawdź oznaczenia przed zastosowaniem. Zapisuj wklejone migawki wektorowe jako PNG. Linijki i prowadnice kursora pozostają widoczne podczas nawigacji. Ulepszono zwarte paski narzędzi, numery stron i skróty. Naprawiono usuwanie sąsiedniego tekstu podczas redakcji.
+Importuj i eksportuj dane formularzy i komentarze w plikach FDF, XFDF i XDP. Edytuj istniejące linki. Czytaj wątki obok strony i pozostawiaj kilka notatek otwartych. Udostępniaj wybrane karty dokumentów razem. Ulepszono ekran powitalny, otwieranie PDF i sprawdzanie aktualizacji. Podgląd wydruku śledzi wybrane strony.

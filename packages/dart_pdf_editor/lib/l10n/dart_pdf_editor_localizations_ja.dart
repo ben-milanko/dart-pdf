@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get annotText => 'ノート';
 
   @override
+  String get notePopupKeepOpen => '開いたままにする';
+
+  @override
   String get annotUnderline => '下線';
 
   @override
@@ -459,6 +462,15 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'ここにメモを追加';
 
   @override
+  String get menuEditLink => 'リンクを編集…';
+
+  @override
+  String get menuRemoveLink => 'リンクを削除';
+
+  @override
+  String get linkEditDialogTitle => 'リンクを編集';
+
+  @override
   String get menuSaveToStamps => 'スタンプに保存';
 
   @override
@@ -789,6 +801,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => '内容';
+
+  @override
+  String get propSectionComments => 'コメント';
 
   @override
   String get propSectionFormField => 'フォームフィールド';

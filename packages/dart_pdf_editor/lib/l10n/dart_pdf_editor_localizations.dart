@@ -264,6 +264,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Note'**
   String get annotText;
 
+  /// Tooltip on a note popup card's pin button: keep this card open after the pointer leaves, so several notes can be open at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep open'**
+  String get notePopupKeepOpen;
+
   /// Annotation type name: a text underline.
   ///
   /// In en, this message translates to:
@@ -954,6 +960,24 @@ abstract class DartPdfEditorLocalizations {
   /// **'Add note here'**
   String get menuAddNoteHere;
 
+  /// Page context-menu item (right-click or long-press on a hyperlink) that opens the link dialog to change where an existing link goes.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit link…'**
+  String get menuEditLink;
+
+  /// Page context-menu item (right-click or long-press on a hyperlink) that deletes the link annotation, leaving the page content beneath it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove link'**
+  String get menuRemoveLink;
+
+  /// Title of the link dialog when it re-targets an existing hyperlink.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit link'**
+  String get linkEditDialogTitle;
+
   /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
   ///
   /// In en, this message translates to:
@@ -1571,6 +1595,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Content'**
   String get propSectionContent;
+
+  /// Section header for the selected annotation's comment thread (its replies, plus a field to add one) in the annotation properties panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments'**
+  String get propSectionComments;
 
   /// Section header for the form-field controls in the annotation properties panel.
   ///

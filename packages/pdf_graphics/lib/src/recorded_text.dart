@@ -175,6 +175,7 @@ class _RecordedTextBuilder {
           ? null
           : Float64List.fromList(offsets).asUnmodifiableView(),
       invisible: source.invisible,
+      overlaysDrawnText: source.overlaysDrawnText,
       mcid: source.mcid,
     );
   }
@@ -189,5 +190,6 @@ PdfTextRun _textRun(PdfTextRun source, {required PdfMatrix transform}) =>
       glyphs: source.glyphs,
       charOffsets: source.charOffsets,
       invisible: source.invisible,
+      overlaysDrawnText: source.overlaysDrawnText,
       mcid: source.mcid,
     );

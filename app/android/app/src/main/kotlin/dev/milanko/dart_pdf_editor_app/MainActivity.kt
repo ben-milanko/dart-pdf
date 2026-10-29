@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private var trackpadSignature: TrackpadSignatureCapture? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
-    private var pending: Map<String, Any>? = null
+    private val incoming = IncomingPdfHandler()
 
     /// Serializes the (potentially large) ranged FD reads off the platform
     /// thread so a multi-MB read can't ANR the UI.
@@ -70,8 +70,7 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         ch.setMethodCallHandler { call, result ->
             if (call.method == "getInitialFile") {
-                result.success(pending)
-                pending = null
+                result.success(incoming.takeInitialFile())
             } else {
                 result.notImplemented()
             }
@@ -293,7 +292,13 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     }
 
     /// Persists read access to [uri], then builds the Dart-side descriptor
-    /// (token/name/length/seekable). Returns null if access can't be persisted.
+    /// (token/name/length). Returns null if access can't be persisted.
+    ///
+    /// Metadata only: no file descriptor is opened here. A cloud provider
+    /// (OneDrive's, notably) downloads the whole file before it hands one
+    /// over, and the app shows nothing until this reply lands - so the
+    /// seekability probe is left to Dart (`probeSeekable`), which asks once the
+    /// file's loading tab is on screen.
     private fun describeOpenedDocument(uri: Uri, intentFlags: Int): Map<String, Any?>? {
         return try {
             val persistable = intentFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -310,11 +315,10 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             mapOf(
                 "token" to uri.toString(),
                 "name" to (displayName(uri) ?: "document.pdf"),
-                "length" to fileLength(uri),
+                "length" to declaredLength(uri),
                 // The authority identifies the DocumentsProvider without
                 // exposing the picked URI/path or its persisted access token.
                 "provider" to (uri.authority ?: "android-documents-provider"),
-                "seekable" to probeSeekable(uri),
             )
         } catch (e: Exception) {
             null
@@ -351,6 +355,13 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             }
         } catch (_: Exception) {
         }
+        return declaredLength(uri)
+    }
+
+    /// The size the provider lists for [uri] (`OpenableColumns.SIZE`), or -1.
+    /// A metadata query - unlike [fileLength] it never opens the file, so it
+    /// can't trigger a cloud download.
+    private fun declaredLength(uri: Uri): Long {
         return try {
             contentResolver.query(
                 uri, arrayOf(OpenableColumns.SIZE), null, null, null
@@ -401,29 +412,8 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     }
 
     private fun handleIntent(intent: Intent?, initial: Boolean) {
-        val uri = when (intent?.action) {
-            Intent.ACTION_VIEW -> intent.data
-            Intent.ACTION_SEND -> {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            }
-            else -> null
-        } ?: return
-        val payload = readPayload(uri) ?: return
-        if (initial) {
-            pending = payload
-        } else {
+        incoming.handle(intent, initial, contentResolver) { payload ->
             channel?.invokeMethod("openFile", payload)
-        }
-    }
-
-    private fun readPayload(uri: Uri): Map<String, Any>? {
-        return try {
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: return null
-            mapOf("name" to (displayName(uri) ?: "document.pdf"), "bytes" to bytes)
-        } catch (e: Exception) {
-            null
         }
     }
 

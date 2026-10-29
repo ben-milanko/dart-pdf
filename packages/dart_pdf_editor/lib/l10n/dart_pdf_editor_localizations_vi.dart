@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get annotText => 'Ghi chú';
 
   @override
+  String get notePopupKeepOpen => 'Giữ mở';
+
+  @override
   String get annotUnderline => 'Gạch chân';
 
   @override
@@ -460,6 +463,15 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
+  String get menuEditLink => 'Sửa liên kết…';
+
+  @override
+  String get menuRemoveLink => 'Xóa liên kết';
+
+  @override
+  String get linkEditDialogTitle => 'Sửa liên kết';
+
+  @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
 
   @override
@@ -792,6 +804,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Nội dung';
+
+  @override
+  String get propSectionComments => 'Bình luận';
 
   @override
   String get propSectionFormField => 'Trường biểu mẫu';

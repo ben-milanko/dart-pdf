@@ -173,11 +173,39 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('print-preview-print')));
     await tester.pumpAndSettle();
     expect(selected()!.settings.pages, [2, 4]);
-    await open(tester);
+    // Nothing selected this time: a remembered Selected falls back to All
+    // rather than an empty job.
+    final none = await open(tester);
     await tester.tap(find.byKey(const ValueKey('print-preview-print')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('print-preview-dialog')), findsOneWidget);
-    expect(find.text('Pages to print: 0'), findsOneWidget);
+    expect(none()!.settings.pages, [0, 1, 2, 3, 4]);
+  });
+
+  testWidgets('a multi-page strip selection overrides the saved range',
+      (tester) async {
+    final preferences = await PrintPreferences.load();
+    await preferences.saveSettings(PrintSettings(pages: [0]),
+        range: 'custom', customRange: '1');
+    final selected = await open(tester, selectedPages: [3, 1]);
+    expect(
+        tester
+            .widget<ChoiceChip>(
+                find.byKey(const ValueKey('print-preview-selected')))
+            .selected,
+        isTrue);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle();
+    expect(selected()!.settings.pages, [1, 3]);
+    // Following the selection is not a choice the user made, so it does not
+    // replace the remembered range.
+    expect((await PrintPreferences.load()).range, 'custom');
+
+    // A single selected page is what a plain thumbnail click leaves behind;
+    // it does not take over the job.
+    final single = await open(tester, selectedPages: [2]);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle();
+    expect(single()!.settings.pages, [0]);
   });
 
   group('Windows destinations', () {

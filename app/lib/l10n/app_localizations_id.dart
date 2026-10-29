@@ -9,6 +9,13 @@ class AppLocalizationsId extends AppLocalizations {
   AppLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Lewati versi ini';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Versi ini dilewati. Anda tidak akan diberi tahu lagi tentang versi ini, tetapi Anda masih dapat menginstalnya di sini.';
+
+  @override
   String get add => 'Tambah';
 
   @override
@@ -651,6 +658,25 @@ class AppLocalizationsId extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Pilih tab';
+
+  @override
+  String get editorCloseSelectedTabs => 'Tutup yang dipilih';
+
+  @override
+  String get editorSaveCopies => 'Simpan salinan';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tab tidak dapat dibaca dan dilewati.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -960,6 +986,20 @@ class AppLocalizationsId extends AppLocalizations {
       'Terima notifikasi pembaruan otomatis untuk build uji Windows/macOS tanpa tanda tangan dari main.';
 
   @override
+  String get settingsWebNightly => 'Coba aplikasi web nightly';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Membuka build uji aplikasi web yang dibuat setiap malam dari main. File, dokumen terbaru, dan pengaturan disimpan terpisah untuk setiap situs.';
+
+  @override
+  String get settingsWebStable => 'Beralih ke aplikasi web stabil';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Membuka rilis saat ini. File, dokumen terbaru, dan pengaturan disimpan terpisah untuk setiap situs.';
+
+  @override
   String get settingsUpdates => 'Pembaruan';
 
   @override
@@ -981,6 +1021,15 @@ class AppLocalizationsId extends AppLocalizations {
   String get welcomeCopyPath => 'Salin jalur';
 
   @override
+  String get welcomeDropHeadline => 'Letakkan PDF di sini';
+
+  @override
+  String get welcomeHeadline => 'Buka atau buat PDF';
+
+  @override
+  String get welcomeNewDocument => 'Dokumen baru';
+
+  @override
   String get welcomeOpen => 'Buka';
 
   @override
@@ -991,6 +1040,10 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Pilih lagi untuk membuka kembali';
+
+  @override
+  String get welcomePrivacy =>
+      'Dokumen Anda tidak pernah meninggalkan perangkat Anda.';
 
   @override
   String get welcomeRecent => 'Terkini';
@@ -1004,6 +1057,10 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Hapus dari terkini';
+
+  @override
+  String get welcomeSubtitle =>
+      'Anotasi, isi formulir, tanda tangani, dan edit teks.';
 
   @override
   String get welcomeTapToReopen => 'Ketuk untuk membuka kembali';
@@ -1403,4 +1460,59 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'Tambahkan DartPDF ke Aplikasi?';
+
+  @override
+  String get launcherOfferBody =>
+      'Siapkan peluncur agar DartPDF muncul dalam pencarian aplikasi. Pembaca PDF default tidak akan berubah.';
+
+  @override
+  String get launcherOfferRegister => 'Siapkan peluncur';
+
+  @override
+  String get launcherOfferLater => 'Tidak sekarang';
+
+  @override
+  String get launcherOfferNever => 'Jangan tampilkan lagi';
+
+  @override
+  String get launcherOfferError =>
+      'Perubahan ini tidak dapat disimpan. Coba lagi atau pilih Tidak sekarang.';
+
+  @override
+  String get editorMenuImportFormData => 'Impor data formulir atau komentar…';
+
+  @override
+  String get editorMenuExportFdf => 'Ekspor data formulir sebagai FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Ekspor data formulir sebagai XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Ekspor sebagai XDP…';
+
+  @override
+  String get fileTypeFormData => 'Data formulir (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'Paket formulir XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Data formulir diimpor - kolom: $fields, komentar: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Tidak ada isi file itu yang cocok dengan dokumen ini';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Tidak dapat mengimpor $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Data formulir dan komentar';
 }

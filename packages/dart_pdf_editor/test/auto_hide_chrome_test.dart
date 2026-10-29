@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart'
         PointerScrollEvent,
         PointerUpEvent,
         kDoubleTapTimeout;
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -62,6 +63,42 @@ void main() {
 
     await scroll(tester, 120);
     expect(headerShown(tester), isTrue);
+  });
+
+  testWidgets('reader: hidden chrome takes the status bar, no band left',
+      (tester) async {
+    screen(tester, phone);
+    tester.view.padding = const FakeViewPadding(top: 47);
+    addTearDown(tester.view.resetPadding);
+    final modes = <Object?>[];
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+        modes.add(call.arguments);
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await pump(tester,
+        PdfReader(bytes: buildMultiPagePdf(6), initialFit: PdfViewerFit.width));
+    expect(modes, isEmpty);
+
+    await tapPage(tester);
+    expect(headerShown(tester), isFalse);
+    expect(modes, ['SystemUiMode.immersiveSticky']);
+    // the page runs to the top edge, not under an empty status-bar band
+    expect(tester.getTopLeft(find.byType(PdfViewer)).dy, 0);
+
+    await tapPage(tester);
+    expect(headerShown(tester), isTrue);
+    expect(modes, ['SystemUiMode.immersiveSticky', 'SystemUiMode.edgeToEdge']);
+
+    // closing the reader while it is full screen gives the status bar back
+    await tapPage(tester);
+    await tester.pumpWidget(const SizedBox());
+    expect(modes.last, 'SystemUiMode.edgeToEdge');
+    expect(modes, hasLength(4));
   });
 
   testWidgets('reader: a tap on the page toggles the header', (tester) async {

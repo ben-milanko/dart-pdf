@@ -1,0 +1,52 @@
+name: Android incoming PDFs
+
+on:
+  pull_request:
+    paths:
+      - 'app/android/**'
+      - '.github/workflows/android-incoming.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/android/**'
+      - '.github/workflows/android-incoming.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  incoming:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '9.3.1'
+      - run: flutter pub get
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - name: Prepare Android SDK
+        run: |
+          sdkmanager "platforms;android-37.0"
+          if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          fi
+          printf 'sdk.dir=%s\nflutter.sdk=%s\n' "$ANDROID_HOME" "$FLUTTER_ROOT" > app/android/local.properties
+      - name: Test incoming PDF resolver and provider reads
+        working-directory: app/android
+        run: gradle :app:testDebugUnitTest --tests '*IncomingPdfHandlerTest' -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug --max-workers=2
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-incoming-tests
+          path: app/build/app/reports/tests/testDebugUnitTest

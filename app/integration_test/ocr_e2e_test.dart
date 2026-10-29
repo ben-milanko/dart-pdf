@@ -152,7 +152,7 @@ void main() {
     var sawTab = false;
     for (var i = 0; i < 600 && !sawTab; i++) {
       await tester.pump(const Duration(milliseconds: 100));
-      sawTab = find.text('Scan.pdf (OCR)').evaluate().isNotEmpty;
+      sawTab = find.text('Scan (OCR).pdf').evaluate().isNotEmpty;
     }
     expect(sawTab, isTrue, reason: 'OCR result should open in a new tab');
     await tester.pump(const Duration(milliseconds: 200));

@@ -1,6 +1,6 @@
 name: pdf_viewer_example
 description: Example PDF viewer built on dart_pdf_editor.
-version: 12.0.0+49
+version: 13.0.0+50
 publish_to: none
 resolution: workspace
 
@@ -10,24 +10,24 @@ environment:
 
 dependencies:
   # The Cupertino host demo (lib/cupertino_host.dart).
-  cupertino_ui: ^1.1.2
+  cupertino_ui: ^1.1.4
   file_selector: ^1.0.3
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
-  material_ui: ^1.6.0
-  pdf_document: ^12.0.0
-  pdf_graphics: ^12.0.0
-  dart_pdf_editor: ^12.0.0
-  dart_pdf_editor_flutter_gpu: ^0.11.0
+  material_ui: ^1.8.0
+  pdf_document: ^13.0.0
+  pdf_graphics: ^13.0.0
+  dart_pdf_editor: ^13.0.0
+  dart_pdf_editor_flutter_gpu: ^0.12.0
   # Optional bundled editor fonts + web render worker (registered in main()).
-  dart_pdf_editor_assets: ^12.0.0
-  pdf_ocr_vlm: ^12.0.0
+  dart_pdf_editor_assets: ^13.0.0
+  pdf_ocr_vlm: ^13.0.0
   share_plus: ^13.3.1
   url_launcher: ^6.3.3
-  web: ^1.1.0
+  web: ^1.1.2
 
 dev_dependencies:
   flutter_lints: ^6.0.0
@@ -35,7 +35,7 @@ dev_dependencies:
     sdk: flutter
   image: ^4.12.0
   patrol: 4.10.0
-  pdf_test_fixtures: ^12.0.0
+  pdf_test_fixtures: ^13.0.0
   shared_preferences: ^2.5.6
 
 patrol:

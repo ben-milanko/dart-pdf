@@ -9,6 +9,13 @@ class AppLocalizationsAr extends AppLocalizations {
   AppLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'تخطي هذا الإصدار';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'تم تخطي هذا الإصدار. لن يتم إشعارك به مجددًا، ولكن لا يزال بإمكانك تثبيته هنا.';
+
+  @override
   String get add => 'إضافة';
 
   @override
@@ -663,6 +670,29 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'تحديد علامات التبويب';
+
+  @override
+  String get editorCloseSelectedTabs => 'إغلاق المحدد';
+
+  @override
+  String get editorSaveCopies => 'حفظ نسخ';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تعذّرت قراءة $count علامة تبويب فاستُبعدت.',
+      many: 'تعذّرت قراءة $count علامة تبويب فاستُبعدت.',
+      few: 'تعذّرت قراءة $count علامات تبويب فاستُبعدت.',
+      two: 'تعذّرت قراءة علامتي تبويب فاستُبعدتا.',
+      one: 'تعذّرت قراءة علامة تبويب واحدة فاستُبعدت.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -982,6 +1012,20 @@ class AppLocalizationsAr extends AppLocalizations {
       'تلقي إشعارات تحديث تلقائية لإصدارات Windows/macOS التجريبية غير الموقعة من الفرع main.';
 
   @override
+  String get settingsWebNightly => 'تجربة تطبيق الويب الليلي';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'يفتح إصدارًا تجريبيًا من تطبيق الويب يُبنى كل ليلة من main. تُحفظ الملفات والمستندات الأخيرة والإعدادات بشكل منفصل لكل موقع.';
+
+  @override
+  String get settingsWebStable => 'التبديل إلى تطبيق الويب المستقر';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'يفتح الإصدار الحالي. تُحفظ الملفات والمستندات الأخيرة والإعدادات بشكل منفصل لكل موقع.';
+
+  @override
   String get settingsUpdates => 'التحديثات';
 
   @override
@@ -1003,6 +1047,15 @@ class AppLocalizationsAr extends AppLocalizations {
   String get welcomeCopyPath => 'نسخ المسار';
 
   @override
+  String get welcomeDropHeadline => 'أفلت ملف PDF هنا';
+
+  @override
+  String get welcomeHeadline => 'افتح ملف PDF أو أنشئ واحدًا';
+
+  @override
+  String get welcomeNewDocument => 'مستند جديد';
+
+  @override
   String get welcomeOpen => 'فتح';
 
   @override
@@ -1015,6 +1068,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get welcomePickAgainToReopen => 'اختره مجددًا لإعادة الفتح';
 
   @override
+  String get welcomePrivacy => 'مستنداتك لا تغادر جهازك أبدًا.';
+
+  @override
   String get welcomeRecent => 'الأخيرة';
 
   @override
@@ -1025,6 +1081,10 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'إزالة من الأخيرة';
+
+  @override
+  String get welcomeSubtitle =>
+      'أضف تعليقات توضيحية، واملأ النماذج، ووقّع، وعدّل النص.';
 
   @override
   String get welcomeTapToReopen => 'انقر لإعادة الفتح';
@@ -1416,4 +1476,59 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'إضافة DartPDF إلى التطبيقات؟';
+
+  @override
+  String get launcherOfferBody =>
+      'أعدّ مشغّلًا للعثور على DartPDF في بحث التطبيقات. لن يتغير قارئ PDF الافتراضي.';
+
+  @override
+  String get launcherOfferRegister => 'إعداد المشغّل';
+
+  @override
+  String get launcherOfferLater => 'ليس الآن';
+
+  @override
+  String get launcherOfferNever => 'عدم الإظهار مجددًا';
+
+  @override
+  String get launcherOfferError =>
+      'تعذّر حفظ هذا التغيير. حاول مجددًا أو اختر «ليس الآن».';
+
+  @override
+  String get editorMenuImportFormData => 'استيراد بيانات النموذج أو التعليقات…';
+
+  @override
+  String get editorMenuExportFdf => 'تصدير بيانات النموذج بتنسيق FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'تصدير بيانات النموذج بتنسيق XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'تصدير بتنسيق XDP…';
+
+  @override
+  String get fileTypeFormData => 'بيانات النموذج (FDF وXFDF وXDP)';
+
+  @override
+  String get fileTypeXdp => 'حزم نماذج XDP';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'تم استيراد بيانات النموذج - الحقول: $fields، التعليقات: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'لا شيء في هذا الملف يطابق هذا المستند';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'تعذّر استيراد $name: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'بيانات النموذج والتعليقات';
 }

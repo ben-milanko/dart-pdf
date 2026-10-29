@@ -132,6 +132,11 @@ has to happen on the page. See
 doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
+Acrobat data exchange is in: `PdfFormData` (FDF/XFDF fields + comments,
+`form_data_exchange.dart` + `fdf_codec.dart`/`xfdf_codec.dart`) and
+`PdfXdpPackage` (`xdp_codec.dart`); comments upsert by /NM and get
+generated appearances when the file has none. See
+doc/dev-log/2026-10-28-fdf-xfdf-xdp-exchange.md.
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
 the page tree (materializing inherited attributes), `appendPagesFrom`
 deep-copies pages across documents, `extractPages` splits into a fresh
@@ -194,7 +199,15 @@ injected like the TSA - `PdfFulcioTransport`/`PdfFulcioAuthority`) and wraps
 the short-lived chain in a `PdfSigningIdentity` to sign B-T. `pdf_cos` gained
 `ecSubjectPublicKeyInfo` + `pemEncode`; in-process fake Fulcio in
 `pdf_test_fixtures` (`test_fulcio.dart`, verifies the proof, issues from a test
-CA). The tiers (self-signed, org CA, timestamps, keyless, Actalis import) are
+CA). Remote signing through the Cloud Signature Consortium API is in the library
+(`csc.dart`: `PdfCscClient` v1/v2, `cscRemoteSigner`, OAuth URL/token
+helpers; host-injected `PdfCscTransport`/`PdfCscAuthorizer`) on top of the
+generic `PdfRemoteSigner` + `PdfEditor.saveSignedPadesRemote` (the returned
+value is verified against the signer certificate before writing; raw
+ECDSA is re-encoded; RSASSA-PSS via `rsaSignPss`/`rsaPssSignatureAlgorithm`).
+Fake service: `TestCscService` in pdf_test_fixtures. Editor/app wiring is
+not done yet - see doc/dev-log/2026-10-28-csc-remote-signing.md.
+The tiers (self-signed, org CA, timestamps, keyless, Actalis import, CSC) are
 written up in `doc/signing-identities.md`. #322 is complete. Keyless is wired
 into the app's Digitally sign dialog and **on by default off-web**:
 `app/lib/keyless_signing.dart` (`fulcioHttpTransport`, DigiCert

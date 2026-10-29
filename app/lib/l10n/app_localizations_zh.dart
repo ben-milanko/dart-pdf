@@ -9,6 +9,12 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get updateSkipVersion => '跳过此版本';
+
+  @override
+  String get settingsUpdateSkipped => '已跳过此版本。你不会再收到此版本的通知，但仍可在此安装。';
+
+  @override
   String get add => '添加';
 
   @override
@@ -633,6 +639,25 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => '选择标签页';
+
+  @override
+  String get editorCloseSelectedTabs => '关闭所选';
+
+  @override
+  String get editorSaveCopies => '保存副本';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '有 $count 个标签页无法读取，已略过。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -937,6 +962,19 @@ class AppLocalizationsZh extends AppLocalizations {
       '自动接收来自 main 的未签名 Windows/macOS 测试版本更新通知。';
 
   @override
+  String get settingsWebNightly => '试用每夜构建版网页应用';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      '打开每晚从 main 构建的网页应用测试版。文件、最近文档和设置在每个站点分别保存。';
+
+  @override
+  String get settingsWebStable => '切换到稳定版网页应用';
+
+  @override
+  String get settingsWebStableSubtitle => '打开当前发布版本。文件、最近文档和设置在每个站点分别保存。';
+
+  @override
   String get settingsUpdates => '更新';
 
   @override
@@ -958,6 +996,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get welcomeCopyPath => '复制路径';
 
   @override
+  String get welcomeDropHeadline => '将 PDF 拖放到此处';
+
+  @override
+  String get welcomeHeadline => '打开或创建 PDF';
+
+  @override
+  String get welcomeNewDocument => '新建文档';
+
+  @override
   String get welcomeOpen => '打开';
 
   @override
@@ -970,6 +1017,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get welcomePickAgainToReopen => '重新选择以打开';
 
   @override
+  String get welcomePrivacy => '您的文档绝不离开您的设备。';
+
+  @override
   String get welcomeRecent => '最近';
 
   @override
@@ -980,6 +1030,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '从最近中移除';
+
+  @override
+  String get welcomeSubtitle => '批注、填写表单、签名和编辑文本。';
 
   @override
   String get welcomeTapToReopen => '点按以重新打开';
@@ -1356,11 +1409,69 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => '将 DartPDF 添加到应用程序？';
+
+  @override
+  String get launcherOfferBody => '设置启动器，以便在应用搜索中找到 DartPDF。默认 PDF 阅读器不会更改。';
+
+  @override
+  String get launcherOfferRegister => '设置启动器';
+
+  @override
+  String get launcherOfferLater => '暂不';
+
+  @override
+  String get launcherOfferNever => '不再显示';
+
+  @override
+  String get launcherOfferError => '无法保存此更改。请重试或选择“暂不”。';
+
+  @override
+  String get editorMenuImportFormData => '导入表单数据或注释…';
+
+  @override
+  String get editorMenuExportFdf => '将表单数据导出为 FDF…';
+
+  @override
+  String get editorMenuExportXfdf => '将表单数据导出为 XFDF…';
+
+  @override
+  String get editorMenuExportXdp => '导出为 XDP…';
+
+  @override
+  String get fileTypeFormData => '表单数据（FDF、XFDF、XDP）';
+
+  @override
+  String get fileTypeXdp => 'XDP 表单包';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '已导入表单数据 - 字段：$fields，注释：$comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '该文件中没有与此文档匹配的内容';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '无法导入 $name：$error';
+  }
+
+  @override
+  String get editorMenuFormData => '表单数据和注释';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get updateSkipVersion => '略過此版本';
+
+  @override
+  String get settingsUpdateSkipped => '已略過此版本。你不會再收到此版本的通知，但仍可在此安裝。';
 
   @override
   String get add => '新增';
@@ -1987,6 +2098,25 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
+  String get editorSelectTabs => '選取分頁';
+
+  @override
+  String get editorCloseSelectedTabs => '關閉所選';
+
+  @override
+  String get editorSaveCopies => '儲存副本';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '有 $count 個分頁無法讀取，已略過。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2291,6 +2421,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
       '自動接收來自 main 的未簽署 Windows/macOS 測試版本更新通知。';
 
   @override
+  String get settingsWebNightly => '試用每夜建置版網頁應用程式';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      '開啟每晚從 main 建置的網頁應用程式測試版。檔案、最近的文件和設定會在各網站分別儲存。';
+
+  @override
+  String get settingsWebStable => '切換到穩定版網頁應用程式';
+
+  @override
+  String get settingsWebStableSubtitle => '開啟目前的發行版本。檔案、最近的文件和設定會在各網站分別儲存。';
+
+  @override
   String get settingsUpdates => '更新';
 
   @override
@@ -2312,6 +2455,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get welcomeCopyPath => '複製路徑';
 
   @override
+  String get welcomeDropHeadline => '將 PDF 拖放到這裡';
+
+  @override
+  String get welcomeHeadline => '開啟或建立 PDF';
+
+  @override
+  String get welcomeNewDocument => '新增文件';
+
+  @override
   String get welcomeOpen => '開啟';
 
   @override
@@ -2324,6 +2476,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get welcomePickAgainToReopen => '再次選取以重新開啟';
 
   @override
+  String get welcomePrivacy => '您的文件永遠不會離開您的裝置。';
+
+  @override
   String get welcomeRecent => '最近使用';
 
   @override
@@ -2334,6 +2489,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get welcomeRemoveFromRecent => '從最近使用中移除';
+
+  @override
+  String get welcomeSubtitle => '註解、填寫表單、簽署及編輯文字。';
 
   @override
   String get welcomeTapToReopen => '點一下以重新開啟';
@@ -2711,4 +2869,56 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => '將 DartPDF 加入應用程式？';
+
+  @override
+  String get launcherOfferBody => '設定啟動器，以便在應用程式搜尋中找到 DartPDF。預設 PDF 閱讀器不會變更。';
+
+  @override
+  String get launcherOfferRegister => '設定啟動器';
+
+  @override
+  String get launcherOfferLater => '稍後再說';
+
+  @override
+  String get launcherOfferNever => '不再顯示';
+
+  @override
+  String get launcherOfferError => '無法儲存此變更。請重試或選擇「稍後再說」。';
+
+  @override
+  String get editorMenuImportFormData => '匯入表單資料或註解…';
+
+  @override
+  String get editorMenuExportFdf => '將表單資料匯出為 FDF…';
+
+  @override
+  String get editorMenuExportXfdf => '將表單資料匯出為 XFDF…';
+
+  @override
+  String get editorMenuExportXdp => '匯出為 XDP…';
+
+  @override
+  String get fileTypeFormData => '表單資料（FDF、XFDF、XDP）';
+
+  @override
+  String get fileTypeXdp => 'XDP 表單套件';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '已匯入表單資料 - 欄位：$fields，註解：$comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '該檔案中沒有與此文件相符的內容';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '無法匯入 $name：$error';
+  }
+
+  @override
+  String get editorMenuFormData => '表單資料和註解';
 }

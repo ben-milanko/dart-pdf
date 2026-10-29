@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get annotText => 'Catatan';
 
   @override
+  String get notePopupKeepOpen => 'Tetap buka';
+
+  @override
   String get annotUnderline => 'Garis bawah';
 
   @override
@@ -461,6 +464,15 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Tambahkan catatan di sini';
 
   @override
+  String get menuEditLink => 'Edit tautan…';
+
+  @override
+  String get menuRemoveLink => 'Hapus tautan';
+
+  @override
+  String get linkEditDialogTitle => 'Edit tautan';
+
+  @override
   String get menuSaveToStamps => 'Simpan ke stempel';
 
   @override
@@ -793,6 +805,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'Konten';
+
+  @override
+  String get propSectionComments => 'Komentar';
 
   @override
   String get propSectionFormField => 'Bidang formulir';

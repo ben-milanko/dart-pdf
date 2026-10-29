@@ -219,6 +219,24 @@ Uint8List ecdsaSign(EcPrivateKey key, List<int> digest,
   return derSequence([derInteger(r), derInteger(s)]);
 }
 
+/// Re-encodes a raw IEEE P1363 ECDSA signature (`r || s`, each half
+/// left-padded to the curve size - what PKCS#11, WebCrypto and some remote
+/// signing services return) as the DER `SEQUENCE { r, s }` that CMS, X.509
+/// and [ecdsaVerify] expect. Throws a [FormatException] for an empty or
+/// odd-length input.
+Uint8List ecdsaRawSignatureToDer(List<int> raw) {
+  if (raw.isEmpty || raw.length.isOdd) {
+    throw const FormatException('a raw ECDSA signature is r || s');
+  }
+  BigInt scalar(Iterable<int> bytes) =>
+      bytes.fold(BigInt.zero, (v, b) => (v << 8) | BigInt.from(b));
+  final half = raw.length ~/ 2;
+  return derSequence([
+    derInteger(scalar(raw.take(half))),
+    derInteger(scalar(raw.skip(half))),
+  ]);
+}
+
 /// The raw (r, s) scalars, exposed for the RFC 6979 known-answer tests.
 (BigInt, BigInt) ecdsaSignRs(EcPrivateKey key, List<int> digest,
         {crypto.Hash hash = crypto.sha256}) =>

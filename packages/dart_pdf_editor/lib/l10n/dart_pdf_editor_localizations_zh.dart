@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get annotText => '便笺';
 
   @override
+  String get notePopupKeepOpen => '保持打开';
+
+  @override
   String get annotUnderline => '下划线';
 
   @override
@@ -459,6 +462,15 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => '在此添加注释';
 
   @override
+  String get menuEditLink => '编辑链接…';
+
+  @override
+  String get menuRemoveLink => '移除链接';
+
+  @override
+  String get linkEditDialogTitle => '编辑链接';
+
+  @override
   String get menuSaveToStamps => '保存到图章';
 
   @override
@@ -788,6 +800,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => '内容';
+
+  @override
+  String get propSectionComments => '评论';
 
   @override
   String get propSectionFormField => '表单字段';
@@ -2610,6 +2625,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get annotText => '便箋';
 
   @override
+  String get notePopupKeepOpen => '保持開啟';
+
+  @override
   String get annotUnderline => '底線';
 
   @override
@@ -2997,6 +3015,15 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuAddNoteHere => '在此新增註解';
 
   @override
+  String get menuEditLink => '編輯連結…';
+
+  @override
+  String get menuRemoveLink => '移除連結';
+
+  @override
+  String get linkEditDialogTitle => '編輯連結';
+
+  @override
   String get menuSaveToStamps => '儲存至戳記';
 
   @override
@@ -3326,6 +3353,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get propSectionContent => '內容';
+
+  @override
+  String get propSectionComments => '評論';
 
   @override
   String get propSectionFormField => '表單欄位';

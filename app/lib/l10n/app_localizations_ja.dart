@@ -9,6 +9,13 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'このバージョンをスキップ';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'このバージョンはスキップされています。今後このバージョンの通知は表示されませんが、ここからインストールできます。';
+
+  @override
   String get add => '追加';
 
   @override
@@ -636,6 +643,25 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'タブを選択';
+
+  @override
+  String get editorCloseSelectedTabs => '選択したタブを閉じる';
+
+  @override
+  String get editorSaveCopies => 'コピーを保存';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個のタブを読み取れなかったため除外しました。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -940,6 +966,20 @@ class AppLocalizationsJa extends AppLocalizations {
       'main の署名なし Windows/macOS テストビルドの更新通知を自動で受け取ります。';
 
   @override
+  String get settingsWebNightly => 'ナイトリー版 Web アプリを試す';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main から毎晩ビルドされる Web アプリのテスト版を開きます。ファイル、最近使ったドキュメント、設定はサイトごとに別々に保存されます。';
+
+  @override
+  String get settingsWebStable => '安定版 Web アプリに切り替える';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      '現在のリリースを開きます。ファイル、最近使ったドキュメント、設定はサイトごとに別々に保存されます。';
+
+  @override
   String get settingsUpdates => 'アップデート';
 
   @override
@@ -961,6 +1001,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get welcomeCopyPath => 'パスをコピー';
 
   @override
+  String get welcomeDropHeadline => 'ここに PDF をドロップ';
+
+  @override
+  String get welcomeHeadline => 'PDF を開くか作成';
+
+  @override
+  String get welcomeNewDocument => '新規ドキュメント';
+
+  @override
   String get welcomeOpen => '開く';
 
   @override
@@ -973,6 +1022,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get welcomePickAgainToReopen => '再度開くにはもう一度選択してください';
 
   @override
+  String get welcomePrivacy => 'ドキュメントがデバイスから外に出ることはありません。';
+
+  @override
   String get welcomeRecent => '最近使用';
 
   @override
@@ -983,6 +1035,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '最近使用したファイルから削除';
+
+  @override
+  String get welcomeSubtitle => '注釈、フォーム入力、署名、テキスト編集。';
 
   @override
   String get welcomeTapToReopen => 'タップして再度開く';
@@ -1365,4 +1420,57 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'DartPDFをアプリ一覧に追加しますか？';
+
+  @override
+  String get launcherOfferBody =>
+      'アプリ検索でDartPDFを見つけられるようにランチャーを設定します。既定のPDFリーダーは変更されません。';
+
+  @override
+  String get launcherOfferRegister => 'ランチャーを設定';
+
+  @override
+  String get launcherOfferLater => '後で';
+
+  @override
+  String get launcherOfferNever => '今後表示しない';
+
+  @override
+  String get launcherOfferError => '変更を保存できませんでした。再試行するか「後で」を選んでください。';
+
+  @override
+  String get editorMenuImportFormData => 'フォームデータまたは注釈を読み込む…';
+
+  @override
+  String get editorMenuExportFdf => 'フォームデータを FDF で書き出す…';
+
+  @override
+  String get editorMenuExportXfdf => 'フォームデータを XFDF で書き出す…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP で書き出す…';
+
+  @override
+  String get fileTypeFormData => 'フォームデータ (FDF、XFDF、XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP フォームパッケージ';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'フォームデータを読み込みました - フィールド: $fields、注釈: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => 'このファイルにはこの文書に一致するものがありません';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name を読み込めませんでした: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'フォームデータと注釈';
 }

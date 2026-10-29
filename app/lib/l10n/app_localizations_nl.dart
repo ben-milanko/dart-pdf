@@ -9,6 +9,13 @@ class AppLocalizationsNl extends AppLocalizations {
   AppLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
+  String get updateSkipVersion => 'Deze versie overslaan';
+
+  @override
+  String get settingsUpdateSkipped =>
+      'Deze versie is overgeslagen. Je ontvangt er geen meldingen meer over, maar je kunt deze hier nog steeds installeren.';
+
+  @override
   String get add => 'Toevoegen';
 
   @override
@@ -652,6 +659,27 @@ class AppLocalizationsNl extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => 'Tabbladen selecteren';
+
+  @override
+  String get editorCloseSelectedTabs => 'Selectie sluiten';
+
+  @override
+  String get editorSaveCopies => 'Kopieën opslaan';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count tabbladen konden niet worden gelezen en zijn overgeslagen.',
+      one: '1 tabblad kon niet worden gelezen en is overgeslagen.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -965,6 +993,20 @@ class AppLocalizationsNl extends AppLocalizations {
       'Ontvang automatische updatemeldingen voor niet-ondertekende Windows-/macOS-testbuilds van main.';
 
   @override
+  String get settingsWebNightly => 'Nightly-webapp proberen';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'Opent een testversie van de webapp die elke nacht vanuit main wordt gebouwd. Bestanden, recente documenten en instellingen worden per site apart bewaard.';
+
+  @override
+  String get settingsWebStable => 'Overschakelen naar de stabiele webapp';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      'Opent de huidige release. Bestanden, recente documenten en instellingen worden per site apart bewaard.';
+
+  @override
   String get settingsUpdates => 'Updates';
 
   @override
@@ -986,6 +1028,15 @@ class AppLocalizationsNl extends AppLocalizations {
   String get welcomeCopyPath => 'Pad kopiëren';
 
   @override
+  String get welcomeDropHeadline => 'Zet hier een pdf neer';
+
+  @override
+  String get welcomeHeadline => 'Open of maak een pdf';
+
+  @override
+  String get welcomeNewDocument => 'Nieuw document';
+
+  @override
   String get welcomeOpen => 'Openen';
 
   @override
@@ -996,6 +1047,9 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get welcomePickAgainToReopen => 'Kies opnieuw om te heropenen';
+
+  @override
+  String get welcomePrivacy => 'Je documenten verlaten je apparaat nooit.';
 
   @override
   String get welcomeRecent => 'Recent';
@@ -1009,6 +1063,10 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => 'Verwijderen uit recent';
+
+  @override
+  String get welcomeSubtitle =>
+      'Annoteer, vul formulieren in, onderteken en bewerk tekst.';
 
   @override
   String get welcomeTapToReopen => 'Tik om te heropenen';
@@ -1409,4 +1467,60 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'DartPDF toevoegen aan toepassingen?';
+
+  @override
+  String get launcherOfferBody =>
+      'Stel een starter in om DartPDF via het zoeken naar toepassingen te vinden. De standaard PDF-lezer blijft ongewijzigd.';
+
+  @override
+  String get launcherOfferRegister => 'Starter instellen';
+
+  @override
+  String get launcherOfferLater => 'Niet nu';
+
+  @override
+  String get launcherOfferNever => 'Niet meer tonen';
+
+  @override
+  String get launcherOfferError =>
+      'Deze wijziging kon niet worden opgeslagen. Probeer het opnieuw of kies Niet nu.';
+
+  @override
+  String get editorMenuImportFormData =>
+      'Formuliergegevens of opmerkingen importeren…';
+
+  @override
+  String get editorMenuExportFdf => 'Formuliergegevens exporteren als FDF…';
+
+  @override
+  String get editorMenuExportXfdf => 'Formuliergegevens exporteren als XFDF…';
+
+  @override
+  String get editorMenuExportXdp => 'Exporteren als XDP…';
+
+  @override
+  String get fileTypeFormData => 'Formuliergegevens (FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP-formulierpakketten';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return 'Formuliergegevens geïmporteerd – velden: $fields, opmerkingen: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing =>
+      'Niets in dat bestand komt overeen met dit document';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return 'Kan $name niet importeren: $error';
+  }
+
+  @override
+  String get editorMenuFormData => 'Formuliergegevens en opmerkingen';
 }

@@ -9,6 +9,13 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get updateSkipVersion => '이 버전 건너뛰기';
+
+  @override
+  String get settingsUpdateSkipped =>
+      '이 버전은 건너뛰었습니다. 이 버전에 대한 알림은 더 이상 표시되지 않지만 여기에서 설치할 수 있습니다.';
+
+  @override
   String get add => '추가';
 
   @override
@@ -634,6 +641,25 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get editorSelectTabs => '탭 선택';
+
+  @override
+  String get editorCloseSelectedTabs => '선택한 탭 닫기';
+
+  @override
+  String get editorSaveCopies => '사본 저장';
+
+  @override
+  String editorTabsNotShared(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '탭 $count개를 읽을 수 없어 제외했습니다.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String editorUnsavedChangesCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -938,6 +964,20 @@ class AppLocalizationsKo extends AppLocalizations {
       'main의 서명되지 않은 Windows/macOS 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
 
   @override
+  String get settingsWebNightly => '나이틀리 웹 앱 사용해 보기';
+
+  @override
+  String get settingsWebNightlySubtitle =>
+      'main에서 매일 밤 빌드되는 웹 앱 테스트 버전을 엽니다. 파일, 최근 문서, 설정은 사이트별로 따로 저장됩니다.';
+
+  @override
+  String get settingsWebStable => '안정 버전 웹 앱으로 전환';
+
+  @override
+  String get settingsWebStableSubtitle =>
+      '현재 릴리스를 엽니다. 파일, 최근 문서, 설정은 사이트별로 따로 저장됩니다.';
+
+  @override
   String get settingsUpdates => '업데이트';
 
   @override
@@ -959,6 +999,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get welcomeCopyPath => '경로 복사';
 
   @override
+  String get welcomeDropHeadline => '여기에 PDF를 놓으세요';
+
+  @override
+  String get welcomeHeadline => 'PDF 열기 또는 만들기';
+
+  @override
+  String get welcomeNewDocument => '새 문서';
+
+  @override
   String get welcomeOpen => '열기';
 
   @override
@@ -971,6 +1020,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get welcomePickAgainToReopen => '다시 열려면 다시 선택하세요';
 
   @override
+  String get welcomePrivacy => '문서가 기기를 벗어나지 않습니다.';
+
+  @override
   String get welcomeRecent => '최근';
 
   @override
@@ -981,6 +1033,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get welcomeRemoveFromRecent => '최근 항목에서 제거';
+
+  @override
+  String get welcomeSubtitle => '주석 달기, 양식 작성, 서명, 텍스트 편집.';
 
   @override
   String get welcomeTapToReopen => '탭하여 다시 열기';
@@ -1365,4 +1420,57 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get ocrAutoTurnedOff =>
       'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.';
+
+  @override
+  String get launcherOfferTitle => 'DartPDF를 앱 목록에 추가할까요?';
+
+  @override
+  String get launcherOfferBody =>
+      '앱 검색에서 DartPDF를 찾을 수 있도록 실행기를 설정합니다. 기본 PDF 리더는 변경되지 않습니다.';
+
+  @override
+  String get launcherOfferRegister => '실행기 설정';
+
+  @override
+  String get launcherOfferLater => '나중에';
+
+  @override
+  String get launcherOfferNever => '다시 표시하지 않기';
+
+  @override
+  String get launcherOfferError => '변경 사항을 저장하지 못했습니다. 다시 시도하거나 나중에를 선택하세요.';
+
+  @override
+  String get editorMenuImportFormData => '양식 데이터 또는 주석 가져오기…';
+
+  @override
+  String get editorMenuExportFdf => '양식 데이터를 FDF로 내보내기…';
+
+  @override
+  String get editorMenuExportXfdf => '양식 데이터를 XFDF로 내보내기…';
+
+  @override
+  String get editorMenuExportXdp => 'XDP로 내보내기…';
+
+  @override
+  String get fileTypeFormData => '양식 데이터(FDF, XFDF, XDP)';
+
+  @override
+  String get fileTypeXdp => 'XDP 양식 패키지';
+
+  @override
+  String editorImportedFormData(int fields, int comments) {
+    return '양식 데이터를 가져왔습니다 - 필드: $fields, 주석: $comments';
+  }
+
+  @override
+  String get editorImportFormDataNothing => '이 파일에는 이 문서와 일치하는 항목이 없습니다';
+
+  @override
+  String editorCouldNotImportFormData(String name, String error) {
+    return '$name을(를) 가져올 수 없습니다: $error';
+  }
+
+  @override
+  String get editorMenuFormData => '양식 데이터 및 주석';
 }

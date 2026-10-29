@@ -72,6 +72,10 @@
   "@annotText": {
     "description": "Annotation type name: a sticky note / text comment."
   },
+  "notePopupKeepOpen": "Keep open",
+  "@notePopupKeepOpen": {
+    "description": "Tooltip on a note popup card's pin button: keep this card open after the pointer leaves, so several notes can be open at once."
+  },
   "annotUnderline": "Underline",
   "@annotUnderline": {
     "description": "Annotation type name: a text underline."
@@ -583,6 +587,18 @@
   "@menuAddNoteHere": {
     "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
   },
+  "menuEditLink": "Edit link…",
+  "@menuEditLink": {
+    "description": "Page context-menu item (right-click or long-press on a hyperlink) that opens the link dialog to change where an existing link goes."
+  },
+  "menuRemoveLink": "Remove link",
+  "@menuRemoveLink": {
+    "description": "Page context-menu item (right-click or long-press on a hyperlink) that deletes the link annotation, leaving the page content beneath it."
+  },
+  "linkEditDialogTitle": "Edit link",
+  "@linkEditDialogTitle": {
+    "description": "Title of the link dialog when it re-targets an existing hyperlink."
+  },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
     "description": "Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection."
@@ -1019,6 +1035,10 @@
   "propSectionContent": "Content",
   "@propSectionContent": {
     "description": "Section header for the contents/author controls in the annotation properties panel."
+  },
+  "propSectionComments": "Comments",
+  "@propSectionComments": {
+    "description": "Section header for the selected annotation's comment thread (its replies, plus a field to add one) in the annotation properties panel."
   },
   "propSectionFormField": "Form field",
   "@propSectionFormField": {

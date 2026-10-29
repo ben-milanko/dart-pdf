@@ -149,7 +149,7 @@ void main() {
             'provider': 'com.example.files',
             'seekable': true,
           },
-          // Seekability defaults to false when the runner omits it.
+          // Seekability is unknown (probed later) when the runner omits it.
           // A native -1 length is normalized to unknown.
           {'token': 't2', 'name': 'b.pdf', 'length': -1},
           // An entry without a token is dropped.
@@ -164,7 +164,7 @@ void main() {
       expect(picks[0].provider, 'com.example.files');
       expect(picks[0].seekable, isTrue);
       expect(picks[1].token, 't2');
-      expect(picks[1].seekable, isFalse);
+      expect(picks[1].seekable, isNull);
       expect(picks[1].length, isNull);
       expect(picks[1].provider, isNull);
     });
@@ -173,6 +173,20 @@ void main() {
       messenger.setMockMethodCallHandler(
           mobileFileChannel, (call) async => null);
       expect(await pickPdfMobileReferences(), isEmpty);
+    });
+
+    test('probeMobileSeekable asks the runner, and reads a failure as false',
+        () async {
+      messenger.setMockMethodCallHandler(mobileFileChannel, (call) async {
+        expect(call.method, 'probeSeekable');
+        expect(call.arguments, {'token': 't1'});
+        return true;
+      });
+      expect(await probeMobileSeekable('t1'), isTrue);
+      messenger.setMockMethodCallHandler(mobileFileChannel,
+          (call) async => throw PlatformException(code: 'boom'));
+      expect(await probeMobileSeekable('t1'), isFalse);
+      messenger.setMockMethodCallHandler(mobileFileChannel, null);
     });
   });
 

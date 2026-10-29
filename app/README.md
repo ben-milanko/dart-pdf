@@ -24,6 +24,50 @@ sudo snap install dartpdf
 AppImage and portable tarball builds remain available from
 [GitHub Releases](https://github.com/ben-milanko/dart-pdf/releases/latest).
 
+## Linux launcher and application search
+
+Flatpak, Snap and AUR installations register their launcher through the package
+manager. An AppImage or extracted tarball is portable: running it does not
+install a menu entry. The desktop files inside the bundle alone are not visible
+to Ubuntu's application search.
+
+Portable builds containing the registration helper offer to set up a launcher on
+startup when one is missing. Choose **Set up launcher**, **Not now** (ask again on
+the next launch), or **Don’t show again** (saved across restarts). The offer does
+not block opening documents and never registers without your choice. A failed
+setup stays visible so you can retry or dismiss it.
+
+Put the app in a permanent location first. You can also register it manually
+(Python 3 required; do not use sudo):
+
+```bash
+# AppImage, after making it executable:
+chmod +x /path/to/DartPDF.AppImage
+/path/to/DartPDF.AppImage --install-desktop
+
+# Extracted tarball, with data/, lib/ and share/ beside the executable:
+python3 /path/to/bundle/install-desktop.py
+```
+
+Search for **DartPDF** in Applications. Registration writes a launcher and icon
+under `$XDG_DATA_HOME` (normally `~/.local/share`); it does not copy the app,
+change the default PDF reader, or replace package-manager launchers. Keep the
+whole tar bundle together. Rerun registration after moving the app. Paths with
+percent signs or control characters are rejected with a move-and-retry message.
+To remove only the portable launcher, use `--uninstall-desktop` on the AppImage,
+or `python3 /path/to/bundle/install-desktop.py --uninstall`.
+
+Older portable releases without this helper can use a desktop integration tool
+such as Gear Lever for AppImages, or the official Flatpak above. Do not copy the
+bundle's desktop file unchanged: its `dartpdf` command expects a package-manager
+wrapper on PATH.
+
+If a **Flatpak or Snap** runs from a terminal but is missing from search, log out
+and back in after installation so the desktop session picks up the package
+manager's application directories. If it is still missing, include your Ubuntu
+version, installation method, app version, and the exact launch command in the
+issue. The portable helper is not a repair tool for sandboxed packages.
+
 ## Features
 
 - Open PDFs from the picker, the OS ("open with" / share), drag-and-drop

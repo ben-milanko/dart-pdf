@@ -135,6 +135,18 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
+  /// Button to skip notifications for this exact update while retaining manual installation.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip this version'**
+  String get updateSkipVersion;
+
+  /// Explanation for a skipped update; manual installation remains available.
+  ///
+  /// In en, this message translates to:
+  /// **'This version is skipped. You won’t be notified about it again, but you can still install it here.'**
+  String get settingsUpdateSkipped;
+
   /// Generic button that adds a new item.
   ///
   /// In en, this message translates to:
@@ -1119,6 +1131,30 @@ abstract class AppLocalizations {
   /// **'{count} open'**
   String editorTabsOpenCount(int count);
 
+  /// Tooltip of the open-tabs grid button that switches the grid into multi-select, so several tabs can be shared or closed together.
+  ///
+  /// In en, this message translates to:
+  /// **'Select tabs'**
+  String get editorSelectTabs;
+
+  /// Tooltip of the open-tabs grid selection header button that closes every checked tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Close selected'**
+  String get editorCloseSelectedTabs;
+
+  /// Tooltip of the open-tabs grid selection header button that saves a copy of every checked tab (desktop: into a chosen folder; web: one download each). Phones show the platform's Share label instead.
+  ///
+  /// In en, this message translates to:
+  /// **'Save copies'**
+  String get editorSaveCopies;
+
+  /// Toast after sharing the checked tabs when some of them had no readable document (still loading, failed, or their file is gone) and were left out.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 tab couldn\'t be read and was left out.} other{{count} tabs couldn\'t be read and were left out.}}'**
+  String editorTabsNotShared(int count);
+
   /// Discard-confirmation message stating how many open documents have unsaved edits.
   ///
   /// In en, this message translates to:
@@ -1599,6 +1635,30 @@ abstract class AppLocalizations {
   /// **'Receive automatic update notifications for unsigned Windows and macOS test builds from main.'**
   String get settingsNightlyUpdatesSubtitle;
 
+  /// Web-only Settings row that opens the nightly web app (app-nightly.dart-pdf.com) in a new tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Try the nightly web app'**
+  String get settingsWebNightly;
+
+  /// Explains the nightly web app and that each site keeps its own files and settings (browser storage is per site).
+  ///
+  /// In en, this message translates to:
+  /// **'Opens a test build of the web app made every night from main. Files, recent documents and settings are kept separately for each site.'**
+  String get settingsWebNightlySubtitle;
+
+  /// Web-only Settings row, shown in the nightly web app, that opens the stable web app (app.dart-pdf.com) in a new tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to the stable web app'**
+  String get settingsWebStable;
+
+  /// Explains the stable web app and that each site keeps its own files and settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Opens the current release. Files, recent documents and settings are kept separately for each site.'**
+  String get settingsWebStableSubtitle;
+
   /// Section header for the software-update block in settings.
   ///
   /// In en, this message translates to:
@@ -1641,6 +1701,24 @@ abstract class AppLocalizations {
   /// **'Copy path'**
   String get welcomeCopyPath;
 
+  /// Headline of the welcome screen's drop zone on platforms that accept dropped files.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop a PDF here'**
+  String get welcomeDropHeadline;
+
+  /// Headline of the welcome screen on platforms that don't accept dropped files.
+  ///
+  /// In en, this message translates to:
+  /// **'Open or create a PDF'**
+  String get welcomeHeadline;
+
+  /// Secondary button on the welcome screen that creates a blank document.
+  ///
+  /// In en, this message translates to:
+  /// **'New document'**
+  String get welcomeNewDocument;
+
   /// Recent-file context-menu item that opens the document.
   ///
   /// In en, this message translates to:
@@ -1665,6 +1743,12 @@ abstract class AppLocalizations {
   /// **'Pick again to reopen'**
   String get welcomePickAgainToReopen;
 
+  /// Privacy promise shown under the welcome screen's drop zone.
+  ///
+  /// In en, this message translates to:
+  /// **'Your documents never leave your device.'**
+  String get welcomePrivacy;
+
   /// Header for the recent-documents list on the welcome screen.
   ///
   /// In en, this message translates to:
@@ -1688,6 +1772,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove from recent'**
   String get welcomeRemoveFromRecent;
+
+  /// Supporting line under the welcome screen headline listing what the app does.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotate, fill forms, sign, and edit text.'**
+  String get welcomeSubtitle;
 
   /// Subtitle for a recent file that can be reopened directly from a saved snapshot.
   ///
@@ -2288,6 +2378,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Automatic OCR is off. Choose OCR… from the menu to recognize text in a scan, or turn it back on in Settings.'**
   String get ocrAutoTurnedOff;
+
+  /// Linux portable launcher startup offer: launcherOfferTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Add DartPDF to Applications?'**
+  String get launcherOfferTitle;
+
+  /// Linux portable launcher startup offer: launcherOfferBody
+  ///
+  /// In en, this message translates to:
+  /// **'Set up a launcher so you can find DartPDF in application search. Your default PDF reader will not change.'**
+  String get launcherOfferBody;
+
+  /// Linux portable launcher startup offer: launcherOfferRegister
+  ///
+  /// In en, this message translates to:
+  /// **'Set up launcher'**
+  String get launcherOfferRegister;
+
+  /// Linux portable launcher startup offer: launcherOfferLater
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get launcherOfferLater;
+
+  /// Linux portable launcher startup offer: launcherOfferNever
+  ///
+  /// In en, this message translates to:
+  /// **'Don’t show again'**
+  String get launcherOfferNever;
+
+  /// Linux portable launcher startup offer: launcherOfferError
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save this change. Try again, or choose Not now.'**
+  String get launcherOfferError;
+
+  /// App menu item to import form field values and/or comments from an FDF, XFDF or XDP file into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Import form data or comments…'**
+  String get editorMenuImportFormData;
+
+  /// App menu item to export the document's form field values and comments as an FDF (Forms Data Format) file. FDF is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export form data as FDF…'**
+  String get editorMenuExportFdf;
+
+  /// App menu item to export the document's form field values and comments as an XFDF (XML Forms Data Format) file. XFDF is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export form data as XFDF…'**
+  String get editorMenuExportXfdf;
+
+  /// App menu item to export the document as an XDP (XML Data Package) file, the PDF embedded with its form data. XDP is a format name; keep it untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Export as XDP…'**
+  String get editorMenuExportXdp;
+
+  /// File-picker filter label for form-data exchange files. FDF, XFDF and XDP are format names; keep them untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data (FDF, XFDF, XDP)'**
+  String get fileTypeFormData;
+
+  /// Open-dialog filter label for XDP form packages (a PDF embedded with XFA form data). XDP is a format name.
+  ///
+  /// In en, this message translates to:
+  /// **'XDP form packages'**
+  String get fileTypeXdp;
+
+  /// Toast after importing form data: how many form fields were filled and how many comments were added or updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data imported - fields: {fields}, comments: {comments}'**
+  String editorImportedFormData(int fields, int comments);
+
+  /// Toast when an imported form-data file had no field values or comments that apply to the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in that file matched this document'**
+  String get editorImportFormDataNothing;
+
+  /// Toast when a form-data file could not be read or applied, with the file name and the error detail.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not import {name}: {error}'**
+  String editorCouldNotImportFormData(String name, String error);
+
+  /// App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats.
+  ///
+  /// In en, this message translates to:
+  /// **'Form data and comments'**
+  String get editorMenuFormData;
 }
 
 class _AppLocalizationsDelegate

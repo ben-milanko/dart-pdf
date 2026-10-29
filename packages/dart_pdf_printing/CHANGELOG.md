@@ -1,3 +1,8 @@
+## 0.10.0
+
+- Open print preview on the page-strip selection, including the current page for an untouched strip.
+- Require the 13.0.0 package suite.
+
 ## 0.9.0
 
 - Keep the print-preview range field in sync with the selected page.

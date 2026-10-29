@@ -5,6 +5,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:pdf_document/pdf_document.dart'
+    show PdfExchangeFormat, PdfXdpPackage, pdfSniffExchangeFormat;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -53,6 +55,51 @@ XTypeGroup stampBundleTypeGroup(String label) => XTypeGroup(
 
 const _stampBundleFormat = 'dev.milanko.dartpdf.custom-stamps';
 
+/// Acrobat form-data and comment exchange files: FDF, XFDF and XDP (plus
+/// plain `.xml`, which is how some producers name XFDF/XDP). The contents are
+/// sniffed after the pick, so the extension list only narrows the dialog;
+/// Apple pickers match on `public.data` because these formats have no
+/// registered uniform type identifiers there.
+XTypeGroup formDataTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['fdf', 'xfdf', 'xdp', 'xml'],
+      mimeTypes: const [
+        'application/vnd.fdf',
+        'application/vnd.adobe.xfdf',
+        'application/vnd.adobe.xdp+xml',
+        'application/xml',
+        'text/xml',
+      ],
+      uniformTypeIdentifiers: const ['public.data'],
+    );
+
+/// XDP packages for the Open dialog, next to [pdfTypeGroup]. Left out on
+/// Apple platforms (see [openableTypeGroups]).
+XTypeGroup xdpTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['xdp'],
+      mimeTypes: const ['application/vnd.adobe.xdp+xml'],
+    );
+
+/// The Open dialog's filters: PDFs, plus XDP packages where the picker
+/// filters by extension or MIME type. macOS/iOS filter by uniform type
+/// identifier and XDP has none, so there an XDP comes in through "Import
+/// form data" or a drop instead.
+List<XTypeGroup> openableTypeGroups(String pdfLabel, String xdpLabel) => [
+      pdfTypeGroup(pdfLabel),
+      if (defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.iOS)
+        xdpTypeGroup(xdpLabel),
+    ];
+
+/// Picks an FDF/XFDF/XDP file and returns its name and bytes, or null when
+/// the dialog was cancelled.
+Future<(String, Uint8List)?> pickFormDataFile(String label) async {
+  final file = await openFile(acceptedTypeGroups: [formDataTypeGroup(label)]);
+  if (file == null) return null;
+  return (file.name, await file.readAsBytes());
+}
+
 /// A PDF the user picked to open, or null when the dialog was cancelled.
 class PickedPdf {
   const PickedPdf(this.name, this.bytes, {this.path, this.bookmark});
@@ -71,15 +118,15 @@ class PickedPdf {
 
 /// A file the mobile reference picker handed back: a native [token] pointing at
 /// the *original* file (not a sandbox copy), its display [name], the [length]
-/// when the provider reports it, and whether the runner's up-front probe found
-/// the reference [seekable] (so ranged reads are worth attempting - see #364).
+/// when the provider reports it, and whether the reference is [seekable] (so
+/// ranged reads are worth attempting - see #364), when that is already known.
 class MobilePickedPdf {
   const MobilePickedPdf({
     required this.token,
     required this.name,
     this.length,
     this.provider,
-    required this.seekable,
+    this.seekable,
   });
 
   /// Opaque native reference (Android persisted `content://` Uri; iOS
@@ -96,8 +143,11 @@ class MobilePickedPdf {
 
   /// Whether native ranged reads over [token] are random-access. False for a
   /// non-seekable pipe (many cloud providers), where the caller streams whole
-  /// instead of opening progressively.
-  final bool seekable;
+  /// instead of opening progressively. Null when the runner left it unprobed:
+  /// answering it can download the whole file from a cloud provider, so the
+  /// pick comes back without it and [probeMobileSeekable] asks once a loading
+  /// tab is up.
+  final bool? seekable;
 }
 
 /// Whether this platform can pick a mobile file *by reference* (Android/iOS,
@@ -114,7 +164,9 @@ bool get supportsMobileProgressiveOpen =>
 
 /// Opens the reference-based mobile document picker and returns one entry per
 /// chosen PDF (empty when cancelled). Each entry carries a native [token] to
-/// the original file plus a seekability probe result. Throws
+/// the original file and only metadata the provider can answer without
+/// fetching content, so the app can show the file as loading the moment the
+/// picker closes. Throws
 /// [MissingPluginException] on a runner without the channel, so callers can
 /// fall back to the copy-based [pickPdfFiles].
 Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
@@ -131,10 +183,25 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
       name: (entry['name'] as String?) ?? 'document.pdf',
       length: rawLength != null && rawLength >= 0 ? rawLength : null,
       provider: entry['provider'] as String?,
-      seekable: entry['seekable'] == true,
+      seekable: entry['seekable'] as bool?,
     ));
   }
   return out;
+}
+
+/// Whether ranged reads over a mobile pick's [token] are random-access. Can
+/// take as long as downloading the file: many cloud providers (OneDrive's
+/// Android provider, any iOS File Provider under a coordinated read) fetch the
+/// whole thing before they hand over a readable handle. False on any failure,
+/// which streams the reference whole - never worse than the old copy.
+Future<bool> probeMobileSeekable(String token) async {
+  try {
+    return await mobileFileChannel
+            .invokeMethod<bool>('probeSeekable', {'token': token}) ??
+        false;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// A ranged [PdfByteSource] over a mobile pick's native [token], so the app can
@@ -153,19 +220,45 @@ PdfByteSource pdfByteSourceForMobileToken(
 
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
 ///
-/// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
-/// instead of going through `file_selector`, whose blob-URL XFiles hang on
-/// `readAsBytes()` under the deployed site's cross-origin isolation.
+/// On the web this reads the picked file's bytes from the browser file itself
+/// (see [pickPdfFileWeb]) instead of going through `file_selector`, whose
+/// blob-URL XFiles hang on `readAsBytes()` under the deployed site's
+/// cross-origin isolation.
 Future<XFile?> pickPdfFile(String pdfLabel) => kIsWeb
     ? pickPdfFileWeb()
     : openFile(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
-/// when the user cancels. On the web, reads the bytes eagerly (see
+/// when the user cancels. On the web, reads through the browser file (see
 /// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
 Future<List<XFile>> pickPdfFiles(String pdfLabel) => kIsWeb
     ? pickPdfFilesWeb()
     : openFiles(acceptedTypeGroups: [pdfTypeGroup(pdfLabel)]);
+
+/// [pickPdfFiles] for the Open action: PDFs, plus XDP packages where the
+/// platform picker can offer them ([openableTypeGroups]). An XDP opens as the
+/// PDF it embeds, with its data filled in - see [pdfFromXdpPackage].
+Future<List<XFile>> pickOpenableFiles(String pdfLabel, String xdpLabel) =>
+    kIsWeb
+        ? pickPdfFilesWeb()
+        : openFiles(acceptedTypeGroups: openableTypeGroups(pdfLabel, xdpLabel));
+
+/// When [bytes] are an XDP package, the PDF it embeds with the package's form
+/// data (and comments) applied - what opening the `.xdp` in Acrobat shows.
+/// Null when [bytes] are anything else. Throws [StateError] for a package that
+/// only references its PDF, and [FormatException] for a malformed one.
+Uint8List? pdfFromXdpPackage(Uint8List bytes) {
+  if (pdfSniffExchangeFormat(bytes) != PdfExchangeFormat.xdp) return null;
+  return PdfXdpPackage.parse(bytes).toPdf();
+}
+
+/// The tab title for a PDF opened out of an XDP package: `form.xdp` reads
+/// `form.pdf`, so a later Save As suggests a PDF name.
+String pdfTitleForXdp(String name) {
+  final dot = name.lastIndexOf('.');
+  final stem = dot > 0 ? name.substring(0, dot) : name;
+  return '$stem.pdf';
+}
 
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read - callers surface that.
@@ -314,6 +407,10 @@ class SaveResult {
       SaveResult._('Saved to $path', path: path, succeeded: true);
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
+  factory SaveResult.savedCount(int count, String directory) =>
+      SaveResult._('Saved $count files to $directory', succeeded: true);
+  factory SaveResult.downloadedCount(int count) =>
+      SaveResult._('Downloaded $count files', succeeded: true);
   factory SaveResult.shared() => const SaveResult._('Shared', succeeded: true);
   factory SaveResult.failed(Object error) =>
       SaveResult._('Save failed: $error');
@@ -571,6 +668,102 @@ Future<SaveResult> saveBytesAs(
   }
 }
 
+/// One PDF handed to [shareDocumentsAs]: its bytes and the file name it
+/// should carry (`.pdf` is added when missing).
+typedef SharedDocument = ({Uint8List bytes, String name});
+
+/// [saveBytesAs] for several PDFs at once: one share sheet carrying every file
+/// on phones and tablets, a download per file on the web, and on desktop a
+/// folder picker that receives a copy of each. Copies never overwrite: a name
+/// already taken in the folder (or earlier in this batch) gets ` (2)`, ` (3)`
+/// and so on.
+Future<SaveResult> shareDocumentsAs(
+  BuildContext context,
+  List<SharedDocument> documents,
+) async {
+  if (documents.isEmpty) return SaveResult.cancelled;
+  final names = _uniqueNames([for (final d in documents) d.name]);
+  final files = [
+    for (var i = 0; i < documents.length; i++)
+      XFile.fromData(documents[i].bytes,
+          mimeType: 'application/pdf', name: names[i]),
+  ];
+
+  if (kIsWeb) {
+    for (var i = 0; i < files.length; i++) {
+      await files[i].saveTo(names[i]);
+    }
+    return SaveResult.downloadedCount(files.length);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: files,
+        fileNameOverrides: names,
+        // required on iPad: the share popover anchors to this rect
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final directory = await getDirectoryPath();
+      if (directory == null) return SaveResult.cancelled;
+      final separator =
+          directory.contains('\\') && !directory.contains('/') ? '\\' : '/';
+      final base =
+          directory.endsWith(separator) ? directory : '$directory$separator';
+      try {
+        for (var i = 0; i < files.length; i++) {
+          await files[i].saveTo(await _freePath(base, names[i]));
+        }
+        return SaveResult.savedCount(files.length, directory);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// [names] made `.pdf` and distinct (case-insensitively, as macOS and Windows
+/// file systems compare them), suffixing repeats with ` (2)`, ` (3)`, ...
+List<String> _uniqueNames(List<String> names) {
+  final seen = <String>{};
+  return [
+    for (final raw in names)
+      () {
+        final name = ensurePdfName(raw);
+        var candidate = name;
+        for (var n = 2; !seen.add(candidate.toLowerCase()); n++) {
+          candidate = _numberedName(name, n);
+        }
+        return candidate;
+      }(),
+  ];
+}
+
+/// `report.pdf` -> `report (n).pdf`.
+String _numberedName(String name, int n) {
+  final dot = name.lastIndexOf('.');
+  return dot <= 0
+      ? '$name ($n)'
+      : '${name.substring(0, dot)} ($n)${name.substring(dot)}';
+}
+
+/// The first of `base + name`, `base + name (2)`, ... that does not exist on
+/// disk yet, so a batch copy never overwrites a file.
+Future<String> _freePath(String base, String name) async {
+  for (var n = 1;; n++) {
+    final path = '$base${n == 1 ? name : _numberedName(name, n)}';
+    try {
+      await XFile(path).length();
+    } catch (_) {
+      return path; // nothing there
+    }
+  }
+}
+
 /// Exports user-managed custom stamps as a portable JSON bundle.
 Future<SaveResult> exportCustomStampsAs(
   BuildContext context,
@@ -620,6 +813,56 @@ Future<SaveResult> saveJsonAs(
       );
       if (location == null) return SaveResult.cancelled;
       final path = ensureJsonExtension(location.path);
+      try {
+        await file.saveTo(path);
+        return SaveResult.saved(path);
+      } catch (e) {
+        return SaveResult.failed(e);
+      }
+  }
+}
+
+/// Save-as for an exported FDF/XFDF/XDP file ([bytes], typed [mimeType]),
+/// using the same platform behaviour as [saveBytesAs]: a save dialog on
+/// desktop, a browser download on the web, the share sheet on phones. [name]
+/// is the suggested filename, extension included; the desktop dialog's path
+/// gets [extension] back when the user cleared it.
+Future<SaveResult> saveFormDataAs(
+  BuildContext context,
+  Uint8List bytes,
+  String name,
+  String mimeType, {
+  required String extension,
+  required String typeLabel,
+}) async {
+  final file = XFile.fromData(bytes, mimeType: mimeType, name: name);
+
+  if (kIsWeb) {
+    await file.saveTo(name);
+    return SaveResult.downloaded(name);
+  }
+
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android || TargetPlatform.iOS:
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [file],
+        fileNameOverrides: [name],
+        title: name,
+        sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
+      ));
+      return SaveResult.shared();
+    default:
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: [formDataTypeGroup(typeLabel)],
+      );
+      if (location == null) return SaveResult.cancelled;
+      final path = location.path.toLowerCase().endsWith('.$extension')
+          ? location.path
+          : '${location.path}.$extension';
       try {
         await file.saveTo(path);
         return SaveResult.saved(path);

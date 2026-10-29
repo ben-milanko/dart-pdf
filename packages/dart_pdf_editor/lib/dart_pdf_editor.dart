@@ -89,6 +89,7 @@ export 'package:pdf_cos/pdf_cos.dart'
         PdfSourceLoadOptions,
         PdfSourceProgress;
 export 'src/http_byte_source.dart';
+export 'src/note_popup.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
 export 'src/l10n/editor_localizations.dart';
 export 'src/legacy/legacy_host_bridge.dart' show kPdfLegacyMaterialBridge;

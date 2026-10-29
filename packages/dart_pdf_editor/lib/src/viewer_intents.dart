@@ -95,6 +95,15 @@ class PdfArmToolIntent extends Intent {
   final PdfEditTool tool;
 }
 
+/// Re-arms [PdfEditingController.lastUsedTool] - the tool used before the
+/// current one, Select aside - so a run of shapes, or switching back and
+/// forth between two tools, is one key. Goes through the editor's commands
+/// like [PdfArmToolIntent]. Editing only, and only once a tool has been
+/// used; otherwise its key passes through.
+class PdfArmLastToolIntent extends Intent {
+  const PdfArmLastToolIntent();
+}
+
 const double _nudge = 1;
 const double _nudgeCoarse = 10;
 
@@ -128,6 +137,7 @@ final Map<ShortcutActivator, Intent> pdfViewerDefaultShortcuts =
   const SingleActivator(LogicalKeyboardKey.keyA, control: true):
       const PdfSelectAllIntent(),
   const SingleActivator(LogicalKeyboardKey.escape): const PdfDismissIntent(),
+  const SingleActivator(LogicalKeyboardKey.keyX): const PdfArmLastToolIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
       const PdfUndoIntent(),
   const SingleActivator(LogicalKeyboardKey.keyZ, control: true):

@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="13.0.0" date="2026-10-29">
+      <description><p>Import and export form data and comments with FDF, XFDF and XDP. Edit existing links, keep note threads open and share selected document tabs. Improve PDF opening, updates, callout previews and print-page selection.</p></description>
+    </release>
     <release version="12.0.0" date="2026-10-26">
       <description><p>Add cloud callouts, find text to mark for redaction and save vector snapshots as images. Improve rulers, toolbars, page navigation and keyboard shortcuts. Preserve nearby text when applying redactions.</p></description>
     </release>

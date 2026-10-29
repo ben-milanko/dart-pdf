@@ -39,6 +39,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_auto.dart';
 import 'ocr_status_chip.dart';
+import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'recent_thumbnails.dart';
@@ -144,6 +145,7 @@ class EditorScreen extends StatefulWidget {
     this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
+    this.shareDocuments,
     this.compressDocument,
     this.snapshotClipboardWriter,
     this.pdfClipboardReader,
@@ -223,6 +225,13 @@ class EditorScreen extends StatefulWidget {
     String path, {
     String? bookmark,
   })? saveDocumentToPath;
+
+  /// Overrides the multi-document share/save-copies backend the tabs
+  /// overview's selection uses (see [shareDocumentsAs]).
+  final Future<SaveResult> Function(
+    BuildContext context,
+    List<SharedDocument> documents,
+  )? shareDocuments;
 
   /// Overrides the optimizer worker for tests or a host-provided executor.
   /// Results are offered as a copy through [saveDocumentAs].
@@ -679,6 +688,14 @@ class _EditorScreenState extends State<EditorScreen>
             unawaited(_updates.dismiss());
           },
           child: Text(appL10n(context).editorUpdateLater),
+        ),
+        TextButton(
+          key: const ValueKey('update-banner-skip'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.skipVersion());
+          },
+          child: Text(appL10n(context).updateSkipVersion),
         ),
         FilledButton(
           key: const ValueKey('update-banner-download'),
@@ -1349,7 +1366,16 @@ class _EditorScreenState extends State<EditorScreen>
         .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
             '(defer=$defer, path=${originPath ?? "-"})');
     try {
-      final bytes = await bytesFuture;
+      var bytes = await bytesFuture;
+      // An XDP package opens as the PDF it embeds with its form data filled
+      // in. The result is a new document - saving must not write a PDF over
+      // the .xdp - so it keeps no origin and takes a .pdf title.
+      if (pdfFromXdpPackage(bytes) case final pdf?) {
+        bytes = pdf;
+        title = pdfTitleForXdp(title);
+        originPath = null;
+        originBookmark = null;
+      }
       AppDevTools.instance
           .addLog('open-trace: "$title" bytes ready — ${bytes.length} B; '
               'waiting for end of frame');
@@ -1965,7 +1991,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     try {
-      final files = await pickPdfFiles(l10n.fileTypePdf);
+      final files = await pickOpenableFiles(l10n.fileTypePdf, l10n.fileTypeXdp);
       if (files.isEmpty || !mounted) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
@@ -1998,8 +2024,11 @@ class _EditorScreenState extends State<EditorScreen>
     final bookmark = await securityBookmarkForPath(path);
     // A single desktop pick opens progressively (first paint from ranged
     // reads, full bytes behind it). A batch keeps the deferred whole-file
-    // path so the picker doesn't fan out many concurrent streams.
-    if (!defer && progressiveOpenSupported(path)) {
+    // path so the picker doesn't fan out many concurrent streams. An XDP
+    // package is never a PDF to range-read: it converts whole.
+    if (!defer &&
+        progressiveOpenSupported(path) &&
+        !file.name.toLowerCase().endsWith('.xdp')) {
       await _openProgressive(
           title: file.name, path: path!, bookmark: bookmark, into: loading);
     } else {
@@ -2052,8 +2081,10 @@ class _EditorScreenState extends State<EditorScreen>
       ];
 
   /// Opens phone/tablet picks through the reference picker (#364): the runner
-  /// hands back a token to the *original* file (not a sandbox copy) plus a
-  /// seekability probe. A single seekable pick opens progressively (first paint
+  /// hands back a token to the *original* file (not a sandbox copy), and the
+  /// loading tabs go up before anything reads it - the seekability probe comes
+  /// after, since a cloud provider may download the whole file to answer it.
+  /// A single seekable pick opens progressively (first paint
   /// from native ranged reads, full bytes streamed in behind it, then a private
   /// snapshot for reopen). A non-seekable provider - many cloud providers hand
   /// SAF a pipe - streams the reference whole instead, the same cost as the old
@@ -2072,7 +2103,14 @@ class _EditorScreenState extends State<EditorScreen>
       final loading = placeholders[i];
       if (!mounted) return;
       if (!_tabs.contains(loading)) continue;
-      final progressive = !defer && pick.seekable;
+      // The probe can take as long as the whole download, so it runs here,
+      // behind the placeholder, not in the picker reply. A batch never opens
+      // progressively, so it doesn't need to know.
+      final seekable = pick.seekable ??
+          (defer ? null : await probeMobileSeekable(pick.token));
+      if (!mounted) return;
+      if (!_tabs.contains(loading)) continue;
+      final progressive = !defer && seekable == true;
       final reason = progressive
           ? 'single-seekable'
           : defer
@@ -2084,7 +2122,7 @@ class _EditorScreenState extends State<EditorScreen>
         'provider="${_openTraceLabel(pick.provider)}" '
         'name="${_openTraceLabel(pick.name)}" '
         'declaredBytes=${pick.length ?? "unknown"} '
-        'seekable=${pick.seekable} '
+        'seekable=${seekable ?? "unprobed"} '
         'mode=${progressive ? "progressive" : "whole"} '
         'reason=$reason',
       );
@@ -2385,7 +2423,12 @@ class _EditorScreenState extends State<EditorScreen>
     // their live geometry, which the clear repaints away.
     final at = _thumbnailDrop.indexAt(details.globalPosition);
     _thumbnailDrop.endDrag();
-    if (pdfs.isEmpty) return;
+    final exchange = [
+      for (final item in details.files)
+        if (_isFormDataFileName(item.name)) item,
+    ];
+    if (exchange.isNotEmpty) await _onFormDataFilesDropped(exchange);
+    if (pdfs.isEmpty || !mounted) return;
 
     final tab = _active;
     final session = tab?.session;
@@ -2411,6 +2454,44 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     await _openDropped(pdfs);
+  }
+
+  static bool _isFormDataFileName(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.fdf') ||
+        lower.endsWith('.xfdf') ||
+        lower.endsWith('.xdp');
+  }
+
+  /// Handles dropped Acrobat exchange files: an XDP package opens in its own
+  /// tab (as the PDF it embeds, data filled in); FDF/XFDF form data and
+  /// comments import into the document that was active when they were
+  /// dropped, when it is editable - with nothing to import into they are
+  /// ignored, like any other non-PDF drop.
+  Future<void> _onFormDataFilesDropped(List<DropItem> items) async {
+    final target = _active;
+    final xdps = [
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.xdp')) item,
+    ];
+    if (xdps.isNotEmpty) await _openDropped(xdps);
+    for (final item in items) {
+      if (xdps.contains(item)) continue;
+      if (!mounted || _readOnly || target == null) return;
+      if (target.session == null || !_tabs.contains(target)) return;
+      final Uint8List bytes;
+      try {
+        bytes = await item.readAsBytes();
+      } catch (e) {
+        if (mounted) {
+          _toast(appL10n(context)
+              .editorCouldNotImportFormData(item.name, openErrorSummary(e)));
+        }
+        continue;
+      }
+      if (!mounted) return;
+      _applyFormDataFile(target, item.name, bytes);
+    }
   }
 
   /// Tracks a file drag across the window so the thumbnail panels can mark
@@ -2452,7 +2533,9 @@ class _EditorScreenState extends State<EditorScreen>
       if (!_tabs.contains(loading)) continue;
       final path = pathOf(item);
       final bookmark = await securityBookmarkForPath(path);
-      if (!defer && progressiveOpenSupported(path)) {
+      if (!defer &&
+          progressiveOpenSupported(path) &&
+          !item.name.toLowerCase().endsWith('.xdp')) {
         await _openProgressive(
             title: item.name, path: path!, bookmark: bookmark, into: loading);
       } else {
@@ -2823,7 +2906,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
-    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
     await _snapshotOpenedDocument(tab, result);
@@ -3291,6 +3374,52 @@ class _EditorScreenState extends State<EditorScreen>
     if (result.message != null) _toast(result.message!);
   }
 
+  /// Shares [tabs] in one go (the tabs overview's selection): one share sheet
+  /// on phones, a download each on the web, copies into a chosen folder on
+  /// desktop. Each document goes out as its current revision, unsaved edits
+  /// included, exactly as Save As would write it. A restored tab that was never
+  /// opened is read from its file; tabs with nothing to send (still loading,
+  /// failed, a comparison) or whose file can no longer be read are left out,
+  /// with a toast saying how many.
+  Future<void> _shareTabs(List<DocumentTab> tabs) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final documents = <SharedDocument>[];
+    var skipped = 0;
+    for (final tab in tabs) {
+      final bytes = await _shareableBytes(tab);
+      if (!mounted) return;
+      if (bytes == null) {
+        skipped++;
+      } else {
+        documents.add((bytes: bytes, name: tab.title));
+      }
+    }
+    if (skipped > 0) _toast(appL10n(context).editorTabsNotShared(skipped));
+    if (documents.isEmpty) return;
+    final share = widget.shareDocuments ?? shareDocumentsAs;
+    final result = await share(context, documents);
+    if (mounted && result.message != null) _toast(result.message!);
+  }
+
+  /// The bytes [tab] would save, or null when it has none to give.
+  Future<Uint8List?> _shareableBytes(DocumentTab tab) async {
+    tab.session?.finishInk();
+    final session = tab.session;
+    if (session != null) {
+      return _withBakedPageColor(session.bytes, source: session.document);
+    }
+    final deferred = tab.deferredBytes;
+    if (deferred != null) return _withBakedPageColor(deferred);
+    final path = tab.originPath;
+    if (!tab.isDeferredPath || path == null) return null;
+    try {
+      return _withBakedPageColor(
+          await _readOriginFully(path: path, bookmark: tab.originBookmark));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Mobile picks are app-managed copies; their title is the share filename.
   /// Keep the live edit session and its saved baseline while renaming the copy.
   Future<void> _renameDocument(DocumentTab tab) async {
@@ -3594,6 +3723,109 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  // --- form data exchange (FDF / XFDF / XDP) -------------------------------
+
+  /// Imports form field values and comments from an FDF, XFDF or XDP file
+  /// into [tab]'s document as one undoable edit - Acrobat's Import Data and
+  /// Import Comments in one. Comments already present (same /NM) are replaced
+  /// rather than duplicated.
+  Future<void> _importFormData(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    final (String, Uint8List)? picked;
+    try {
+      picked = await pickFormDataFile(l10n.fileTypeFormData);
+    } catch (e) {
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(
+            l10n.fileTypeFormData, openErrorSummary(e)));
+      }
+      return;
+    }
+    if (picked == null || !mounted || !identical(tab.session, session)) return;
+    final (name, bytes) = picked;
+    _applyFormDataFile(tab, name, bytes);
+  }
+
+  /// Applies the FDF/XFDF/XDP file [bytes] (named [name]) to [tab]'s document
+  /// as one undoable edit, toasting what it did.
+  void _applyFormDataFile(DocumentTab tab, String name, Uint8List bytes) {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    try {
+      // parse before touching the session, so a bad file changes nothing
+      final xdp = pdfSniffExchangeFormat(bytes) == PdfExchangeFormat.xdp
+          ? PdfXdpPackage.parse(bytes)
+          : null;
+      final data = xdp == null ? PdfFormData.parse(bytes) : null;
+      session.finishInk();
+      PdfFormDataImportResult? result;
+      session.apply((editor) => result =
+          xdp != null ? editor.importXdp(xdp) : editor.importFormData(data!));
+      final imported = result!;
+      AppDevTools.instance.addLog('form data import: $name - $imported');
+      _toast(imported.changed
+          ? l10n.editorImportedFormData(
+              imported.filledFields.length +
+                  (imported.xfaDatasetsReplaced ? 1 : 0),
+              imported.annotationsAdded + imported.annotationsReplaced)
+          : l10n.editorImportFormDataNothing);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data import failed: $name - $e',
+          level: DevLogLevel.error);
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(name, openErrorSummary(e)));
+      }
+    }
+  }
+
+  /// Exports [tab]'s form field values and comments as FDF or XFDF, or the
+  /// whole document as an XDP package ([format]). The current revision is
+  /// used, so unsaved edits are included.
+  Future<void> _exportFormData(
+      DocumentTab tab, PdfExchangeFormat format) async {
+    final session = tab.session;
+    if (session == null) return;
+    // include ink waiting for its auto-commit and the inline editor's text
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || !identical(tab.session, session)) return;
+    session.finishInk();
+    final l10n = appL10n(context);
+    final pdfName = ensurePdfName(tab.title);
+    final stem = pdfName.substring(0, pdfName.length - '.pdf'.length);
+    try {
+      final document = PdfDocument.open(Uint8List.fromList(session.bytes));
+      final (bytes, extension, mimeType) = switch (format) {
+        PdfExchangeFormat.fdf => (
+            PdfFormData.of(document, targetFile: pdfName).toFdf(),
+            'fdf',
+            'application/vnd.fdf',
+          ),
+        PdfExchangeFormat.xfdf => (
+            PdfFormData.of(document, targetFile: pdfName).toXfdf(),
+            'xfdf',
+            'application/vnd.adobe.xfdf',
+          ),
+        _ => (
+            PdfXdpPackage.build(document),
+            'xdp',
+            'application/vnd.adobe.xdp+xml',
+          ),
+      };
+      final result = await saveFormDataAs(
+          context, bytes, '$stem.$extension', mimeType,
+          extension: extension, typeLabel: l10n.fileTypeFormData);
+      if (mounted && result.message != null) _toast(result.message!);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data export failed: ${tab.title} - $e',
+          level: DevLogLevel.error);
+      if (mounted) _toast(l10n.editorCouldNotExport(tab.title));
+    }
+  }
+
   Future<void> _exportSelectedContentImage(
     BuildContext exportContext,
     DocumentTab tab,
@@ -3874,6 +4106,43 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
+  /// A popup row that opens [items] in a cascading submenu (key
+  /// `menu-group-<id>`, like the phone sheet's folded groups). Picking an
+  /// item runs it and closes the parent popup too.
+  PopupMenuItem<VoidCallback> _submenuItem(
+    BuildContext menuContext, {
+    required String id,
+    required IconData icon,
+    required String title,
+    required List<PopupMenuEntry<VoidCallback>> items,
+  }) =>
+      PopupMenuItem<VoidCallback>(
+        height: _appMenuItemHeight(),
+        value: () {},
+        padding: EdgeInsets.zero,
+        child: PopupMenuButton<VoidCallback>(
+          key: ValueKey('menu-group-$id'),
+          tooltip: title,
+          onSelected: (action) {
+            if (Navigator.of(menuContext).canPop()) {
+              Navigator.of(menuContext).pop();
+            }
+            action();
+          },
+          itemBuilder: (_) => items,
+          // as Open Recent: no item padding so the button fills the row,
+          // the content inset to line up with the plain rows
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _appMenuTile(
+              icon: icon,
+              title: title,
+              trailing: const Icon(Icons.arrow_right),
+            ),
+          ),
+        ),
+      );
+
   /// The app menu's plain rows, grouped by the section they belong to.
   ///
   /// These descriptors are the single list behind two surfaces: the menu
@@ -3979,6 +4248,33 @@ class _EditorScreenState extends State<EditorScreen>
           if (tab != null) unawaited(_exportImage(tab));
         },
       ),
+      _MenuAction(
+        id: 'import-form-data',
+        requiresDocument: true,
+        sheet: _SheetPlacement.formData,
+        icon: Icons.input_outlined,
+        title: l.editorMenuImportFormData,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_importFormData(tab));
+        },
+      ),
+      for (final (id, format, title) in [
+        ('export-fdf', PdfExchangeFormat.fdf, l.editorMenuExportFdf),
+        ('export-xfdf', PdfExchangeFormat.xfdf, l.editorMenuExportXfdf),
+        ('export-xdp', PdfExchangeFormat.xdp, l.editorMenuExportXdp),
+      ])
+        _MenuAction(
+          id: id,
+          requiresDocument: true,
+          sheet: _SheetPlacement.formData,
+          icon: Icons.output_outlined,
+          title: title,
+          run: () {
+            final tab = _active;
+            if (tab != null) unawaited(_exportFormData(tab, format));
+          },
+        ),
       _MenuAction(
         id: 'digital-signature',
         requiresDocument: true,
@@ -4121,10 +4417,28 @@ class _EditorScreenState extends State<EditorScreen>
       ..._fileActions().map(item),
       ..._recentMenuItems(menuContext),
     ];
-    final document = <PopupMenuEntry<VoidCallback>>[
+    final documentActions = [
       if (hasDocument)
         for (final action in _documentActions())
-          if (!(action.hiddenWhenReadOnly && _readOnly)) item(action),
+          if (!(action.hiddenWhenReadOnly && _readOnly)) action,
+    ];
+    final formData = [
+      for (final action in documentActions)
+        if (action.sheet == _SheetPlacement.formData) action,
+    ];
+    final document = <PopupMenuEntry<VoidCallback>>[
+      for (final action in documentActions)
+        if (action.sheet != _SheetPlacement.formData)
+          item(action)
+        // the group takes the place of its first action
+        else if (identical(action, formData.first))
+          _submenuItem(
+            menuContext,
+            id: 'form-data',
+            icon: Icons.swap_vert_outlined,
+            title: l.editorMenuFormData,
+            items: formData.map(item).toList(),
+          ),
     ];
     final app = <PopupMenuEntry<VoidCallback>>[
       if (hasDocument) _readOnlyMenuItem(),
@@ -4602,6 +4916,7 @@ class _EditorScreenState extends State<EditorScreen>
       return WelcomeScreen(
         recents: _recents,
         onOpen: _pickAndOpen,
+        onNewDocument: () => unawaited(_newDocument()),
         onOpenRecent: _openRecent,
         onOpenRecentInNewWindow: _openRecentInNewWindow,
         // Recents can load before the session list. Starting their first-page
@@ -4881,6 +5196,7 @@ class _EditorScreenState extends State<EditorScreen>
             )
           : null,
       export: placed(_SheetPlacement.export),
+      formData: placed(_SheetPlacement.formData),
       moreTools: placed(_SheetPlacement.moreTools),
       readOnly: hasDocument ? _readOnly : null,
       onToggleReadOnly: () => setState(() => _readOnly = !_readOnly),
@@ -5116,13 +5432,23 @@ class _EditorScreenState extends State<EditorScreen>
         unawaited(_pickAndOpen());
       },
       onActivate: activate,
-      tileBuilder: (context, index) {
+      shareLabel: _usesMobileShare
+          ? WidgetsLocalizations.of(context).shareButtonLabel
+          : appL10n(context).editorSaveCopies,
+      shareIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+      onShare: _shareTabs,
+      onCloseTabs: (tabs) async {
+        await _closeTabs(tabs);
+        refreshOverlay();
+      },
+      tileBuilder: (context, index, selection) {
         final tab = _tabs[index];
         return _MobileTabTile(
           key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
           tab: tab,
           storedThumbnails: _recentThumbnails,
           selected: index == _activeIndex,
+          selection: selection,
           onTap: () => activate(index),
           onClose: () async {
             await _closeTabs([tab]);
@@ -6044,9 +6370,20 @@ class _DropOverlay extends StatelessWidget {
   }
 }
 
+/// A grid tile's part in the tabs overview's multi-select: whether the grid
+/// is selecting at all, whether this tile is checked, and how to flip it
+/// (which also starts selecting, from a long-press).
+typedef _TabTileSelection = ({
+  bool selecting,
+  bool checked,
+  VoidCallback toggle,
+});
+
 /// The open-tabs grid shown in the compact bottom sheet and the desktop
 /// dialog: a title-search field over a thumbnail grid that opens scrolled to
-/// the active tab.
+/// the active tab. The header's select button (or a long-press on a tile)
+/// switches the grid into a multi-select whose header shares or closes the
+/// checked tabs together.
 class _TabsOverview extends StatefulWidget {
   const _TabsOverview({
     required this.tabs,
@@ -6056,6 +6393,10 @@ class _TabsOverview extends StatefulWidget {
     required this.autofocusSearch,
     required this.onOpen,
     required this.onActivate,
+    required this.shareLabel,
+    required this.shareIcon,
+    required this.onShare,
+    required this.onCloseTabs,
     required this.tileBuilder,
   });
 
@@ -6068,7 +6409,21 @@ class _TabsOverview extends StatefulWidget {
   final bool autofocusSearch;
   final VoidCallback onOpen;
   final void Function(int index) onActivate;
-  final Widget Function(BuildContext context, int index) tileBuilder;
+
+  /// The selection header's share action: its label and icon (Share on a
+  /// phone, Save copies elsewhere) and what it does with the checked tabs.
+  final String shareLabel;
+  final IconData shareIcon;
+  final Future<void> Function(List<DocumentTab> tabs) onShare;
+
+  /// Closes the checked tabs (confirming unsaved edits once for all of them).
+  final Future<void> Function(List<DocumentTab> tabs) onCloseTabs;
+
+  final Widget Function(
+    BuildContext context,
+    int index,
+    _TabTileSelection selection,
+  ) tileBuilder;
 
   static const double _padding = 12;
   static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
@@ -6085,6 +6440,32 @@ class _TabsOverview extends StatefulWidget {
 class _TabsOverviewState extends State<_TabsOverview> {
   final _query = TextEditingController();
   ScrollController? _scroll;
+
+  /// The checked tabs while the grid is selecting; null when it is not.
+  /// Held by identity, so a tab closed meanwhile simply drops out.
+  Set<DocumentTab>? _selected;
+
+  void _toggle(DocumentTab tab) => setState(() {
+        final selected = _selected ??= {};
+        if (!selected.remove(tab)) selected.add(tab);
+      });
+
+  /// Checks every tab the search shows, or unchecks them when they all are.
+  void _toggleAll(List<int> matches) => setState(() {
+        final selected = _selected ??= {};
+        final shown = [for (final i in matches) widget.tabs[i]];
+        if (shown.every(selected.contains)) {
+          selected.removeAll(shown);
+        } else {
+          selected.addAll(shown);
+        }
+      });
+
+  /// The checked tabs in strip order.
+  List<DocumentTab> get _checkedTabs => [
+        for (final tab in widget.tabs)
+          if (_selected!.contains(tab)) tab
+      ];
 
   @override
   void dispose() {
@@ -6138,6 +6519,62 @@ class _TabsOverviewState extends State<_TabsOverview> {
     return centred.clamp(0.0, maxOffset);
   }
 
+  /// The header while selecting: leave, the count, then select all, share
+  /// and close for the checked tabs.
+  Widget _buildSelectionHeader(
+    BuildContext context,
+    Set<DocumentTab> selected,
+    List<int> matches,
+  ) {
+    final l10n = appL10n(context);
+    final material = MaterialLocalizations.of(context);
+    final prefix = widget.keyPrefix;
+    final none = selected.isEmpty;
+    return Row(
+      children: [
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-done'),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: material.cancelButtonLabel,
+          onPressed: () => setState(() => _selected = null),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            material.selectedRowCountTitle(selected.length),
+            key: ValueKey('$prefix-tabs-selected-count'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-all'),
+          icon: const Icon(Icons.select_all),
+          tooltip: material.selectAllButtonLabel,
+          onPressed: matches.isEmpty ? null : () => _toggleAll(matches),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-share-selected'),
+          icon: Icon(widget.shareIcon),
+          tooltip: widget.shareLabel,
+          onPressed: none ? null : () => widget.onShare(_checkedTabs),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-close-selected'),
+          icon: const Icon(Icons.close),
+          tooltip: l10n.editorCloseSelectedTabs,
+          onPressed: none
+              ? null
+              : () async {
+                  await widget.onCloseTabs(_checkedTabs);
+                  if (mounted) setState(() {});
+                },
+        ),
+      ],
+    );
+  }
+
   void _onQueryChanged(String _) {
     setState(() {});
     // A new result set starts from its first match.
@@ -6152,24 +6589,35 @@ class _TabsOverviewState extends State<_TabsOverview> {
     final scheme = theme.colorScheme;
     final prefix = widget.keyPrefix;
     final matches = _matches();
+    _selected?.removeWhere((tab) => !widget.tabs.contains(tab));
+    final selected = _selected;
     return Column(
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(20, widget.headerTopPadding, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child:
-                    Text(l10n.editorTabs, style: theme.textTheme.titleMedium),
-              ),
-              IconButton(
-                key: ValueKey('$prefix-tabs-open'),
-                icon: const Icon(Icons.add),
-                tooltip: l10n.editorOpenPdfNewTab,
-                onPressed: widget.onOpen,
-              ),
-            ],
-          ),
+          padding: EdgeInsets.fromLTRB(
+              selected == null ? 20 : 8, widget.headerTopPadding, 12, 8),
+          child: selected == null
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: Text(l10n.editorTabs,
+                          style: theme.textTheme.titleMedium),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-select'),
+                      icon: const Icon(Icons.checklist),
+                      tooltip: l10n.editorSelectTabs,
+                      onPressed: () => setState(() => _selected = {}),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-open'),
+                      icon: const Icon(Icons.add),
+                      tooltip: l10n.editorOpenPdfNewTab,
+                      onPressed: widget.onOpen,
+                    ),
+                  ],
+                )
+              : _buildSelectionHeader(context, selected, matches),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -6196,9 +6644,15 @@ class _TabsOverviewState extends State<_TabsOverview> {
               border: const OutlineInputBorder(),
             ),
             onChanged: _onQueryChanged,
-            // Enter opens the best (first) match, like a quick switcher.
+            // Enter opens the best (first) match, like a quick switcher
+            // (or checks it, while selecting).
             onSubmitted: (_) {
-              if (matches.isNotEmpty) widget.onActivate(matches.first);
+              if (matches.isEmpty) return;
+              if (selected != null) {
+                _toggle(widget.tabs[matches.first]);
+              } else {
+                widget.onActivate(matches.first);
+              }
             },
           ),
         ),
@@ -6232,8 +6686,14 @@ class _TabsOverviewState extends State<_TabsOverview> {
                     padding: const EdgeInsets.all(_TabsOverview._padding),
                     gridDelegate: _TabsOverview.gridDelegate,
                     itemCount: matches.length,
-                    itemBuilder: (context, i) =>
-                        widget.tileBuilder(context, matches[i]),
+                    itemBuilder: (context, i) {
+                      final tab = widget.tabs[matches[i]];
+                      return widget.tileBuilder(context, matches[i], (
+                        selecting: selected != null,
+                        checked: selected?.contains(tab) ?? false,
+                        toggle: () => _toggle(tab),
+                      ));
+                    },
                   );
                 },
               ),
@@ -6269,15 +6729,23 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.selection,
     this.onContextMenu,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
+
+  /// Whether this is the active tab.
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// The overview's multi-select: while it is selecting a tap checks the tile
+  /// instead of switching to it and a checkbox stands in for the close
+  /// button; a long-press starts selecting with this tile checked.
+  final _TabTileSelection? selection;
 
   /// Opens the tab's context menu at the given global position (right-click on
   /// desktop, long-press on touch). Null disables the affordance.
@@ -6295,31 +6763,40 @@ class _MobileTabTile extends StatelessWidget {
 
   Widget _build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final selection = this.selection;
+    final selecting = selection?.selecting ?? false;
+    final checked = selection?.checked ?? false;
+    final highlighted = selecting ? checked : selected;
     return Material(
       key: const ValueKey('mobile-tab-tile'),
       color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
+          color: highlighted ? scheme.primary : scheme.outlineVariant,
+          width: highlighted ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
-        onSecondaryTapUp: onContextMenu == null
+        onTap: selecting ? selection!.toggle : onTap,
+        onSecondaryTapUp: onContextMenu == null || selecting
             ? null
             : (details) => onContextMenu!(details.globalPosition),
-        onLongPress: onContextMenu == null
-            ? null
-            : () {
-                // InkWell's long-press carries no position, so anchor the menu
-                // at the tile's centre (touch parity for the right-click menu).
-                final box = context.findRenderObject() as RenderBox?;
-                if (box == null || !box.hasSize) return;
-                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
-              },
+        // A long-press starts (or extends) a multi-select, the touch
+        // convention; without one it opens the context menu instead.
+        onLongPress: selection != null
+            ? selection.toggle
+            : onContextMenu == null
+                ? null
+                : () {
+                    // InkWell's long-press carries no position, so anchor the menu
+                    // at the tile's centre (touch parity for the right-click menu).
+                    final box = context.findRenderObject() as RenderBox?;
+                    if (box == null || !box.hasSize) return;
+                    onContextMenu!(
+                        box.localToGlobal(box.size.center(Offset.zero)));
+                  },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -6359,15 +6836,26 @@ class _MobileTabTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: appL10n(context).editorCloseTab,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 32, height: 32),
-                    onPressed: onClose,
-                  ),
+                  if (selecting)
+                    SizedBox.square(
+                      dimension: 32,
+                      child: Checkbox(
+                        key: const ValueKey('mobile-tab-tile-checkbox'),
+                        value: checked,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: (_) => selection!.toggle(),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: appL10n(context).editorCloseTab,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 32, height: 32),
+                      onPressed: onClose,
+                    ),
                 ],
               ),
             ),
@@ -6867,6 +7355,10 @@ enum _SheetPlacement {
 
   /// Folded under More tools.
   moreTools,
+
+  /// Folded under Form data and comments: the FDF/XFDF/XDP import and
+  /// export actions. The desktop popup shows the same group as a submenu.
+  formData,
 
   /// The rows at the foot of the sheet.
   app,

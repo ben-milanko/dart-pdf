@@ -72,6 +72,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get annotText => 'नोट';
 
   @override
+  String get notePopupKeepOpen => 'खुला रखें';
+
+  @override
   String get annotUnderline => 'रेखांकन';
 
   @override
@@ -459,6 +462,15 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'यहाँ नोट जोड़ें';
 
   @override
+  String get menuEditLink => 'लिंक संपादित करें…';
+
+  @override
+  String get menuRemoveLink => 'लिंक हटाएँ';
+
+  @override
+  String get linkEditDialogTitle => 'लिंक संपादित करें';
+
+  @override
   String get menuSaveToStamps => 'स्टैम्प में सहेजें';
 
   @override
@@ -790,6 +802,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get propSectionContent => 'सामग्री';
+
+  @override
+  String get propSectionComments => 'टिप्पणियाँ';
 
   @override
   String get propSectionFormField => 'फ़ॉर्म फ़ील्ड';

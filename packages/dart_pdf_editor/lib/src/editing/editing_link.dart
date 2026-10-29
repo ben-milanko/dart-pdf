@@ -16,12 +16,16 @@ enum _LinkKind { web, page }
 ///
 /// [pageCount] bounds the internal page picker; [currentPage] (zero-based)
 /// seeds it. [initialUrl] pre-fills the web field (e.g. a URL already sitting
-/// in the selected text).
+/// in the selected text). [initialPage] (zero-based) opens the dialog on the
+/// page choice with that page filled in. [editing] titles it "Edit link",
+/// for re-targeting an existing link.
 Future<PdfLinkTarget?> showPdfAddLinkDialog(
   BuildContext context, {
   required int pageCount,
   required int currentPage,
   String initialUrl = '',
+  int? initialPage,
+  bool editing = false,
 }) {
   return pdfPresentDialog<PdfLinkTarget>(
     context,
@@ -29,6 +33,8 @@ Future<PdfLinkTarget?> showPdfAddLinkDialog(
       pageCount: pageCount,
       currentPage: currentPage,
       initialUrl: initialUrl,
+      initialPage: initialPage,
+      editing: editing,
     ),
   );
 }
@@ -49,11 +55,15 @@ class _AddLinkDialog extends StatefulWidget {
     required this.pageCount,
     required this.currentPage,
     required this.initialUrl,
+    this.initialPage,
+    this.editing = false,
   });
 
   final int pageCount;
   final int currentPage;
   final String initialUrl;
+  final int? initialPage;
+  final bool editing;
 
   @override
   State<_AddLinkDialog> createState() => _AddLinkDialogState();
@@ -64,8 +74,10 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
       TextEditingController(text: widget.initialUrl);
   // one-based in the UI; defaults to the page the link sits on
   late final TextEditingController _page = TextEditingController(
-      text: '${(widget.currentPage + 1).clamp(1, widget.pageCount)}');
-  _LinkKind _kind = _LinkKind.web;
+      text:
+          '${((widget.initialPage ?? widget.currentPage) + 1).clamp(1, widget.pageCount)}');
+  late _LinkKind _kind =
+      widget.initialPage != null ? _LinkKind.page : _LinkKind.web;
 
   @override
   void dispose() {
@@ -91,7 +103,8 @@ class _AddLinkDialogState extends State<_AddLinkDialog> {
   Widget build(BuildContext context) {
     final l10n = pdfL10n(context);
     return AlertDialog(
-      title: Text(l10n.linkDialogTitle),
+      title: Text(
+          widget.editing ? l10n.linkEditDialogTitle : l10n.linkDialogTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
