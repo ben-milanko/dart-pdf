@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Formulardaten und Kommentare mit FDF, XFDF und XDP importieren und exportieren. Vorhandene Links bearbeiten. Kommentarverläufe neben der Seite lesen und mehrere Notizen offen halten. Ausgewählte Dokument-Tabs gemeinsam teilen. Startseite, PDF-Öffnen und Updateprüfung verbessern. Die Druckvorschau folgt der Seitenauswahl.

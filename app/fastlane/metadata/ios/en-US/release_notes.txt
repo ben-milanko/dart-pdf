@@ -1,3 +1,3 @@
-DartPDF 12.0.0
+DartPDF 13.0.0
 
-Add cloud callouts. Find text and mark individual or all matches for redaction, then review the marks before applying them. Save pasted vector snapshots as PNG images. Keep rulers and cursor guides visible while navigating. Improve compact toolbars, page-number entry and keyboard shortcuts. Fix redaction removing nearby text.
+Import and export form data and comments with FDF, XFDF and XDP files. Edit existing links. Read note threads beside the page and keep several notes open. Share selected document tabs together. Improve the welcome screen, PDF opening and update checks. Print preview follows the selected pages.

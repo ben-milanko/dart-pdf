@@ -1,5 +1,12 @@
 # Changelog
 
+## 13.0.0
+
+- **BREAKING:** add five abstract localization getters for note pinning, link editing and comment threads. Custom localization subclasses must implement them; see `doc/MIGRATING-13.0.0.md`.
+- Read and pin note popup cards beside the page, show comment threads and edit or remove existing links.
+- Hit-test annotation strokes, match callout leader previews to saved geometry and re-arm the last editing tool with X.
+- Require the 13.0.0 package suite.
+
 ## 12.0.0
 
 - **BREAKING:** add `PdfEditTool.cloudCallout` and 12 abstract localization members. Update exhaustive switches and custom localizations; see `doc/MIGRATING-12.0.0.md`.

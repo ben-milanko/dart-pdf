@@ -1,5 +1,10 @@
 # Changelog
 
+## 13.0.0
+
+- Add test CSC signing-service fixtures.
+- Require the 13.0.0 package suite.
+
 ## 12.0.0
 
 - Require the 12.0.0 package suite; no additional public API changes.

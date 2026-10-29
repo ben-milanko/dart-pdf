@@ -1,6 +1,6 @@
 name: dart_pdf_editor_flutter_gpu
 description: Opt-in Impeller flutter_gpu tile backend for dart_pdf_editor.
-version: 0.11.0
+version: 0.12.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_flutter_gpu
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -21,19 +21,19 @@ dependencies:
   flutter_gpu:
     sdk: flutter
   vector_math: ^2.4.3
-  dart_pdf_editor: ^12.0.0
-  pdf_cos: ^12.0.0
-  pdf_document: ^12.0.0
-  pdf_graphics: ^12.0.0
+  dart_pdf_editor: ^13.0.0
+  pdf_cos: ^13.0.0
+  pdf_document: ^13.0.0
+  pdf_graphics: ^13.0.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
-  dart_pdf_editor_assets: ^12.0.0
+  dart_pdf_editor_assets: ^13.0.0
   flutter_test:
     sdk: flutter
   # Encodes the JPEG fixture whose /SMask stays a companion GPU surface.
   image: ^4.12.0
-  pdf_test_fixtures: ^12.0.0
+  pdf_test_fixtures: ^13.0.0
 
 flutter:
   assets:
