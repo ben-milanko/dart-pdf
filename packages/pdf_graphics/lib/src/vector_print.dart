@@ -22,7 +22,16 @@
 ///    Unicode string, baseline transform and colour, so the consumer draws it
 ///    with a system font - selectable and searchable in the spooled output.
 ///  * **Images** are emitted as straight-alpha RGBA rasters with a device-space
-///    placement quad - the one thing that legitimately stays raster.
+///    placement quad - the one thing that legitimately stays raster. A quad
+///    that is a quarter-turn and/or flip of an upright rectangle (a logo
+///    placed under a rotated page CTM, say) is normalized here by rearranging
+///    the pixels, so the consumer gets an upright, axis-aligned blit -
+///    GDI's `StretchDIBits` cannot rotate or mirror.
+///  * **Dashes** are applied here: a dashed stroke is cut into its dash
+///    segments and emitted as a solid stroke (dash count 0), so the consumer
+///    never has to dash - GDI's `ExtCreatePen` user styles cannot express a
+///    PDF dash phase, and a consumer that ignores dashes would print them
+///    solid.
 ///
 /// Transparency, shadings and blend modes are approximated the way a printer
 /// flattens them (gradients/meshes fall back to their average colour, group
@@ -47,6 +56,7 @@ import 'image_pixels.dart';
 import 'interpreter.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'raster/flatten.dart';
 import 'recording_device.dart';
 import 'render_command.dart';
 import 'shading.dart';
@@ -90,7 +100,8 @@ Future<Map<PdfImageRequest, PdfDecodedPixels>> decodeVectorPrintImagesPure(
     CosDocument cos, List<PdfImageRequest> requests) async {
   final out = <PdfImageRequest, PdfDecodedPixels>{};
   for (final request in requests) {
-    final decoded = request.decoded ?? decodePdfImagePixels(cos, request.stream);
+    final decoded =
+        request.decoded ?? decodePdfImagePixels(cos, request.stream);
     if (decoded != null) out[request] = decoded;
   }
   return out;
@@ -114,11 +125,16 @@ Future<Map<PdfImageRequest, PdfDecodedPixels>> decodeVectorPrintImagesPure(
 ///   0x10 fillPath   : rgba[4] u8, fillRule u8(0 nonzero,1 evenOdd), path
 ///   0x11 strokePath : rgba[4] u8, f32 width, u8 cap, u8 join, f32 miter,
 ///                     u16 dashCount, f32 dash*dashCount, f32 dashPhase, path
+///                     (this encoder pre-dashes, so it always writes
+///                     dashCount 0; readers still honour a non-zero count)
 ///   0x12 clipPath   : fillRule u8, path
 ///   0x20 text       : rgba[4] u8, u8 fontFlags, f32 matrix[6] (em->device),
 ///                     f32 fontSizePt, u16 utf8Len, utf8 bytes
 ///   0x30 image      : f32 quad[6] (unit-square->device), u32 w, u32 h,
-///                     rgba bytes (w*h*4, straight alpha, row-major top-down)
+///                     rgba bytes (w*h*4, straight alpha, row-major top-down);
+///                     upright and axis-aligned (a > 0, d < 0, b = c = 0)
+///                     unless the source placement is skewed or rotated by a
+///                     non-right angle
 /// path   : u32 segCount, then per segment tag u8:
 ///   0 move  : f32 x, f32 y
 ///   1 line  : f32 x, f32 y
@@ -179,9 +195,7 @@ _PageGeometry _pageToDevice(PdfPage page, int rotation) {
       // canvas: translate(size.width,0); rotate(+90deg)
       m = m.concat(_rotate90()).concat(PdfMatrix.translation(width, 0));
     case 180:
-      m = m
-          .concat(_rotate180())
-          .concat(PdfMatrix.translation(width, height));
+      m = m.concat(_rotate180()).concat(PdfMatrix.translation(width, height));
     case 270:
       m = m.concat(_rotate270()).concat(PdfMatrix.translation(0, height));
   }
@@ -285,21 +299,73 @@ class _EncodingDevice implements PdfDevice {
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
     if (path.isEmpty) return;
+    // Dash lengths, like the width and the path coordinates, are already in
+    // page-space points; the page transform is an isometry (rotation/flip/
+    // translation) so device points equal page points 1:1 - nothing to scale.
+    final dashed = _dashInDevice(path, stroke);
+    if (dashed != null && dashed.isEmpty) return; // all gap
     _w.u8(_opStrokePath);
     _w.rgba(color, _flattenAlpha(alpha));
     _w.f32(stroke.width);
     _w.u8(stroke.cap);
     _w.u8(stroke.join);
     _w.f32(stroke.miterLimit);
-    // Dash lengths, like the width and the path coordinates, are already in
-    // page-space points; the page transform is an isometry (rotation/flip/
-    // translation) so device points equal page points 1:1 - nothing to scale.
-    _w.u16(stroke.dashArray.length);
-    for (final d in stroke.dashArray) {
-      _w.f32(d);
+    _w.u16(0); // dashes are pre-applied below; the consumer strokes solid
+    _w.f32(0);
+    if (dashed == null) {
+      _writePath(path);
+    } else {
+      _writeDeviceSubpaths(dashed);
     }
-    _w.f32(stroke.dashPhase);
-    _writePath(path);
+  }
+
+  /// [path] cut into its dash segments, in device points - or null when the
+  /// stroke is solid (no pattern, or one with no positive length, which
+  /// §8.4.3.6 treats as solid).
+  List<FlatSubpath>? _dashInDevice(PdfPath path, PdfStroke stroke) {
+    if (stroke.dashArray.isEmpty) return null;
+    var cycle = 0.0;
+    for (final d in stroke.dashArray) {
+      if (d < 0) return null; // malformed: stroke solid, like the viewer
+      cycle += d;
+    }
+    if (cycle <= 0) return null;
+    // A fine tolerance: the curves are flattened in points and the printer
+    // may be 1200 dpi (1pt = ~17px), so keep the chord error well under a
+    // device pixel.
+    final subpaths =
+        flattenPath(path, _toDevice, tolerance: _dashFlattenTolerance);
+    return dashSubpaths(subpaths, stroke.dashArray, stroke.dashPhase);
+  }
+
+  static const double _dashFlattenTolerance = 0.01;
+
+  /// Writes polylines already in device points. A single-point subpath (a
+  /// zero-length dash) becomes a zero-length line so a round or square cap
+  /// still paints its dot.
+  void _writeDeviceSubpaths(List<FlatSubpath> subpaths) {
+    var segments = 0;
+    for (final sub in subpaths) {
+      segments += sub.pointCount < 2 ? 2 : sub.pointCount;
+    }
+    _w.u32(segments);
+    for (final sub in subpaths) {
+      final p = sub.points;
+      _w.u8(_segMove);
+      _w.f32(p[0]);
+      _w.f32(p[1]);
+      if (sub.pointCount < 2) {
+        _w.u8(_segLine);
+        _w.f32(p[0]);
+        _w.f32(p[1]);
+        continue;
+      }
+      for (var i = 2; i + 1 < p.length; i += 2) {
+        _w.u8(_segLine);
+        _w.f32(p[i]);
+        _w.f32(p[i + 1]);
+      }
+    }
   }
 
   @override
@@ -366,12 +432,13 @@ class _EncodingDevice implements PdfDevice {
     if (pixels == null) return; // undecodable image - skip rather than blank
     // The image transform maps the unit square (image space, y-up) to page
     // space; fold in the page transform so the quad is in device points.
-    final m = request.transform.concat(_toDevice);
+    final placed =
+        uprightVectorPrintImage(request.transform.concat(_toDevice), pixels);
     _w.u8(_opImage);
-    _w.matrix(m);
-    _w.u32(pixels.width);
-    _w.u32(pixels.height);
-    _w.bytes(pixels.rgba);
+    _w.matrix(placed.matrix);
+    _w.u32(placed.pixels.width);
+    _w.u32(placed.pixels.height);
+    _w.bytes(placed.pixels.rgba);
   }
 
   @override
@@ -427,7 +494,14 @@ class _EncodingDevice implements PdfDevice {
         case PdfLineTo(:final x, :final y):
           _w.u8(_segLine);
           _w.point(m, x, y);
-        case PdfCubicTo(:final x1, :final y1, :final x2, :final y2, :final x3, :final y3):
+        case PdfCubicTo(
+            :final x1,
+            :final y1,
+            :final x2,
+            :final y2,
+            :final x3,
+            :final y3
+          ):
           _w.u8(_segCubic);
           _w.point(m, x1, y1);
           _w.point(m, x2, y2);
@@ -438,6 +512,85 @@ class _EncodingDevice implements PdfDevice {
     }
   }
 }
+
+/// An image placement for the `image` op: [pixels] (row-major, top-down)
+/// mapped by [matrix] from the unit square (y-up) to device points.
+class VectorPrintImagePlacement {
+  VectorPrintImagePlacement(this.matrix, this.pixels);
+  final PdfMatrix matrix;
+  final PdfDecodedPixels pixels;
+}
+
+/// Rewrites an image placement whose unit-square->device [matrix] is a
+/// quarter-turn and/or mirror of an upright rectangle into an equivalent one
+/// that *is* upright and axis-aligned (a > 0, d < 0, b = c = 0), by
+/// rearranging [pixels] - an exact, lossless remap. Every device point shows
+/// the same source pixel before and after.
+///
+/// Consumers that can only stretch-blit into a rectangle (GDI's
+/// `StretchDIBits`) then print rotated and mirrored images correctly. Any
+/// other placement (skew, a non-right-angle rotation) is returned unchanged.
+VectorPrintImagePlacement uprightVectorPrintImage(
+    PdfMatrix matrix, PdfDecodedPixels pixels) {
+  final a = matrix.a, b = matrix.b, c = matrix.c, d = matrix.d;
+  final w = pixels.width, h = pixels.height;
+  // How a source pixel (col, row) lands on the output grid: the output's
+  // device-x axis runs along the source's u (diagonal) or v (anti-diagonal)
+  // axis, either way round.
+  final bool swap;
+  if (b.abs() <= _axisEpsilon * (a.abs() + d.abs()) &&
+      c.abs() <= _axisEpsilon * (a.abs() + d.abs())) {
+    swap = false;
+    if (a > 0 && d < 0) {
+      // Already upright; only drop the float dust off b/c.
+      return VectorPrintImagePlacement(
+          PdfMatrix(a, 0, 0, d, matrix.e, matrix.f), pixels);
+    }
+  } else if (a.abs() <= _axisEpsilon * (b.abs() + c.abs()) &&
+      d.abs() <= _axisEpsilon * (b.abs() + c.abs())) {
+    swap = true;
+  } else {
+    return VectorPrintImagePlacement(matrix, pixels);
+  }
+  if (w == 0 || h == 0) return VectorPrintImagePlacement(matrix, pixels);
+
+  // Device extent of the placement.
+  final x0 = matrix.e, y0 = matrix.f;
+  final dx = swap ? c : a; // device-x span (signed)
+  final dy = swap ? b : d; // device-y span (signed)
+  final minX = dx < 0 ? x0 + dx : x0;
+  final maxY = dy < 0 ? y0 : y0 + dy;
+
+  final outW = swap ? h : w;
+  final outH = swap ? w : h;
+  final src = pixels.rgba;
+  final out = Uint8List(src.length);
+  // Unit-square u grows with source column; v grows *against* source row.
+  for (var oy = 0; oy < outH; oy++) {
+    for (var ox = 0; ox < outW; ox++) {
+      final int col, row;
+      if (!swap) {
+        col = a > 0 ? ox : w - 1 - ox; // device x ~ u
+        row = d < 0 ? oy : h - 1 - oy; // device y ~ v (y-down: -v)
+      } else {
+        row = c > 0 ? h - 1 - ox : ox; // device x ~ v
+        col = b > 0 ? oy : w - 1 - oy; // device y ~ u
+      }
+      final si = (row * w + col) * 4, oi = (oy * outW + ox) * 4;
+      out[oi] = src[si];
+      out[oi + 1] = src[si + 1];
+      out[oi + 2] = src[si + 2];
+      out[oi + 3] = src[si + 3];
+    }
+  }
+  return VectorPrintImagePlacement(
+      PdfMatrix(dx.abs(), 0, 0, -dy.abs(), minX, maxY),
+      PdfDecodedPixels(out, outW, outH));
+}
+
+/// Relative size below which an off-axis matrix term counts as zero (float32
+/// round-off of a cos(90deg) is ~1e-8; a visible skew is far larger).
+const double _axisEpsilon = 1e-5;
 
 int _fontFlags(String? fontName) {
   if (fontName == null) return 0;
