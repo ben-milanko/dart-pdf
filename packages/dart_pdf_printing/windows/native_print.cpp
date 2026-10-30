@@ -553,9 +553,11 @@ void ReplayStroke(StreamReader* r, HDC hdc, const DeviceTransform& t) {
   const uint8_t cap = r->U8();
   const uint8_t join = r->U8();
   r->F32();  // miter limit - GDI uses SetMiterLimit; default is fine for print
+  // The encoder pre-cuts dashes into solid segments and writes count 0; a
+  // non-zero pattern (an older encoder) still falls back to solid.
   const uint16_t dash_count = r->U16();
-  for (uint16_t i = 0; i < dash_count; i++) r->F32();  // dashes: solid fallback
-  r->F32();                                            // dash phase
+  for (uint16_t i = 0; i < dash_count; i++) r->F32();
+  r->F32();  // dash phase
   if (alpha == 0) {
     SkipPath(r);
     return;
@@ -656,26 +658,6 @@ void ReplayImage(StreamReader* r, HDC hdc, const DeviceTransform& t) {
   const uint8_t* rgba = r->p;
   r->p += pixels;
 
-  // The transform maps the unit square (image space, y-up) to device points.
-  // Map its four corners; when it is axis-aligned (the common case) we blit
-  // into the bounding rectangle, honouring a vertical flip.
-  auto mapX = [&](double x, double y) { return m[0] * x + m[2] * y + m[4]; };
-  auto mapY = [&](double x, double y) { return m[1] * x + m[3] * y + m[5]; };
-  double xs[4] = {mapX(0, 0), mapX(1, 0), mapX(1, 1), mapX(0, 1)};
-  double ys[4] = {mapY(0, 0), mapY(1, 0), mapY(1, 1), mapY(0, 1)};
-  double min_x = xs[0], max_x = xs[0], min_y = ys[0], max_y = ys[0];
-  for (int i = 1; i < 4; i++) {
-    min_x = std::min(min_x, xs[i]);
-    max_x = std::max(max_x, xs[i]);
-    min_y = std::min(min_y, ys[i]);
-    max_y = std::max(max_y, ys[i]);
-  }
-  const LONG dst_x = t.X(min_x);
-  const LONG dst_y = t.Y(min_y);
-  const LONG dst_w = t.X(max_x) - dst_x;
-  const LONG dst_h = t.Y(max_y) - dst_y;
-  if (dst_w == 0 || dst_h == 0) return;
-
   // Our rows are top-down, premultiplied RGBA. StretchDIBits with SRCCOPY
   // ignores the alpha channel, so composite each pixel over the white paper
   // first: out = src_premultiplied + white*(1 - a) = src + (255 - a). That
@@ -698,9 +680,42 @@ void ReplayImage(StreamReader* r, HDC hdc, const DeviceTransform& t) {
   bmi.bmiHeader.biCompression = BI_RGB;
   ::SetStretchBltMode(hdc, HALFTONE);
   ::SetBrushOrgEx(hdc, 0, 0, nullptr);
-  ::StretchDIBits(hdc, dst_x, dst_y, dst_w, dst_h, 0, 0, static_cast<int>(w),
-                  static_cast<int>(h), bgra.data(), &bmi, DIB_RGB_COLORS,
-                  SRCCOPY);
+
+  // The transform maps the unit square (image space, y-up) to device points.
+  // The encoder normalizes every quarter-turn and mirror to an upright quad
+  // (a > 0, d < 0, b = c = 0), which is a plain rectangle blit.
+  if (m[1] == 0 && m[2] == 0 && m[0] > 0 && m[3] < 0) {
+    const LONG dst_x = t.X(m[4]);
+    const LONG dst_y = t.Y(m[5] + m[3]);
+    const LONG dst_w = t.X(m[4] + m[0]) - dst_x;
+    const LONG dst_h = t.Y(m[5]) - dst_y;
+    if (dst_w <= 0 || dst_h <= 0) return;
+    ::StretchDIBits(hdc, dst_x, dst_y, dst_w, dst_h, 0, 0,
+                    static_cast<int>(w), static_cast<int>(h), bgra.data(),
+                    &bmi, DIB_RGB_COLORS, SRCCOPY);
+    return;
+  }
+
+  // Anything else (skew, a non-right-angle rotation): blit the pixel grid
+  // under a world transform. Pixel (px, py), top-down, sits at unit-square
+  // (px / w, 1 - py / h); compose that with |m| and the points->printer
+  // mapping into one XFORM.
+  const int old_mode = ::SetGraphicsMode(hdc, GM_ADVANCED);
+  if (old_mode == 0) return;  // no world transforms on this DC: skip it
+  XFORM xf;
+  xf.eM11 = static_cast<FLOAT>(m[0] / w * t.scale);
+  xf.eM21 = static_cast<FLOAT>(-m[2] / h * t.scale);
+  xf.eDx = static_cast<FLOAT>((m[2] + m[4]) * t.scale + t.off_x);
+  xf.eM12 = static_cast<FLOAT>(m[1] / w * t.scale_y);
+  xf.eM22 = static_cast<FLOAT>(-m[3] / h * t.scale_y);
+  xf.eDy = static_cast<FLOAT>((m[3] + m[5]) * t.scale_y + t.off_y);
+  if (::SetWorldTransform(hdc, &xf)) {
+    ::StretchDIBits(hdc, 0, 0, static_cast<int>(w), static_cast<int>(h), 0, 0,
+                    static_cast<int>(w), static_cast<int>(h), bgra.data(),
+                    &bmi, DIB_RGB_COLORS, SRCCOPY);
+    ::ModifyWorldTransform(hdc, nullptr, MWT_IDENTITY);
+  }
+  ::SetGraphicsMode(hdc, old_mode);
 }
 
 // Replays one page's op stream onto |hdc| between StartPage/EndPage. Returns
