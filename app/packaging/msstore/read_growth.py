@@ -175,22 +175,6 @@ def collect(today=None):
         except Exception as error:
             result['windows']['installs'] = failure(error)
         throttled=result['windows']['installs'].get('httpStatus')==429
-        # One month per request avoids the previously rate-limited multi-month scope.
-        month_start = datetime.date.fromisoformat(end).replace(day=1)
-        result['windows']['usagemonthlyByMonth'] = {}
-        for offset in (0,1):
-            if throttled:
-                break
-            month_end = datetime.date.fromisoformat(end) if offset==0 else month_start-datetime.timedelta(days=1)
-            first = month_start if offset==0 else month_end.replace(day=1)
-            try:
-                value = windows_series(token,'usagemonthly',first.isoformat(),month_end.isoformat())
-            except Exception as error:
-                value = failure(error)
-            result['windows']['usagemonthlyByMonth'][first.strftime('%Y-%m')] = value
-            if value.get('httpStatus')==429:
-                throttled=True
-                break
         result['windows']['funnels'] = {}
         # Retain the original Windows experiment windows while they remain in range.
         for label,first,last in [('baseline','2026-09-24','2026-10-07'),
@@ -208,6 +192,22 @@ def collect(today=None):
             result['windows']['funnels'][label]=value
             if value.get('httpStatus')==429:
                 throttled=True
+        # One month per request avoids the previously rate-limited multi-month scope.
+        month_start = datetime.date.fromisoformat(end).replace(day=1)
+        result['windows']['usagemonthlyByMonth'] = {}
+        for offset in (0,1):
+            if throttled:
+                break
+            month_end = datetime.date.fromisoformat(end) if offset==0 else month_start-datetime.timedelta(days=1)
+            first = month_start if offset==0 else month_end.replace(day=1)
+            try:
+                value = windows_series(token,'usagemonthly',first.isoformat(),month_end.isoformat())
+            except Exception as error:
+                value = failure(error)
+            result['windows']['usagemonthlyByMonth'][first.strftime('%Y-%m')] = value
+            if value.get('httpStatus')==429:
+                throttled=True
+                break
         result['windows']['rateLimited']=throttled
     for metric in SNAP_METRICS:
         try:
