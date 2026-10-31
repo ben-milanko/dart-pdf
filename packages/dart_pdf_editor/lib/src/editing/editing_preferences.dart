@@ -210,6 +210,8 @@ class PdfEditingPreferences extends ChangeNotifier
   bool _showAnnotations = true;
   Set<String> _hiddenAnnotationSubtypes = const {};
   bool _showScrollbarChapters = false;
+  bool _twoPageView = false;
+  bool _twoPageCoverPage = false;
   bool _highlightFormFields = true;
   bool _showReflowView = false;
   bool _showThumbnailView = false;
@@ -450,6 +452,9 @@ class PdfEditingPreferences extends ChangeNotifier
               _showScrollbarChapters;
       _highlightFormFields = store.getBool('${_prefix}highlightFormFields') ??
           _highlightFormFields;
+      _twoPageView = store.getBool('${_prefix}twoPageView') ?? _twoPageView;
+      _twoPageCoverPage =
+          store.getBool('${_prefix}twoPageCoverPage') ?? _twoPageCoverPage;
       _showReflowView =
           store.getBool('${_prefix}showReflowView') ?? _showReflowView;
       _showThumbnailView =
@@ -1499,6 +1504,30 @@ class PdfEditingPreferences extends ChangeNotifier
     if (value == _showScrollbarChapters) return;
     _showScrollbarChapters = value;
     _write((s) => s.setBool('${_prefix}showScrollbarChapters', value));
+    notifyListeners();
+  }
+
+  /// Whether pages show as two-page spreads, like an open book or notebook -
+  /// the host's layout paired via `PdfPageLayout.withFacing`. A display
+  /// setting only, off by default.
+  bool get twoPageView => _twoPageView;
+
+  set twoPageView(bool value) {
+    if (value == _twoPageView) return;
+    _twoPageView = value;
+    _write((s) => s.setBool('${_prefix}twoPageView', value));
+    notifyListeners();
+  }
+
+  /// With [twoPageView], whether the first page stands alone as a cover so
+  /// the spreads pair pages 2-3, 4-5, ... (the book convention) instead of
+  /// 1-2, 3-4, ...
+  bool get twoPageCoverPage => _twoPageCoverPage;
+
+  set twoPageCoverPage(bool value) {
+    if (value == _twoPageCoverPage) return;
+    _twoPageCoverPage = value;
+    _write((s) => s.setBool('${_prefix}twoPageCoverPage', value));
     notifyListeners();
   }
 

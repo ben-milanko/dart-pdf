@@ -1195,51 +1195,99 @@ enum PdfViewerFit {
 /// scrolls vertically - the classic reading layout.
 /// [PdfPageLayout.horizontalContinuous] lays them left-to-right and scrolls
 /// horizontally, for book-like reading, wide documents, and apps that offer
-/// a horizontal reading mode.
+/// a horizontal reading mode. [PdfPageLayout.facing] pairs consecutive pages
+/// into side-by-side spreads - an open book or notebook - and scrolls through
+/// the spreads along either axis.
 ///
-/// Both continuous modes keep every viewer behaviour - virtualization,
-/// zoom/pan, current-page tracking, search and destination navigation, text
-/// selection, page overlays, links, form and annotation hit-testing, and
-/// mixed page sizes - along the chosen axis. Pages keep their true relative
-/// sizes and are centred on the cross axis.
+/// Every layout keeps every viewer behaviour - virtualization, zoom/pan,
+/// current-page tracking, search and destination navigation, text
+/// selection, page overlays, links, form and annotation hit-testing and
+/// editing, and mixed page sizes - along the chosen axis. Pages keep their
+/// true relative sizes.
 ///
 /// The type is a value object rather than a bare enum so that further
-/// layouts (a facing/two-page mode, single-page paging) can be added as new
-/// constructors without changing [PdfViewer]'s constructor signature.
+/// layouts (single-page paging, say) can be added as new constructors
+/// without changing [PdfViewer]'s constructor signature.
 @immutable
 class PdfPageLayout {
   /// Pages stacked top-to-bottom, scrolling vertically (the default, and
   /// what every earlier version of the viewer did).
   const PdfPageLayout.verticalContinuous()
-      : _kind = _PdfPageLayoutKind.verticalContinuous;
+      : scrollAxis = Axis.vertical,
+        facing = false,
+        coverPage = false;
 
   /// Pages laid left-to-right, scrolling horizontally. The first page fills
   /// the viewport height (rather than its width); narrower/shorter pages lay
   /// out proportionally and are centred vertically.
   const PdfPageLayout.horizontalContinuous()
-      : _kind = _PdfPageLayoutKind.horizontalContinuous;
+      : scrollAxis = Axis.horizontal,
+        facing = false,
+        coverPage = false;
 
-  final _PdfPageLayoutKind _kind;
+  /// Two-page spreads: consecutive pages side by side, like an open notebook,
+  /// scrolling continuously through the spreads along [scrollAxis].
+  ///
+  /// The pages of a spread meet at a shared spine - the left page's right
+  /// edge against the right page's left edge - so facing pages of a planner
+  /// or journal read as one opening. With [coverPage] false, pages 1-2, 3-4,
+  /// ... face each other; with it true, page 1 stands alone on the right
+  /// (a book's cover or title page) and the spreads are 2-3, 4-5, ... A last
+  /// page with no partner keeps its side of the spine.
+  ///
+  /// Scrolling vertically, the widest page fits half the viewport width (so
+  /// a whole spread fits it) and spreads stack top-to-bottom, each page
+  /// centred on the spread's height. Scrolling horizontally, spreads run
+  /// left-to-right with the pages of a spread touching and
+  /// [PdfViewer.pageSpacing] between spreads; the tallest page fits the
+  /// viewport height.
+  const PdfPageLayout.facing({
+    this.scrollAxis = Axis.vertical,
+    this.coverPage = false,
+  }) : facing = true;
 
   /// The axis pages scroll along: [Axis.vertical] for
   /// [PdfPageLayout.verticalContinuous], [Axis.horizontal] for
-  /// [PdfPageLayout.horizontalContinuous].
-  Axis get scrollAxis => _kind == _PdfPageLayoutKind.horizontalContinuous
-      ? Axis.horizontal
-      : Axis.vertical;
+  /// [PdfPageLayout.horizontalContinuous], and whichever was chosen for
+  /// [PdfPageLayout.facing].
+  final Axis scrollAxis;
+
+  /// Whether pages are paired into two-page spreads - see
+  /// [PdfPageLayout.facing].
+  final bool facing;
+
+  /// For a [facing] layout, whether the first page stands alone as a cover
+  /// before the first spread. Always false otherwise.
+  final bool coverPage;
+
+  /// This layout's scroll axis with its pages paired into spreads
+  /// ([PdfPageLayout.facing], with [coverPage]) or not (the continuous
+  /// layout along the same axis) - what a "two-page view" toggle applies to
+  /// whichever layout the host chose.
+  PdfPageLayout withFacing(bool facing, {bool coverPage = false}) => facing
+      ? PdfPageLayout.facing(scrollAxis: scrollAxis, coverPage: coverPage)
+      : scrollAxis == Axis.horizontal
+          ? const PdfPageLayout.horizontalContinuous()
+          : const PdfPageLayout.verticalContinuous();
 
   @override
   bool operator ==(Object other) =>
-      other is PdfPageLayout && other._kind == _kind;
+      other is PdfPageLayout &&
+      other.scrollAxis == scrollAxis &&
+      other.facing == facing &&
+      other.coverPage == coverPage;
 
   @override
-  int get hashCode => _kind.hashCode;
+  int get hashCode => Object.hash(scrollAxis, facing, coverPage);
 
   @override
-  String toString() => 'PdfPageLayout.${_kind.name}';
+  String toString() => facing
+      ? 'PdfPageLayout.facing(scrollAxis: ${scrollAxis.name}, '
+          'coverPage: $coverPage)'
+      : scrollAxis == Axis.horizontal
+          ? 'PdfPageLayout.horizontalContinuous'
+          : 'PdfPageLayout.verticalContinuous';
 }
-
-enum _PdfPageLayoutKind { verticalContinuous, horizontalContinuous }
 
 /// Signature for [PdfViewer.onAction]: the user activated [annotation]
 /// (tapped a link or form button) and the viewer doesn't handle its
@@ -3221,10 +3269,10 @@ class _PdfViewerState extends State<PdfViewer>
     if (spacing == 0 || _pages.isEmpty) return main * ratio;
     var oldStart = 0.0;
     var newStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final extent = _mainPointOf(i) * _fitScale;
+    for (var i = 0; i < _slotCount; i++) {
+      final extent = _slotMain(i, 1);
       final oldMain = extent * from;
-      if (main < oldStart + oldMain || i == _pages.length - 1) {
+      if (main < oldStart + oldMain || i == _slotCount - 1) {
         return newStart + (main - oldStart) * ratio;
       }
       oldStart += oldMain + spacing;
@@ -3928,11 +3976,10 @@ class _PdfViewerState extends State<PdfViewer>
         : double.infinity; // pre-layout: every page counts as near
     int? best;
     var bestDistance = 1 << 30;
-    var offset = 0.0;
+    final starts = _pageMainStarts();
     for (var i = 0; i < pages.length; i++) {
-      final height = _pageHeight(i) + widget.pageSpacing;
-      final top = offset;
-      offset += height;
+      final height = _pageMain(i) + widget.pageSpacing;
+      final top = i < starts.length ? starts[i] : 0.0;
       if (!allowNearViewport && top + height >= nearTop && top <= nearBottom) {
         continue;
       }
@@ -4277,11 +4324,10 @@ class _PdfViewerState extends State<PdfViewer>
         policy.mode == PdfPageRasterWarmMode.nearby ? policy.window : 0;
     int? best;
     var bestDistance = 1 << 30;
-    var offset = 0.0;
+    final starts = _pageMainStarts();
     for (var i = 0; i < pages.length; i++) {
-      final height = _pageHeight(i) + widget.pageSpacing;
-      final top = offset;
-      offset += height;
+      final height = _pageMain(i) + widget.pageSpacing;
+      final top = i < starts.length ? starts[i] : 0.0;
       if (top + height >= nearTop && top <= nearBottom) continue;
       final distance = (i - current).abs();
       if (window > 0 && distance > window) continue;
@@ -5249,9 +5295,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// keeps nested headings understandable without permanently taking space
   /// from the document; it appears only in the tick's tooltip.
   List<PdfScrollbarMarker> _outlineScrollMarkers() {
-    var total = _pages.length * widget.pageSpacing;
-    for (var i = 0; i < _pages.length; i++) {
-      total += _pageMain(i);
+    var total = _slotCount * widget.pageSpacing;
+    for (var i = 0; i < _slotCount; i++) {
+      total += _slotMain(i);
     }
     if (total <= 0) return const [];
     final markers = <PdfScrollbarMarker>[];
@@ -5522,8 +5568,13 @@ class _PdfViewerState extends State<PdfViewer>
       _horizontal ? _pointWidths[index] : _aspects[index] * _pointWidths[index];
 
   /// The largest cross-axis point size - the fit reference (widest page for
-  /// vertical, tallest for horizontal).
-  double get _maxCrossPoint => _horizontal ? _maxPointHeight : _maxPointWidth;
+  /// vertical, tallest for horizontal). A vertical facing layout fits a whole
+  /// spread across the viewport, so its reference is two of the widest page.
+  double get _maxCrossPoint => _horizontal
+      ? _maxPointHeight
+      : _facing
+          ? 2 * _maxPointWidth
+          : _maxPointWidth;
 
   /// Logical pixels per PDF point at the fit baseline ([_layoutZoom] == 1,
   /// transform identity): the reference page exactly fills the viewport's
@@ -5563,16 +5614,116 @@ class _PdfViewerState extends State<PdfViewer>
   double _pageMain(int index) => _mainPointOf(index) * _fitScale * _layoutZoom;
 
   /// The page's inset along the cross axis: pages are centred on it (0 for
-  /// the reference page at fit).
-  double _crossInsetOf(int index) => (_crossView - _pageCross(index)) / 2;
-
-  /// The cumulative main-axis (scroll) offset at which page [index] begins.
-  double _mainOffsetOf(int index) {
-    var offset = 0.0;
-    for (var i = 0; i < index; i++) {
-      offset += _pageMain(i) + widget.pageSpacing;
+  /// the reference page at fit). In a vertical facing layout the spine sits
+  /// on the viewport's centre line instead: a left page ends there, a right
+  /// page starts there.
+  double _crossInsetOf(int index) {
+    if (_facing && !_horizontal) {
+      return _isLeftPage(index)
+          ? _crossView / 2 - _pageCross(index)
+          : _crossView / 2;
     }
-    return offset;
+    return (_crossView - _pageCross(index)) / 2;
+  }
+
+  /// The main-axis (scroll) offset at which page [index] begins.
+  double _mainOffsetOf(int index) {
+    final slot = _slotOf(index);
+    return _slotStart(slot) +
+        (slot == 0 ? 0 : widget.pageSpacing) +
+        _mainInSlot(index);
+  }
+
+  // --- spreads ---
+  //
+  // The scroll list is a run of *slots*: one per page in a continuous
+  // layout, one per spread (one or two pages) in a facing one. Every main-
+  // axis walk below goes slot by slot, so the two pages of a vertical spread
+  // - which share a main-axis range - are never mistaken for consecutive
+  // pages. In a continuous layout slot and page indices coincide.
+
+  bool get _facing => widget.pageLayout.facing;
+  bool get _coverPage => widget.pageLayout.coverPage;
+
+  /// The number of scroll slots (list items).
+  int get _slotCount {
+    final n = _pages.length;
+    if (!_facing || n == 0) return n;
+    return _coverPage ? 1 + n ~/ 2 : (n + 1) ~/ 2;
+  }
+
+  /// The slot page [page] lays out in.
+  int _slotOf(int page) {
+    if (!_facing) return page;
+    return _coverPage ? (page + 1) ~/ 2 : page ~/ 2;
+  }
+
+  /// The first and last page of [slot] (equal for a lone page).
+  int _slotFirstPage(int slot) {
+    if (!_facing) return slot;
+    return _coverPage ? (slot == 0 ? 0 : 2 * slot - 1) : 2 * slot;
+  }
+
+  int _slotLastPage(int slot) {
+    final first = _slotFirstPage(slot);
+    if (!_facing || (_coverPage && slot == 0)) return first;
+    return math.min(first + 1, _pages.length - 1);
+  }
+
+  /// Whether [page] sits left of a facing layout's spine. A lone page keeps
+  /// its side: the cover on the right, an unpaired last page on the left.
+  bool _isLeftPage(int page) => _coverPage ? page.isOdd : page.isEven;
+
+  /// [slot]'s extent along the main axis at layout zoom [zoom] (the current
+  /// one by default), without the spacing before it. A vertical spread is as
+  /// tall as its taller page; a horizontal one is its pages end to end.
+  double _slotMain(int slot, [double? zoom]) {
+    final z = zoom ?? _layoutZoom;
+    final first = _slotFirstPage(slot), last = _slotLastPage(slot);
+    var points = _mainPointOf(first);
+    if (last != first) {
+      points = _horizontal
+          ? points + _mainPointOf(last)
+          : math.max(points, _mainPointOf(last));
+    }
+    return points * _fitScale * z;
+  }
+
+  /// Page [index]'s main-axis offset into its slot: a shorter page of a
+  /// vertical spread is centred on the spread, the second page of a
+  /// horizontal one follows the first.
+  double _mainInSlot(int index) {
+    if (!_facing) return 0;
+    final slot = _slotOf(index);
+    final first = _slotFirstPage(slot);
+    if (_horizontal) return index == first ? 0 : _pageMain(first);
+    return (_slotMain(slot) - _pageMain(index)) / 2;
+  }
+
+  /// The page of [slot] nearest a list-space point given by its [main] and
+  /// [cross] coordinates; [slotStart] is where the slot's pages begin.
+  int _slotPageNear(int slot, double slotStart, double main, double cross) {
+    final first = _slotFirstPage(slot), last = _slotLastPage(slot);
+    if (first == last) return first;
+    // the first page of a two-page spread is always the left one
+    return (_horizontal
+            ? main < slotStart + _pageMain(first)
+            : cross <= _crossView / 2)
+        ? first
+        : last;
+  }
+
+  /// Every page's main-axis start (list space), in one walk.
+  List<double> _pageMainStarts() {
+    final starts = List<double>.filled(_pages.length, 0);
+    var start = 0.0;
+    for (var slot = 0; slot < _slotCount; slot++) {
+      for (var i = _slotFirstPage(slot); i <= _slotLastPage(slot); i++) {
+        starts[i] = start + _mainInSlot(i);
+      }
+      start += _slotMain(slot) + widget.pageSpacing;
+    }
+    return starts;
   }
 
   /// The on-screen width of page [index] (logical pixels). Horizontal =
@@ -5678,15 +5829,16 @@ class _PdfViewerState extends State<PdfViewer>
         margin: _selectionGrabMargin / scale);
   }
 
-  /// A page's slot extent in the scroll list, mirroring [itemExtentBuilder]:
-  /// the leading [PdfViewer.pageSpacing] belongs to every page but the first.
-  double _scrollExtentOf(int index) =>
-      _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing);
+  /// A slot's extent in the scroll list, mirroring [itemExtentBuilder]: the
+  /// leading [PdfViewer.pageSpacing] belongs to every slot but the first.
+  double _scrollExtentOf(int slot) =>
+      _slotMain(slot) + (slot == 0 ? 0 : widget.pageSpacing);
 
-  /// The list-space offset at which page [index]'s slot begins.
-  double _slotStart(int index) {
+  /// The list-space offset at which [slot] begins (its leading spacing
+  /// included).
+  double _slotStart(int slot) {
     var offset = 0.0;
-    for (var i = 0; i < index; i++) {
+    for (var i = 0; i < slot; i++) {
       offset += _scrollExtentOf(i);
     }
     return offset;
@@ -5707,11 +5859,11 @@ class _PdfViewerState extends State<PdfViewer>
   void _preserveReadingAnchor() {
     final top = _scroll.offset;
     var acc = 0.0;
-    var anchorPage = _pages.length - 1;
+    var anchorPage = _slotCount - 1;
     var fraction = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
+    for (var i = 0; i < _slotCount; i++) {
       final extent = _scrollExtentOf(i);
-      if (top < acc + extent || i == _pages.length - 1) {
+      if (top < acc + extent || i == _slotCount - 1) {
         anchorPage = i;
         fraction = extent > 0 ? ((top - acc) / extent).clamp(0.0, 1.0) : 0.0;
         break;
@@ -5779,30 +5931,39 @@ class _PdfViewerState extends State<PdfViewer>
     var last = -1;
     var qualityFirst = -1;
     var qualityLast = -1;
+    // the cross-axis centre of the screen viewport, in list space - which
+    // page of a spread the reader is on
+    final crossCenter =
+        -matrix.storage[_crossTranslate] / scale + _crossView / (2 * scale);
     var offset = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final main = _pageMain(i);
-      // The page's own extent decides visibility; the spacing that follows it
-      // belongs to no page. `current` keeps the original rule (the spacing
-      // after a page counts as that page) so the reported page number and
-      // render focus are unchanged by this pass.
-      if (offset < viewEnd && offset + main > viewStart) {
-        if (first < 0) first = i;
-        last = i;
-        final overlap =
-            math.min(offset + main, viewEnd) - math.max(offset, viewStart);
-        final foregroundThreshold = math.min(main, viewEnd - viewStart) * 0.15;
-        if (overlap >= foregroundThreshold) {
-          if (qualityFirst < 0) qualityFirst = i;
-          qualityLast = i;
+    for (var slot = 0; slot < _slotCount; slot++) {
+      final slotStart = offset;
+      for (var i = _slotFirstPage(slot); i <= _slotLastPage(slot); i++) {
+        final start = slotStart + _mainInSlot(i);
+        final main = _pageMain(i);
+        // The page's own extent decides visibility; the spacing that follows
+        // it belongs to no page. `current` keeps the original rule (the
+        // spacing after a slot counts as that slot) so the reported page
+        // number and render focus are unchanged by this pass.
+        if (start < viewEnd && start + main > viewStart) {
+          if (first < 0) first = i;
+          last = i;
+          final overlap =
+              math.min(start + main, viewEnd) - math.max(start, viewStart);
+          final foregroundThreshold =
+              math.min(main, viewEnd - viewStart) * 0.15;
+          if (overlap >= foregroundThreshold) {
+            if (qualityFirst < 0) qualityFirst = i;
+            qualityLast = i;
+          }
         }
       }
-      offset += main + widget.pageSpacing;
+      offset += _slotMain(slot) + widget.pageSpacing;
       if (!found && center < offset) {
-        current = i;
+        current = _slotPageNear(slot, slotStart, center, crossCenter);
         found = true;
       }
-      // Pages are laid out in order, so once one starts past the viewport
+      // Slots are laid out in order, so once one starts past the viewport
       // nothing after it can be visible either.
       if (found && offset - widget.pageSpacing >= viewEnd) break;
     }
@@ -5863,6 +6024,18 @@ class _PdfViewerState extends State<PdfViewer>
   double get _zoomWindowMain {
     final m = _transform.value;
     return m.storage[_mainTranslate] / m.getMaxScaleOnAxis();
+  }
+
+  /// The page a next/previous-page command lands on: [delta] pages on in a
+  /// continuous layout, [delta] spreads on in a facing one - stepping a
+  /// single page would only move between the two halves of the spread
+  /// already on screen.
+  int _steppedPage(int delta) {
+    final current = _controller.currentPage;
+    if (!_facing || _pages.isEmpty) return current + delta;
+    final slot = (_slotOf(current.clamp(0, _pages.length - 1)) + delta)
+        .clamp(0, _slotCount - 1);
+    return _slotFirstPage(slot);
   }
 
   Future<void> _jumpToPage(
@@ -5975,21 +6148,24 @@ class _PdfViewerState extends State<PdfViewer>
         -m.storage[_mainTranslate] / scale + _scroll.position.pixels;
     final viewCross = -m.storage[_crossTranslate] / scale;
     var mainStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (viewMain < mainStart + pageMain + widget.pageSpacing ||
-          i == _pages.length - 1) {
+    for (var slot = 0; slot < _slotCount; slot++) {
+      final slotMain = _slotMain(slot);
+      if (viewMain < mainStart + slotMain + widget.pageSpacing ||
+          slot == _slotCount - 1) {
+        final i = _slotPageNear(slot, mainStart, viewMain, viewCross);
+        final pageStart = mainStart + _mainInSlot(i);
+        final pageMain = _pageMain(i);
         final pageCross = _pageCross(i);
         // fractions are layout-zoom independent: numerator and page size
         // scale together
         return PdfViewport(
           page: i,
-          top: pageMain <= 0 ? 0 : (viewMain - mainStart) / pageMain,
+          top: pageMain <= 0 ? 0 : (viewMain - pageStart) / pageMain,
           left: pageCross <= 0 ? 0 : (viewCross - _crossInsetOf(i)) / pageCross,
           zoom: _currentZoom,
         );
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += slotMain + widget.pageSpacing;
     }
     return null;
   }
@@ -6560,9 +6736,10 @@ class _PdfViewerState extends State<PdfViewer>
     final contentMain = _scroll.offset + _mainOf(local);
     final point = _axisOffset(contentMain, _crossOf(local));
     var mainStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
-      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
+    for (var slot = 0; slot < _slotCount; slot++) {
+      final slotMain = _slotMain(slot);
+      if (contentMain <= mainStart + slotMain || slot == _slotCount - 1) {
+        final i = _slotPageNear(slot, mainStart, contentMain, _crossOf(local));
         final box = _pages[i].cropBox;
         if (box.width <= 0 || box.height <= 0) return null;
         final geometry = PdfPageGeometry(
@@ -6574,7 +6751,7 @@ class _PdfViewerState extends State<PdfViewer>
             .toPagePoint(point - Offset(_pageContentX(i), _pageContentY(i)));
         return (i, x, y);
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += slotMain + widget.pageSpacing;
     }
     return null;
   }
@@ -6591,15 +6768,23 @@ class _PdfViewerState extends State<PdfViewer>
     final contentMain = _scroll.offset + _mainOf(local);
     final contentCross = _crossOf(local);
     var mainStart = 0.0;
-    for (var i = 0; i < _pages.length; i++) {
-      final pageMain = _pageMain(i);
+    for (var slot = 0; slot < _slotCount; slot++) {
+      final slotMain = _slotMain(slot);
       if (contentMain < mainStart) return false; // the spacing before it
-      if (contentMain <= mainStart + pageMain) {
-        final crossStart = _crossInsetOf(i);
-        return contentCross >= crossStart &&
-            contentCross <= crossStart + _pageCross(i);
+      if (contentMain <= mainStart + slotMain) {
+        for (var i = _slotFirstPage(slot); i <= _slotLastPage(slot); i++) {
+          final pageStart = mainStart + _mainInSlot(i);
+          final crossStart = _crossInsetOf(i);
+          if (contentMain >= pageStart &&
+              contentMain <= pageStart + _pageMain(i) &&
+              contentCross >= crossStart &&
+              contentCross <= crossStart + _pageCross(i)) {
+            return true;
+          }
+        }
+        return false;
       }
-      mainStart += pageMain + widget.pageSpacing;
+      mainStart += slotMain + widget.pageSpacing;
     }
     return false;
   }
@@ -7741,9 +7926,9 @@ class _PdfViewerState extends State<PdfViewer>
   bool _handleNamedAction(String name) {
     switch (name) {
       case 'NextPage':
-        _jumpToPage(_controller.currentPage + 1);
+        _jumpToPage(_steppedPage(1));
       case 'PrevPage':
-        _jumpToPage(_controller.currentPage - 1);
+        _jumpToPage(_steppedPage(-1));
       case 'FirstPage':
         _jumpToPage(0);
       case 'LastPage':
@@ -10034,8 +10219,7 @@ class _PdfViewerState extends State<PdfViewer>
           // pages keep their real relative sizes - a narrower page lays out
           // narrower. (For a horizontal layout "width"/"page" read as the
           // cross/both axes respectively.)
-          final firstMainAtFit =
-              _pages.isNotEmpty ? _mainPointOf(0) * _fitScale : 0.0;
+          final firstMainAtFit = _pages.isNotEmpty ? _slotMain(0, 1) : 0.0;
           _layoutZoom =
               widget.initialFit == PdfViewerFit.page && firstMainAtFit > 0
                   ? (_mainView / firstMainAtFit).clamp(widget.minZoom, 1.0)
@@ -10063,6 +10247,153 @@ class _PdfViewerState extends State<PdfViewer>
       };
       Object pageIdentity(int index) =>
           _pageRefs[index] ?? ('page-slot', _pageEpoch, index);
+      Widget pageView(int index) => _PdfViewerPage(
+            page: _pages[index],
+            tileCacheNamespace: _tileCacheNamespace,
+            effectiveRotation: _effectiveRotation(index),
+            index: index,
+            pageColor: widget.pageColor,
+            showAnnotations: widget.showAnnotations,
+            hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
+            pageImagesShowAnnotations: _pageImagesShowAnnotations,
+            trustContentStamp: _annotationLayerController != null ||
+                widget.editing != null ||
+                (widget.interactiveForms && widget.formController != null),
+            formFields: widget.highlightFormFields && widget.showAnnotations
+                ? _formFieldRects(index)
+                : const [],
+            interactiveForms: widget.interactiveForms && widget.showAnnotations,
+            scale: _renderScale,
+            settleGeneration: _settleGeneration,
+            pageEpoch: _pageEpoch,
+            contentStamp: _contentStamp(index),
+            destructiveStamp: _destructiveStamp(index),
+            renderPriority: _renderPriority(index),
+            focusDistance:
+                (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
+            forceForeground: _jumpFocusPage == index,
+            onScreenSpan: _onScreenSpan,
+            matches: _controller._matchesOn(index),
+            currentMatch: _controller._currentMatch >= 0
+                ? _controller._matches[_controller._currentMatch]
+                : null,
+            selection: _selectionQuadsOn(index),
+            textSelection: _textSelectionOn(index),
+            overlayBuilder: widget.pageOverlayBuilder,
+            editing: editing,
+            formController: editing ?? widget.formController,
+            editingTextPrompt: widget.editingTextPrompt ?? pdfPresentTextPrompt,
+            formImagePicker: widget.formImagePicker,
+            imagePicker: widget.imagePicker,
+            onSnapshot: widget.onSnapshot,
+            onPlaceSignature: widget.onPlaceSignature,
+            onAnnotationTap: widget.onAnnotationTap,
+            onRevealRect: _revealRect,
+            contextMenuEnabled: widget.contextMenuEnabled,
+            showSelectionChip: widget.showSelectionChip,
+            showInlineTextStyleChip: widget.showInlineTextStyleChip,
+            interactionHost: PdfEditingInteractionHost(
+              panViewport: _touchGrabPanBy,
+              endViewportPan: _flingViewport,
+              edgeAutoScroll: _edgeAutoScrollDelta,
+              showAnnotationMenu: _showSelectionMenu,
+              showFormFieldMenu: _showFormFieldMenu,
+              requestContextMenu: _requestContextMenu,
+              resolvePagePoint: _resolvePagePointGlobal,
+              moveDragPreview: _onMoveDragPreview,
+              textEditClosed: _reclaimFocusAfterTextEdit,
+              pageTextAt: _pageTextAtGlobal,
+              beginTextSelection: _beginToolTextSelection,
+              updateTextSelection: _updateToolTextSelection,
+              endTextSelection: _endToolTextSelection,
+              clearTextSelection: _clearToolTextSelection,
+              activateLinkAt: _activateLinkAtGlobal,
+              plainTap: widget.onPlainTap,
+            ),
+            interactionSession: widget.interactionSession,
+            crossPageGhost: _crossPageGhostFor(index),
+            transformScale: _transformScale,
+            transformChanges: _transform,
+            viewportChanges: _controller.viewportChanges,
+            visibleRegion: () => _visibleFractionOf(index),
+            renderScheduler: _renderScheduler,
+            previewCache: widget.pagePreviews ? _previews : null,
+            renderWorker: _effectiveRenderWorker,
+            performance: widget.performance,
+            tileRasterBackend: widget.tileRasterBackend,
+            predictStrokes: widget.predictStrokes,
+            onRasterStateChanged: _setPageRasterReady,
+          );
+      Widget continuous(int index) => KeyedSubtree(
+            // Stable indirect page identity is the reconciliation key. A pure
+            // reorder can therefore move the already-rastered State with its
+            // page. Insert/remove/import full fallbacks replace the namespace,
+            // so no State can cross a structural boundary that was not
+            // verified as an identity-preserving permutation. Direct/broken
+            // page objects fall back to the slot epoch.
+            key: _PdfViewerPageKey(_tileCacheNamespace, pageIdentity(index)),
+            child: Padding(
+              padding: _horizontal
+                  ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
+                  : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
+              // each page lays out at its real size relative to the
+              // reference page (times the layout zoom), centred on the cross
+              // axis - so pages keep their true sizes instead of stretching
+              // to the viewport
+              child: Center(
+                // An annotation is not confined to the crop box, and the
+                // editor paints the part that hangs off the paper - so a
+                // press out in the margin has to reach the page's editing
+                // layer. This is the outermost box that would otherwise
+                // refuse it: FractionallySizedBox sizes itself to the page,
+                // so the slack Center leaves around it is nobody's. Above it
+                // the item's own boxes span the viewport and forward hit
+                // tests without a size gate of their own, which is what
+                // bounds the reach to this page. See [PdfEditingReach].
+                child: _editingReach(
+                  index,
+                  child: FractionallySizedBox(
+                    widthFactor: _horizontal ? null : _crossFactor(index),
+                    heightFactor: _horizontal ? _crossFactor(index) : null,
+                    child: pageView(index),
+                  ),
+                ),
+              ),
+            ),
+          );
+      // A facing layout's slot is a spread: its pages sit at the exact
+      // offsets the geometry helpers report (_crossInsetOf/_mainInSlot), so
+      // hit-testing, selection and overlays agree with what is painted. The
+      // slot is keyed by its first page; each page keeps its own key inside.
+      // The reach wraps each page directly - Positioned sizes it to the page,
+      // and the unclipped Stack spans the slot, as Center does above.
+      Widget spread(int slot) {
+        final first = _slotFirstPage(slot), last = _slotLastPage(slot);
+        return KeyedSubtree(
+          key: _PdfViewerPageKey(_tileCacheNamespace, pageIdentity(first)),
+          child: Padding(
+            padding: _horizontal
+                ? EdgeInsets.only(left: slot == 0 ? 0 : widget.pageSpacing)
+                : EdgeInsets.only(top: slot == 0 ? 0 : widget.pageSpacing),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                for (var i = first; i <= last; i++)
+                  Positioned(
+                    key:
+                        _PdfViewerPageKey(_tileCacheNamespace, pageIdentity(i)),
+                    left: _horizontal ? _mainInSlot(i) : _crossInsetOf(i),
+                    top: _horizontal ? _crossInsetOf(i) : _mainInSlot(i),
+                    width: _pageWidth(i),
+                    height: _pageHeight(i),
+                    child: _editingReach(i, child: pageView(i)),
+                  ),
+              ],
+            ),
+          ),
+        );
+      }
+
       final list = ExactExtentListView.builder(
         controller: _scroll,
         scrollDirection: widget.pageLayout.scrollAxis,
@@ -10082,142 +10413,24 @@ class _PdfViewerState extends State<PdfViewer>
         // sliver still ESTIMATES it from the built children's average, which
         // oscillates on mixed-size documents and made the scrollbar thumb
         // jump (AMT-SP-101: 93k↔162k px between frames).
-        itemExtentBuilder: (index, dimensions) => index >= _pages.length
-            ? null
-            : _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing),
-        itemCount: _pages.length,
+        itemExtentBuilder: (index, dimensions) =>
+            index >= _slotCount ? null : _scrollExtentOf(index),
+        itemCount: _slotCount,
         findChildIndexCallback: (key) {
           if (key is! _PdfViewerPageKey ||
               !identical(key.namespace, _tileCacheNamespace)) {
             return null;
           }
-          return pageIndexByIdentity[key.pageIdentity];
+          final page = pageIndexByIdentity[key.pageIdentity];
+          return page == null ? null : _slotOf(page);
         },
         padding: _horizontal
             ? EdgeInsets.only(
                 right: widget.pageSpacing + widget.trailingPadding)
             : EdgeInsets.only(
                 bottom: widget.pageSpacing + widget.trailingPadding),
-        itemBuilder: (context, index) => KeyedSubtree(
-          // Stable indirect page identity is the reconciliation key. A pure
-          // reorder can therefore move the already-rastered State with its
-          // page. Insert/remove/import full fallbacks replace the namespace,
-          // so no State can cross a structural boundary that was not verified
-          // as an identity-preserving permutation. Direct/broken page objects
-          // fall back to the slot epoch.
-          key: _PdfViewerPageKey(
-            _tileCacheNamespace,
-            pageIdentity(index),
-          ),
-          child: Padding(
-            padding: _horizontal
-                ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
-                : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
-            // each page lays out at its real size relative to the reference
-            // page (times the layout zoom), centred on the cross axis - so
-            // pages keep their true sizes instead of stretching to the viewport
-            child: Center(
-              // An annotation is not confined to the crop box, and the
-              // editor paints the part that hangs off the paper - so a
-              // press out in the margin has to reach the page's editing
-              // layer. This is the outermost box that would otherwise
-              // refuse it: FractionallySizedBox sizes itself to the page,
-              // so the slack Center leaves around it is nobody's. Above it
-              // the item's own boxes span the viewport and forward hit
-              // tests without a size gate of their own, which is what
-              // bounds the reach to this page. See [PdfEditingReach].
-              child: _editingReach(
-                index,
-                child: FractionallySizedBox(
-                  widthFactor: _horizontal ? null : _crossFactor(index),
-                  heightFactor: _horizontal ? _crossFactor(index) : null,
-                  child: _PdfViewerPage(
-                    page: _pages[index],
-                    tileCacheNamespace: _tileCacheNamespace,
-                    effectiveRotation: _effectiveRotation(index),
-                    index: index,
-                    pageColor: widget.pageColor,
-                    showAnnotations: widget.showAnnotations,
-                    hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
-                    pageImagesShowAnnotations: _pageImagesShowAnnotations,
-                    trustContentStamp: _annotationLayerController != null ||
-                        widget.editing != null ||
-                        (widget.interactiveForms &&
-                            widget.formController != null),
-                    formFields:
-                        widget.highlightFormFields && widget.showAnnotations
-                            ? _formFieldRects(index)
-                            : const [],
-                    interactiveForms:
-                        widget.interactiveForms && widget.showAnnotations,
-                    scale: _renderScale,
-                    settleGeneration: _settleGeneration,
-                    pageEpoch: _pageEpoch,
-                    contentStamp: _contentStamp(index),
-                    destructiveStamp: _destructiveStamp(index),
-                    renderPriority: _renderPriority(index),
-                    focusDistance:
-                        (index - (_jumpFocusPage ?? _controller.currentPage))
-                            .abs(),
-                    forceForeground: _jumpFocusPage == index,
-                    onScreenSpan: _onScreenSpan,
-                    matches: _controller._matchesOn(index),
-                    currentMatch: _controller._currentMatch >= 0
-                        ? _controller._matches[_controller._currentMatch]
-                        : null,
-                    selection: _selectionQuadsOn(index),
-                    textSelection: _textSelectionOn(index),
-                    overlayBuilder: widget.pageOverlayBuilder,
-                    editing: editing,
-                    formController: editing ?? widget.formController,
-                    editingTextPrompt:
-                        widget.editingTextPrompt ?? pdfPresentTextPrompt,
-                    formImagePicker: widget.formImagePicker,
-                    imagePicker: widget.imagePicker,
-                    onSnapshot: widget.onSnapshot,
-                    onPlaceSignature: widget.onPlaceSignature,
-                    onAnnotationTap: widget.onAnnotationTap,
-                    onRevealRect: _revealRect,
-                    contextMenuEnabled: widget.contextMenuEnabled,
-                    showSelectionChip: widget.showSelectionChip,
-                    showInlineTextStyleChip: widget.showInlineTextStyleChip,
-                    interactionHost: PdfEditingInteractionHost(
-                      panViewport: _touchGrabPanBy,
-                      endViewportPan: _flingViewport,
-                      edgeAutoScroll: _edgeAutoScrollDelta,
-                      showAnnotationMenu: _showSelectionMenu,
-                      showFormFieldMenu: _showFormFieldMenu,
-                      requestContextMenu: _requestContextMenu,
-                      resolvePagePoint: _resolvePagePointGlobal,
-                      moveDragPreview: _onMoveDragPreview,
-                      textEditClosed: _reclaimFocusAfterTextEdit,
-                      pageTextAt: _pageTextAtGlobal,
-                      beginTextSelection: _beginToolTextSelection,
-                      updateTextSelection: _updateToolTextSelection,
-                      endTextSelection: _endToolTextSelection,
-                      clearTextSelection: _clearToolTextSelection,
-                      activateLinkAt: _activateLinkAtGlobal,
-                      plainTap: widget.onPlainTap,
-                    ),
-                    interactionSession: widget.interactionSession,
-                    crossPageGhost: _crossPageGhostFor(index),
-                    transformScale: _transformScale,
-                    transformChanges: _transform,
-                    viewportChanges: _controller.viewportChanges,
-                    visibleRegion: () => _visibleFractionOf(index),
-                    renderScheduler: _renderScheduler,
-                    previewCache: widget.pagePreviews ? _previews : null,
-                    renderWorker: _effectiveRenderWorker,
-                    performance: widget.performance,
-                    tileRasterBackend: widget.tileRasterBackend,
-                    predictStrokes: widget.predictStrokes,
-                    onRasterStateChanged: _setPageRasterReady,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        itemBuilder: (context, index) =>
+            _facing ? spread(index) : continuous(index),
       );
       final scrollable = ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),

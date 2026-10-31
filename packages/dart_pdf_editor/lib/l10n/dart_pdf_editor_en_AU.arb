@@ -338,6 +338,8 @@
   "shellSettings": "Settings",
   "shellShowAnnotations": "Show annotations",
   "shellShowScrollbarChapters": "Show chapters on scrollbar",
+  "shellTwoPageView": "Two-page view",
+  "shellTwoPageCover": "Show cover page separately",
   "shellTabHere": "Tab here",
   "shellUnbound": "Unbound",
   "shellZoom": "Zoom",

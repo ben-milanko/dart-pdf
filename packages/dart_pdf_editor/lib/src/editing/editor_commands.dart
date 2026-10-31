@@ -851,6 +851,20 @@ class PdfEditorCommands extends ChangeNotifier {
           view,
           () => prefs.showScrollbarChapters,
           (v) => prefs.showScrollbarChapters = v));
+      commands.add(toggle(
+          'view-two-page',
+          _menuBookOutlined,
+          (c) => pdfL10n(c).shellTwoPageView,
+          view,
+          () => prefs.twoPageView,
+          (v) => prefs.twoPageView = v));
+      commands.add(toggle(
+          'view-two-page-cover',
+          _bookOutlined,
+          (c) => pdfL10n(c).shellTwoPageCover,
+          view,
+          () => prefs.twoPageCoverPage,
+          (v) => prefs.twoPageCoverPage = v));
     }
 
     final save = onSave;
@@ -881,8 +895,9 @@ class PdfEditorCommands extends ChangeNotifier {
 
   // Material Icons glyphs as plain const IconData (the same values as
   // Icons.visibility_outlined, Icons.article_outlined, Icons.grid_view_outlined,
-  // Icons.ballot_outlined, Icons.toc, Icons.save_alt and Icons.save_as_outlined),
-  // so this file stays on the widgets layer.
+  // Icons.ballot_outlined, Icons.toc, Icons.menu_book_outlined,
+  // Icons.book_outlined, Icons.save_alt and Icons.save_as_outlined), so this
+  // file stays on the widgets layer.
   static const _visibilityOutlined =
       IconData(0xf4a1, fontFamily: 'MaterialIcons');
   static const _articleOutlined = IconData(0xee93, fontFamily: 'MaterialIcons');
@@ -891,6 +906,9 @@ class PdfEditorCommands extends ChangeNotifier {
   static const _ballotOutlined = IconData(0xeebb, fontFamily: 'MaterialIcons');
   static const _toc =
       IconData(0xe669, fontFamily: 'MaterialIcons', matchTextDirection: true);
+  static const _menuBookOutlined =
+      IconData(0xf1c2, fontFamily: 'MaterialIcons');
+  static const _bookOutlined = IconData(0xeedf, fontFamily: 'MaterialIcons');
   static const _saveAlt = IconData(0xe551, fontFamily: 'MaterialIcons');
   static const _saveAsOutlined = IconData(0xf065a, fontFamily: 'MaterialIcons');
 

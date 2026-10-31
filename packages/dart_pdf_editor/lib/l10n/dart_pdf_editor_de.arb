@@ -367,6 +367,8 @@
   "shellSettings": "Einstellungen",
   "shellShowAnnotations": "Anmerkungen anzeigen",
   "shellShowScrollbarChapters": "Kapitel auf der Bildlaufleiste anzeigen",
+  "shellTwoPageView": "Zweiseitenansicht",
+  "shellTwoPageCover": "Deckblatt separat anzeigen",
   "shellTabHere": "Hier als Tab",
   "shellUnbound": "Nicht zugewiesen",
   "shellZoom": "Zoom",

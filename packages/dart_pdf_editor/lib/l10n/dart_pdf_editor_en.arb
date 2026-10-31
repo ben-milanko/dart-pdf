@@ -1457,6 +1457,14 @@
   "@shellShowScrollbarChapters": {
     "description": "Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar."
   },
+  "shellTwoPageView": "Two-page view",
+  "@shellTwoPageView": {
+    "description": "Toggle label for the facing-pages layout: consecutive pages shown side by side as two-page spreads, like an open book or notebook."
+  },
+  "shellTwoPageCover": "Show cover page separately",
+  "@shellTwoPageCover": {
+    "description": "Toggle label, shown with the two-page view, for keeping the first page alone (a book cover) so the spreads start at pages 2-3."
+  },
   "shellTabHere": "Tab here",
   "@shellTabHere": {
     "description": "Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group."

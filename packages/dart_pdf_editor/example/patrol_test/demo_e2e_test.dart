@@ -367,6 +367,7 @@ class _DemoHarness {
   static Future<_DemoHarness> open(PatrolIntegrationTester $) async {
     await _configurePreferences();
     final demo = _DemoHarness($);
+    demo._restoreErrorHandler = reportFlexOverflowCulprits();
     await $.pumpWidget(const ViewerApp());
     await demo.waitForFinder(find.byType(PdfViewer), attempts: 80);
     expect($(PdfViewer), findsOneWidget);
@@ -374,9 +375,13 @@ class _DemoHarness {
     return demo;
   }
 
+  VoidCallback? _restoreErrorHandler;
+
   Future<void> close() async {
     await $.pumpWidget(const SizedBox());
     await $.pump(const Duration(milliseconds: 50));
+    _restoreErrorHandler?.call();
+    _restoreErrorHandler = null;
   }
 
   Future<void> waitFor(

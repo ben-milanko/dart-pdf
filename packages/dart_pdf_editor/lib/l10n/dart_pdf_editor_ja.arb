@@ -367,6 +367,8 @@
   "shellSettings": "設定",
   "shellShowAnnotations": "注釈を表示",
   "shellShowScrollbarChapters": "スクロールバーに章を表示",
+  "shellTwoPageView": "見開き表示",
+  "shellTwoPageCover": "表紙を単独で表示",
   "shellTabHere": "ここにタブ",
   "shellUnbound": "未割り当て",
   "shellZoom": "ズーム",

@@ -367,6 +367,8 @@
   "shellSettings": "Ayarlar",
   "shellShowAnnotations": "Ek açıklamaları göster",
   "shellShowScrollbarChapters": "Kaydırma çubuğunda bölümleri göster",
+  "shellTwoPageView": "İki sayfa görünümü",
+  "shellTwoPageCover": "Kapak sayfasını ayrı göster",
   "shellTabHere": "Buraya sekmele",
   "shellUnbound": "Atanmamış",
   "shellZoom": "Yakınlaştırma",

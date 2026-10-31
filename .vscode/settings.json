@@ -1,5 +1,5 @@
 {
-    "dart.flutterSdkPath": "/Users/ben/fvm/versions/3.47.8",
-    "dart.sdkPath": "/Users/ben/fvm/versions/3.47.8/bin/cache/dart-sdk",
+    "dart.flutterSdkPath": ".fvm/flutter_sdk",
+    "dart.sdkPath": ".fvm/flutter_sdk/bin/cache/dart-sdk",
     "java.configuration.updateBuildConfiguration": "disabled"
 }
