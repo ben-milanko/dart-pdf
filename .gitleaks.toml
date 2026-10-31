@@ -7,6 +7,7 @@ useDefault = true
 # A new or replaced key in either file must still fail the scan.
 
 [[allowlists]]
+targetRules = ["private-key"]
 description = "Exact public test key 1 in pki_test.dart"
 condition = "AND"
 paths = ['''^packages/pdf_cos/test/pki_test\.dart$''']
@@ -14,6 +15,7 @@ regexTarget = "match"
 regexes = ['''^\-\-\-\-\-BEGIN\ RSA\ PRIVATE\ KEY\-\-\-\-\-\nMIICXAIBAAKBgQDH8QUQ4tO5Pxwm/aYhem1WLTlPemNnMGCFuSIdtZbXQzCMAR6f\nXQzvi5fI3\+xcVT/FsfsgJ85PltHrnaygOfbopb0DBJxzipPw7sqi5Aj\+fxt86oou\npUWtasX3q0RMIwpW/rg0KVxM9FHWfR7lEwlh5qEuNigJAP6R6\+gtTgXPUQIDAQAB\nAoGBAKptiKrvHhgecmnN9ik9SSuW2u4jXc3cj7oMp8b5PX15\+Uytu6ON1nPt4lDI\nhpnh1L04S94J8DMpVQBo43ekURBVtJgU10UyKfMU/68yX\+\+RTIj32cKPYG2ELm8x\nVVqhhrG4kX5r3sx4hzXc3SCUE8xGV4s4tR4PE9ycmfa6R4GRAkEA780E0rGF\+iyN\n\+332VOIkKY7MEQK/OeMaqBEjveevN3YvcPRRl5aNpFR2QV2oFmzjmja9WiHs7uNh\nor5Urc6fbQJBANVysgU2YYfGKd6INMvUc\+NgkWSJFnJn3LU0xNLpsI/daCibZJPG\nKH8M4ug0RjJqEtNnIS4R5Ic6y\+fQ/xiSrPUCQG4wBMFTtT5pbqxbCu\+iIf\+\+j\+JZ\nIslUo5EKnyPJ6\+dONSpv\+XXwRhF2hggvIud7DXJ1KLjb0eVLMjf3wS1EPlkCQBt9\nAeAZ\+MV7h7jY4bO\+UI5fyVmhLfrd1VagzRg8cDiW0usn1/QP\+PcjubUdxkyHzJTd\nGzDLrRqdP9VC3RdVDGECQFUB8LSAUJWdsoBo5eINofTwRAnbUIKp81X5Pwza2USF\n\+5xq8zloUddInXMCk28Ea5qqKwQ7wyGX2tk\+Hy2G9YI=\n\-\-\-\-\-END\ RSA\ PRIVATE\ KEY\-\-\-\-\-$''']
 
 [[allowlists]]
+targetRules = ["private-key"]
 description = "Exact public test key 1 in signer_identity.dart"
 condition = "AND"
 paths = ['''^packages/pdf_test_fixtures/lib/src/signer_identity\.dart$''']
@@ -21,6 +23,7 @@ regexTarget = "match"
 regexes = ['''^\-\-\-\-\-BEGIN\ PRIVATE\ KEY\-\-\-\-\-\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCiOgE4KtYoB0ha\nxkYxZ/Tcmtdv0BPsuuYoLR4J4zQJcyvAd1LaDTmG1B3ZSQduMhl9KyHzXYD4QSyu\nVMc728HcZOQ4D4QwCO6EwC3KmC7nRGzmdau25SpjLghI21QtZKLie3sLBOcBtUE9\nT//Hmh9intJK04OLGMFMiFr/KgojI4B47Vshs6WTWdbYIbZUNb69a\+4SDQ83h3hP\nGWm01dA0xcX4NTgXWNiAoQkiGX7UVUn6vx9Ne1BVt5nNTjMPqUYnA7o4xYkQtLwr\nwyYYrgvdhj78GZTBTdTHMMIR3LqDQeLbTBl/D8hSv1STmzIrEAQmrH83pucXil3p\nJ6PdtWWlAgMBAAECggEBAIg0rWtsQ\+zN2Ikmqi63OtayRyoBCYmcjruyzeK9WaaJ\nhXWOegjMS72RgRI7h7qU4\+O9AD9mBW/qwMoKMlFmvIkASMFs/a6bATCCbrAIQHE6\neTiyGZ9xH7qwHpKVXELUmRIRXQiucAp2FbWV4orDM5DJCoV6u5phCYLphYVx1ZsT\n0HeKosjMk48whdhdsawHQUCy1o9VlVm5OSDLXrsFTVtOrSJL1p6DGwbpIoXK6flq\nPGzne6SWi4g51e447Xnw50bPIgZ1pXc1AXpw0cGBq/VnMOInuB\+jDq4zrYGbPxgh\nfx9v3KxKTJtycYSD4S9Qkax5w3aOl1Og1h9xKnGgKOECgYEAz8ArVNHDv1u\+BAKR\nas/vsSM3csdZv86DBE0DQIlz/ugRK\+drepo2IE\+tIbtqb0OeeubOuDdPNugMKZAU\n9RP3iJWgztGycV7BBlLtGMzjMTYBUwf81rnf3ErLRvX0PP9Vd1ufyYe1ZOl2T/PX\nKT5i\+ic/yjq8nrqJGlh1SULXvUkCgYEAx\+cyr7gc1xC6WkftXK5JEj21qOh35T2G\nGAUsaAM\+1Fzc\+5z8Cbsw5vnabzqqR3jWO26uNcLenzEGBnJ/zpOhsXkSJkMuvzh0\nyyJsGLiOEDQYrBjrZIYee34VZTMLvQ50yUAKuA8alwuNbqYFfJVCBh4PEVsW5AX3\nbNl/IGULMX0CgYEAgJfcunXVCn/JEEZeqJTpMuYvjjZjEVzMsD7TQoFScXhIGLr4\nRj1qP3nSGs0dRp2\+XSi80D48JCpiTN/IeSLQ15R2o04dfBtAs59k7zLzdiSNkU2i\nbW9EZ\+FMDjJz6cXKq0TllSMRXtM7zqWKixb4wQrGa3EMC9w\+vTX/80cSrzECgYBZ\ntRT36iV3Fdiq3xBTwRqlhu/Ypsn3I87jRJ8S5jHx1uKMP3yTWV\+up30w4SC9BisN\nbLPdCGAjDDrp9cQJDhNHs09DwG5f/ZPb/MyJo3iNKPPRdzVbXRycyo4LZgbkhnI\+\nRfEJfC2wjsyfVP2tVMXWPPMCFOCG326TeF8mSHHneQKBgQCreA\+Huf0J3p77cg73\ni3DdVZxPvOKzmbaXMBhHnRvomrIaZRCQoR3I9j8PCh6yp\+ImHlMt\+zajApOgWHKh\nk1fSM8IHL5gC3JkHs8dps\+GFrJ8TQDZOcXxqGcoQatu/KsijOx\+5eb7\+zsm5F3/y\n3CRQ/xEwwO8f9KofulZKRHtcoQ==\n\-\-\-\-\-END\ PRIVATE\ KEY\-\-\-\-\-$''']
 
 [[allowlists]]
+targetRules = ["private-key"]
 description = "Exact public test key 2 in signer_identity.dart"
 condition = "AND"
 paths = ['''^packages/pdf_test_fixtures/lib/src/signer_identity\.dart$''']
