@@ -1129,6 +1129,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'แสดงบทบนแถบเลื่อน';
 
   @override
+  String get shellTwoPageView => 'มุมมองสองหน้า';
+
+  @override
+  String get shellTwoPageCover => 'แสดงหน้าปกแยกต่างหาก';
+
+  @override
   String get shellTabHere => 'แท็บที่นี่';
 
   @override

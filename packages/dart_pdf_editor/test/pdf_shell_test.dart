@@ -330,6 +330,46 @@ void main() {
           isTrue);
     });
 
+    testWidgets('view options menu switches to two-page spreads',
+        (tester) async {
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(4), preferences: prefs));
+      PdfPageLayout layout() =>
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).pageLayout;
+      expect(layout(), const PdfPageLayout.verticalContinuous());
+
+      Future<void> choose(String key) async {
+        await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(ValueKey(key)),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+      }
+
+      // the cover option only appears once the spreads are on
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-shell-two-page-cover')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-two-page-view')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.twoPageView, isTrue);
+      expect(layout(), const PdfPageLayout.facing());
+
+      await choose('pdf-shell-two-page-cover');
+      expect(prefs.twoPageCoverPage, isTrue);
+      expect(layout(), const PdfPageLayout.facing(coverPage: true));
+
+      await choose('pdf-shell-two-page-view');
+      expect(prefs.twoPageView, isFalse);
+      expect(layout(), const PdfPageLayout.verticalContinuous());
+    });
+
     testWidgets('view options can switch to reflow text', (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);

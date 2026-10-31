@@ -1134,6 +1134,12 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Kapitel auf der Bildlaufleiste anzeigen';
 
   @override
+  String get shellTwoPageView => 'Zweiseitenansicht';
+
+  @override
+  String get shellTwoPageCover => 'Deckblatt separat anzeigen';
+
+  @override
   String get shellTabHere => 'Hier als Tab';
 
   @override

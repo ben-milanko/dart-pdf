@@ -735,7 +735,10 @@ class _PdfReaderState extends State<PdfReader> {
                             contextMenuEnabled: widget.contextMenuEnabled,
                             onContextMenuRequested:
                                 widget.onContextMenuRequested,
-                            pageLayout: widget.pageLayout,
+                            pageLayout: prefs.twoPageView
+                                ? widget.pageLayout.withFacing(true,
+                                    coverPage: prefs.twoPageCoverPage)
+                                : widget.pageLayout,
                             initialFit: widget.initialFit,
                             backgroundColor: widget.backgroundColor,
                             pageColor: pageColor,

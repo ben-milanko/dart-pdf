@@ -2093,7 +2093,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                                   prefs.toolbarDock == PdfPanelDock.bottom
                               ? 144
                               : 0,
-                          pageLayout: widget.pageLayout,
+                          pageLayout: prefs.twoPageView
+                              ? widget.pageLayout.withFacing(true,
+                                  coverPage: prefs.twoPageCoverPage)
+                              : widget.pageLayout,
                           initialFit: widget.initialFit,
                           toolShortcuts: availableShortcuts,
                           backgroundColor: widget.backgroundColor,

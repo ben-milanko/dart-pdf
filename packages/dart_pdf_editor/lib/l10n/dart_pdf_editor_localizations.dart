@@ -2166,6 +2166,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Show chapters on scrollbar'**
   String get shellShowScrollbarChapters;
 
+  /// Toggle label for the facing-pages layout: consecutive pages shown side by side as two-page spreads, like an open book or notebook.
+  ///
+  /// In en, this message translates to:
+  /// **'Two-page view'**
+  String get shellTwoPageView;
+
+  /// Toggle label, shown with the two-page view, for keeping the first page alone (a book cover) so the spreads start at pages 2-3.
+  ///
+  /// In en, this message translates to:
+  /// **'Show cover page separately'**
+  String get shellTwoPageCover;
+
   /// Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group.
   ///
   /// In en, this message translates to:

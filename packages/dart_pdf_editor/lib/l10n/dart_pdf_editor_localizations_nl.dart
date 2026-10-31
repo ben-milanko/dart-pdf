@@ -1134,6 +1134,12 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Hoofdstukken op de schuifbalk tonen';
 
   @override
+  String get shellTwoPageView => 'Weergave van twee pagina\'s';
+
+  @override
+  String get shellTwoPageCover => 'Voorpagina apart tonen';
+
+  @override
   String get shellTabHere => 'Tabblad hier';
 
   @override
