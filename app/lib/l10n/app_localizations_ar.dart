@@ -1531,4 +1531,90 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'بيانات النموذج والتعليقات';
+
+  @override
+  String get liveSyncMenuStart => 'بدء المزامنة المباشرة (تجريبية)';
+
+  @override
+  String get liveSyncMenuStop => 'إيقاف المزامنة المباشرة';
+
+  @override
+  String get liveSyncUnavailable =>
+      'تتطلب المزامنة المباشرة ملف PDF محفوظًا في مجلد على هذا الكمبيوتر، مثل مجلد OneDrive أو Google Drive أو iCloud أو Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'تتطلب المزامنة المباشرة إذنًا بالوصول إلى المجلد الذي يحتوي على ملف PDF هذا.';
+
+  @override
+  String get liveSyncStarted =>
+      'المزامنة المباشرة قيد التشغيل. كل من يفتح ملف PDF هذا من المجلد المشترك نفسه ويشغّل المزامنة المباشرة يرى تعليقاتك التوضيحية.';
+
+  @override
+  String get liveSyncStopped => 'المزامنة المباشرة متوقفة.';
+
+  @override
+  String get liveSyncConnecting => 'جارٍ الاتصال…';
+
+  @override
+  String get liveSyncLive => 'مباشر';
+
+  @override
+  String get liveSyncOffline => 'غير متصل';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'تعذّر الوصول إلى مجلد المزامنة. جارٍ إعادة المحاولة…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return 'انضم $name';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return 'غادر $name';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'إضافة الصفحات وإزالتها وإعادة ترتيبها متوقفة أثناء تشغيل المزامنة المباشرة.';
+
+  @override
+  String get liveSyncSaved =>
+      'تمت مزامنة التغييرات. يتم تحديث ملف PDF المشترك تلقائيًا.';
+
+  @override
+  String get liveSyncDetailsTitle => 'المزامنة المباشرة (تجريبية)';
+
+  @override
+  String get liveSyncNobodyElse => 'لم يفتح أحد آخر ملف PDF هذا بعد.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (أنت)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'يكتب هذا الجهاز تغييرات الجميع في ملف PDF المشترك.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'يكتب جهاز شخص آخر تغييرات الجميع في ملف PDF المشترك.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'أنت و$count شخص آخر',
+      many: 'أنت و$count شخصًا آخر',
+      few: 'أنت و$count أشخاص آخرين',
+      two: 'أنت وشخصان آخران',
+      one: 'أنت وشخص آخر',
+      zero: 'أنت فقط',
+    );
+    return '$_temp0';
+  }
 }

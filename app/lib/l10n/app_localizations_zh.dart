@@ -1461,6 +1461,81 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get editorMenuFormData => '表单数据和注释';
+
+  @override
+  String get liveSyncMenuStart => '开始实时同步（实验性）';
+
+  @override
+  String get liveSyncMenuStop => '停止实时同步';
+
+  @override
+  String get liveSyncUnavailable =>
+      '实时同步需要将 PDF 保存在此电脑上的文件夹中，例如 OneDrive、Google Drive、iCloud 或 Dropbox 文件夹。';
+
+  @override
+  String get liveSyncFolderAccessDenied => '实时同步需要访问存放此 PDF 的文件夹。';
+
+  @override
+  String get liveSyncStarted => '实时同步已开启。任何人从同一共享文件夹打开此 PDF 并开启实时同步，都能看到你的批注。';
+
+  @override
+  String get liveSyncStopped => '实时同步已关闭。';
+
+  @override
+  String get liveSyncConnecting => '正在连接…';
+
+  @override
+  String get liveSyncLive => '实时';
+
+  @override
+  String get liveSyncOffline => '离线';
+
+  @override
+  String get liveSyncOfflineDetail => '无法访问同步文件夹。正在重试…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name 已加入';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name 已离开';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked => '实时同步开启时，无法添加、删除或重新排列页面。';
+
+  @override
+  String get liveSyncSaved => '更改已同步。共享 PDF 会自动更新。';
+
+  @override
+  String get liveSyncDetailsTitle => '实时同步（实验性）';
+
+  @override
+  String get liveSyncNobodyElse => '还没有其他人打开此 PDF。';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name（你）';
+  }
+
+  @override
+  String get liveSyncWritesPdf => '此设备会将所有人的更改写入共享 PDF。';
+
+  @override
+  String get liveSyncOtherWritesPdf => '其他人的设备会将所有人的更改写入共享 PDF。';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '你和其他 $count 人',
+      zero: '只有你',
+    );
+    return '$_temp0';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2921,4 +2996,80 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorMenuFormData => '表單資料和註解';
+
+  @override
+  String get liveSyncMenuStart => '開始即時同步（實驗性）';
+
+  @override
+  String get liveSyncMenuStop => '停止即時同步';
+
+  @override
+  String get liveSyncUnavailable =>
+      '即時同步需要將 PDF 儲存在這部電腦上的資料夾中，例如 OneDrive、Google Drive、iCloud 或 Dropbox 資料夾。';
+
+  @override
+  String get liveSyncFolderAccessDenied => '即時同步需要存取存放這個 PDF 的資料夾。';
+
+  @override
+  String get liveSyncStarted =>
+      '即時同步已開啟。任何人從同一個共用資料夾開啟這個 PDF 並開啟即時同步，都能看到你的註解。';
+
+  @override
+  String get liveSyncStopped => '即時同步已關閉。';
+
+  @override
+  String get liveSyncConnecting => '連線中…';
+
+  @override
+  String get liveSyncLive => '即時';
+
+  @override
+  String get liveSyncOffline => '離線';
+
+  @override
+  String get liveSyncOfflineDetail => '無法存取同步資料夾。正在重試…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name 已加入';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name 已離開';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked => '即時同步開啟時，無法新增、移除或重新排列頁面。';
+
+  @override
+  String get liveSyncSaved => '變更已同步。共用 PDF 會自動更新。';
+
+  @override
+  String get liveSyncDetailsTitle => '即時同步（實驗性）';
+
+  @override
+  String get liveSyncNobodyElse => '還沒有其他人開啟這個 PDF。';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name（你）';
+  }
+
+  @override
+  String get liveSyncWritesPdf => '這部裝置會將所有人的變更寫入共用 PDF。';
+
+  @override
+  String get liveSyncOtherWritesPdf => '其他人的裝置會將所有人的變更寫入共用 PDF。';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '你和其他 $count 人',
+      zero: '只有你',
+    );
+    return '$_temp0';
+  }
 }

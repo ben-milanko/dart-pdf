@@ -1507,4 +1507,87 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Form verileri ve yorumlar';
+
+  @override
+  String get liveSyncMenuStart => 'Canlı eşitlemeyi başlat (deneysel)';
+
+  @override
+  String get liveSyncMenuStop => 'Canlı eşitlemeyi durdur';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Canlı eşitleme için PDF\'nin bu bilgisayardaki bir klasöre (ör. OneDrive, Google Drive, iCloud veya Dropbox klasörü) kaydedilmiş olması gerekir.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Canlı eşitleme için bu PDF\'yi içeren klasöre erişim gerekir.';
+
+  @override
+  String get liveSyncStarted =>
+      'Canlı eşitleme açık. Bu PDF\'yi aynı paylaşılan klasörden açıp canlı eşitlemeyi açan herkes ek açıklamalarınızı görür.';
+
+  @override
+  String get liveSyncStopped => 'Canlı eşitleme kapalı.';
+
+  @override
+  String get liveSyncConnecting => 'Bağlanıyor…';
+
+  @override
+  String get liveSyncLive => 'Canlı';
+
+  @override
+  String get liveSyncOffline => 'Çevrimdışı';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Eşitleme klasörüne ulaşılamıyor. Yeniden deneniyor…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name katıldı';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name ayrıldı';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Canlı eşitleme açıkken sayfa ekleme, kaldırma ve yeniden sıralama kapalıdır.';
+
+  @override
+  String get liveSyncSaved =>
+      'Değişiklikler eşitlendi. Paylaşılan PDF otomatik olarak güncellenir.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Canlı eşitleme (deneysel)';
+
+  @override
+  String get liveSyncNobodyElse => 'Bu PDF\'yi henüz başka kimse açmadı.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (siz)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Bu cihaz herkesin değişikliklerini paylaşılan PDF\'ye yazar.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Başka bir kişinin cihazı herkesin değişikliklerini paylaşılan PDF\'ye yazar.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Siz ve $count kişi daha',
+      one: 'Siz ve 1 kişi daha',
+      zero: 'Yalnızca siz',
+    );
+    return '$_temp0';
+  }
 }

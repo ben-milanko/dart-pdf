@@ -1509,4 +1509,86 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Dữ liệu biểu mẫu và nhận xét';
+
+  @override
+  String get liveSyncMenuStart => 'Bắt đầu đồng bộ trực tiếp (thử nghiệm)';
+
+  @override
+  String get liveSyncMenuStop => 'Dừng đồng bộ trực tiếp';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Đồng bộ trực tiếp cần một tệp PDF được lưu trong thư mục trên máy tính này, chẳng hạn thư mục OneDrive, Google Drive, iCloud hoặc Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Đồng bộ trực tiếp cần quyền truy cập thư mục chứa tệp PDF này.';
+
+  @override
+  String get liveSyncStarted =>
+      'Đồng bộ trực tiếp đang bật. Bất kỳ ai mở tệp PDF này từ cùng thư mục dùng chung và bật đồng bộ trực tiếp đều thấy chú thích của bạn.';
+
+  @override
+  String get liveSyncStopped => 'Đồng bộ trực tiếp đã tắt.';
+
+  @override
+  String get liveSyncConnecting => 'Đang kết nối…';
+
+  @override
+  String get liveSyncLive => 'Trực tiếp';
+
+  @override
+  String get liveSyncOffline => 'Ngoại tuyến';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Không truy cập được thư mục đồng bộ. Đang thử lại…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name đã tham gia';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name đã rời đi';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Thêm, xóa và sắp xếp lại trang bị tắt khi đồng bộ trực tiếp đang bật.';
+
+  @override
+  String get liveSyncSaved =>
+      'Đã đồng bộ thay đổi. Tệp PDF dùng chung tự động cập nhật.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Đồng bộ trực tiếp (thử nghiệm)';
+
+  @override
+  String get liveSyncNobodyElse => 'Chưa có ai khác mở tệp PDF này.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (bạn)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Thiết bị này ghi thay đổi của mọi người vào tệp PDF dùng chung.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Thiết bị của người khác ghi thay đổi của mọi người vào tệp PDF dùng chung.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Bạn và $count người khác',
+      zero: 'Chỉ có bạn',
+    );
+    return '$_temp0';
+  }
 }

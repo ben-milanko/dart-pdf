@@ -1532,4 +1532,88 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Données de formulaire et commentaires';
+
+  @override
+  String get liveSyncMenuStart =>
+      'Démarrer la synchronisation en direct (expérimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Arrêter la synchronisation en direct';
+
+  @override
+  String get liveSyncUnavailable =>
+      'La synchronisation en direct nécessite un PDF enregistré dans un dossier de cet ordinateur, par exemple un dossier OneDrive, Google Drive, iCloud ou Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'La synchronisation en direct nécessite l’accès au dossier qui contient ce PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'La synchronisation en direct est activée. Toute personne qui ouvre ce PDF depuis le même dossier partagé et active la synchronisation en direct voit vos annotations.';
+
+  @override
+  String get liveSyncStopped => 'La synchronisation en direct est désactivée.';
+
+  @override
+  String get liveSyncConnecting => 'Connexion…';
+
+  @override
+  String get liveSyncLive => 'En direct';
+
+  @override
+  String get liveSyncOffline => 'Hors ligne';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Impossible d’accéder au dossier de synchronisation. Nouvelle tentative…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name a rejoint le document';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name est parti';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'L’ajout, la suppression et la réorganisation des pages sont désactivés pendant la synchronisation en direct.';
+
+  @override
+  String get liveSyncSaved =>
+      'Modifications synchronisées. Le PDF partagé se met à jour automatiquement.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Synchronisation en direct (expérimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Personne d’autre n’a encore ouvert ce PDF.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (vous)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Cet appareil écrit les modifications de tous dans le PDF partagé.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'L’appareil d’une autre personne écrit les modifications de tous dans le PDF partagé.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Vous et $count autres personnes',
+      one: 'Vous et 1 autre personne',
+      zero: 'Vous seul',
+    );
+    return '$_temp0';
+  }
 }

@@ -1510,4 +1510,87 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'फ़ॉर्म डेटा और टिप्पणियाँ';
+
+  @override
+  String get liveSyncMenuStart => 'लाइव सिंक शुरू करें (प्रयोगात्मक)';
+
+  @override
+  String get liveSyncMenuStop => 'लाइव सिंक बंद करें';
+
+  @override
+  String get liveSyncUnavailable =>
+      'लाइव सिंक के लिए PDF इस कंप्यूटर के किसी फ़ोल्डर में सहेजा होना चाहिए, जैसे OneDrive, Google Drive, iCloud या Dropbox फ़ोल्डर।';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'लाइव सिंक के लिए उस फ़ोल्डर की पहुँच चाहिए जिसमें यह PDF है।';
+
+  @override
+  String get liveSyncStarted =>
+      'लाइव सिंक चालू है। जो भी इस PDF को उसी साझा फ़ोल्डर से खोलकर लाइव सिंक चालू करेगा, उसे आपके एनोटेशन दिखेंगे।';
+
+  @override
+  String get liveSyncStopped => 'लाइव सिंक बंद है।';
+
+  @override
+  String get liveSyncConnecting => 'कनेक्ट हो रहा है…';
+
+  @override
+  String get liveSyncLive => 'लाइव';
+
+  @override
+  String get liveSyncOffline => 'ऑफ़लाइन';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'सिंक फ़ोल्डर तक नहीं पहुँच पा रहे। फिर से कोशिश हो रही है…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name जुड़ गए';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name चले गए';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'लाइव सिंक चालू रहने तक पेज जोड़ना, हटाना और क्रम बदलना बंद है।';
+
+  @override
+  String get liveSyncSaved =>
+      'बदलाव सिंक हो गए। साझा PDF अपने-आप अपडेट होता है।';
+
+  @override
+  String get liveSyncDetailsTitle => 'लाइव सिंक (प्रयोगात्मक)';
+
+  @override
+  String get liveSyncNobodyElse => 'अभी किसी और ने यह PDF नहीं खोला है।';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (आप)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'यह डिवाइस सभी के बदलाव साझा PDF में लिखता है।';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'किसी और का डिवाइस सभी के बदलाव साझा PDF में लिखता है।';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'आप और $count अन्य लोग',
+      one: 'आप और 1 अन्य व्यक्ति',
+      zero: 'सिर्फ़ आप',
+    );
+    return '$_temp0';
+  }
 }

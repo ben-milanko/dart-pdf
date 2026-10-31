@@ -1534,4 +1534,91 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Данные формы и комментарии';
+
+  @override
+  String get liveSyncMenuStart =>
+      'Начать синхронизацию в реальном времени (экспериментально)';
+
+  @override
+  String get liveSyncMenuStop => 'Остановить синхронизацию в реальном времени';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Для синхронизации в реальном времени PDF должен быть сохранён в папке на этом компьютере, например в папке OneDrive, Google Drive, iCloud или Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Для синхронизации в реальном времени нужен доступ к папке с этим PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Синхронизация в реальном времени включена. Любой, кто откроет этот PDF из той же общей папки и включит синхронизацию, увидит ваши аннотации.';
+
+  @override
+  String get liveSyncStopped => 'Синхронизация в реальном времени выключена.';
+
+  @override
+  String get liveSyncConnecting => 'Подключение…';
+
+  @override
+  String get liveSyncLive => 'В сети';
+
+  @override
+  String get liveSyncOffline => 'Офлайн';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Не удаётся получить доступ к папке синхронизации. Повтор…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name присоединяется';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name выходит';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Добавление, удаление и перестановка страниц недоступны во время синхронизации в реальном времени.';
+
+  @override
+  String get liveSyncSaved =>
+      'Изменения синхронизированы. Общий PDF обновляется автоматически.';
+
+  @override
+  String get liveSyncDetailsTitle =>
+      'Синхронизация в реальном времени (экспериментально)';
+
+  @override
+  String get liveSyncNobodyElse => 'Пока никто больше не открыл этот PDF.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (вы)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Это устройство записывает изменения всех участников в общий PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Устройство другого участника записывает изменения всех в общий PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Вы и ещё $count человека',
+      many: 'Вы и ещё $count человек',
+      few: 'Вы и ещё $count человека',
+      one: 'Вы и ещё 1 человек',
+      zero: 'Только вы',
+    );
+    return '$_temp0';
+  }
 }

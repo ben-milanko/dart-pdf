@@ -2474,6 +2474,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Form data and comments'**
   String get editorMenuFormData;
+
+  /// App menu action that turns on experimental live annotation sync for the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Start live sync (experimental)'**
+  String get liveSyncMenuStart;
+
+  /// App menu action and dialog button that turns live sync off.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop live sync'**
+  String get liveSyncMenuStop;
+
+  /// Toast when live sync cannot run for this document (no folder on disk to share through).
+  ///
+  /// In en, this message translates to:
+  /// **'Live sync needs a PDF saved in a folder on this computer, such as a OneDrive, Google Drive, iCloud or Dropbox folder.'**
+  String get liveSyncUnavailable;
+
+  /// Toast when the user declines to grant access to the PDF's folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Live sync needs access to the folder that holds this PDF.'**
+  String get liveSyncFolderAccessDenied;
+
+  /// Toast after live sync starts.
+  ///
+  /// In en, this message translates to:
+  /// **'Live sync is on. Anyone who opens this PDF from the same shared folder and turns on live sync sees your annotations.'**
+  String get liveSyncStarted;
+
+  /// Toast after live sync stops.
+  ///
+  /// In en, this message translates to:
+  /// **'Live sync is off.'**
+  String get liveSyncStopped;
+
+  /// Live sync chip label while reading the shared folder for the first time.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get liveSyncConnecting;
+
+  /// Live sync chip label when syncing works.
+  ///
+  /// In en, this message translates to:
+  /// **'Live'**
+  String get liveSyncLive;
+
+  /// Live sync chip label when the shared folder cannot be reached.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get liveSyncOffline;
+
+  /// Live sync details dialog status when offline.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t reach the sync folder. Retrying…'**
+  String get liveSyncOfflineDetail;
+
+  /// Toast when another person opens the document with live sync on.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} joined'**
+  String liveSyncJoined(String name);
+
+  /// Toast when another person leaves the live-synced document.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} left'**
+  String liveSyncLeft(String name);
+
+  /// Toast when a page insert/remove/reorder is refused during live sync.
+  ///
+  /// In en, this message translates to:
+  /// **'Adding, removing and reordering pages is off while live sync is on.'**
+  String get liveSyncPageEditsLocked;
+
+  /// Toast when Save is pressed during live sync.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes synced. The shared PDF updates automatically.'**
+  String get liveSyncSaved;
+
+  /// Title of the live sync details dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Live sync (experimental)'**
+  String get liveSyncDetailsTitle;
+
+  /// Live sync details dialog when nobody else is in the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody else has this PDF open yet.'**
+  String get liveSyncNobodyElse;
+
+  /// Live sync details dialog row for this user.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (you)'**
+  String liveSyncYou(String name);
+
+  /// Live sync details dialog note when this device saves the merged changes into the shared PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'This device writes everyone\'s changes into the shared PDF.'**
+  String get liveSyncWritesPdf;
+
+  /// Live sync details dialog note when another device saves the merged changes into the shared PDF.
+  ///
+  /// In en, this message translates to:
+  /// **'Another person\'s device writes everyone\'s changes into the shared PDF.'**
+  String get liveSyncOtherWritesPdf;
+
+  /// Live sync chip tooltip: how many other people have the document open.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Only you} =1{You and 1 other person} other{You and {count} other people}}'**
+  String liveSyncPeopleCount(int count);
 }
 
 class _AppLocalizationsDelegate

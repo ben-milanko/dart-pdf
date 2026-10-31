@@ -1537,4 +1537,91 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Дані форми та коментарі';
+
+  @override
+  String get liveSyncMenuStart =>
+      'Почати синхронізацію в реальному часі (експериментально)';
+
+  @override
+  String get liveSyncMenuStop => 'Зупинити синхронізацію в реальному часі';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Для синхронізації в реальному часі PDF має бути збережено в папці на цьому комп’ютері, наприклад у папці OneDrive, Google Drive, iCloud або Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Для синхронізації в реальному часі потрібен доступ до папки з цим PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'Синхронізацію в реальному часі ввімкнено. Будь-хто, хто відкриє цей PDF зі спільної папки й увімкне синхронізацію, побачить ваші анотації.';
+
+  @override
+  String get liveSyncStopped => 'Синхронізацію в реальному часі вимкнено.';
+
+  @override
+  String get liveSyncConnecting => 'Підключення…';
+
+  @override
+  String get liveSyncLive => 'У мережі';
+
+  @override
+  String get liveSyncOffline => 'Офлайн';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Не вдається отримати доступ до папки синхронізації. Повтор…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name приєднується';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name виходить';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Додавання, видалення та перевпорядкування сторінок недоступні під час синхронізації в реальному часі.';
+
+  @override
+  String get liveSyncSaved =>
+      'Зміни синхронізовано. Спільний PDF оновлюється автоматично.';
+
+  @override
+  String get liveSyncDetailsTitle =>
+      'Синхронізація в реальному часі (експериментально)';
+
+  @override
+  String get liveSyncNobodyElse => 'Ще ніхто інший не відкрив цей PDF.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (ви)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Цей пристрій записує зміни всіх учасників у спільний PDF.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Пристрій іншого учасника записує зміни всіх у спільний PDF.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ви та ще $count особи',
+      many: 'Ви та ще $count осіб',
+      few: 'Ви та ще $count особи',
+      one: 'Ви та ще 1 особа',
+      zero: 'Лише ви',
+    );
+    return '$_temp0';
+  }
 }

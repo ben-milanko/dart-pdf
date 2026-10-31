@@ -40,6 +40,7 @@ export 'src/editing/editing_bookmarks.dart';
 export 'src/editing/editing_color_picker.dart';
 export 'src/editing/editing_color_processing.dart';
 export 'src/editing/editing_controller.dart';
+export 'src/editing/editing_sync.dart';
 export 'src/editing/create_signing_identity_dialog.dart';
 export 'src/editing/digital_signature.dart';
 export 'src/editing/digital_signature_removal.dart'

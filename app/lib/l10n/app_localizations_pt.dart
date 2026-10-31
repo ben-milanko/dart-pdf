@@ -1522,4 +1522,88 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Dados de formulário e comentários';
+
+  @override
+  String get liveSyncMenuStart =>
+      'Iniciar sincronização ao vivo (experimental)';
+
+  @override
+  String get liveSyncMenuStop => 'Parar sincronização ao vivo';
+
+  @override
+  String get liveSyncUnavailable =>
+      'A sincronização ao vivo precisa de um PDF salvo em uma pasta deste computador, como uma pasta do OneDrive, Google Drive, iCloud ou Dropbox.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'A sincronização ao vivo precisa de acesso à pasta que contém este PDF.';
+
+  @override
+  String get liveSyncStarted =>
+      'A sincronização ao vivo está ativada. Quem abrir este PDF da mesma pasta compartilhada e ativar a sincronização ao vivo verá suas anotações.';
+
+  @override
+  String get liveSyncStopped => 'A sincronização ao vivo está desativada.';
+
+  @override
+  String get liveSyncConnecting => 'Conectando…';
+
+  @override
+  String get liveSyncLive => 'Ao vivo';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'Não foi possível acessar a pasta de sincronização. Tentando novamente…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name entrou';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name saiu';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Adicionar, remover e reordenar páginas fica desativado enquanto a sincronização ao vivo estiver ativa.';
+
+  @override
+  String get liveSyncSaved =>
+      'Alterações sincronizadas. O PDF compartilhado é atualizado automaticamente.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Sincronização ao vivo (experimental)';
+
+  @override
+  String get liveSyncNobodyElse => 'Ninguém mais abriu este PDF ainda.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (você)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Este dispositivo grava as alterações de todos no PDF compartilhado.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'O dispositivo de outra pessoa grava as alterações de todos no PDF compartilhado.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Você e mais $count pessoas',
+      one: 'Você e mais 1 pessoa',
+      zero: 'Só você',
+    );
+    return '$_temp0';
+  }
 }

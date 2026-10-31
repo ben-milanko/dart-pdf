@@ -1523,4 +1523,87 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Formuliergegevens en opmerkingen';
+
+  @override
+  String get liveSyncMenuStart => 'Live synchronisatie starten (experimenteel)';
+
+  @override
+  String get liveSyncMenuStop => 'Live synchronisatie stoppen';
+
+  @override
+  String get liveSyncUnavailable =>
+      'Voor live synchronisatie moet de pdf in een map op deze computer staan, zoals een OneDrive-, Google Drive-, iCloud- of Dropbox-map.';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'Voor live synchronisatie is toegang nodig tot de map met deze pdf.';
+
+  @override
+  String get liveSyncStarted =>
+      'Live synchronisatie staat aan. Iedereen die deze pdf uit dezelfde gedeelde map opent en live synchronisatie aanzet, ziet je aantekeningen.';
+
+  @override
+  String get liveSyncStopped => 'Live synchronisatie staat uit.';
+
+  @override
+  String get liveSyncConnecting => 'Verbinden…';
+
+  @override
+  String get liveSyncLive => 'Live';
+
+  @override
+  String get liveSyncOffline => 'Offline';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'De synchronisatiemap is niet bereikbaar. Opnieuw proberen…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name doet mee';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name is weg';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'Pagina’s toevoegen, verwijderen en herschikken is uitgeschakeld tijdens live synchronisatie.';
+
+  @override
+  String get liveSyncSaved =>
+      'Wijzigingen gesynchroniseerd. De gedeelde pdf wordt automatisch bijgewerkt.';
+
+  @override
+  String get liveSyncDetailsTitle => 'Live synchronisatie (experimenteel)';
+
+  @override
+  String get liveSyncNobodyElse => 'Nog niemand anders heeft deze pdf geopend.';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (jij)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'Dit apparaat schrijft ieders wijzigingen in de gedeelde pdf.';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'Het apparaat van iemand anders schrijft ieders wijzigingen in de gedeelde pdf.';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Jij en $count andere personen',
+      one: 'Jij en 1 andere persoon',
+      zero: 'Alleen jij',
+    );
+    return '$_temp0';
+  }
 }

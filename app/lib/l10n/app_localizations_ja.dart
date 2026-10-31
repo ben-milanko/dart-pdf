@@ -1473,4 +1473,81 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'フォームデータと注釈';
+
+  @override
+  String get liveSyncMenuStart => 'ライブ同期を開始（試験運用）';
+
+  @override
+  String get liveSyncMenuStop => 'ライブ同期を停止';
+
+  @override
+  String get liveSyncUnavailable =>
+      'ライブ同期を使うには、このコンピューター上のフォルダー（OneDrive、Google Drive、iCloud、Dropbox のフォルダーなど）に PDF を保存する必要があります。';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'ライブ同期には、この PDF があるフォルダーへのアクセスが必要です。';
+
+  @override
+  String get liveSyncStarted =>
+      'ライブ同期がオンです。同じ共有フォルダーからこの PDF を開いてライブ同期をオンにした人には、あなたの注釈が表示されます。';
+
+  @override
+  String get liveSyncStopped => 'ライブ同期はオフです。';
+
+  @override
+  String get liveSyncConnecting => '接続中…';
+
+  @override
+  String get liveSyncLive => 'ライブ';
+
+  @override
+  String get liveSyncOffline => 'オフライン';
+
+  @override
+  String get liveSyncOfflineDetail => '同期フォルダーにアクセスできません。再試行しています…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name さんが参加しました';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name さんが退出しました';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked => 'ライブ同期中は、ページの追加・削除・並べ替えはできません。';
+
+  @override
+  String get liveSyncSaved => '変更を同期しました。共有 PDF は自動的に更新されます。';
+
+  @override
+  String get liveSyncDetailsTitle => 'ライブ同期（試験運用）';
+
+  @override
+  String get liveSyncNobodyElse => 'この PDF を開いている人はまだほかにいません。';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name（あなた）';
+  }
+
+  @override
+  String get liveSyncWritesPdf => 'このデバイスが全員の変更を共有 PDF に書き込みます。';
+
+  @override
+  String get liveSyncOtherWritesPdf => 'ほかの人のデバイスが全員の変更を共有 PDF に書き込みます。';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'あなたとほか $count 人',
+      zero: 'あなただけ',
+    );
+    return '$_temp0';
+  }
 }

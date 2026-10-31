@@ -194,6 +194,59 @@ class _LoopbackEndpoint implements PdfSyncTransport {
   }
 }
 
+/// The last-writer-wins bookkeeping of one sync participant: a Lamport
+/// clock plus the winning `(clock, origin)` per /NM.
+///
+/// [stamp] wraps a local change as the newest write for its /NM; [accept]
+/// decides whether a remote message should be applied. Because the order on
+/// `(clock, origin)` is total (higher clock first, then the
+/// lexicographically greater origin) and every participant evaluates it the
+/// same way, participants converge on the same winner whatever order
+/// messages arrive in. [PdfSyncSession] and the editor's
+/// `PdfEditingSync` share this so they merge identically.
+class PdfSyncClock {
+  PdfSyncClock(this.origin);
+
+  /// This participant's id - the transport's session id.
+  final String origin;
+
+  int _clock = 0;
+
+  /// The last accepted write per /NM: `(clock, origin)`.
+  final Map<String, (int, String)> _lastWrite = {};
+
+  /// The current Lamport time.
+  int get clock => _clock;
+
+  /// Wraps the local [change] as a message, advancing the clock. A local
+  /// edit is, by construction, the newest write for its /NM.
+  PdfSyncMessage stamp(PdfAnnotationChange change) {
+    final clock = ++_clock;
+    final name = change.name;
+    if (name != null) _lastWrite[name] = (clock, origin);
+    return PdfSyncMessage(change: change, origin: origin, clock: clock);
+  }
+
+  /// Advances the clock past [message] and returns whether it wins: true
+  /// only for a named change strictly newer than the last accepted write
+  /// to its /NM. A winner is recorded even if applying it turns out to be
+  /// a no-op (a remove of something never held), so a later stale edit is
+  /// still dropped. Anonymous changes never win: they can't be id-merged.
+  bool accept(PdfSyncMessage message) {
+    if (message.clock > _clock) _clock = message.clock;
+    final name = message.name;
+    if (name == null) return false;
+    final current = _lastWrite[name];
+    final incoming = (message.clock, message.origin);
+    if (current != null && !_isNewer(incoming, current)) return false;
+    _lastWrite[name] = incoming;
+    return true;
+  }
+
+  static bool _isNewer((int, String) a, (int, String) b) =>
+      a.$1 != b.$1 ? a.$1 > b.$1 : a.$2.compareTo(b.$2) > 0;
+}
+
 /// A transport-agnostic collaborative editing session over one document's
 /// annotations, built on the snapshot + diff primitives
 /// ([pdfDiffAnnotations], [PdfAnnotationSnapshot],
@@ -235,12 +288,8 @@ class PdfSyncSession {
   PdfDocument _document;
   late final StreamSubscription<PdfSyncMessage> _subscription;
 
-  int _clock = 0;
-
-  /// The last accepted write per /NM: `(clock, origin)`. New writes win
-  /// only when strictly greater in this total order, which is what makes
-  /// the merge deterministic and convergent.
-  final Map<String, (int, String)> _lastWrite = {};
+  /// The Lamport clock and per-/NM winners this session merges by.
+  late final PdfSyncClock _clock = PdfSyncClock(id);
 
   final StreamController<List<PdfAnnotationChange>> _changes =
       StreamController<List<PdfAnnotationChange>>.broadcast();
@@ -282,17 +331,10 @@ class PdfSyncSession {
     final before = PdfDocument.open(beforeBytes, password: _password);
     _bytes = saved;
     _document = PdfDocument.open(saved, password: _password);
-    final diffPages =
-        (pages == null || pages.isEmpty) ? null : pages;
-    final changes =
-        pdfDiffAnnotations(before, _document, pages: diffPages);
+    final diffPages = (pages == null || pages.isEmpty) ? null : pages;
+    final changes = pdfDiffAnnotations(before, _document, pages: diffPages);
     for (final change in changes) {
-      final clock = ++_clock;
-      final name = change.name;
-      // a local edit is, by construction, the newest write for its /NM
-      if (name != null) _lastWrite[name] = (clock, id);
-      transport.send(
-          PdfSyncMessage(change: change, origin: id, clock: clock));
+      transport.send(_clock.stamp(change));
     }
     if (changes.isNotEmpty) _changes.add(changes);
     return changes;
@@ -336,30 +378,11 @@ class PdfSyncSession {
   }
 
   void _onRemote(PdfSyncMessage message) {
-    // advance the Lamport clock past anything we hear about
-    if (message.clock > _clock) _clock = message.clock;
-    final name = message.name;
-    if (name == null) return; // anonymous: not id-mergeable
-
-    // last-writer-wins: accept only a strictly newer (clock, origin)
-    final current = _lastWrite[name];
-    final incoming = (message.clock, message.origin);
-    if (current != null && !_isNewer(incoming, current)) return;
-
-    // record the winning write even if the apply is a no-op (e.g. a remove
-    // of something we never had): the table is the authority on "latest
-    // known write for this /NM", so a later stale edit is still dropped
-    _lastWrite[name] = incoming;
+    if (!_clock.accept(message)) return;
     if (_applyRemote(message.change)) {
       _changes.add([message.change]);
     }
   }
-
-  /// Strict total order on `(clock, origin)`: higher clock wins; ties break
-  /// on the lexicographically greater origin id, so every session picks the
-  /// same winner.
-  static bool _isNewer((int, String) a, (int, String) b) =>
-      a.$1 != b.$1 ? a.$1 > b.$1 : a.$2.compareTo(b.$2) > 0;
 
   bool _applyRemote(PdfAnnotationChange change) {
     final editor = PdfEditor(_document);
@@ -368,8 +391,7 @@ class PdfSyncSession {
       case PdfAnnotationChangeKind.modified:
         final snapshot = change.snapshot;
         if (snapshot == null || snapshot.name == null) return false;
-        if (change.pageIndex < 0 ||
-            change.pageIndex >= _document.pageCount) {
+        if (change.pageIndex < 0 || change.pageIndex >= _document.pageCount) {
           return false;
         }
         editor.upsertAnnotation(change.pageIndex, snapshot);

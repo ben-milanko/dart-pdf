@@ -119,6 +119,7 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
     this.flushDelay = const Duration(milliseconds: 400),
     this.presenceInterval = const Duration(seconds: 15),
     this.presenceTimeout = const Duration(seconds: 60),
+    this.presenceInfo = const {},
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now {
     if (!isValidWriterId(sessionId)) {
@@ -158,6 +159,11 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
   /// the sync provider's propagation delay plus [presenceInterval].
   final Duration presenceTimeout;
 
+  /// What this writer tells its peers about itself - typically a display
+  /// `name` and a `device` label. Written into its presence file; the
+  /// peers read it back as [peerInfo].
+  final Map<String, String> presenceInfo;
+
   final DateTime Function() _now;
 
   final StreamController<PdfSyncMessage> _incoming =
@@ -165,6 +171,8 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
   final StreamController<Set<String>> _presence =
       StreamController<Set<String>>.broadcast();
   late Set<String> _peers;
+  final Map<String, (DateTime, Map<String, String>)> _peerInfo = {};
+  final StreamController<Object> _errors = StreamController<Object>.broadcast();
 
   final List<PdfSyncMessage> _pending = [];
   Timer? _flushTimer;
@@ -186,6 +194,18 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
 
   @override
   Set<String> get peers => _peers;
+
+  /// The [presenceInfo] each other live peer published, keyed by writer id.
+  /// A peer whose presence file has not been read yet maps to an empty map.
+  Map<String, Map<String, String>> get peerInfo => {
+        for (final id in _peers)
+          if (id != sessionId) id: _peerInfo[id]?.$2 ?? const {},
+      };
+
+  /// Errors from the background polls [startPolling] runs (a store that
+  /// went offline, a permission change). A failed poll is retried on the
+  /// next tick; this only reports it.
+  Stream<Object> get errors => _errors.stream;
 
   /// Messages sent but not yet written to the store.
   int get pendingCount => _pending.length;
@@ -241,6 +261,7 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
       if (_closed) return 0;
       final unseen = <(String, int, String)>[];
       final live = <String>{sessionId};
+      final presence = <String, DateTime>{};
       final now = _now();
       for (final entry in entries) {
         final op = _opFile.firstMatch(entry.name);
@@ -257,6 +278,7 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
         final seen = _presenceFile.firstMatch(entry.name);
         if (seen != null && now.difference(entry.modified) <= presenceTimeout) {
           live.add(seen.group(1)!);
+          presence[seen.group(1)!] = entry.modified;
         }
       }
       // per writer in sequence order, so one writer's edits replay in the
@@ -277,6 +299,8 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
           delivered++;
         }
       }
+      await _readPresenceInfo(presence);
+      if (_closed) return delivered;
       await _touchPresence(now);
       _updatePeers(live);
       return delivered;
@@ -292,7 +316,36 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
     _pollTimer?.cancel();
     await poll();
     if (_closed) return;
-    _pollTimer = Timer.periodic(interval, (_) => unawaited(poll()));
+    _pollTimer = Timer.periodic(interval, (_) {
+      poll().then((_) {}, onError: (Object error) {
+        if (!_closed) _errors.add(error);
+      });
+    });
+  }
+
+  /// Refreshes [_peerInfo] for the live writers in [presence] whose presence
+  /// file changed since it was last read, and forgets the ones that left.
+  Future<void> _readPresenceInfo(Map<String, DateTime> presence) async {
+    _peerInfo.removeWhere((id, _) => !presence.containsKey(id));
+    for (final MapEntry(key: id, value: modified) in presence.entries) {
+      if (id == sessionId || _peerInfo[id]?.$1 == modified) continue;
+      try {
+        final bytes = await store.read('presence.$id.json');
+        if (bytes == null) continue;
+        final decoded = jsonDecode(utf8.decode(bytes));
+        final info = decoded is Map ? decoded['info'] : null;
+        _peerInfo[id] = (
+          modified,
+          {
+            if (info is Map)
+              for (final MapEntry(:key, :value) in info.entries)
+                if (key is String && value is String) key: value,
+          },
+        );
+      } on FormatException {
+        continue; // still syncing down: retry next poll
+      }
+    }
   }
 
   Future<List<PdfSyncMessage>?> _readOps(String name) async {
@@ -319,8 +372,10 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
     try {
       await store.write(
         'presence.$sessionId.json',
-        Uint8List.fromList(
-            utf8.encode(jsonEncode({'at': now.millisecondsSinceEpoch}))),
+        Uint8List.fromList(utf8.encode(jsonEncode({
+          'at': now.millisecondsSinceEpoch,
+          if (presenceInfo.isNotEmpty) 'info': presenceInfo,
+        }))),
       );
     } catch (_) {
       _presenceWritten = last; // retry next poll
@@ -345,5 +400,6 @@ class PdfSharedFolderSyncTransport implements PdfSyncTransport {
     unawaited(store.delete('presence.$sessionId.json').catchError((_) {}));
     _incoming.close();
     _presence.close();
+    _errors.close();
   }
 }

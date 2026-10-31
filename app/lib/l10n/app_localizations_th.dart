@@ -1496,4 +1496,86 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'ข้อมูลฟอร์มและความคิดเห็น';
+
+  @override
+  String get liveSyncMenuStart => 'เริ่มซิงค์แบบสด (ทดลอง)';
+
+  @override
+  String get liveSyncMenuStop => 'หยุดซิงค์แบบสด';
+
+  @override
+  String get liveSyncUnavailable =>
+      'การซิงค์แบบสดต้องใช้ PDF ที่บันทึกในโฟลเดอร์บนคอมพิวเตอร์นี้ เช่น โฟลเดอร์ OneDrive, Google Drive, iCloud หรือ Dropbox';
+
+  @override
+  String get liveSyncFolderAccessDenied =>
+      'การซิงค์แบบสดต้องเข้าถึงโฟลเดอร์ที่เก็บ PDF นี้';
+
+  @override
+  String get liveSyncStarted =>
+      'เปิดการซิงค์แบบสดแล้ว ทุกคนที่เปิด PDF นี้จากโฟลเดอร์ที่แชร์เดียวกันและเปิดการซิงค์แบบสดจะเห็นคำอธิบายประกอบของคุณ';
+
+  @override
+  String get liveSyncStopped => 'ปิดการซิงค์แบบสดแล้ว';
+
+  @override
+  String get liveSyncConnecting => 'กำลังเชื่อมต่อ…';
+
+  @override
+  String get liveSyncLive => 'สด';
+
+  @override
+  String get liveSyncOffline => 'ออฟไลน์';
+
+  @override
+  String get liveSyncOfflineDetail =>
+      'เข้าถึงโฟลเดอร์ซิงค์ไม่ได้ กำลังลองใหม่…';
+
+  @override
+  String liveSyncJoined(String name) {
+    return '$name เข้าร่วมแล้ว';
+  }
+
+  @override
+  String liveSyncLeft(String name) {
+    return '$name ออกไปแล้ว';
+  }
+
+  @override
+  String get liveSyncPageEditsLocked =>
+      'การเพิ่ม ลบ และจัดลำดับหน้าใหม่ถูกปิดขณะเปิดการซิงค์แบบสด';
+
+  @override
+  String get liveSyncSaved =>
+      'ซิงค์การเปลี่ยนแปลงแล้ว PDF ที่แชร์จะอัปเดตโดยอัตโนมัติ';
+
+  @override
+  String get liveSyncDetailsTitle => 'ซิงค์แบบสด (ทดลอง)';
+
+  @override
+  String get liveSyncNobodyElse => 'ยังไม่มีใครเปิด PDF นี้';
+
+  @override
+  String liveSyncYou(String name) {
+    return '$name (คุณ)';
+  }
+
+  @override
+  String get liveSyncWritesPdf =>
+      'อุปกรณ์นี้เขียนการเปลี่ยนแปลงของทุกคนลงใน PDF ที่แชร์';
+
+  @override
+  String get liveSyncOtherWritesPdf =>
+      'อุปกรณ์ของคนอื่นเขียนการเปลี่ยนแปลงของทุกคนลงใน PDF ที่แชร์';
+
+  @override
+  String liveSyncPeopleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'คุณและอีก $count คน',
+      zero: 'เฉพาะคุณ',
+    );
+    return '$_temp0';
+  }
 }
