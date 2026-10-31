@@ -155,7 +155,7 @@ anything that actually replays.
   `editing_*` widget test — they pump `PdfViewer`/`PdfPageView` — and
   `ghent_render_test` against unchanged checked-in baselines):
   **1285 passed**, 24 env-gated skips.
-- `corpus_render_test` over `/Users/ben/repos/dart-pdf/corpus` (~50
+- `corpus_render_test` over `corpus/` (~50
   real-world files): PASS (renders to a scratch dir).
 - `render_smoke_test` on INVOICE-1000664832 p0, ly9-far-cad p4,
   Flutter_CTO_Report p0: PASS.

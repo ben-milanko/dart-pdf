@@ -1,0 +1,28 @@
+title = "DartPDF secret scanning"
+
+[extend]
+useDefault = true
+
+# These exact public throwaway keys exercise PDF signing and verification.
+# A new or replaced key in either file must still fail the scan.
+
+[[allowlists]]
+description = "Exact public test key 1 in pki_test.dart"
+condition = "AND"
+paths = ['''^packages/pdf_cos/test/pki_test\.dart$''']
+regexTarget = "match"
+regexes = ['''^\-\-\-\-\-BEGIN\ RSA\ PRIVATE\ KEY\-\-\-\-\-\nMIICXAIBAAKBgQDH8QUQ4tO5Pxwm/aYhem1WLTlPemNnMGCFuSIdtZbXQzCMAR6f\nXQzvi5fI3\+xcVT/FsfsgJ85PltHrnaygOfbopb0DBJxzipPw7sqi5Aj\+fxt86oou\npUWtasX3q0RMIwpW/rg0KVxM9FHWfR7lEwlh5qEuNigJAP6R6\+gtTgXPUQIDAQAB\nAoGBAKptiKrvHhgecmnN9ik9SSuW2u4jXc3cj7oMp8b5PX15\+Uytu6ON1nPt4lDI\nhpnh1L04S94J8DMpVQBo43ekURBVtJgU10UyKfMU/68yX\+\+RTIj32cKPYG2ELm8x\nVVqhhrG4kX5r3sx4hzXc3SCUE8xGV4s4tR4PE9ycmfa6R4GRAkEA780E0rGF\+iyN\n\+332VOIkKY7MEQK/OeMaqBEjveevN3YvcPRRl5aNpFR2QV2oFmzjmja9WiHs7uNh\nor5Urc6fbQJBANVysgU2YYfGKd6INMvUc\+NgkWSJFnJn3LU0xNLpsI/daCibZJPG\nKH8M4ug0RjJqEtNnIS4R5Ic6y\+fQ/xiSrPUCQG4wBMFTtT5pbqxbCu\+iIf\+\+j\+JZ\nIslUo5EKnyPJ6\+dONSpv\+XXwRhF2hggvIud7DXJ1KLjb0eVLMjf3wS1EPlkCQBt9\nAeAZ\+MV7h7jY4bO\+UI5fyVmhLfrd1VagzRg8cDiW0usn1/QP\+PcjubUdxkyHzJTd\nGzDLrRqdP9VC3RdVDGECQFUB8LSAUJWdsoBo5eINofTwRAnbUIKp81X5Pwza2USF\n\+5xq8zloUddInXMCk28Ea5qqKwQ7wyGX2tk\+Hy2G9YI=\n\-\-\-\-\-END\ RSA\ PRIVATE\ KEY\-\-\-\-\-$''']
+
+[[allowlists]]
+description = "Exact public test key 1 in signer_identity.dart"
+condition = "AND"
+paths = ['''^packages/pdf_test_fixtures/lib/src/signer_identity\.dart$''']
+regexTarget = "match"
+regexes = ['''^\-\-\-\-\-BEGIN\ PRIVATE\ KEY\-\-\-\-\-\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCiOgE4KtYoB0ha\nxkYxZ/Tcmtdv0BPsuuYoLR4J4zQJcyvAd1LaDTmG1B3ZSQduMhl9KyHzXYD4QSyu\nVMc728HcZOQ4D4QwCO6EwC3KmC7nRGzmdau25SpjLghI21QtZKLie3sLBOcBtUE9\nT//Hmh9intJK04OLGMFMiFr/KgojI4B47Vshs6WTWdbYIbZUNb69a\+4SDQ83h3hP\nGWm01dA0xcX4NTgXWNiAoQkiGX7UVUn6vx9Ne1BVt5nNTjMPqUYnA7o4xYkQtLwr\nwyYYrgvdhj78GZTBTdTHMMIR3LqDQeLbTBl/D8hSv1STmzIrEAQmrH83pucXil3p\nJ6PdtWWlAgMBAAECggEBAIg0rWtsQ\+zN2Ikmqi63OtayRyoBCYmcjruyzeK9WaaJ\nhXWOegjMS72RgRI7h7qU4\+O9AD9mBW/qwMoKMlFmvIkASMFs/a6bATCCbrAIQHE6\neTiyGZ9xH7qwHpKVXELUmRIRXQiucAp2FbWV4orDM5DJCoV6u5phCYLphYVx1ZsT\n0HeKosjMk48whdhdsawHQUCy1o9VlVm5OSDLXrsFTVtOrSJL1p6DGwbpIoXK6flq\nPGzne6SWi4g51e447Xnw50bPIgZ1pXc1AXpw0cGBq/VnMOInuB\+jDq4zrYGbPxgh\nfx9v3KxKTJtycYSD4S9Qkax5w3aOl1Og1h9xKnGgKOECgYEAz8ArVNHDv1u\+BAKR\nas/vsSM3csdZv86DBE0DQIlz/ugRK\+drepo2IE\+tIbtqb0OeeubOuDdPNugMKZAU\n9RP3iJWgztGycV7BBlLtGMzjMTYBUwf81rnf3ErLRvX0PP9Vd1ufyYe1ZOl2T/PX\nKT5i\+ic/yjq8nrqJGlh1SULXvUkCgYEAx\+cyr7gc1xC6WkftXK5JEj21qOh35T2G\nGAUsaAM\+1Fzc\+5z8Cbsw5vnabzqqR3jWO26uNcLenzEGBnJ/zpOhsXkSJkMuvzh0\nyyJsGLiOEDQYrBjrZIYee34VZTMLvQ50yUAKuA8alwuNbqYFfJVCBh4PEVsW5AX3\nbNl/IGULMX0CgYEAgJfcunXVCn/JEEZeqJTpMuYvjjZjEVzMsD7TQoFScXhIGLr4\nRj1qP3nSGs0dRp2\+XSi80D48JCpiTN/IeSLQ15R2o04dfBtAs59k7zLzdiSNkU2i\nbW9EZ\+FMDjJz6cXKq0TllSMRXtM7zqWKixb4wQrGa3EMC9w\+vTX/80cSrzECgYBZ\ntRT36iV3Fdiq3xBTwRqlhu/Ypsn3I87jRJ8S5jHx1uKMP3yTWV\+up30w4SC9BisN\nbLPdCGAjDDrp9cQJDhNHs09DwG5f/ZPb/MyJo3iNKPPRdzVbXRycyo4LZgbkhnI\+\nRfEJfC2wjsyfVP2tVMXWPPMCFOCG326TeF8mSHHneQKBgQCreA\+Huf0J3p77cg73\ni3DdVZxPvOKzmbaXMBhHnRvomrIaZRCQoR3I9j8PCh6yp\+ImHlMt\+zajApOgWHKh\nk1fSM8IHL5gC3JkHs8dps\+GFrJ8TQDZOcXxqGcoQatu/KsijOx\+5eb7\+zsm5F3/y\n3CRQ/xEwwO8f9KofulZKRHtcoQ==\n\-\-\-\-\-END\ PRIVATE\ KEY\-\-\-\-\-$''']
+
+[[allowlists]]
+description = "Exact public test key 2 in signer_identity.dart"
+condition = "AND"
+paths = ['''^packages/pdf_test_fixtures/lib/src/signer_identity\.dart$''']
+regexTarget = "match"
+regexes = ['''^\-\-\-\-\-BEGIN\ PRIVATE\ KEY\-\-\-\-\-\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCjCOqsSVvAy0bV\n\+1mQRtWLFddRCK8AKyb4iuGtfAegrrufJwXc6DWlWW99wZBr4uniU4D/Rn0rKfoJ\nl5U4Wqua4jofqtHnmVxcF5Fc8q6B\+RxWZowTl/RhZawZQJhKL62XEbxqYgbP/ZED\niZKqw3frQztCqw64qlz\+ICFedhprlS5CRcnf95WB7TNpsFfu5FrURmbqSKj21ugl\nCL24IfbGaDN/yNAn4fLD3oNfA26M/71EPhq/f1myKYrg9k0EsY8grwcTOaYwc\+Wc\nDXLaHeM\+9MFuMNqVl5GP7qRdU8a6W0LdAH9NEA1d/dwNLzw6tU2nEU\+Di81Eybu/\ny\+wcdr35AgMBAAECggEAOoCvnSUxzIvlHlH0gKY6aI9s1UI1ce0KLfPAKb2xCwLI\nhsK9Atk8rtnZ/RlhVqV1YeavCmtj7QJCHAEN5cv7ejelvclRSzcoAk/etKjM4Azh\nE0v3BezoH68ZQ3J/c1eKhgQyRUZpxWbrC4bpX2eG96AHetPhE3jmp7Yl4zykHGg4\nMWujnGb2C8zyAVnKd1AEAxlIM5m5L5cjjcZtSz5kdI4YC\+BCSWoVMUU0TaOyWrna\nUXvCK1\+0QBWOpYCggR6awV5d\+8UFAeuCmu3lVytMacBCKG7qZ0ymJj1wv1IpOfIO\nh8GVdosm0Thtf1XPbf4\+5N5HTt7lO4aeTotzyWEHJQKBgQDOiCC1ZT1g\+BGMYoMY\nnXfHl2D\+HoEulvrhb2sm2G1mHfZ\+8OtHCXjuZR/gNMxtwgvugtuiswPk3rGcT4pv\n/4GgM4pnH6iSfdeEtFpfGwNA28vaOxHLKqcJlIiEB2OYejgDppRm0qgNTHIhb5k1\n2/Be4\+RsEeLIibArVOqbe5YHVwKBgQDKFbIdhmbLNe3VcQ2\+\+Vps0iLuq47oOt2\+\nnTW/34YQgC7F8WOPIZtKrWEDhCy0i2CcMsfUcgwvtvuLIEsx9udp8kehKIPSDq1E\nekVFDB0cJNIZ6Kl8L4vgcNa6g1f4YwBrEsJibzsU7rVyOlvw7Wto2EJXowOTaqUc\nO3FUaFmjLwKBgQCheS7Rg\+jcMrdNogvLJ/ppM0KjC\+iGK4bU0I7fHSFTUKPTFbtt\nm8tP4AJvAfi\+65L2lJrx9rJZs377rfiXnhWT0hgojkj216qz12o8p1sAz5fu9HXx\n\+VQFmnqtdzV4Fj5LJGcsiRDY7Obim2UXBfFFzzldARLlJTl2d3rBu3tOGwKBgBsv\nL/aozcsoRgYgXykBghiBbBGPIno68PljTIezGeW\+WIxoHGx0qN8y04oVja370dMx\nQZBihyEkDFJ61aKzBA5MeTZErPbk4ooDqK3RI1lV2q2BjssV2ksm4rvUT1EqgDPn\nIh77t4bpVZ84GoYeagSAkuwXEbQS9IMHvAcOwoAhAoGADtkuDhCD/P0ZtNJGo7Oq\nR\+Y//TfXNA4SZcea185GzkYjmL/I/8EGQXAnK4FJImQrLdMUY1qVuNZfR8i4alib\nquPkufwUb5wJL4OzhUrMiJPyzMjWxnrY50yq/20kCki5JcbLxZS\+WE5lrnad3mug\nwvbGUrhfZ2/TAwex5vtXl/M=\n\-\-\-\-\-END\ PRIVATE\ KEY\-\-\-\-\-$''']

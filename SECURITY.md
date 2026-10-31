@@ -4,6 +4,35 @@
 cryptography used for encrypted documents and digital signatures: RC4,
 AES-128/256, RSA, ECDSA, and CMS. We take security reports seriously.
 
+## Preventing accidental disclosure
+
+This repository and its Actions artifacts are public. Keep credentials in
+protected CI secrets or ignored local credential directories. Use placeholders
+in documentation, repository-relative editor settings, and synthetic test data.
+Do not commit raw terminal traces, debugger URLs, or personal file paths.
+
+The Secret scan workflow runs the checksum-pinned upstream Gitleaks CLI against
+the fetched history. To run the same check locally with Gitleaks installed:
+
+```sh
+gitleaks git . --log-opts="--all" --redact=100 --no-banner
+```
+
+The configuration accepts only three exact, deliberately public signing-test
+keys at their fixture paths. Do not replace these exceptions with whole-file
+allowlists. A different private key in either fixture must fail the check.
+
+GitHub's console masking does not scrub files uploaded as artifacts. Storeflight
+jobs sanitize their text state before upload and require that step to succeed.
+Keep credential-bearing job environment names covered by
+`tool/storeflight/sanitize_diagnostics.py` and its regression tests. Exclude
+private tooling checkouts, credential directories, and signing-key files from
+artifact globs. Preserve the files needed for release resumes.
+
+If a public artifact exposes sensitive data, retain a verified private recovery
+copy before removing the public copy. Rotate any exposed live credential;
+deleting the artifact does not invalidate credentials or erase downloaded copies.
+
 ## Reporting a vulnerability
 
 **Please do not open a public issue for security problems.**
