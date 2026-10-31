@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart' show PdfPage;
 
 import 'print_printer.dart';
+import 'print_result.dart';
 
 /// The channel automatically registered by this package on native platforms.
 const MethodChannel _channel = MethodChannel('dev.milanko.dart_pdf_printing');
@@ -45,7 +46,10 @@ final _activeChannels = <String>{};
 /// dialog, so native runners preserve their physical size and placement.
 /// [destination] submits directly to that Windows queue with no system print
 /// dialog. A missing queue or spool failure propagates to the caller.
-Future<void> printDocumentPages(
+///
+/// Returns [PrintDialogResult.cancelled] when the runner reports that the user
+/// dismissed its print dialog (`printPdf` or `endJob` answering `false`).
+Future<PrintDialogResult> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   MethodChannel channel = _channel,
@@ -59,7 +63,7 @@ Future<void> printDocumentPages(
         message: 'A print job is already active on this channel.');
   }
   try {
-    await _printDocumentPages(pdfBytes,
+    return await _printDocumentPages(pdfBytes,
         name: name,
         channel: channel,
         onProgress: onProgress,
@@ -70,7 +74,7 @@ Future<void> printDocumentPages(
   }
 }
 
-Future<void> _printDocumentPages(
+Future<PrintDialogResult> _printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   required MethodChannel channel,
@@ -99,12 +103,16 @@ Future<void> _printDocumentPages(
   // Otherwise try native PDF printing; Windows/Linux fall through below.
   if (destination == null) {
     try {
-      await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
+      final printed =
+          await channel.invokeMethod<bool>('printPdf', <String, dynamic>{
         'name': name,
         'pdf': pdfBytes,
         ...sheetOptions,
       });
-      return; // printed as vector (or the user cancelled) - done
+      // Printed as vector, or the user dismissed the system dialog. Failures
+      // arrive as PlatformExceptions; a runner that answers null predates
+      // the cancel report and is taken at its word.
+      return _resultOf(printed);
     } on MissingPluginException {
       // no native PDF printing here; drive the OS print system per page below
     }
@@ -184,9 +192,9 @@ Future<void> _printDocumentPages(
         onProgress?.call(seen.length, total);
       }
     }
-    // endJob returns false when the user cancels the print dialog - that is
-    // handled, nothing more to do.
-    await channel.invokeMethod<bool>('endJob');
+    // endJob returns false when the user cancels the print dialog; spool
+    // failures arrive as PlatformExceptions.
+    return _resultOf(await channel.invokeMethod<bool>('endJob'));
   } catch (error) {
     // Tear down the half-accumulated job so the next print starts clean.
     try {
@@ -201,6 +209,10 @@ Future<void> _printDocumentPages(
     );
   }
 }
+
+PrintDialogResult _resultOf(bool? printed) => printed == false
+    ? PrintDialogResult.cancelled
+    : PrintDialogResult.handedToSystem;
 
 /// Encoded sheets kept for later copies. A collated job of a long document
 /// re-encodes rather than holding every sheet until its next copy.

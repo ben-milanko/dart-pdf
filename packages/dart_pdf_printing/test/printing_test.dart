@@ -49,10 +49,21 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
     final bytes = buildClassicPdf();
-    await printPdfBytes(bytes: bytes, title: 'Report.pdf');
+    final result = await printPdfBytes(bytes: bytes, title: 'Report.pdf');
 
     expect(sentPdf, bytes); // the document went over as vector
     expect(jobName, 'Report'); // the .pdf-stripped job name
+    expect(result, PrintDialogResult.handedToSystem);
+  });
+
+  test('printPdfBytes reports a dismissed system print dialog', () async {
+    const channel = MethodChannel('dev.milanko.dart_pdf_printing');
+    final messenger = binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async => false);
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    expect(await printPdfBytes(bytes: buildClassicPdf(), title: 'Report.pdf'),
+        PrintDialogResult.cancelled);
   });
 
   test('overlapping jobs fail without replacing the active job', () async {

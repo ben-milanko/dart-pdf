@@ -458,8 +458,9 @@ static void print_page_setup_cb(GtkPrintOperation* operation,
 }
 
 // Shows the print dialog and spools the accumulated pages via GTK. Returns
-// FALSE on cancel or error. Clears the job either way.
-static gboolean run_print_job(DartPdfPrintingPlugin* self) {
+// FALSE on cancel or error, setting |error| for the latter. Clears the job
+// either way.
+static gboolean run_print_job(DartPdfPrintingPlugin* self, GError** error) {
   if (self->print_pages == nullptr || self->print_pages->len == 0) {
     return FALSE;
   }
@@ -492,11 +493,15 @@ static gboolean run_print_job(DartPdfPrintingPlugin* self) {
     g_object_unref(settings);
   }
 
-  g_autoptr(GError) error = nullptr;
   GtkPrintOperationResult res = gtk_print_operation_run(
-      operation, GTK_PRINT_OPERATION_ACTION_PRINT_DIALOG, print_owner(self), &error);
+      operation, GTK_PRINT_OPERATION_ACTION_PRINT_DIALOG, print_owner(self), error);
   g_object_unref(operation);
 
+  if (res == GTK_PRINT_OPERATION_RESULT_ERROR && error != nullptr &&
+      *error == nullptr) {
+    g_set_error_literal(error, GTK_PRINT_ERROR, GTK_PRINT_ERROR_GENERAL,
+                        "the print operation failed");
+  }
   gboolean ok = res != GTK_PRINT_OPERATION_RESULT_ERROR &&
                 res != GTK_PRINT_OPERATION_RESULT_CANCEL;
   clear_print_pages(self);
@@ -560,8 +565,16 @@ static void native_print_method_call_cb(FlMethodChannel* channel,
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(ok));
     }
   } else if (strcmp(method, "endJob") == 0) {
-    g_autoptr(FlValue) value = fl_value_new_bool(run_print_job(self));
-    response = FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+    // FALSE without an error is the user cancelling the dialog.
+    g_autoptr(GError) print_error = nullptr;
+    const gboolean printed = run_print_job(self, &print_error);
+    if (print_error != nullptr) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "print_failed", print_error->message, nullptr));
+    } else {
+      g_autoptr(FlValue) value = fl_value_new_bool(printed);
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+    }
   } else if (strcmp(method, "cancelJob") == 0) {
     clear_print_pages(self);
     g_autoptr(FlValue) value = fl_value_new_null();

@@ -9,6 +9,7 @@ import 'print_composer.dart';
 import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
 import 'print_printer.dart';
+import 'print_result.dart';
 import 'printing.dart';
 
 /// Opens layout options and a preview, composes the confirmed sheets, then
@@ -23,7 +24,10 @@ import 'printing.dart';
 /// Commit pending inline text and ink before passing an editing session's
 /// document. The preview captures a detached snapshot and never edits it.
 /// Errors propagate so the host can show its own error UI.
-Future<void> printPdfWithPreview(
+///
+/// Returns [PrintDialogResult.cancelled] when either the preview or the system
+/// print dialog is dismissed; see [printPdfBytes].
+Future<PrintDialogResult> printPdfWithPreview(
   BuildContext context, {
   required PdfDocument document,
   required String title,
@@ -39,11 +43,11 @@ Future<void> printPdfWithPreview(
     selectedPages: selectedPages,
     addFiles: addFiles,
   );
-  if (job == null || !context.mounted) return;
+  if (job == null || !context.mounted) return PrintDialogResult.cancelled;
   final bytes = preparePrintDocument(job.document, job.settings,
       twoSided: job.destination != null &&
           job.destination!.duplex != PrintDuplex.simplex);
-  await printPdfWithProgress(context,
+  return printPdfWithProgress(context,
       bytes: bytes,
       title: title,
       useDocumentPageSize: true,
@@ -53,7 +57,8 @@ Future<void> printPdfWithPreview(
 /// Prints a PDF with a progress dialog while desktop pages are prepared.
 /// Whole-PDF backends and jobs of at most two pages skip this extra dialog.
 /// Set [useDocumentPageSize] for sheets produced by [preparePrintDocument].
-Future<void> printPdfWithProgress(
+/// Returns how the system print dialog ended; see [printPdfBytes].
+Future<PrintDialogResult> printPdfWithProgress(
   BuildContext context, {
   required Uint8List bytes,
   required String title,
@@ -70,7 +75,7 @@ Future<void> printPdfWithProgress(
   }
 
   try {
-    await printPdfBytes(
+    return await printPdfBytes(
       bytes: bytes,
       title: title,
       useDocumentPageSize: useDocumentPageSize,

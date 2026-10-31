@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'native_print.dart';
 import 'print_printer.dart';
+import 'print_result.dart';
 
 /// Callback for a host-owned print action. Receives the current PDF bytes
 /// and a document title suitable for a print-job name.
@@ -32,14 +33,20 @@ typedef PdfPrinter = Future<void> Function({
 /// retain final control over the printer's supported media.
 /// [destination] bypasses the Windows system print dialog and submits to the
 /// queue selected in the app's own print options.
-Future<void> printPdfBytes({
+///
+/// Returns [PrintDialogResult.cancelled] when the user dismisses the system
+/// print dialog, and [PrintDialogResult.handedToSystem] once the job has been
+/// passed to the OS print system - not when the printer finishes it. Browsers
+/// do not report what happened in their print dialog, so the web always
+/// returns [PrintDialogResult.handedToSystem]. Failures throw.
+Future<PrintDialogResult> printPdfBytes({
   required Uint8List bytes,
   required String title,
   void Function(int rendered, int total)? onProgress,
   bool useDocumentPageSize = false,
   PrintDestination? destination,
-}) async {
-  await printDocumentPages(
+}) {
+  return printDocumentPages(
     bytes,
     name: printJobName(title),
     onProgress: onProgress,
