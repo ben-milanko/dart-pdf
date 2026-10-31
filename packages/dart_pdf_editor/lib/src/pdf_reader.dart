@@ -655,6 +655,11 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: false,
+                // group the tiles into the same spreads the viewer shows
+                pageLayout: prefs.twoPageView
+                    ? widget.pageLayout
+                        .withFacing(true, coverPage: prefs.twoPageCoverPage)
+                    : widget.pageLayout,
                 bottomSheet: bottomSheet,
                 // the sheet chrome carries its own close button
                 onClose: bottomSheet

@@ -54,6 +54,32 @@ left one. Next/Prev-page named actions step by spread (`_steppedPage`):
 stepping one page would land on the other half of the spread already on
 screen, scroll nowhere, and leave `currentPage` unchanged - a stuck button.
 
+## Page strip follows the spreads
+
+`PdfThumbnailSidebar.pageLayout` (both shells pass the same effective layout
+they give the viewer) mirrors the spreads:
+
+- **Side docks** swap the `ReorderableListView` for a `ListView` of spread
+  rows (`_buildSpreadRows`): two half-width tiles per row, left page left of
+  the spine whatever the text direction (`Row(textDirection: ltr)`), a lone
+  cover on the right, an unpaired last page on the left. A one-dimensional
+  reorderable list can't put two items on one row, so pages reorder one at a
+  time the way the page grid does: each tile is a `_GridPageCell` (Draggable /
+  LongPressDraggable, now with `activateOnTap` so the strip keeps
+  tap-to-jump) and the whole list is a `DragTarget` (`_spreadReorderTarget`)
+  that drops into `movePageToSlot` at the slot `pdfThumbnailDropIndexAt`
+  reports with `axis: horizontal` (nearest tile, which half). The insertion
+  bar follows the grid's rule (`_spreadMarkAt`), and an
+  `EdgeDraggingAutoScroller` follows the drag to the strip's ends. External
+  PDF drops hit-test the same way (`_layoutSpreads` in `_dropIndexAt`).
+- **Top/bottom docks** keep the per-page reorderable row and add a
+  `_spreadGap` (12px) in front of every spread but the first;
+  `_estimateOffset` accounts for it.
+- Spread mode doesn't support dragging tiles out to another window (that
+  rides the reorderable list's pointer capture, `_trackDragOut`).
+
+Tests: `test/editing_thumbnail_spreads_test.dart`.
+
 ## Not done
 
 - Right-to-left spreads (`/Direction /R2L` in ViewerPreferences) and reading

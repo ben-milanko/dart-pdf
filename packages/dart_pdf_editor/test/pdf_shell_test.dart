@@ -332,7 +332,7 @@ void main() {
 
     testWidgets('view options menu switches to two-page spreads',
         (tester) async {
-      final prefs = PdfEditingPreferences();
+      final prefs = PdfEditingPreferences()..showThumbnailSidebar = true;
       addTearDown(prefs.dispose);
       await pump(
           tester, PdfReader(bytes: buildMultiPagePdf(4), preferences: prefs));
@@ -360,6 +360,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(prefs.twoPageView, isTrue);
       expect(layout(), const PdfPageLayout.facing());
+      // the page strip mirrors the viewer's spreads
+      expect(
+          tester
+              .widget<PdfThumbnailSidebar>(find.byType(PdfThumbnailSidebar))
+              .pageLayout,
+          const PdfPageLayout.facing());
 
       await choose('pdf-shell-two-page-cover');
       expect(prefs.twoPageCoverPage, isTrue);

@@ -1464,6 +1464,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     : null,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
+                // group the tiles into the same spreads the viewer shows
+                pageLayout: prefs.twoPageView
+                    ? widget.pageLayout
+                        .withFacing(true, coverPage: prefs.twoPageCoverPage)
+                    : widget.pageLayout,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
