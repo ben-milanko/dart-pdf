@@ -1,4 +1,5 @@
 import unittest
+import datetime
 from unittest.mock import patch
 import read_growth as g
 
@@ -33,6 +34,44 @@ class Boundaries(unittest.TestCase):
     def test_incomplete_page_set_is_not_success(self):
         with patch.object(g,'request',return_value={'Value':[],'TotalCount':3}):
             with self.assertRaises(ValueError):g.windows_series('test-token','installs','2026-09-01','2026-10-25')
+
+    def test_date_window_rolls_over_month_and_year(self):
+        self.assertEqual(g.date_window(datetime.date(2026,11,1)),('2026-08-04','2026-10-31'))
+        self.assertEqual(g.date_window(datetime.date(2027,1,1)),('2026-10-04','2026-12-31'))
+
+    def test_funnel_has_matching_window_and_no_series_grouping(self):
+        response={'Value':[{'MetricType':'PageView','UserCount':40},{'MetricType':'Acquisition','UserCount':3}], 'TotalCount':2}
+        with patch.object(g,'request',return_value=response) as req:
+            data=g.windows_funnel('test-token','2026-09-24','2026-10-07')
+            self.assertEqual(data['rows'],response['Value'])
+            self.assertIn('/analytics/funnel?',req.call_args.args[0])
+            self.assertNotIn('groupby=',req.call_args.args[0])
+
+    def test_funnel_rejects_duplicate_and_invalid_counts(self):
+        for rows in [[{'MetricType':'PageView','UserCount':1}]*2,
+                     [{'MetricType':'PageView','UserCount':-1}],
+                     [{'MetricType':'PageView','UserCount':True}]]:
+            with patch.object(g,'request',return_value={'Value':rows,'TotalCount':len(rows)}):
+                with self.assertRaises(ValueError):g.windows_funnel('x','2026-09-24','2026-10-07')
+
+    def test_no_unsupported_windows_endpoint(self):
+        with self.assertRaises(ValueError):g.windows_series('x','applications','2026-09-24','2026-10-07')
+
+    def test_collect_retains_failure_and_reads_snap_independently(self):
+        with patch.object(g,'microsoft_token',side_effect=ValueError('private error')),patch.object(g,'snap_series',return_value={'status':'ok'}) as snap:
+            result=g.collect(datetime.date(2026,11,1))
+            self.assertEqual(result['windows']['authentication']['status'],'unavailable')
+            self.assertEqual(snap.call_count,3)
+            self.assertNotIn('private error',str(result))
+
+    def test_rate_limit_defers_remaining_windows_calls(self):
+        error=g.urllib.error.HTTPError(g.ORIGIN,429,'rate limit',{'Retry-After':'120'},None)
+        with patch.object(g,'microsoft_token',return_value='test'),patch.object(g,'windows_series',side_effect=error) as series,patch.object(g,'windows_funnel') as funnel,patch.object(g,'snap_series',return_value={'status':'ok'}):
+            result=g.collect(datetime.date(2026,11,1))
+            self.assertTrue(result['windows']['rateLimited'])
+            self.assertEqual(result['windows']['installs']['retryAfterSeconds'],120)
+            self.assertEqual(series.call_count,1)
+            funnel.assert_not_called()
 
 
 if __name__ == '__main__':unittest.main()

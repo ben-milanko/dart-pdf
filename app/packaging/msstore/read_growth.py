@@ -3,6 +3,7 @@
 No store listing, release, account, permission or report-generation writes.
 Run from the checked-out repository; credentials remain on the runner.
 """
+import argparse
 import base64
 import datetime
 import json
@@ -33,9 +34,9 @@ def request(url, method='GET', data=None, headers=None):
     token = re.fullmatch(r'https://login.microsoftonline.com/[0-9a-fA-F-]{36}/oauth2/token', url)
     allowed = (
         parsed.scheme == 'https' and parsed.netloc == 'manage.devcenter.microsoft.com'
-        and parsed.path in ('/v1.0/my/analytics/installs', '/v1.0/my/analytics/usagemonthly')
+        and parsed.path in ('/v1.0/my/analytics/installs', '/v1.0/my/analytics/usagemonthly', '/v1.0/my/analytics/funnel')
         and not parsed.fragment and query.get('applicationId') == [PRODUCT]
-        and set(query) <= {'applicationId','startDate','endDate','top','skip','groupby','aggregationLevel'}
+        and set(query) <= ({'applicationId','startDate','endDate'} if parsed.path.endswith('/funnel') else {'applicationId','startDate','endDate','top','skip','groupby','aggregationLevel'})
         and all(len(v) == 1 for v in query.values())
     )
     if not ((token and method == 'POST') or (allowed and method == 'GET' and data is None)):
@@ -79,6 +80,8 @@ def microsoft_token():
 
 
 def windows_series(token, endpoint, start, end):
+    if endpoint not in ('installs', 'usagemonthly'):
+        raise ValueError('Unsupported dated series')
     # Group by date ONLY so platform totals are provider-deduplicated across versions/markets.
     values, expected, skip = [], None, 0
     for _ in range(20):
@@ -96,7 +99,9 @@ def windows_series(token, endpoint, start, end):
         if not response.get('@nextLink'):
             if isinstance(expected,int) and expected != len(values):
                 raise ValueError('Incomplete metric page set')
-            return {'status':'ok','start':start,'end':end,'groupby':'date','rows':values,'totalRows':len(values)}
+            return {'status':'ok','start':start,'end':end,'groupby':'date','rows':values,'totalRows':len(values),
+                    'dataFreshnessTimestamp':response.get('DataFreshnessTimestamp'),
+                    'missingDatesAreZero':False,'timezone':'provider date labels; not independently verified'}
         if not rows:
             raise ValueError('Empty pagination page')
         # Reconstruct the same allowlisted query; never follow a provider-supplied URL.
@@ -118,41 +123,107 @@ def snap_series(name, start, end):
             'metricsPermissionMissing':'package_metrics' in lower,
             'credentialRejected':any(s in lower for s in ('invalid credentials','unauthorized','credentials have expired'))}
     value = json.loads(result.stdout)
-    if value.get('metric_name') != name or not isinstance(value.get('buckets'),list) or not isinstance(value.get('series'),list):
+    if value.get('metric_name') != name or value.get('status')!='OK' or not isinstance(value.get('buckets'),list) or not isinstance(value.get('series'),list):
         raise ValueError('Unexpected snap metric response')
+    dates=value['buckets']
+    if dates!=sorted(set(dates)) or any(not start<=d<=end or datetime.date.fromisoformat(d).isoformat()!=d for d in dates):
+        raise ValueError('Invalid snap reporting dates')
     if any(len(s.get('values',[])) != len(value['buckets']) for s in value['series']):
         raise ValueError('Snap series length mismatch')
+    if any(v is not None and (isinstance(v,bool) or not isinstance(v,int) or v<0) for s in value['series'] for v in s['values']):
+        raise ValueError('Invalid snap device counts')
     return {'status':'ok','start':start,'end':end,'metric':value}
 
 
-def collect():
+def windows_funnel(token, start, end):
+    query = {'applicationId':PRODUCT,'startDate':start,'endDate':end}
+    response = request(ORIGIN+'/v1.0/my/analytics/funnel?'+urllib.parse.urlencode(query),
+                       headers={'Authorization':'Bearer '+token})
+    rows = response.get('Value')
+    if not isinstance(rows,list) or response.get('TotalCount') != len(rows):
+        raise ValueError('Incomplete funnel response')
+    allowed = {'PageView','Acquisition','Install','Usage'}
+    if any(r.get('MetricType') not in allowed or isinstance(r.get('UserCount'),bool)
+           or not str(r.get('UserCount','')).isdigit() for r in rows):
+        raise ValueError('Unexpected funnel values')
+    if len({r['MetricType'] for r in rows}) != len(rows):
+        raise ValueError('Duplicate funnel step')
+    return {'status':'ok','start':start,'end':end,'rows':rows,'totalRows':len(rows),
+            'dataFreshnessTimestamp':response.get('DataFreshnessTimestamp'),
+            'scope':'Legacy Microsoft funnel; aggregate window, not the install-event API population',
+            'timezone':'provider date labels; not independently verified'}
+
+
+def date_window(today=None):
+    today = today or datetime.datetime.now(datetime.timezone.utc).date()
+    end = today-datetime.timedelta(days=1)
+    start = max(datetime.date(2026,7,1),today-datetime.timedelta(days=89))
+    return start.isoformat(),end.isoformat()
+
+
+def collect(today=None):
+    start,end = date_window(today)
     result = {'observedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'product':PRODUCT,'windows':{},'snap':{}}
-    usage_only = os.environ.get('GROWTH_USAGE_ONLY') == '1'
+    result['queryWindow']={'start':start,'end':end,'endExcludesCurrentPartialUtcDay':True}
     try:
         token = microsoft_token()
     except Exception as error:
         result['windows']['authentication'] = failure(error)
     else:
-        queries = [('usagemonthly','2026-10-01','2026-10-24')] if usage_only else [('installs','2026-07-01','2026-10-25'),('usagemonthly','2026-08-01','2026-10-25')]
-        for endpoint, start, end in queries:
-            try:
-                result['windows'][endpoint] = windows_series(token, endpoint, start, end)
-            except Exception as error:
-                result['windows'][endpoint] = failure(error)
-    for metric in (() if usage_only else SNAP_METRICS):
         try:
-            result['snap'][metric] = snap_series(metric, '2026-07-29', '2026-10-25')
+            result['windows']['installs'] = windows_series(token,'installs',start,end)
+        except Exception as error:
+            result['windows']['installs'] = failure(error)
+        throttled=result['windows']['installs'].get('httpStatus')==429
+        # One month per request avoids the previously rate-limited multi-month scope.
+        month_start = datetime.date.fromisoformat(end).replace(day=1)
+        result['windows']['usagemonthlyByMonth'] = {}
+        for offset in (0,1):
+            if throttled:
+                break
+            month_end = datetime.date.fromisoformat(end) if offset==0 else month_start-datetime.timedelta(days=1)
+            first = month_start if offset==0 else month_end.replace(day=1)
+            try:
+                value = windows_series(token,'usagemonthly',first.isoformat(),month_end.isoformat())
+            except Exception as error:
+                value = failure(error)
+            result['windows']['usagemonthlyByMonth'][first.strftime('%Y-%m')] = value
+            if value.get('httpStatus')==429:
+                throttled=True
+                break
+        result['windows']['funnels'] = {}
+        # Retain the original Windows experiment windows while they remain in range.
+        for label,first,last in [('baseline','2026-09-24','2026-10-07'),
+                                 ('treatment14','2026-10-09','2026-10-22')]:
+            if throttled:
+                result['windows']['funnels'][label]={'status':'unavailable','reason':'provider_rate_limit_deferred'}
+                continue
+            if first < start or last > end:
+                result['windows']['funnels'][label]={'status':'unavailable','reason':'outside_current_supported_window','start':first,'end':last}
+                continue
+            try:
+                value = windows_funnel(token,first,last)
+            except Exception as error:
+                value = failure(error)
+            result['windows']['funnels'][label]=value
+            if value.get('httpStatus')==429:
+                throttled=True
+        result['windows']['rateLimited']=throttled
+    for metric in SNAP_METRICS:
+        try:
+            result['snap'][metric] = snap_series(metric,start,end)
         except Exception as error:
             result['snap'][metric] = failure(error)
     return result
 
 
 def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--output',default='growth-evidence.encrypted.json');args=parser.parse_args()
     recipient = serialization.load_pem_public_key(os.environ['EVIDENCE_PUBLIC_KEY'].encode())
     if not isinstance(recipient,rsa.RSAPublicKey) or recipient.key_size < 3072:
         raise ValueError('Invalid recipient')
     evidence = collect()
-    with open('growth-evidence.encrypted.json','x') as stream:
+    with open(args.output,'x') as stream:
         json.dump(encrypt(evidence,recipient),stream)
     print('Read-only collection finished. Encrypted results saved; no store writes.')
 
