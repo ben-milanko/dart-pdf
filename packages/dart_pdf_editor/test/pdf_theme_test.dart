@@ -149,8 +149,12 @@ void main() {
 
     testWidgets('dragging the thumbnail bar scrolls the strip', (tester) async {
       await pumpThumbnailStrip(tester);
-      final position =
-          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      final position = tester
+          .state<ScrollableState>(find.descendant(
+            of: find.byKey(const ValueKey('pdf-thumbnail-list')),
+            matching: find.byType(Scrollable),
+          ))
+          .position;
       expect(position.pixels, 0);
 
       final gesture = await tester.startGesture(

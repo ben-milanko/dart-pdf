@@ -166,6 +166,60 @@ void main() {
     });
   });
 
+  testWidgets('a squeezed thumbnail header scrolls and preserves its list',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(2));
+    final viewer = PdfViewerController();
+    final height = ValueNotifier(200.0);
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    addTearDown(height.dispose);
+    var closed = false;
+    await pump(
+      tester,
+      Align(
+        alignment: Alignment.topLeft,
+        child: ValueListenableBuilder<double>(
+          valueListenable: height,
+          builder: (context, value, _) => SizedBox(
+            height: value,
+            child: PdfThumbnailSidebar(
+              controller: editing,
+              viewerController: viewer,
+              resizable: false,
+              onClose: () => closed = true,
+            ),
+          ),
+        ),
+      ),
+    );
+    final list = find.byKey(const ValueKey('pdf-thumbnail-list'));
+    final listElement = tester.element(list);
+    height.value = 24;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(tester.element(list), same(listElement));
+    expect(find.byKey(const ValueKey('pdf-thumbnail-add-page')), findsNothing);
+    final headerScroll = find.ancestor(
+      of: find.byKey(const ValueKey('pdf-thumbnail-panel-close')),
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(headerScroll).position;
+    expect(position.maxScrollExtent, greaterThan(0));
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-panel-close')));
+    await tester.pump();
+    expect(closed, isTrue);
+    height.value = 200;
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(tester.element(list), same(listElement));
+    expect(
+        find.byKey(const ValueKey('pdf-thumbnail-add-page')), findsOneWidget);
+    await tester.pumpAndSettle();
+  });
+
   group('drag to redock', () {
     testWidgets('dragging a panel handle onto the top zone redocks it',
         (tester) async {
