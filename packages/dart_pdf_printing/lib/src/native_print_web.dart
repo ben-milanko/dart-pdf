@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:web/web.dart' as web;
 
 import 'print_printer.dart';
+import 'print_result.dart';
 
 /// Prints the PDF [pdfBytes] in a browser without any bundled PDF engine.
 ///
@@ -18,7 +19,10 @@ import 'print_printer.dart';
 /// [useDocumentPageSize] marks an already composed PDF. Its page dimensions
 /// remain intact, but browsers own the final paper size and scaling controls;
 /// browser scripts cannot force those print-dialog preferences.
-Future<void> printDocumentPages(
+///
+/// Browsers do not tell the page whether their print dialog was confirmed or
+/// dismissed, so this always returns [PrintDialogResult.handedToSystem].
+Future<PrintDialogResult> printDocumentPages(
   Uint8List pdfBytes, {
   required String name,
   void Function(int rendered, int total)? onProgress,
@@ -70,6 +74,7 @@ Future<void> printDocumentPages(
     // Allow the system dialog to open before releasing its PDF URL. Browsers
     // that reject cross-frame printing throw; let the host report that error.
     await Future<void>.delayed(const Duration(seconds: 1));
+    return PrintDialogResult.handedToSystem;
   } finally {
     iframe.remove();
     web.URL.revokeObjectURL(url);

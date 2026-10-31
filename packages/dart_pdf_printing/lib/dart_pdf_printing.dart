@@ -9,4 +9,5 @@ export 'src/print_preview_dialog.dart';
 export 'src/print_progress_dialog.dart';
 export 'src/print_flow.dart';
 export 'src/print_printer.dart';
+export 'src/print_result.dart';
 export 'src/print_preferences.dart';

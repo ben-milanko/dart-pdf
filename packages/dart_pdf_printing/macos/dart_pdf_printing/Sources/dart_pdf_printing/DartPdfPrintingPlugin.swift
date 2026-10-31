@@ -19,22 +19,33 @@ public class DartPdfPrintingPlugin: NSObject, FlutterPlugin {
             details: nil))
           return
         }
-        result(self.runPrintJob(
-          pdf: typed.data,
+        guard let document = PDFDocument(data: typed.data) else {
+          result(FlutterError(
+            code: "native_print_failed", message: "PDFKit could not read the PDF",
+            details: nil))
+          return
+        }
+        guard let printed = self.runPrintJob(
+          document: document,
           name: (args["name"] as? String) ?? "Document",
-          useDocumentPageSize: (args["useDocumentPageSize"] as? Bool) ?? false))
+          useDocumentPageSize: (args["useDocumentPageSize"] as? Bool) ?? false)
+        else {
+          result(FlutterError(
+            code: "native_print_failed",
+            message: "PDFKit could not create a print operation", details: nil))
+          return
+        }
+        result(printed)
       default:
         result(FlutterMethodNotImplemented)
       }
   }
 
   /// Spools the whole PDF through AppKit's print panel via PDFKit. Returns
-  /// false when the data isn't a readable PDF or the user cancels.
+  /// false when the user cancels the panel, nil when there is no operation.
   private func runPrintJob(
-    pdf: Data, name: String, useDocumentPageSize: Bool = false
-  ) -> Bool {
-    guard let document = PDFDocument(data: pdf) else { return false }
-
+    document: PDFDocument, name: String, useDocumentPageSize: Bool = false
+  ) -> Bool? {
     let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo.shared
     if useDocumentPageSize, let page = document.page(at: 0) {
       let bounds = page.bounds(for: .mediaBox)
@@ -65,7 +76,7 @@ public class DartPdfPrintingPlugin: NSObject, FlutterPlugin {
       scalingMode: useDocumentPageSize ? .pageScaleNone : .pageScaleDownToFit,
       autoRotate: !useDocumentPageSize)
     else {
-      return false
+      return nil
     }
     if useDocumentPageSize {
       operation.printPanel.options.subtract([

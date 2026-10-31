@@ -32,7 +32,7 @@ void main() {
         }
         return true;
       });
-      await printDocumentPages(
+      final result = await printDocumentPages(
         buildMultiPagePdf(1),
         name: 'Direct',
         useDocumentPageSize: true,
@@ -44,6 +44,7 @@ void main() {
         ),
       );
       expect(methods, ['beginJob', 'printPageVector', 'endJob']);
+      expect(result, PrintDialogResult.handedToSystem);
       expect(options, containsPair('printer', 'Office printer'));
       expect(options, containsPair('color', false));
       expect(options, containsPair('duplex', 'longEdge'));
@@ -115,7 +116,8 @@ void main() {
     });
 
     final pdf = Uint8List.fromList('%PDF-1.7 vector'.codeUnits);
-    await printDocumentPages(pdf, name: 'Report');
+    final result = await printDocumentPages(pdf, name: 'Report');
+    expect(result, PrintDialogResult.handedToSystem);
 
     expect(sentPdf, pdf); // the whole document went over verbatim
     expect(name, 'Report');
@@ -184,9 +186,43 @@ void main() {
       return null;
     });
 
-    await printDocumentPages(Uint8List.fromList('%PDF-1.7'.codeUnits),
+    final result = await printDocumentPages(
+        Uint8List.fromList('%PDF-1.7'.codeUnits),
         name: 'Report');
+    expect(result, PrintDialogResult.cancelled);
     expect(beginJobs, 0);
+  });
+
+  testWidgets('a cancelled desktop dialog reports the cancel', (tester) async {
+    await tester.runAsync(() async {
+      final methods = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        methods.add(call.method);
+        switch (call.method) {
+          case 'printPdf':
+            throw MissingPluginException('no printPdf on this platform');
+          case 'beginJob':
+            return {'vector': true};
+          case 'endJob':
+            return false; // user cancelled the system print dialog
+        }
+        return true;
+      });
+
+      final result =
+          await printDocumentPages(buildMultiPagePdf(1), name: 'Report');
+      expect(result, PrintDialogResult.cancelled);
+      // A cancel is not a failure: the job is not torn down a second time.
+      expect(methods, ['printPdf', 'beginJob', 'printPageVector', 'endJob']);
+    });
+  });
+
+  test('a runner that answers null is taken as having printed', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async => null);
+    final result = await printDocumentPages(
+        Uint8List.fromList('%PDF-1.7'.codeUnits),
+        name: 'Report');
+    expect(result, PrintDialogResult.handedToSystem);
   });
 
   testWidgets('prints vector op streams when the runner reports vector support',

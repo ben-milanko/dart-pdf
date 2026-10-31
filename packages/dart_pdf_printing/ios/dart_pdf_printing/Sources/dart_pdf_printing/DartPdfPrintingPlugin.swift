@@ -36,14 +36,17 @@ public class DartPdfPrintingPlugin: NSObject, FlutterPlugin, UIPrintInteractionC
     }
   }
 
-  /// Hands the whole PDF to UIKit's print controller. Returns false when
-  /// printing is unavailable or the user cancels.
+  /// Hands the whole PDF to UIKit's print controller. Answers false when the
+  /// user cancels, true once the job is handed to the print system, and an
+  /// error when printing is unavailable or UIKit reports one.
   private func presentPrint(
     pdf: Data, name: String, useDocumentPageSize: Bool,
     pageWidth: Double?, pageHeight: Double?, result: @escaping FlutterResult
   ) {
     guard UIPrintInteractionController.isPrintingAvailable else {
-      result(false)
+      result(FlutterError(
+        code: "printing_unavailable",
+        message: "Printing is not available on this device", details: nil))
       return
     }
 
@@ -62,8 +65,14 @@ public class DartPdfPrintingPlugin: NSObject, FlutterPlugin, UIPrintInteractionC
     controller.printingItem = pdf  // PDF data - printed as vector
 
     let completion: UIPrintInteractionController.CompletionHandler = {
-      (_, completed, _) in
-      result(completed)
+      (_, completed, error) in
+      if let error = error {
+        result(FlutterError(
+          code: "native_print_failed", message: error.localizedDescription,
+          details: nil))
+      } else {
+        result(completed)
+      }
     }
     // iPad requires an anchor for the popover; fall back to full screen.
     if let rootView = viewController?.view {
