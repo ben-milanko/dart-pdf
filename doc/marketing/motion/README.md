@@ -95,26 +95,11 @@ terminology that does not belong in an app listing.
   2.3.4 requires video screen captures of the app itself; the sting is an
   animated illustration. Use the recorded preview below instead.
 
-On 8 October 2026, the Microsoft trailer, poster, captions, and hero artwork
-were saved in Partner Center submission **16** (`1152921505702071402`) and
-submitted for certification. It passed certification and Partner Center
-confirmed it was published on the same day. Submission **17**
-(`1152921505702072175`) retains those assets and adds the aligned listing copy;
-Partner Center confirmed **In certification**, with automatic publishing after
-approval.
-
 The shared Google Play/Snap video is
-<https://www.youtube.com/watch?v=jKLzTw32Jd4>, uploaded as **Unlisted** on the
-**Ben Milanko** channel on 8 October 2026. Title:
-`DartPDF — Edit, arrange, and sign PDFs`. English WebVTT captions are published,
-embedding is enabled, and the audience is set to not Made for Kids. YouTube's
-copyright check reported no issues. The URL was saved in Snap's listing and
-committed to all 21 Google Play listings (edit `13481048941378080280`), with
-the existing text and release tracks preserved. Playback and English captions
-were verified in the public Snap Store embed. The corresponding `video.txt`
-files keep later Play uploads consistent.
-Play Console confirmed all 21 video changes **in review**, with managed
-publishing off so they publish after approval.
+<https://www.youtube.com/watch?v=jKLzTw32Jd4>. Keep the same approved URL in the
+locale `video.txt` files under `app/fastlane/metadata/android/` so later metadata
+uploads preserve it. Check playback and captions at the public destination
+before changing those references.
 
 ## App Store preview
 
