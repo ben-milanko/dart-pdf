@@ -1130,6 +1130,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'स्क्रॉलबार पर अध्याय दिखाएँ';
 
   @override
+  String get shellTwoPageView => 'दो-पृष्ठ दृश्य';
+
+  @override
+  String get shellTwoPageCover => 'कवर पृष्ठ अलग से दिखाएँ';
+
+  @override
   String get shellTabHere => 'यहाँ टैब करें';
 
   @override

@@ -1126,6 +1126,12 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => '스크롤바에 장 표시';
 
   @override
+  String get shellTwoPageView => '두 페이지 보기';
+
+  @override
+  String get shellTwoPageCover => '표지를 따로 표시';
+
+  @override
   String get shellTabHere => '여기에 탭';
 
   @override

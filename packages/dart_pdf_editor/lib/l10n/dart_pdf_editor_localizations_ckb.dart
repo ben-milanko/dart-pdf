@@ -1134,6 +1134,12 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       'پیشاندانی بەشەکان لەسەر شریتی جووڵە';
 
   @override
+  String get shellTwoPageView => 'پیشاندانی دوو لاپەڕە';
+
+  @override
+  String get shellTwoPageCover => 'لاپەڕەی بەرگ بە جیا پیشان بدە';
+
+  @override
   String get shellTabHere => 'تابی نوێ لێرە';
 
   @override

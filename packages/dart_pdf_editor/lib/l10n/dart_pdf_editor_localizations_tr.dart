@@ -1132,6 +1132,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Kaydırma çubuğunda bölümleri göster';
 
   @override
+  String get shellTwoPageView => 'İki sayfa görünümü';
+
+  @override
+  String get shellTwoPageCover => 'Kapak sayfasını ayrı göster';
+
+  @override
   String get shellTabHere => 'Buraya sekmele';
 
   @override
