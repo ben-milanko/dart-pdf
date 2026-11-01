@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep zoomed-region rendering selective on CAD sheets that explicitly disable overprint, avoiding full-sheet replay for each detail tile.
+
 ## 14.0.0
 
 - **BREAKING:** add `shellTwoPageView` and `shellTwoPageCover` to `DartPdfEditorLocalizations`. Custom subclasses must implement both; see `doc/MIGRATING-14.0.0.md`.
