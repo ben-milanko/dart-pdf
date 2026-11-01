@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Ardışık sayfaları iki sayfalı görünümde yan yana okuyun; kapağı ayrı gösterme seçeneğini kullanın. Seçili sayfaları Ctrl/Cmd+Shift+X ile dışa aktarın. Yazdırma iyileştirildi ve yazdırma penceresinin iptali bildirilir. Son dosya ipuçları daha geç görünür.

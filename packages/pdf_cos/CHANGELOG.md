@@ -1,5 +1,9 @@
 # Changelog
 
+## 14.0.0
+
+- No additional public API changes.
+
 ## 13.0.0
 
 - Add CMS signature verification helpers and supporting RSA, ECDSA and certificate primitives for remote signing.

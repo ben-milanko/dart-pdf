@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Czytaj kolejne strony obok siebie w widoku dwóch stron, z opcjonalną osobną okładką. Eksportuj wybrane strony skrótem Ctrl/Cmd+Shift+X. Ulepszono drukowanie i zgłaszanie anulowania okna drukowania. Podpowiedzi ostatnich plików pojawiają się później.

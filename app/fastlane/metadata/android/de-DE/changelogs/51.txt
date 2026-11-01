@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Lesen Sie aufeinanderfolgende Seiten nebeneinander in der Zweiseitenansicht, auf Wunsch mit separatem Deckblatt. Exportieren Sie ausgewählte Seiten mit Ctrl/Cmd+Shift+X. Verbesserte Druckausgabe und Rückmeldung bei abgebrochenem Druckdialog. Hinweise zu zuletzt geöffneten Dateien erscheinen später.

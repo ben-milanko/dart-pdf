@@ -1,5 +1,12 @@
 # Changelog
 
+## 14.0.0+51
+
+- Read consecutive pages in continuous two-page spreads, with an optional separate cover and matching thumbnails.
+- Export pages with Ctrl/Cmd+Shift+X.
+- Correct rotated images and dashed lines in Windows vector printing, and report cancelled print dialogs.
+- Delay recent-file tile tooltips so they do not interrupt navigation.
+
 ## 13.0.0+50
 
 - Import and export form data and comments with FDF, XFDF and XDP files.

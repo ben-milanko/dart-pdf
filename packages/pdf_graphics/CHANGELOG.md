@@ -1,5 +1,9 @@
 # Changelog
 
+## 14.0.0
+
+- Correct rotated image orientation and preserve dashed strokes in Windows vector printing.
+
 ## 13.0.0
 
 - Align selection and search bands with CAD text overlays that draw glyphs as vector paths.

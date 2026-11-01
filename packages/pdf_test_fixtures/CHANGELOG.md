@@ -1,5 +1,9 @@
 # Changelog
 
+## 14.0.0
+
+- No additional public API changes.
+
 ## 13.0.0
 
 - Add test CSC signing-service fixtures.
