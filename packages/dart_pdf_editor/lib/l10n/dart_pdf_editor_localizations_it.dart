@@ -1135,6 +1135,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Mostra capitoli sulla barra di scorrimento';
 
   @override
+  String get shellTwoPageView => 'Vista a due pagine';
+
+  @override
+  String get shellTwoPageCover => 'Mostra la copertina separatamente';
+
+  @override
   String get shellTabHere => 'Scheda qui';
 
   @override

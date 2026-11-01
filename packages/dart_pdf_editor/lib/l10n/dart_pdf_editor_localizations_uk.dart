@@ -1150,6 +1150,12 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       'Показувати розділи на смузі прокручування';
 
   @override
+  String get shellTwoPageView => 'Розворот із двох сторінок';
+
+  @override
+  String get shellTwoPageCover => 'Показувати обкладинку окремо';
+
+  @override
   String get shellTabHere => 'Вкладка тут';
 
   @override

@@ -1126,6 +1126,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'スクロールバーに章を表示';
 
   @override
+  String get shellTwoPageView => '見開き表示';
+
+  @override
+  String get shellTwoPageCover => '表紙を単独で表示';
+
+  @override
   String get shellTabHere => 'ここにタブ';
 
   @override

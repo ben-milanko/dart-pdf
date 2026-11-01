@@ -367,6 +367,8 @@
   "shellSettings": "सेटिंग्स",
   "shellShowAnnotations": "एनोटेशन दिखाएँ",
   "shellShowScrollbarChapters": "स्क्रॉलबार पर अध्याय दिखाएँ",
+  "shellTwoPageView": "दो-पृष्ठ दृश्य",
+  "shellTwoPageCover": "कवर पृष्ठ अलग से दिखाएँ",
   "shellTabHere": "यहाँ टैब करें",
   "shellUnbound": "अनबाउंड",
   "shellZoom": "ज़ूम",

@@ -440,6 +440,8 @@ void main() {
             'view-page-grid',
             'view-form-fields',
             'view-scrollbar-chapters',
+            'view-two-page',
+            'view-two-page-cover',
             'save',
             'save-as',
           ]));

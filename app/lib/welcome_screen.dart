@@ -1097,8 +1097,12 @@ class _RecentGridTile extends StatelessWidget {
     // The context-menu gesture sits *inside* the tooltip: a tooltip's own
     // long-press recognizer is the deeper arena member when it wraps the
     // detector, and would swallow the touch-platform menu gesture.
+    // The path is a lookup, not a hover affordance: wait for a deliberate
+    // rest so sweeping the pointer across the grid doesn't throw a wide
+    // banner over the neighbouring tiles.
     return Tooltip(
       message: tooltip,
+      waitDuration: const Duration(milliseconds: 1200),
       child: _RecentContextMenuTarget(
         entry: entry,
         recents: recents,

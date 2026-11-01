@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Đọc các trang liên tiếp cạnh nhau ở chế độ hai trang, với tùy chọn hiển thị bìa riêng. Xuất trang đã chọn bằng Ctrl/Cmd+Shift+X. Cải thiện in và báo khi hộp thoại in bị hủy. Chú giải tệp gần đây xuất hiện chậm hơn để không gây vướng.

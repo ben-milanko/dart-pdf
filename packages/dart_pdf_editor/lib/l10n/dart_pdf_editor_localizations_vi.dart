@@ -1133,6 +1133,12 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'Hiện các chương trên thanh cuộn';
 
   @override
+  String get shellTwoPageView => 'Xem hai trang';
+
+  @override
+  String get shellTwoPageCover => 'Hiển thị trang bìa riêng';
+
+  @override
   String get shellTabHere => 'Ghép thẻ tại đây';
 
   @override

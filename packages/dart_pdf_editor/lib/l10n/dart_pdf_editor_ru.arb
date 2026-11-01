@@ -367,6 +367,8 @@
   "shellSettings": "Настройки",
   "shellShowAnnotations": "Показывать аннотации",
   "shellShowScrollbarChapters": "Показывать главы на полосе прокрутки",
+  "shellTwoPageView": "Разворот из двух страниц",
+  "shellTwoPageCover": "Показывать обложку отдельно",
   "shellTabHere": "Вкладка сюда",
   "shellUnbound": "Не назначено",
   "shellZoom": "Масштаб",

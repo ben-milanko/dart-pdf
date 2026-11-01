@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_document/pdf_document.dart';
@@ -131,10 +132,9 @@ void main() {
     test('rejects a truncated stream with FormatException, not RangeError',
         () async {
       // A valid page, cut off partway through its first op.
-      final full = await encodeVectorPrintPage(
-          PdfDocument.open(buildContentPdf('0 0 10 10 re f',
-                  width: 50, height: 50))
-              .page(0));
+      final full = await encodeVectorPrintPage(PdfDocument.open(
+              buildContentPdf('0 0 10 10 re f', width: 50, height: 50))
+          .page(0));
       final truncated = Uint8List.sublistView(full, 0, 14); // header + a byte
       expect(() => decodeVectorPrint(truncated), throwsFormatException);
     });
@@ -184,8 +184,8 @@ void main() {
     test('a filled rectangle becomes a fill op in device points (y-down)',
         () async {
       // Red rectangle from (100,200) to (150,260) in page space.
-      final page = await encodeAndDecode(
-          buildContentPdf('1 0 0 rg 100 200 50 60 re f'));
+      final page =
+          await encodeAndDecode(buildContentPdf('1 0 0 rg 100 200 50 60 re f'));
       final fills = page.ops.whereType<VpFillPath>().toList();
       expect(fills, hasLength(1));
       final fill = fills.single;
@@ -236,16 +236,70 @@ void main() {
       expect(page.ops.whereType<VpRestore>(), isNotEmpty);
     });
 
-    test('a dashed stroke round-trips its dash array and phase', () async {
-      final page = await encodeAndDecode(
-          buildContentPdf('[4 2] 1 d 2 w 10 10 m 90 10 l S',
-              width: 100, height: 100));
+    test('a dashed stroke is pre-cut into solid dash segments', () async {
+      // 80pt line, [4 2] with phase 1: the first dash is 3pt (10..13), then
+      // dashes start every 6pt (15, 21, ...). The consumer sees no pattern.
+      final page = await encodeAndDecode(buildContentPdf(
+          '[4 2] 1 d 2 w 10 10 m 90 10 l S',
+          width: 100,
+          height: 100));
       final stroke = page.ops.whereType<VpStrokePath>().single;
-      // Dash lengths scale with the device magnification (identity here).
-      expect(stroke.dashes, hasLength(2));
-      expect(stroke.dashes[0], closeTo(4, 0.01));
-      expect(stroke.dashes[1], closeTo(2, 0.01));
-      expect(stroke.dashPhase, closeTo(1, 0.01));
+      expect(stroke.dashes, isEmpty);
+      expect(stroke.width, closeTo(2, 0.01));
+      final dashes = _subpaths(stroke.path);
+      expect(dashes, hasLength(14));
+      expect(dashes.first.first.x, closeTo(10, 1e-3));
+      expect(dashes.first.last.x, closeTo(13, 1e-3));
+      expect(dashes[1].first.x, closeTo(15, 1e-3));
+      expect(dashes[1].last.x, closeTo(19, 1e-3));
+      expect(dashes.last.last.x, closeTo(90, 1e-3));
+      for (final dash in dashes) {
+        for (final p in dash) {
+          expect(p.y, closeTo(90, 1e-3)); // y-down device space
+        }
+      }
+    });
+
+    test('a dashed curve is dashed along its length', () async {
+      // A quarter circle (radius 50) - arc length ~78.5pt, [10 10] dashes.
+      final page = await encodeAndDecode(buildContentPdf(
+          '[10 10] 0 d 0 50 m 27.6 50 50 27.6 50 0 c S',
+          width: 100,
+          height: 100));
+      final stroke = page.ops.whereType<VpStrokePath>().single;
+      expect(stroke.dashes, isEmpty);
+      final dashes = _subpaths(stroke.path);
+      expect(dashes, hasLength(4)); // 0-10, 20-30, 40-50, 60-70
+      for (final dash in dashes) {
+        var length = 0.0;
+        for (var i = 1; i < dash.length; i++) {
+          length += (dash[i] - dash[i - 1]).distance;
+        }
+        expect(length, closeTo(10, 0.05));
+      }
+    });
+
+    test('a zero-length dash keeps a point so round caps print dots', () async {
+      final page = await encodeAndDecode(buildContentPdf(
+          '1 J [0 5] 0 d 10 10 m 30 10 l S',
+          width: 100,
+          height: 100));
+      final dashes = _subpaths(page.ops.whereType<VpStrokePath>().single.path);
+      expect(dashes, hasLength(5)); // dots at 10, 15, 20, 25, 30
+      for (final dash in dashes) {
+        expect(dash, hasLength(2));
+        expect(dash.first.x, closeTo(dash.last.x, 1e-6));
+      }
+    });
+
+    test('an all-zero dash pattern strokes solid, unflattened', () async {
+      final page = await encodeAndDecode(buildContentPdf(
+          '[0 0] 0 d 0 50 m 27.6 50 50 27.6 50 0 c S',
+          width: 100,
+          height: 100));
+      final stroke = page.ops.whereType<VpStrokePath>().single;
+      expect(stroke.dashes, isEmpty);
+      expect(stroke.path.segments.whereType<VpCubic>(), hasLength(1));
     });
 
     test('an opaque fill has a fully-opaque alpha channel', () async {
@@ -272,8 +326,8 @@ void main() {
       // An InkHighlight paints its strokes under a Multiply blend - the same
       // approximation must apply on the stroke path.
       final page = decodeVectorPrint(await encodeVectorPrintPage(
-          PdfDocument.open(buildBlendPdf(
-                  '/GS0 gs 1 1 0 RG 4 w 5 5 m 45 45 l S'))
+          PdfDocument.open(
+                  buildBlendPdf('/GS0 gs 1 1 0 RG 4 w 5 5 m 45 45 l S'))
               .page(0)));
       final stroke = page.ops.whereType<VpStrokePath>().single;
       expect(stroke.color.a, 102); // 0.4 * 255
@@ -283,8 +337,8 @@ void main() {
         () async {
       // /BM /Normal after the highlight restores opaque painting, so a later
       // fill is not dimmed.
-      final page = decodeVectorPrint(await encodeVectorPrintPage(
-          PdfDocument.open(buildBlendPdf(
+      final page = decodeVectorPrint(
+          await encodeVectorPrintPage(PdfDocument.open(buildBlendPdf(
                   '/GS0 gs 1 1 0 rg 0 0 20 20 re f '
                   '/GS1 gs 0 0 1 rg 30 30 20 20 re f',
                   extra: '/GS1 << /Type /ExtGState /BM /Normal >>'))
@@ -357,8 +411,8 @@ void main() {
       // The embedded 'Ag' contributes filled glyph outlines (curved paths).
       final fills = page.ops.whereType<VpFillPath>().toList();
       expect(fills, isNotEmpty);
-      final hasCurves = fills
-          .any((f) => f.path.segments.any((s) => s is VpCubic));
+      final hasCurves =
+          fills.any((f) => f.path.segments.any((s) => s is VpCubic));
       expect(hasCurves, isTrue,
           reason: 'glyph outlines should carry cubic bezier segments');
     });
@@ -412,6 +466,84 @@ void main() {
     expect(images.single.rgba, hasLength(2 * 1 * 4)); // premultiplied RGBA
   });
 
+  group('image placement', () {
+    // A 2x3 image whose pixels are all distinct, so any mis-mapping shows.
+    final source = PdfDecodedPixels(
+        Uint8List.fromList([
+          for (var i = 0; i < 6; i++) ...[i * 40, i, 7, 255]
+        ]),
+        2,
+        3);
+
+    // The source pixel a placement shows at device point (x, y), or null.
+    int? sampleAt(PdfMatrix m, PdfDecodedPixels px, double x, double y) {
+      final inv = m.inverted()!;
+      final u = inv.transformX(x, y), v = inv.transformY(x, y);
+      if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+      final col = (u * px.width).floor().clamp(0, px.width - 1).toInt();
+      final row = ((1 - v) * px.height).floor().clamp(0, px.height - 1).toInt();
+      return px.rgba[(row * px.width + col) * 4];
+    }
+
+    // Every quarter turn, with and without a mirror, at a non-square size.
+    final placements = <String, PdfMatrix>{
+      'upright': const PdfMatrix(20, 0, 0, -30, 5, 40),
+      'flipped vertically': const PdfMatrix(20, 0, 0, 30, 5, 10),
+      'mirrored': const PdfMatrix(-20, 0, 0, -30, 25, 40),
+      'rotated 180': const PdfMatrix(-20, 0, 0, 30, 25, 10),
+      'rotated 90': const PdfMatrix(0, 20, 30, 0, 5, 10),
+      'rotated 270': const PdfMatrix(0, -20, -30, 0, 35, 30),
+      'rotated 90, mirrored': const PdfMatrix(0, 20, -30, 0, 35, 10),
+      'rotated 270, mirrored': const PdfMatrix(0, -20, 30, 0, 5, 30),
+    };
+    for (final MapEntry(key: name, value: m) in placements.entries) {
+      test('$name becomes an upright blit showing the same pixels', () {
+        final placed = uprightVectorPrintImage(m, source);
+        final out = placed.matrix;
+        expect(out.a, greaterThan(0));
+        expect(out.d, lessThan(0));
+        expect(out.b, 0);
+        expect(out.c, 0);
+        for (var y = 0.5; y < 50; y += 1) {
+          for (var x = 0.5; x < 50; x += 1) {
+            expect(
+                sampleAt(out, placed.pixels, x, y), sampleAt(m, source, x, y),
+                reason: 'device ($x, $y)');
+          }
+        }
+      });
+    }
+
+    test('a skewed placement is left for the consumer', () {
+      const m = PdfMatrix(20, 5, 0, -30, 5, 40);
+      final placed = uprightVectorPrintImage(m, source);
+      expect(placed.matrix, same(m));
+      expect(placed.pixels, same(source));
+    });
+
+    test('a logo under a rotated page CTM prints upright (DCN letterhead)',
+        () async {
+      // The shape of a Word-exported letterhead: the page content runs under
+      // a 90deg CTM and the image is drawn flipped (negative d). A 1x2 image
+      // (red over blue) must land as a 2x1 rectangle in device space.
+      final page = await encodeAndDecode(_imagePdf(
+          'q 0 -1 1 0 0 100 cm q 40 0 0 -20 10 50 cm /Im0 Do Q Q',
+          width: 1,
+          height: 2,
+          samples: [0xFF, 0, 0, 0, 0, 0xFF]));
+      final image = page.ops.whereType<VpImage>().single;
+      final m = image.matrix;
+      expect(m[0], greaterThan(0));
+      expect(m[1], 0);
+      expect(m[2], 0);
+      expect(m[3], lessThan(0));
+      expect(image.width, 2);
+      expect(image.height, 1);
+      expect(m[0], closeTo(20, 1e-3)); // 20pt wide
+      expect(m[3], closeTo(-40, 1e-3)); // 40pt tall
+    });
+  });
+
   test('round-trips: re-encoding a decoded stream is byte-identical', () async {
     final doc = PdfDocument.open(buildClassicPdf());
     final a = await encodeVectorPrintPage(doc.page(0));
@@ -420,4 +552,69 @@ void main() {
     // And it decodes without error.
     expect(() => decodeVectorPrint(a), returnsNormally);
   });
+}
+
+/// The decoded subpaths of [path] as point lists (moves start a new one).
+List<List<Offset2>> _subpaths(VpPath path) {
+  final out = <List<Offset2>>[];
+  for (final seg in path.segments) {
+    switch (seg) {
+      case VpMove(:final x, :final y):
+        out.add([Offset2(x, y)]);
+      case VpLine(:final x, :final y):
+        out.last.add(Offset2(x, y));
+      default:
+        fail('unexpected segment $seg in a pre-dashed path');
+    }
+  }
+  return out;
+}
+
+class Offset2 {
+  const Offset2(this.x, this.y);
+  final double x;
+  final double y;
+  Offset2 operator -(Offset2 o) => Offset2(x - o.x, y - o.y);
+  double get distance => math.sqrt(x * x + y * y);
+}
+
+/// A one-page 100x100 PDF drawing [content] with a raw DeviceRGB /Im0 of
+/// [width]x[height] [samples].
+Uint8List _imagePdf(String content,
+    {required int width, required int height, required List<int> samples}) {
+  final objects = <List<int>>[
+    '<< /Type /Catalog /Pages 2 0 R >>'.codeUnits,
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'.codeUnits,
+    ('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R '
+            '/Resources << /XObject << /Im0 5 0 R >> >> >>')
+        .codeUnits,
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream'.codeUnits,
+    [
+      ...'<< /Type /XObject /Subtype /Image /Width $width /Height $height '
+              '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
+              '/Length ${samples.length} >>\nstream\n'
+          .codeUnits,
+      ...samples,
+      ...'\nendstream'.codeUnits,
+    ],
+  ];
+  final buffer = <int>[...'%PDF-1.4\n'.codeUnits];
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer
+      ..addAll('${i + 1} 0 obj\n'.codeUnits)
+      ..addAll(objects[i])
+      ..addAll('\nendobj\n'.codeUnits);
+  }
+  final xrefOffset = buffer.length;
+  buffer
+      .addAll('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n'.codeUnits);
+  for (final offset in offsets) {
+    buffer.addAll('${offset.toString().padLeft(10, '0')} 00000 n \n'.codeUnits);
+  }
+  buffer.addAll(('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+          'startxref\n$xrefOffset\n%%EOF\n')
+      .codeUnits);
+  return Uint8List.fromList(buffer);
 }

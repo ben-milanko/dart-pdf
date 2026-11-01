@@ -367,6 +367,8 @@
   "shellSettings": "Cài đặt",
   "shellShowAnnotations": "Hiện chú thích",
   "shellShowScrollbarChapters": "Hiện các chương trên thanh cuộn",
+  "shellTwoPageView": "Xem hai trang",
+  "shellTwoPageCover": "Hiển thị trang bìa riêng",
   "shellTabHere": "Ghép thẻ tại đây",
   "shellUnbound": "Chưa gán",
   "shellZoom": "Thu phóng",

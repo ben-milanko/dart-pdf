@@ -367,6 +367,8 @@
   "shellSettings": "Pengaturan",
   "shellShowAnnotations": "Tampilkan anotasi",
   "shellShowScrollbarChapters": "Tampilkan bab pada bilah gulir",
+  "shellTwoPageView": "Tampilan dua halaman",
+  "shellTwoPageCover": "Tampilkan halaman sampul terpisah",
   "shellTabHere": "Tab di sini",
   "shellUnbound": "Tak terikat",
   "shellZoom": "Zoom",

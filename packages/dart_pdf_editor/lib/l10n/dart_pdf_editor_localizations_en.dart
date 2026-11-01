@@ -1130,6 +1130,12 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
 
   @override
+  String get shellTwoPageView => 'Two-page view';
+
+  @override
+  String get shellTwoPageCover => 'Show cover page separately';
+
+  @override
   String get shellTabHere => 'Tab here';
 
   @override
@@ -3729,6 +3735,12 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
 
   @override
+  String get shellTwoPageView => 'Two-page view';
+
+  @override
+  String get shellTwoPageCover => 'Show cover page separately';
+
+  @override
   String get shellTabHere => 'Tab here';
 
   @override
@@ -6326,6 +6338,12 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+
+  @override
+  String get shellTwoPageView => 'Two-page view';
+
+  @override
+  String get shellTwoPageCover => 'Show cover page separately';
 
   @override
   String get shellTabHere => 'Tab here';

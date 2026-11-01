@@ -107,9 +107,19 @@ For a custom Windows printer picker, use `listPrintPrinters`,
 are Windows-only. Omitting `destination` keeps the system print dialog.
 
 `printPdfBytes` also accepts `onProgress(rendered, total)` for desktop page
-preparation. System dialog cancellation is a normal completion; the API does
-not claim that a physical printer finished the job. Concurrent native jobs on
-one channel fail with `PlatformException(code: 'print_in_progress')`.
+preparation. It returns a `PrintDialogResult`: `cancelled` when the user
+dismissed the system print dialog, `handedToSystem` once the job reached the OS
+print system. That makes no claim that a physical printer finished the job, and
+browsers do not report their print dialog's outcome, so the web always returns
+`handedToSystem`. `printPdfWithProgress` returns the same result, and
+`printPdfWithPreview` also returns `cancelled` when the preview is dismissed.
+Failures throw. Concurrent native jobs on one channel fail with
+`PlatformException(code: 'print_in_progress')`.
+
+```dart
+final result = await printPdfBytes(bytes: frontSides, title: 'Pass 1');
+if (result == PrintDialogResult.cancelled) return; // nothing printed
+```
 
 ## Localization
 

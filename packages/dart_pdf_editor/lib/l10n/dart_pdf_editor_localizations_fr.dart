@@ -1136,6 +1136,12 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Afficher les chapitres dans la barre de défilement';
 
   @override
+  String get shellTwoPageView => 'Affichage deux pages';
+
+  @override
+  String get shellTwoPageCover => 'Afficher la couverture séparément';
+
+  @override
   String get shellTabHere => 'Onglet ici';
 
   @override
