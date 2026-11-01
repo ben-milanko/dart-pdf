@@ -1152,6 +1152,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'إظهار الفصول على شريط التمرير';
 
   @override
+  String get shellTwoPageView => 'عرض صفحتين';
+
+  @override
+  String get shellTwoPageCover => 'إظهار صفحة الغلاف منفصلة';
+
+  @override
   String get shellTabHere => 'علامة تبويب هنا';
 
   @override

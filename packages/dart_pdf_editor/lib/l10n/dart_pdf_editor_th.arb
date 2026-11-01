@@ -367,6 +367,8 @@
   "shellSettings": "การตั้งค่า",
   "shellShowAnnotations": "แสดงคำอธิบายประกอบ",
   "shellShowScrollbarChapters": "แสดงบทบนแถบเลื่อน",
+  "shellTwoPageView": "มุมมองสองหน้า",
+  "shellTwoPageCover": "แสดงหน้าปกแยกต่างหาก",
   "shellTabHere": "แท็บที่นี่",
   "shellUnbound": "ไม่ได้กำหนด",
   "shellZoom": "ซูม",

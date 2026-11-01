@@ -367,6 +367,8 @@
   "shellSettings": "Instellingen",
   "shellShowAnnotations": "Annotaties tonen",
   "shellShowScrollbarChapters": "Hoofdstukken op de schuifbalk tonen",
+  "shellTwoPageView": "Weergave van twee pagina's",
+  "shellTwoPageCover": "Voorpagina apart tonen",
   "shellTabHere": "Tabblad hier",
   "shellUnbound": "Niet toegewezen",
   "shellZoom": "Zoom",

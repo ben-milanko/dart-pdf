@@ -338,6 +338,8 @@
   "shellSettings": "ڕێکخستنەکان",
   "shellShowAnnotations": "پیشاندانی تێبینییەکان",
   "shellShowScrollbarChapters": "پیشاندانی بەشەکان لەسەر شریتی جووڵە",
+  "shellTwoPageView": "پیشاندانی دوو لاپەڕە",
+  "shellTwoPageCover": "لاپەڕەی بەرگ بە جیا پیشان بدە",
   "shellTabHere": "تابی نوێ لێرە",
   "shellUnbound": "پەیوەست نەکراو",
   "shellZoom": "گەورەکردن/بچووککردن",

@@ -1151,6 +1151,12 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Pokaż rozdziały na pasku przewijania';
 
   @override
+  String get shellTwoPageView => 'Widok dwóch stron';
+
+  @override
+  String get shellTwoPageCover => 'Pokaż okładkę osobno';
+
+  @override
   String get shellTabHere => 'Dodaj jako kartę';
 
   @override

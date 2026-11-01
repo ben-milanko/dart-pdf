@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Leia páginas consecutivas lado a lado na vista de duas páginas, com opção de capa separada. Exporte as páginas selecionadas com Ctrl/Cmd+Shift+X. Impressão melhorada e indicação de cancelamento da janela de impressão. As dicas dos ficheiros recentes aparecem mais tarde.

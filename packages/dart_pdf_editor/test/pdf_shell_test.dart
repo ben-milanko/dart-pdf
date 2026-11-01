@@ -330,6 +330,52 @@ void main() {
           isTrue);
     });
 
+    testWidgets('view options menu switches to two-page spreads',
+        (tester) async {
+      final prefs = PdfEditingPreferences()..showThumbnailSidebar = true;
+      addTearDown(prefs.dispose);
+      await pump(
+          tester, PdfReader(bytes: buildMultiPagePdf(4), preferences: prefs));
+      PdfPageLayout layout() =>
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).pageLayout;
+      expect(layout(), const PdfPageLayout.verticalContinuous());
+
+      Future<void> choose(String key) async {
+        await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(ValueKey(key)),
+            kind: PointerDeviceKind.mouse);
+        await tester.pumpAndSettle();
+      }
+
+      // the cover option only appears once the spreads are on
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-shell-two-page-cover')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-two-page-view')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.twoPageView, isTrue);
+      expect(layout(), const PdfPageLayout.facing());
+      // the page strip mirrors the viewer's spreads
+      expect(
+          tester
+              .widget<PdfThumbnailSidebar>(find.byType(PdfThumbnailSidebar))
+              .pageLayout,
+          const PdfPageLayout.facing());
+
+      await choose('pdf-shell-two-page-cover');
+      expect(prefs.twoPageCoverPage, isTrue);
+      expect(layout(), const PdfPageLayout.facing(coverPage: true));
+
+      await choose('pdf-shell-two-page-view');
+      expect(prefs.twoPageView, isFalse);
+      expect(layout(), const PdfPageLayout.verticalContinuous());
+    });
+
     testWidgets('view options can switch to reflow text', (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
@@ -1618,6 +1664,70 @@ void main() {
       expect(saved, isNull);
       expect(savedAs, isNotNull);
       expect(savedAs!.length, editing.bytes.length);
+    });
+
+    Future<void> sendExportShortcut(WidgetTester tester,
+        {LogicalKeyboardKey modifier = LogicalKeyboardKey.controlLeft}) async {
+      await tester.tap(find.byType(PdfViewer), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Ctrl+Shift+X exports the selected pages', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      List<int>? exported;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onExportPages: (bytes) => exported = bytes,
+        ),
+      );
+      editing
+        ..selectPage(0)
+        ..togglePageSelection(2);
+      await sendExportShortcut(tester);
+      expect(find.byKey(const ValueKey('pdf-page-range-dialog')), findsNothing);
+      expect(exported, isNotNull);
+      expect(PdfDocument.open(Uint8List.fromList(exported!)).pageCount, 2);
+    });
+
+    testWidgets('Meta+Shift+X asks for a range without a selection',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      List<int>? exported;
+      await pump(
+        tester,
+        PdfEditorView(
+          controller: editing,
+          onExportPages: (bytes) => exported = bytes,
+        ),
+      );
+      await sendExportShortcut(tester, modifier: LogicalKeyboardKey.metaLeft);
+      expect(
+          find.byKey(const ValueKey('pdf-page-range-dialog')), findsOneWidget);
+      expect(exported, isNull);
+      await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+      await tester.pumpAndSettle();
+      // pre-filled with the current page
+      expect(exported, isNotNull);
+      expect(PdfDocument.open(Uint8List.fromList(exported!)).pageCount, 1);
+    });
+
+    testWidgets('Ctrl+Shift+X does nothing without onExportPages',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      await pump(tester, PdfEditorView(controller: editing));
+      await sendExportShortcut(tester);
+      expect(find.byKey(const ValueKey('pdf-page-range-dialog')), findsNothing);
     });
 
     testWidgets('swapping bytes opens a fresh session', (tester) async {

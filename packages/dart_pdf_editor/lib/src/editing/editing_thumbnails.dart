@@ -92,9 +92,20 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.fileDropController,
     this.renderWorker,
     this.rasterCache,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
   });
 
   final PdfEditingController controller;
+
+  /// The viewer's page layout - pass [PdfViewer.pageLayout] so the strip
+  /// mirrors it. A [PdfPageLayout.facing] layout groups the tiles into the
+  /// same two-page spreads the viewer shows: side by side, rows of spreads,
+  /// in a side-docked strip (pages still drag one at a time - a drop on a
+  /// tile's left or right half lands before or after it), and spread groups
+  /// separated by a wider gap in a top/bottom one. Only [PdfPageLayout.facing]
+  /// and [PdfPageLayout.coverPage] are read; the strip's own axis follows
+  /// [dock].
+  final PdfPageLayout pageLayout;
 
   /// Offloads tile interpretation to a background isolate (see
   /// [PdfViewer.renderWorker]) so rasterizing thumbnails of heavy pages
@@ -255,6 +266,20 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// completes its drop animation and reports an in-strip reorder, which
   /// must not happen - the pages went somewhere else.
   bool _suppressReorder = false;
+
+  /// A side-docked strip in spread mode (see [PdfThumbnailSidebar.pageLayout])
+  /// reorders through its own drag target rather than the list's: the page
+  /// being dragged, the insertion bar under the pointer, and the scroller
+  /// that follows a drag to the strip's ends.
+  int? _spreadDragPage;
+  ({int page, PdfThumbnailDropEdge edge, int slot})? _spreadMark;
+  EdgeDraggingAutoScroller? _spreadAutoScroller;
+  Offset? _spreadDragPointer;
+  final GlobalKey _spreadAreaKey = GlobalKey();
+
+  /// Whether the strip is laid out as rows of spreads (a facing layout in a
+  /// vertical strip) - captured during layout like [_layoutAxis].
+  bool _layoutSpreads = false;
 
   /// This strip's hit-test, registered with
   /// [PdfThumbnailSidebar.fileDropController]. Held in a field so attach
@@ -533,6 +558,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
 
   @override
   void dispose() {
+    _spreadAutoScroller?.stopAutoScroll();
     _setDragOut(null);
     _detachDrop(widget.fileDropController);
     widget.viewerController.removeListener(_onViewerChanged);
@@ -572,10 +598,125 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       panelContext: context,
       tileKeys: _tileKeys,
       pageCount: widget.controller.document.pageCount,
-      axis: _layoutAxis,
+      // a row of spreads reads left to right, like the grid's rows
+      axis: _layoutSpreads ? Axis.horizontal : _layoutAxis,
       globalPosition: globalPosition,
-      reversed: _layoutAxis == Axis.horizontal &&
+      reversed: !_layoutSpreads &&
+          _layoutAxis == Axis.horizontal &&
           Directionality.of(context) == TextDirection.rtl,
+    );
+  }
+
+  /// The insertion bar for a spread-mode reorder drag of page [from] with the
+  /// pointer at [globalPosition] - the grid's rule ([_PdfThumbnailViewState.
+  /// _reorderMarkAt]) over rows of spreads, which always read left to right.
+  ({int page, PdfThumbnailDropEdge edge, int slot})? _spreadMarkAt(
+      int from, Offset globalPosition) {
+    final controller = widget.controller;
+    final pageCount = controller.document.pageCount;
+    final slot = pdfThumbnailDropIndexAt(
+      panelContext: _spreadAreaKey.currentContext,
+      tileKeys: _tileKeys,
+      pageCount: pageCount,
+      axis: Axis.horizontal,
+      globalPosition: globalPosition,
+    );
+    if (slot == null || !controller.pageSlotMoves(from, slot)) return null;
+    if (slot >= pageCount) {
+      return (
+        page: pageCount - 1,
+        edge: PdfThumbnailDropEdge.right,
+        slot: slot
+      );
+    }
+    if (slot == 0) return (page: 0, edge: PdfThumbnailDropEdge.left, slot: 0);
+    final before = _tileRectOf(slot - 1);
+    final after = _tileRectOf(slot);
+    // within a spread the bar rides the right page's leading edge (the
+    // spine); across two rows it goes on whichever end the pointer is nearer
+    if (before == null ||
+        after == null ||
+        (before.top - after.top).abs() < 1 ||
+        _PdfThumbnailViewState._distance(after, globalPosition) <=
+            _PdfThumbnailViewState._distance(before, globalPosition)) {
+      return (page: slot, edge: PdfThumbnailDropEdge.left, slot: slot);
+    }
+    return (page: slot - 1, edge: PdfThumbnailDropEdge.right, slot: slot);
+  }
+
+  Rect? _tileRectOf(int page) {
+    final box = _tileKeys[page]?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  void _spreadDragAt(int from, Offset globalPosition) {
+    _spreadDragPointer = globalPosition;
+    final mark = _spreadMarkAt(from, globalPosition);
+    if (mark != _spreadMark) setState(() => _spreadMark = mark);
+    // follow the drag past the strip's top or bottom edge
+    // the drag target wraps the list from outside, so take the list's own
+    // Scrollable from its position rather than looking up from the target
+    final context = _scroll.hasClients ? _scroll.position.context : null;
+    final scrollable = context is ScrollableState ? context : null;
+    final viewport = scrollable?.context.findRenderObject();
+    if (scrollable == null || viewport is! RenderBox || !viewport.hasSize) {
+      return;
+    }
+    var scroller = _spreadAutoScroller;
+    if (scroller == null || scroller.scrollable != scrollable) {
+      scroller?.stopAutoScroll();
+      scroller = _spreadAutoScroller = EdgeDraggingAutoScroller(
+        scrollable,
+        // a step moved the tiles under a still pointer: re-aim the bar and
+        // keep scrolling while the pointer stays at the edge
+        onScrollViewScrolled: () {
+          final page = _spreadDragPage;
+          final pointer = _spreadDragPointer;
+          if (mounted && page != null && pointer != null) {
+            _spreadDragAt(page, pointer);
+          }
+        },
+        velocityScalar: 50,
+      );
+    }
+    final reach = math.min(
+        _PdfThumbnailViewState._autoScrollEdge, viewport.size.height / 2 - 1);
+    if (reach <= 0) return;
+    scroller.startAutoScrollIfNecessary(
+        Rect.fromCenter(center: globalPosition, width: 1, height: reach * 2));
+  }
+
+  void _endSpreadDrag() {
+    _spreadAutoScroller?.stopAutoScroll();
+    _spreadDragPointer = null;
+    if (_spreadMark != null && mounted) setState(() => _spreadMark = null);
+  }
+
+  /// The whole spread list accepts a dragged page - the gaps between tiles
+  /// included - and drops it into the slot the insertion bar marks.
+  Widget _spreadReorderTarget(Widget child) {
+    if (!widget.allowPageEditing) {
+      return KeyedSubtree(key: _spreadAreaKey, child: child);
+    }
+    return DragTarget<int>(
+      key: _spreadAreaKey,
+      onWillAcceptWithDetails: (details) {
+        _spreadDragAt(details.data, details.offset);
+        return true;
+      },
+      // the feedback is anchored on the pointer, so its offset is the
+      // pointer's position
+      onMove: (details) => _spreadDragAt(details.data, details.offset),
+      onLeave: (_) => _endSpreadDrag(),
+      onAcceptWithDetails: (details) {
+        final mark = _spreadMarkAt(details.data, details.offset);
+        _endSpreadDrag();
+        if (mark != null) {
+          widget.controller.movePageToSlot(details.data, mark.slot);
+        }
+      },
+      builder: (context, candidate, rejected) => child,
     );
   }
 
@@ -685,10 +826,28 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// vertical-column or horizontal-strip tile geometry.
   double _estimateOffset(int index) {
     final thumbWidth = _layoutTileWidth ?? _tileWidth;
+    final layout = widget.pageLayout;
     if (_layoutAxis == Axis.horizontal) {
       // Every horizontal strip tile has the same outer width: thumbnail
-      // raster width plus the tile chip's 21px horizontal inset.
-      return 8 + index * (thumbWidth + 21);
+      // raster width plus the tile chip's 21px horizontal inset - plus, in
+      // spread mode, the gap in front of every spread but the first.
+      final spreadGaps = layout.facing ? _spreadOf(index, layout.coverPage) : 0;
+      return 8 + index * (thumbWidth + 21) + spreadGaps * _spreadGap;
+    }
+    if (_layoutSpreads) {
+      var offset = 8.0;
+      final spreads = _spreadsOf(widget.controller.document.pageCount,
+          coverPage: layout.coverPage);
+      final target = _spreadOf(index, layout.coverPage);
+      for (var slot = 0; slot < target && slot < spreads.length; slot++) {
+        var tallest = 0.0;
+        for (var i = spreads[slot].$1; i <= spreads[slot].$2; i++) {
+          final size = PdfPageRenderer.pageSize(widget.controller.pageAt(i));
+          tallest = math.max(tallest, thumbWidth * size.height / size.width);
+        }
+        offset += 8 + 28 + 2 + tallest;
+      }
+      return offset;
     }
     var offset = 8.0; // the list's top padding
     for (var i = 0; i < index; i++) {
@@ -761,6 +920,9 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final scrollAxis = _requestedScrollAxis;
     final horizontal = scrollAxis == Axis.horizontal;
     _layoutAxis = scrollAxis;
+    final layout = widget.pageLayout;
+    final spreadRows = layout.facing && !horizontal;
+    _layoutSpreads = spreadRows;
     // a bottom sheet supplies its own width and resize affordance, so the
     // strip drops the side resize grip; the tile column keeps its preferred
     // width, centered in the wider sheet rather than stretched
@@ -813,8 +975,12 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                 0.75,
                           )
                         : _tileWidth;
-                    _layoutTileWidth = tileWidth;
-                    configureWarm(tileWidth);
+                    // a row of spreads splits the column between two tiles,
+                    // each giving up its own 21px chip inset
+                    final spreadTileWidth =
+                        math.max(32.0, (tileWidth + 21) / 2 - 21);
+                    _layoutTileWidth = spreadRows ? spreadTileWidth : tileWidth;
+                    configureWarm(spreadRows ? spreadTileWidth : tileWidth);
                     // the tile a paste would land after while the mouse hovers -
                     // marked with an insertion bar. Computed here, inside the
                     // controller's builder, so filling/clearing the clipboard
@@ -1035,6 +1201,20 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                           );
                           if (horizontal) {
                             tile = SizedBox(width: tileWidth + 21, child: tile);
+                            // spread groups: a gap in front of every spread
+                            // but the first, so the pairs read as openings
+                            if (layout.facing &&
+                                index > 0 &&
+                                _spreadFirstPage(
+                                        _spreadOf(index, layout.coverPage),
+                                        layout.coverPage) ==
+                                    index) {
+                              tile = Padding(
+                                padding: EdgeInsetsDirectional.only(
+                                    start: _spreadGap),
+                                child: tile,
+                              );
+                            }
                           }
                           if (_reorderPage != null &&
                               index != _reorderPage &&
@@ -1058,6 +1238,16 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                         },
                       ),
                     );
+                    if (spreadRows) {
+                      tiles = _buildSpreadRows(
+                        controller: controller,
+                        inset: inset,
+                        tileWidth: spreadTileWidth,
+                        rangePreview: rangePreview,
+                        pasteInsertionPage: pasteInsertionPage,
+                        dropIndex: dropIndex,
+                      );
+                    }
                     // a reorder drag carried out of the window becomes a
                     // page drop into another one (see _trackDragOut). Always
                     // in the tree: the host may wire its callbacks after the
@@ -1190,6 +1380,92 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
         ),
       if (dropOutline != null) dropOutline,
     ]);
+  }
+
+  /// A side-docked strip's spread mode: one row per spread of the facing
+  /// layout, the left page left of the spine and the right page right of it
+  /// (a lone cover on the right, an unpaired last page on the left), whatever
+  /// the text direction - the same openings the viewer shows. Pages reorder
+  /// one at a time through [_spreadReorderTarget].
+  Widget _buildSpreadRows({
+    required PdfEditingController controller,
+    required double inset,
+    required double tileWidth,
+    required Set<int> rangePreview,
+    required int? pasteInsertionPage,
+    required int? dropIndex,
+  }) {
+    final layout = widget.pageLayout;
+    final pageCount = controller.document.pageCount;
+    final spreads = _spreadsOf(pageCount, coverPage: layout.coverPage);
+    final cellWidth = tileWidth + 21;
+    Widget cell(int index) {
+      final mark = _spreadMark;
+      return SizedBox(
+        key: ValueKey('pdf-thumbnail-spread-cell-$index'),
+        width: cellWidth,
+        child: KeyedSubtree(
+          key: _tileKeys[index] ??= GlobalKey(),
+          child: _GridPageCell(
+            controller: controller,
+            viewerController: widget.viewerController,
+            pageIndex: index,
+            pageColor: widget.pageColor,
+            showAnnotations: widget.showAnnotations,
+            hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
+            allowPageEditing: widget.allowPageEditing,
+            onExportPages: widget.onExportPages,
+            cache: _cache,
+            tileWidth: tileWidth,
+            renderWorker: widget.renderWorker,
+            // the strip's tap-to-jump, not the grid's double-click open
+            activateOnTap: true,
+            inRangePreview: rangePreview.contains(index),
+            showPasteIndicator: pasteInsertionPage == index,
+            dropEdge: mark != null
+                ? (mark.page == index ? mark.edge : null)
+                : _tileDropEdge(dropIndex, index, pageCount, Axis.horizontal),
+            showPageActions:
+                !pdfPanelControlsRevealOnHover() || _hoverPage == index,
+            onHover: (hovering) => _setHover(index, hovering),
+            onFocusPage: _focusPage,
+            dimmed: _spreadDragPage != null &&
+                index != _spreadDragPage &&
+                controller.isPageSelected(_spreadDragPage!) &&
+                controller.isPageSelected(index),
+            onDragStarted: () => setState(() => _spreadDragPage = index),
+            onDragEnded: () {
+              if (!mounted) return;
+              setState(() => _spreadDragPage = null);
+              _endSpreadDrag();
+            },
+          ),
+        ),
+      );
+    }
+
+    return _spreadReorderTarget(ListView.builder(
+      key: const ValueKey('pdf-thumbnail-spread-list'),
+      controller: _scroll,
+      padding: EdgeInsets.fromLTRB(inset, 8, _extraRightPadding + inset, 8),
+      itemCount: spreads.length,
+      itemBuilder: (context, slot) {
+        final (first, last) = spreads[slot];
+        final left = _isLeftSpreadPage(first, layout.coverPage) ? first : null;
+        final right = last != first ? last : (left == null ? first : null);
+        return Row(
+          key: ValueKey('pdf-thumbnail-spread-$slot'),
+          // a spread reads left to right, as on paper
+          textDirection: TextDirection.ltr,
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            left == null ? SizedBox(width: cellWidth) : cell(left),
+            right == null ? SizedBox(width: cellWidth) : cell(right),
+          ],
+        );
+      },
+    ));
   }
 }
 
@@ -1352,6 +1628,39 @@ PdfThumbnailDropEdge? _tileDropEdge(
   if (dropIndex == index) return leading;
   if (dropIndex >= pageCount && index == pageCount - 1) return trailing;
   return null;
+}
+
+/// The extra gap a horizontal strip leaves in front of each two-page spread
+/// (see [PdfThumbnailSidebar.pageLayout]).
+const double _spreadGap = 12;
+
+/// The spread page [index] sits in under a facing layout: pages 1-2, 3-4, ...
+/// pair up, or with [coverPage] page 1 stands alone and 2-3, 4-5, ... do.
+/// Mirrors [PdfViewer]'s slots for [PdfPageLayout.facing].
+int _spreadOf(int index, bool coverPage) =>
+    coverPage ? (index + 1) ~/ 2 : index ~/ 2;
+
+int _spreadFirstPage(int spread, bool coverPage) =>
+    coverPage ? (spread == 0 ? 0 : 2 * spread - 1) : 2 * spread;
+
+/// Whether page [index] sits left of the spine (a lone page keeps its side).
+bool _isLeftSpreadPage(int index, bool coverPage) =>
+    coverPage ? index.isOdd : index.isEven;
+
+/// Every spread of a [pageCount]-page facing layout, as (first, last) page
+/// indices - equal for a page standing alone.
+List<(int, int)> _spreadsOf(int pageCount, {required bool coverPage}) {
+  if (pageCount <= 0) return const [];
+  final count = coverPage ? 1 + pageCount ~/ 2 : (pageCount + 1) ~/ 2;
+  return [
+    for (var spread = 0; spread < count; spread++)
+      (
+        _spreadFirstPage(spread, coverPage),
+        (coverPage && spread == 0)
+            ? 0
+            : math.min(_spreadFirstPage(spread, coverPage) + 1, pageCount - 1),
+      ),
+  ];
 }
 
 enum _PageAction { paste, insert, export, split }
@@ -2553,7 +2862,8 @@ class _GridPageCell extends StatefulWidget {
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
-    required this.onActivatePage,
+    this.onActivatePage,
+    this.activateOnTap = false,
     required this.dimmed,
     required this.onDragStarted,
     required this.onDragEnded,
@@ -2581,7 +2891,10 @@ class _GridPageCell extends StatefulWidget {
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
 
-  final void Function(int pageIndex) onActivatePage;
+  /// See [_PageTile.onActivatePage] / [_PageTile.activateOnTap]: the grid
+  /// opens a page on double-click; the strip's spread rows keep tap-to-jump.
+  final void Function(int pageIndex)? onActivatePage;
+  final bool activateOnTap;
   final bool dimmed;
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
@@ -2626,7 +2939,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         tileWidth: widget.tileWidth,
         renderWorker: widget.renderWorker,
         onActivatePage: widget.onActivatePage,
-        activateOnTap: false,
+        activateOnTap: widget.activateOnTap,
         inRangePreview: widget.inRangePreview,
         // the grid flows like a horizontal strip, so the paste mark trails
         // the cell at its reading-order end

@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -1145,6 +1147,37 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   void _saveAs() => widget.onSaveAs?.call(_session.bytes);
 
+  /// ⌘⇧X / Ctrl+Shift+X: exports pages through the host's [onExportPages].
+  /// With pages selected in the thumbnails those go out directly (the
+  /// selection bar's export); otherwise it asks for a range, pre-filled
+  /// with the current page (the strip's "Export pages…").
+  Future<void> _exportPages() async {
+    final onExport = widget.onExportPages;
+    if (onExport == null) return;
+    final session = _session;
+    final selected = session.exportSelectedPages();
+    if (selected != null) {
+      onExport(selected);
+      return;
+    }
+    final document = session.document;
+    final current = _viewer.currentPage;
+    final ui = _ui;
+    final range = await PdfEditorPresenter.of(ui).pageRange(
+      ui,
+      PdfPageRangeRequest(
+        pageCount: document.pageCount,
+        initialStart: current,
+        initialEnd: current,
+      ),
+    );
+    // a revision landed under the prompt: its range may no longer fit
+    if (range == null || !mounted || !identical(session.document, document)) {
+      return;
+    }
+    onExport(session.exportPageRange(range.start, range.end));
+  }
+
   Future<void> _promptAuthor() async {
     final session = _session;
     final ui = _ui;
@@ -1431,6 +1464,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     : null,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
+                // group the tiles into the same spreads the viewer shows
+                pageLayout: prefs.twoPageView
+                    ? widget.pageLayout
+                        .withFacing(true, coverPage: prefs.twoPageCoverPage)
+                    : widget.pageLayout,
               );
           PdfSearchResultsPanel searchResults({required bool bottomSheet}) =>
               PdfSearchResultsPanel(
@@ -2060,7 +2098,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                                   prefs.toolbarDock == PdfPanelDock.bottom
                               ? 144
                               : 0,
-                          pageLayout: widget.pageLayout,
+                          pageLayout: prefs.twoPageView
+                              ? widget.pageLayout.withFacing(true,
+                                  coverPage: prefs.twoPageCoverPage)
+                              : widget.pageLayout,
                           initialFit: widget.initialFit,
                           toolShortcuts: availableShortcuts,
                           backgroundColor: widget.backgroundColor,
@@ -2137,6 +2178,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             _saveAs,
         const SingleActivator(LogicalKeyboardKey.keyS,
             control: true, shift: true): _saveAs,
+      },
+      // ⌘⇧X / Ctrl+Shift+X exports pages (the selection, else a range)
+      if (widget.onExportPages != null) ...{
+        const SingleActivator(LogicalKeyboardKey.keyX, meta: true, shift: true):
+            () => unawaited(_exportPages()),
+        const SingleActivator(LogicalKeyboardKey.keyX,
+            control: true, shift: true): () => unawaited(_exportPages()),
       },
     };
     if (bindings.isNotEmpty) {

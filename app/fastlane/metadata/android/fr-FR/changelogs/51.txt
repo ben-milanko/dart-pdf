@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Lisez les pages consécutives côte à côte, avec la possibilité de séparer la couverture. Exportez les pages sélectionnées avec Ctrl/Cmd+Shift+X. Amélioration de l’impression et signalement de l’annulation du dialogue d’impression. Les infobulles des fichiers récents apparaissent plus tard.

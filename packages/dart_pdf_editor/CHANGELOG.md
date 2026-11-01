@@ -1,5 +1,11 @@
 # Changelog
 
+## 14.0.0
+
+- **BREAKING:** add `shellTwoPageView` and `shellTwoPageCover` to `DartPdfEditorLocalizations`. Custom subclasses must implement both; see `doc/MIGRATING-14.0.0.md`.
+- Add continuous two-page spreads, an optional separate cover, spread-aware thumbnails and persisted layout settings.
+- Add the export-pages command shortcut and toolbar command.
+
 ## 13.0.0
 
 - **BREAKING:** add five abstract localization getters for note pinning, link editing and comment threads. Custom localization subclasses must implement them; see `doc/MIGRATING-13.0.0.md`.

@@ -367,6 +367,8 @@
   "shellSettings": "Ajustes",
   "shellShowAnnotations": "Mostrar anotaciones",
   "shellShowScrollbarChapters": "Mostrar capítulos en la barra de desplazamiento",
+  "shellTwoPageView": "Vista de dos páginas",
+  "shellTwoPageCover": "Mostrar la portada por separado",
   "shellTabHere": "Pestaña aquí",
   "shellUnbound": "Sin asignar",
   "shellZoom": "Zoom",

@@ -1124,6 +1124,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => '在滚动条上显示章节';
 
   @override
+  String get shellTwoPageView => '双页视图';
+
+  @override
+  String get shellTwoPageCover => '单独显示封面';
+
+  @override
   String get shellTabHere => '停靠为标签页';
 
   @override
@@ -3675,6 +3681,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellShowScrollbarChapters => '在捲動軸上顯示章節';
+
+  @override
+  String get shellTwoPageView => '雙頁檢視';
+
+  @override
+  String get shellTwoPageCover => '單獨顯示封面';
 
   @override
   String get shellTabHere => '在此建立分頁';

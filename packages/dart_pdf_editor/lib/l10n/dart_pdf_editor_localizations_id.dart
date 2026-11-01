@@ -1134,6 +1134,12 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get shellShowScrollbarChapters => 'Tampilkan bab pada bilah gulir';
 
   @override
+  String get shellTwoPageView => 'Tampilan dua halaman';
+
+  @override
+  String get shellTwoPageCover => 'Tampilkan halaman sampul terpisah';
+
+  @override
   String get shellTabHere => 'Tab di sini';
 
   @override
