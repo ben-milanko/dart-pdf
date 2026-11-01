@@ -1,5 +1,9 @@
 # Changelog
 
+## 14.0.0
+
+- No additional public API changes.
+
 ## 13.0.0
 
 - Import and export form data and comments with FDF, XFDF and XDP, including structured preview and explicit apply operations.

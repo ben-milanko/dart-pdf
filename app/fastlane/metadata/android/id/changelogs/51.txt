@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Baca halaman berurutan berdampingan dalam tampilan dua halaman, dengan opsi sampul terpisah. Ekspor halaman terpilih dengan Ctrl/Cmd+Shift+X. Pencetakan diperbaiki dan pembatalan dialog cetak dilaporkan. Tooltip berkas terbaru ditunda agar tidak mengganggu.

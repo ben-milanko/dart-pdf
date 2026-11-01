@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Read consecutive pages side by side with two-page view, with an option to show the cover separately. Export selected pages with Ctrl/Cmd+Shift+X. Improve printing and report when the print dialog is cancelled. Delay recent-file tooltips so they stay out of the way.
