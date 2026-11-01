@@ -48,6 +48,58 @@ void main() {
   Finder plainText(String value) =>
       find.byWidgetPredicate((w) => w is Text && w.data == value);
 
+  testWidgets('mobile editor survives a negative native keyboard inset',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.viewPadding = const FakeViewPadding(top: 62, bottom: 34);
+    tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+    addTearDown(tester.view.reset);
+    await openDemo(tester);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final pageField = find.byKey(const ValueKey('pdf-page-number-field'));
+    await tester.enterText(pageField, '6');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    await tester.pump(const Duration(milliseconds: 350));
+    final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer)).controller!;
+    expect(viewer.currentPage, 5);
+
+    // The engine derives padding as max(0, viewPadding - viewInsets).
+    // An invalid negative keyboard inset must not turn the dock's safe area
+    // into millions of pixels and squeeze the actual PDF out of the screen.
+    tester.view.viewInsets = const FakeViewPadding(bottom: -10000000);
+    tester.view.padding = const FakeViewPadding(top: 62, bottom: 10000034);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(PdfViewer)).height, greaterThan(300));
+    expect(
+        tester.getSize(find.byType(PdfEditingToolbar)).height, lessThan(200));
+
+    // A real keyboard still resizes the app. Recovery restores navigation
+    // through the same page-number text field, not a controller shortcut.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    tester.view.padding = const FakeViewPadding(top: 62);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    final keyboardHeight = tester.getSize(find.byType(PdfViewer)).height;
+    tester.view.viewInsets = const FakeViewPadding();
+    tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+    await tester.pump();
+    expect(tester.getSize(find.byType(PdfViewer)).height,
+        greaterThan(keyboardHeight));
+    await tester.enterText(pageField, '4');
+    expect(tester.widget<TextField>(pageField).controller!.text, '4');
+    expect(tester.widget<TextField>(pageField).focusNode!.hasFocus, isTrue);
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    for (var i = 0; i < 60 && viewer.currentPage != 3; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(viewer.currentPage, 3);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('PDF link increments the Flutter counter badge', (tester) async {
     await openDemo(tester);
     expect(plainText('0'), findsOneWidget); // the badge overlay
