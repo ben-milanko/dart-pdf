@@ -140,6 +140,14 @@ class PdfChromeAutoHide extends ChangeNotifier {
       _userScrolling = notification.direction != ScrollDirection.idle;
       if (!_userScrolling) _travel = 0;
     } else if (notification is ScrollUpdateNotification && _userDriven) {
+      // iOS reports the elastic stretch and its spring-back as scroll
+      // updates too. That return is not a reverse reading gesture: showing
+      // the bars would shrink the viewport again while the spring settles,
+      // making the page and chrome bounce together at the document's ends.
+      if (notification.metrics.outOfRange) {
+        _travel = 0;
+        return false;
+      }
       final delta = notification.scrollDelta ?? 0;
       // no finger moves half a screen in one frame: that is a jump (a link
       // followed mid-gesture), not reading
