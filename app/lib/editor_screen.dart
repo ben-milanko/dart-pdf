@@ -2897,12 +2897,17 @@ class _EditorScreenState extends State<EditorScreen>
   /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
-  void _recoverOcr() {
-    unawaited(_ocr.recover(context, onToast: (message) {
-      if (mounted) _toast(message);
-    }, onComplete: (result, title) {
-      if (mounted) unawaited(_openOcrResult(result, title));
-    }));
+  Future<void> _recoverOcr() async {
+    await _autoOcr.load();
+    if (!mounted) return;
+    await _ocr.recover(context,
+        automaticEnabled: () => _autoOcr.value,
+        onToast: (message) {
+          if (mounted) _toast(message);
+        },
+        onComplete: (result, title) {
+          if (mounted) unawaited(_openOcrResult(result, title));
+        });
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
