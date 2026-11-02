@@ -30,6 +30,75 @@ const _maskEnd = PdfEndSoftMaskedCommand(
 );
 
 void main() {
+  test('inactive overprint resets permit linear, grid and wire region culling',
+      () {
+    for (final mode in [0, 1]) {
+      final reset =
+          PdfSetOverprintCommand(fill: false, stroke: false, mode: mode);
+      final commands = <PdfRenderCommand>[
+        reset,
+        const PdfSaveCommand(),
+        reset,
+        _fill(10, 10, 20, 20),
+        const PdfRestoreCommand(),
+        reset,
+        for (var i = 0; i < 20; i++)
+          _fill(100 + i * 3.0, 100, 101 + i * 3.0, 101),
+        PdfDrawTiledCellCommand([reset, _fill(200, 200, 210, 210)],
+            Float64List.fromList([0]), Float64List.fromList([0])),
+      ];
+      for (final grid in [false, true]) {
+        final index = PdfRegionReplayIndex.build(commands,
+            maxCommands: 100, buildGrid: grid);
+        expect(index.supported, isTrue);
+        final restored =
+            deserializeRegionReplayIndex(serializeRegionReplayIndex(index)!);
+        for (final candidate in [index, restored]) {
+          final selected = candidate.commandsForRegion(
+              const PdfRect(12, 12, 18, 18), commands);
+          expect(selected.length, lessThan(commands.length));
+          expect(selected.whereType<PdfFillPathCommand>(), [same(commands[3])]);
+        }
+      }
+    }
+  });
+
+  test('active fill or stroke overprint remains unsafe even before a reset',
+      () {
+    const reset = PdfSetOverprintCommand(fill: false, stroke: false, mode: 0);
+    for (final flags in [(true, false), (false, true), (true, true)]) {
+      for (final mode in [0, 1]) {
+        final active = PdfSetOverprintCommand(
+            fill: flags.$1, stroke: flags.$2, mode: mode);
+        final cases = <List<PdfRenderCommand>>[
+          [active, _fill(0, 0, 10, 10), reset],
+          [reset, active, reset, _fill(0, 0, 10, 10)],
+          [
+            const PdfBeginSoftMaskedCommand(),
+            _fill(0, 0, 10, 10),
+            PdfEndSoftMaskedCommand(
+                luminosity: false,
+                backdrop: const PdfRect(0, 0, 10, 10),
+                maskCommands: [reset, active, reset])
+          ],
+          [
+            PdfDrawTiledCellCommand([reset, active, reset, _fill(0, 0, 10, 10)],
+                Float64List.fromList([0]), Float64List.fromList([0]))
+          ],
+        ];
+        for (final commands in cases) {
+          for (final grid in [false, true]) {
+            final index = PdfRegionReplayIndex.build(commands,
+                maxCommands: 100, buildGrid: grid);
+            expect(index.supported, isFalse);
+            expect(index.commandsForRegion(const PdfRect(1, 1, 2, 2), commands),
+                same(commands));
+          }
+        }
+      }
+    }
+  });
+
   test('selects complete groups and source outside a transferred soft mask',
       () {
     final commands = <PdfRenderCommand>[
@@ -186,11 +255,13 @@ void main() {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildHighZoomPagePdf()).page(0);
       final commands = <PdfRenderCommand>[
+        const PdfSetOverprintCommand(fill: false, stroke: false, mode: 1),
         _fill(0, 0, 612, 792, const PdfColor(.7, .85, 1)),
         const PdfSaveCommand(),
         PdfClipPathCommand(_rect(40, 700, 100, 760), PdfFillRule.nonzero),
         const PdfSetBlendModeCommand(PdfBlendMode.multiply),
         const PdfBeginGroupCommand(.7, isolated: true, knockout: true),
+        const PdfSetOverprintCommand(fill: false, stroke: false, mode: 0),
         _fill(45, 715, 80, 750),
         const PdfSaveCommand(),
         PdfClipPathCommand(_rect(50, 720, 75, 747), PdfFillRule.nonzero),
@@ -202,7 +273,10 @@ void main() {
         PdfEndSoftMaskedCommand(
             luminosity: false,
             backdrop: const PdfRect(0, 0, 612, 792),
-            maskCommands: [_fill(56, 726, 62, 731, const PdfColor(1, 1, 1))],
+            maskCommands: [
+              const PdfSetOverprintCommand(fill: false, stroke: false, mode: 1),
+              _fill(56, 726, 62, 731, const PdfColor(1, 1, 1))
+            ],
             transferScale: .65,
             transferOffset: .35),
         const PdfRestoreCommand(),

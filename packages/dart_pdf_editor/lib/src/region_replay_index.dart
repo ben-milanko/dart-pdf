@@ -122,9 +122,10 @@ class PdfRegionReplayIndex {
           addBounds(group.commandIndex, i + 1, group.bounds, group.clips,
               group.blendMode);
         case PdfSetOverprintCommand():
-          // Declined recursively by the safety pass; units do not snapshot
-          // persistent overprint fields, including those in mask/cell lists.
-          throw StateError('Overprint passed region replay safety validation');
+          // The recursive safety pass permits only resets with both flags
+          // off. A fresh replay device already has that state; /OPM cannot
+          // affect paint while neither fill nor stroke overprints.
+          break;
         default:
           if (clips?.empty ?? false) continue;
           var bounds = safety.commandBounds(command);
@@ -617,8 +618,12 @@ class _ReplaySafety {
           clipped = true;
         case PdfSetBlendModeCommand(:final mode):
           blend = mode;
-        case PdfSetOverprintCommand():
-          return null;
+        case PdfSetOverprintCommand(:final fill, :final stroke):
+          // Many CAD exporters explicitly reset /op and /OP around every
+          // form. These inert commands must not disable region culling for
+          // the whole sheet. Active overprint still needs full replay: units
+          // do not snapshot its persistent state, even inside cells/masks.
+          if (fill || stroke) return null;
         case PdfBeginGroupCommand(:final isolated, :final backdropColor):
           // Seeded non-isolated groups clip before saving their layer and
           // replace its backdrop. Even without a BBox here, a seed can pass
