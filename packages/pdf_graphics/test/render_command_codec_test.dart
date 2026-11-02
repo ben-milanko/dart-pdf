@@ -1459,6 +1459,78 @@ void main() {
       expect(decoded.rgba, [40, 100, 7, 255]);
     });
 
+    for (final stencil in [false, true]) {
+      for (final predecoded in [0, 1, 2]) {
+        test(
+            'region decode preserves a high-resolution ${stencil ? 'Mask' : 'SMask'} '
+            'over a tiny colour plane (predecoded=$predecoded)', () {
+          final cos = CosDocument.open(buildClassicPdf());
+          // Word exports raster text as a 2x2 colour image whose sharp mask
+          // contains all the ink. Its top-left 2x2 pixels are blank.
+          final alpha = <List<int>>[
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 255, 255, 255, 255, 0, 0],
+            [0, 0, 255, 0, 0, 255, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+          ].expand((row) => row).toList();
+          final mask = CosStream(
+              CosDictionary({
+                'Width': const CosInteger(8),
+                'Height': const CosInteger(4),
+                'BitsPerComponent': CosInteger(stencil ? 1 : 8),
+                if (stencil) 'ImageMask': const CosBoolean(true),
+                if (!stencil) 'ColorSpace': const CosName('DeviceGray'),
+              }),
+              Uint8List.fromList(stencil ? [0xff, 0xc3, 0xdb, 0xff] : alpha));
+          final stream = CosStream(
+              CosDictionary({
+                'Width': const CosInteger(2),
+                'Height': const CosInteger(2),
+                'BitsPerComponent': const CosInteger(8),
+                'ColorSpace': const CosName('DeviceRGB'),
+                stencil ? 'Mask' : 'SMask': mask,
+              }),
+              Uint8List.fromList(List.generate(4, (_) => [0, 100, 0])
+                  .expand((p) => p)
+                  .toList()));
+          final full = decodePdfImagePixels(cos, stream)!;
+          expect((full.width, full.height), (8, 4));
+          final source =
+              predecoded == 2 ? downsamplePdfDecodedPixels(full, 4, 2) : full;
+          final command = PdfDrawImageCommand(PdfImageRequest(
+            stream: stream,
+            transform: const PdfMatrix(80, 0, 0, 40, 0, 0),
+            decoded: predecoded == 0 ? null : source,
+          ));
+          for (final region in [
+            const PdfRect(0, 0, 80, 40),
+            const PdfRect(20, 0, 60, 20)
+          ]) {
+            final bytes = serializeCommands([command],
+                cos: cos,
+                decodeImages: true,
+                maxImagePixelRatio: 100,
+                imageDecodeRegion: region)!;
+            final request =
+                _imageCommands(deserializeCommands(bytes)).single.request;
+            final pixels = request.decoded!;
+            final x = (region.left * source.width / 80).floor();
+            final y = ((40 - region.top) * source.height / 40).floor();
+            final width = (region.width * source.width / 80).floor();
+            final height = (region.height * source.height / 40).floor();
+            final expected = cropDownsamplePdfDecodedPixels(
+                source, x, y, width, height, width, height);
+            expect((pixels.width, pixels.height), (width, height));
+            expect(pixels.rgba, expected!.rgba);
+            expect(request.transform.a, region.width);
+            expect(request.transform.d, region.height);
+            expect(request.transform.e, region.left);
+            expect(request.transform.f, region.bottom);
+          }
+        });
+      }
+    }
+
     test('imageDecodeRegion crops and retargets a rotated image draw', () {
       // A 90-degree placement (u up the page, v leftward), as a landscape
       // sheet or a rotated scan tile is drawn. Region decode used to refuse
