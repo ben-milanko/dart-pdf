@@ -131,6 +131,53 @@ void main() {
     expect(toolbarShown(tester), isTrue);
   });
 
+  testWidgets('iPhone: a fling at the document end does not reverse the chrome',
+      (tester) async {
+    screen(tester, const Size(402, 874));
+    tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+    await pump(
+        tester,
+        PdfEditorView(
+            bytes: buildMultiPagePdf(2), initialFit: PdfViewerFit.width));
+    final chrome = tester
+        .widget<PdfChromeAutoHideListener>(
+            find.byType(PdfChromeAutoHideListener))
+        .controller;
+    final visibility = <bool>[];
+    chrome.addListener(() => visibility.add(chrome.visible));
+
+    await tester.fling(find.byType(PdfViewer), const Offset(0, -500), 1800);
+    await tester.pumpAndSettle();
+    expect(visibility, [false],
+        reason: 'only a deliberate reverse scroll should bring the bars back');
+
+    await scroll(tester, 120);
+    expect(chrome.visible, isTrue);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets(
+      'iPhone: spring-back at the start does not hide the reader header',
+      (tester) async {
+    screen(tester, const Size(402, 874));
+    tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
+    await pump(tester,
+        PdfReader(bytes: buildMultiPagePdf(2), initialFit: PdfViewerFit.width));
+    final chrome = tester
+        .widget<PdfChromeAutoHideListener>(
+            find.byType(PdfChromeAutoHideListener))
+        .controller;
+    final visibility = <bool>[];
+    chrome.addListener(() => visibility.add(chrome.visible));
+
+    await tester.fling(find.byType(PdfViewer), const Offset(0, 300), 1200);
+    await tester.pumpAndSettle();
+    expect(visibility, isEmpty);
+    expect(chrome.visible, isTrue);
+
+    await scroll(tester, -120);
+    expect(chrome.visible, isFalse);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   // The app and the example open the editor with Select armed. Select is
   // reading, not a tool in use - and with it armed the viewer scrolls by its
   // own touch pan (no UserScrollNotification), so this is its own path.
@@ -294,11 +341,12 @@ void main() {
       return chrome;
     }
 
-    ScrollUpdateNotification update(double delta) => ScrollUpdateNotification(
+    ScrollUpdateNotification update(double delta, {double pixels = 1000}) =>
+        ScrollUpdateNotification(
           metrics: FixedScrollMetrics(
             minScrollExtent: 0,
             maxScrollExtent: 5000,
-            pixels: 1000,
+            pixels: pixels,
             viewportDimension: 600,
             axisDirection: AxisDirection.down,
             devicePixelRatio: 1,
@@ -344,6 +392,31 @@ void main() {
       feed(chrome, 20);
       expect(chrome.visible, isTrue);
       await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('elastic motion at either edge does not accumulate travel',
+        (tester) async {
+      final chrome = await setUp(tester);
+      chrome.handlePointerDown(const PointerDownEvent(pointer: 1));
+      for (var i = 0; i < 4; i++) {
+        chrome.handleScrollNotification(update(10, pixels: -40 + i * 10));
+      }
+      expect(chrome.visible, isTrue, reason: 'top spring-back is not reading');
+      // A small in-range move after the spring must not inherit its travel.
+      chrome.handleScrollNotification(update(5, pixels: 5));
+      expect(chrome.visible, isTrue);
+
+      chrome.hide();
+      for (var i = 0; i < 4; i++) {
+        chrome.handleScrollNotification(update(-10, pixels: 5040 - i * 10));
+      }
+      expect(chrome.visible, isFalse,
+          reason: 'bottom spring-back is not a reverse gesture');
+      chrome.handleScrollNotification(update(-5, pixels: 4995));
+      expect(chrome.visible, isFalse);
+      feed(chrome, -10);
+      expect(chrome.visible, isTrue,
+          reason: 'real reverse scrolling still works');
     });
 
     testWidgets('a wheel scroll counts; a jump never does', (tester) async {
