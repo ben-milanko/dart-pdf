@@ -389,5 +389,8 @@
   "editorImportedFormData": "Đã nhập dữ liệu biểu mẫu - trường: {fields}, nhận xét: {comments}",
   "editorImportFormDataNothing": "Không có gì trong tệp đó khớp với tài liệu này",
   "editorCouldNotImportFormData": "Không thể nhập {name}: {error}",
-  "editorMenuFormData": "Dữ liệu biểu mẫu và nhận xét"
+  "editorMenuFormData": "Dữ liệu biểu mẫu và nhận xét",
+  "paletteTermsReduceFileSize": "nén;thu nhỏ;giảm kích thước;nén PDF",
+  "paletteTermsAddText": "thêm văn bản;nhập văn bản;hộp văn bản",
+  "paletteTermsSignature": "ký;vẽ chữ ký;chữ ký viết tay"
 }

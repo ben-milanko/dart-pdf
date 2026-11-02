@@ -1522,4 +1522,16 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Dados de formulário e comentários';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'comprimir;reduzir;diminuir tamanho;comprimir PDF';
+
+  @override
+  String get paletteTermsAddText =>
+      'adicionar texto;digitar texto;caixa de texto';
+
+  @override
+  String get paletteTermsSignature =>
+      'assinar;desenhar assinatura;assinatura manuscrita';
 }

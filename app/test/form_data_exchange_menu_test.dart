@@ -3,9 +3,11 @@
 // the PDF it embeds. Picking and saving need platform channels, so the menu
 // tests stop at the wiring.
 import 'dart:convert';
+import 'dart:ui' show SemanticsAction, SemanticsActionEvent;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -94,6 +96,60 @@ void main() {
     expect(
         find.byKey(const ValueKey('app-menu-sheet-form-data')), findsOneWidget);
     expectEntries();
+  });
+
+  testWidgets('semantics tap opens the merged form submenu row',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpWithForm(tester);
+      await tester.tap(find.byTooltip('DartPDF menu'));
+      await tester.pumpAndSettle();
+      final group = find.byKey(const ValueKey('menu-group-form-data'));
+      await tester.ensureVisible(group);
+      await tester.pumpAndSettle();
+      final node = tester.getSemantics(group);
+      tester.binding.performSemanticsAction(SemanticsActionEvent(
+        viewId: tester.view.viewId,
+        nodeId: node.id,
+        type: SemanticsAction.tap,
+      ));
+      await tester.pumpAndSettle();
+      expectEntries();
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('keyboard reaches and opens form exchange without a pointer',
+      (tester) async {
+    await pumpWithForm(tester);
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    bool groupFocused() {
+      var found = false;
+      FocusManager.instance.primaryFocus?.context?.visitAncestorElements((e) {
+        if (e.widget.key == const ValueKey('menu-group-form-data')) {
+          found = true;
+          return false;
+        }
+        return true;
+      });
+      return found;
+    }
+
+    for (var i = 0; i < 25 && !groupFocused(); i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+    }
+    expect(groupFocused(), isTrue, reason: 'form exchange must be focusable');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expectEntries();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('menu-export-fdf')), findsNothing);
+    expect(find.byType(PdfViewer), findsOneWidget);
   });
 
   testWidgets('no form-data entries without a document', (tester) async {

@@ -389,5 +389,8 @@
   "editorImportedFormData": "Dati del modulo importati – campi: {fields}, commenti: {comments}",
   "editorImportFormDataNothing": "Nulla in quel file corrisponde a questo documento",
   "editorCouldNotImportFormData": "Impossibile importare {name}: {error}",
-  "editorMenuFormData": "Dati del modulo e commenti"
+  "editorMenuFormData": "Dati del modulo e commenti",
+  "paletteTermsReduceFileSize": "comprimere;ridurre;rimpicciolire;comprimere PDF",
+  "paletteTermsAddText": "aggiungere testo;scrivere testo;casella di testo",
+  "paletteTermsSignature": "firmare;disegnare firma;firma autografa"
 }

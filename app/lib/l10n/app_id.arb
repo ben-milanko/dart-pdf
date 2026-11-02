@@ -389,5 +389,8 @@
   "editorImportedFormData": "Data formulir diimpor - kolom: {fields}, komentar: {comments}",
   "editorImportFormDataNothing": "Tidak ada isi file itu yang cocok dengan dokumen ini",
   "editorCouldNotImportFormData": "Tidak dapat mengimpor {name}: {error}",
-  "editorMenuFormData": "Data formulir dan komentar"
+  "editorMenuFormData": "Data formulir dan komentar",
+  "paletteTermsReduceFileSize": "kompres;perkecil;kurangi ukuran;kompres PDF",
+  "paletteTermsAddText": "tambah teks;ketik teks;kotak teks",
+  "paletteTermsSignature": "tanda tangan;gambar tanda tangan;tanda tangan tulisan tangan"
 }

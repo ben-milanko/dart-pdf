@@ -1581,6 +1581,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     );
   }
 
+  String _historyTooltip(BuildContext context, {required bool redo}) {
+    final l = pdfL10n(context);
+    final label = redo ? l.redo : l.undo;
+    if (!PdfKeyboardAvailability.of(context)) return label;
+    final apple = switch (Theme.of(context).platform) {
+      TargetPlatform.macOS || TargetPlatform.iOS => true,
+      _ => false,
+    };
+    if (apple) return redo ? l.tbRedoShortcut : l.tbUndoShortcut;
+    return '$label (${redo ? 'Ctrl+Shift+Z' : 'Ctrl+Z'})';
+  }
+
   Widget _dock(BuildContext context) {
     final axis = widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
     final groups = _visibleGroups;
@@ -1598,17 +1610,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-undo'),
           icon: const Icon(Icons.undo),
-          tooltip: PdfKeyboardAvailability.of(context)
-              ? pdfL10n(context).tbUndoShortcut
-              : pdfL10n(context).undo,
+          tooltip: _historyTooltip(context, redo: false),
           onPressed: controller.canUndo ? controller.undo : null,
         ),
         IconButton(
           key: const ValueKey('pdf-redo'),
           icon: const Icon(Icons.redo),
-          tooltip: PdfKeyboardAvailability.of(context)
-              ? pdfL10n(context).tbRedoShortcut
-              : pdfL10n(context).redo,
+          tooltip: _historyTooltip(context, redo: true),
           onPressed: controller.canRedo ? controller.redo : null,
         ),
         _DockDivider(axis: axis),
@@ -2701,18 +2709,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             IconButton(
               key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
-              tooltip: PdfKeyboardAvailability.of(context)
-                  ? pdfL10n(context).tbUndoShortcut
-                  : pdfL10n(context).undo,
+              tooltip: _historyTooltip(context, redo: false),
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
               key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
-              tooltip: PdfKeyboardAvailability.of(context)
-                  ? pdfL10n(context).tbRedoShortcut
-                  : pdfL10n(context).redo,
+              tooltip: _historyTooltip(context, redo: true),
               visualDensity: VisualDensity.compact,
               onPressed: controller.canRedo ? controller.redo : null,
             ),
@@ -3103,30 +3107,41 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(children: [
-                          for (final g in groups)
-                            Padding(
-                              padding: const EdgeInsetsDirectional.only(end: 7),
-                              child: _GroupChip(
-                                key: ValueKey('pdf-group-tab-${g.id}'),
-                                group: g,
-                                active: g.id == tabId,
-                                onTap: () {
-                                  if (g.kind == PdfEditToolGroup.select) {
-                                    Navigator.of(sheetContext).pop();
-                                    _toggleTool(PdfEditTool.select);
-                                    return;
-                                  }
-                                  if (g.id == tabId) return;
-                                  setSheetState(() => tabId = g.id);
-                                  _armSheetGroupDefault(g);
-                                },
+                      Row(children: [
+                        Expanded(
+                            child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(children: [
+                            for (final g in groups)
+                              Padding(
+                                padding:
+                                    const EdgeInsetsDirectional.only(end: 7),
+                                child: _GroupChip(
+                                  key: ValueKey('pdf-group-tab-${g.id}'),
+                                  group: g,
+                                  active: g.id == tabId,
+                                  onTap: () {
+                                    if (g.kind == PdfEditToolGroup.select) {
+                                      Navigator.of(sheetContext).pop();
+                                      _toggleTool(PdfEditTool.select);
+                                      return;
+                                    }
+                                    if (g.id == tabId) return;
+                                    setSheetState(() => tabId = g.id);
+                                    _armSheetGroupDefault(g);
+                                  },
+                                ),
                               ),
-                            ),
-                        ]),
-                      ),
+                          ]),
+                        )),
+                        IconButton(
+                          key: const ValueKey('pdf-tools-close'),
+                          tooltip: MaterialLocalizations.of(context)
+                              .closeButtonTooltip,
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                        ),
+                      ]),
                       const SizedBox(height: 14),
                       _SheetSectionLabel(
                         group.label(context),

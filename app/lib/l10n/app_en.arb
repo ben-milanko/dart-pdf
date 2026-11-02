@@ -1929,5 +1929,17 @@
   "editorCouldNotImportFormData": "Could not import {name}: {error}",
   "@editorCouldNotImportFormData": {"description": "Toast when a form-data file could not be read or applied, with the file name and the error detail.", "placeholders": {"name": {"type": "String"}, "error": {"type": "String"}}},
   "editorMenuFormData": "Form data and comments",
-  "@editorMenuFormData": {"description": "App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats."}
+  "@editorMenuFormData": {"description": "App menu submenu (and phone menu group) holding the import and export actions for form field values and comments in Acrobat's FDF, XFDF and XDP formats."},
+  "paletteTermsReduceFileSize": "compress;shrink;make smaller;smaller PDF;compress PDF",
+  "@paletteTermsReduceFileSize": {
+    "description": "Semicolon-separated command search aliases for reducing PDF file size. Translate task words; keep semicolons."
+  },
+  "paletteTermsAddText": "add text;type text;text box;write text",
+  "@paletteTermsAddText": {
+    "description": "Semicolon-separated command search aliases for the text-box annotation tool. Translate task words; keep semicolons."
+  },
+  "paletteTermsSignature": "sign;draw signature;handwritten signature",
+  "@paletteTermsSignature": {
+    "description": "Semicolon-separated command search aliases for placing a handwritten signature, distinct from certificate-based digital signing. Translate task words; keep semicolons."
+  }
 }

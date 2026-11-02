@@ -389,5 +389,8 @@
   "editorImportedFormData": "นำเข้าข้อมูลฟอร์มแล้ว - ฟิลด์: {fields}, ความคิดเห็น: {comments}",
   "editorImportFormDataNothing": "ไม่มีสิ่งใดในไฟล์นั้นที่ตรงกับเอกสารนี้",
   "editorCouldNotImportFormData": "ไม่สามารถนำเข้า {name}: {error}",
-  "editorMenuFormData": "ข้อมูลฟอร์มและความคิดเห็น"
+  "editorMenuFormData": "ข้อมูลฟอร์มและความคิดเห็น",
+  "paletteTermsReduceFileSize": "บีบอัด;ย่อ;ลดขนาด;บีบอัด PDF",
+  "paletteTermsAddText": "เพิ่มข้อความ;พิมพ์ข้อความ;กล่องข้อความ",
+  "paletteTermsSignature": "ลงชื่อ;วาดลายเซ็น;ลายเซ็นที่เขียนด้วยมือ"
 }

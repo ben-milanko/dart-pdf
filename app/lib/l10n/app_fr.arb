@@ -389,5 +389,8 @@
   "editorImportedFormData": "Données de formulaire importées – champs : {fields}, commentaires : {comments}",
   "editorImportFormDataNothing": "Rien dans ce fichier ne correspond à ce document",
   "editorCouldNotImportFormData": "Impossible d’importer {name} : {error}",
-  "editorMenuFormData": "Données de formulaire et commentaires"
+  "editorMenuFormData": "Données de formulaire et commentaires",
+  "paletteTermsReduceFileSize": "compresser;réduire;réduire la taille;compresser PDF",
+  "paletteTermsAddText": "ajouter du texte;saisir du texte;zone de texte",
+  "paletteTermsSignature": "signer;dessiner une signature;signature manuscrite"
 }

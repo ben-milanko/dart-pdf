@@ -1496,4 +1496,14 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'ข้อมูลฟอร์มและความคิดเห็น';
+
+  @override
+  String get paletteTermsReduceFileSize => 'บีบอัด;ย่อ;ลดขนาด;บีบอัด PDF';
+
+  @override
+  String get paletteTermsAddText => 'เพิ่มข้อความ;พิมพ์ข้อความ;กล่องข้อความ';
+
+  @override
+  String get paletteTermsSignature =>
+      'ลงชื่อ;วาดลายเซ็น;ลายเซ็นที่เขียนด้วยมือ';
 }
