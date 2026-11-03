@@ -1869,7 +1869,9 @@ class _EditorScreenState extends State<EditorScreen>
               title: preview.title,
               error: _openFailureDetail(preview.title, error2),
             ));
-        preview.dispose();
+        // The failed preview remains mounted until the replacement frame,
+        // just as it does on the successful full-document swap below.
+        WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
       }
     }
   }

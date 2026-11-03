@@ -11714,6 +11714,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         oldWidget.pageColor != widget.pageColor ||
         oldWidget.pageImagesShowAnnotations !=
             widget.pageImagesShowAnnotations ||
+        !sameHiddenAnnotationSubtypes(oldWidget.hiddenAnnotationSubtypes,
+            widget.hiddenAnnotationSubtypes) ||
         oldWidget.trustContentStamp != widget.trustContentStamp ||
         (!widget.trustContentStamp && !identical(oldWidget.page, widget.page));
     if (oldWidget.index != widget.index && _rastered) {
