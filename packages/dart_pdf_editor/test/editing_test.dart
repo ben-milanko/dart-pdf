@@ -1358,7 +1358,7 @@ void main() {
 
       editing.addRectangle(0, const PdfRect(100, 650, 250, 750));
       await tester.pump();
-      await tester.tap(find.byTooltip('Undo (⌘Z)'));
+      await tester.tap(find.byKey(const ValueKey('pdf-undo')));
       await tester.pump();
       expect(editing.document.page(0).annotations, isEmpty);
       await settle(tester);
