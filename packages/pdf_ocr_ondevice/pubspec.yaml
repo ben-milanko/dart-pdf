@@ -23,7 +23,7 @@ dependencies:
   dart_pdf_editor: ^14.0.0
   pdf_document: ^14.0.0
   http: ^1.2.0
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   ffi: ^2.1.0
   path_provider: ^2.1.6
   onnxruntime: ^1.4.1

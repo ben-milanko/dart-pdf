@@ -20,7 +20,7 @@ environment:
 
 dependencies:
   archive: ^4.3.0
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   pdf_cos: ^14.0.0
 
 dev_dependencies:
