@@ -22,7 +22,7 @@ dependencies:
   intl: ^0.20.2
   # The Material design library. 7.0 moved off package:flutter/material.dart;
   # see doc/MIGRATING-7.0.0.md.
-  material_ui: ^1.8.0
+  material_ui: ^1.9.0
 
   # The PDF engine and editing UI live in the workspace packages.
   dart_pdf_editor: ^14.0.0
@@ -62,7 +62,7 @@ dependencies:
   # the last session can be reopened without a fresh pick (see pdf_cache.dart).
   path_provider: ^2.1.6
   # Content-addresses those snapshots so reopening the same PDF reuses one file.
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   desktop_drop: ^0.8.0
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.
