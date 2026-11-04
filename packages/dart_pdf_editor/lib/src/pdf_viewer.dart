@@ -11649,19 +11649,13 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
 
-  /// Whether the editing overlay stays mounted after its reason to be
-  /// (a tool, a selection, ...) has gone, until this page is current again.
-  /// It may be painting an afterimage of the latest edit - the annotation
-  /// layer has not drawn it yet - and unmounting it on a deselect hid the
-  /// annotation until the layer caught up.
-  bool _editingOverlayHeld = false;
-
-  /// The editing revision [widget.page] belongs to, read when that page
-  /// arrived: once this page's raster and annotation layer are current, the
-  /// committed-ink afterimages up to it are on the page itself and are retired
-  /// ([PdfEditingController.retireCommittedInk]). Read at arrival rather than
-  /// at readiness, because a render finishing between the next commit and
-  /// the rebuild that delivers its page must not retire the newer ink.
+  /// The editing revision [widget.page] belongs to, read whenever the viewer
+  /// delivers this page: once this page's raster and annotation layer are
+  /// current, it is reported to [PdfEditingController.pageCurrency] as
+  /// current at this revision, which retires the afterimages it now draws
+  /// itself. Read at arrival rather than at readiness, because a render
+  /// finishing between the next commit and the rebuild that delivers its
+  /// page must not retire the newer edit.
   late int? _pageRevision = widget.editing?.revisionId;
 
   /// Whether this page overlaps the viewport (#657). Read from
@@ -11721,6 +11715,10 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
     if (oldWidget.index != widget.index && _rastered) {
       oldWidget.onRasterStateChanged(oldWidget.index, false);
     }
+    if (oldWidget.index != widget.index ||
+        !identical(oldWidget.editing, widget.editing)) {
+      oldWidget.editing?.pageCurrency.pageStale(oldWidget.index);
+    }
     if (pageImageChanged && _rastered) {
       _rastered = false;
       widget.onRasterStateChanged(widget.index, false);
@@ -11741,11 +11739,10 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         (newLayer && !identical(oldWidget.page, widget.page))) {
       _annotationLayerCurrent = !newLayer;
     }
-    if (!identical(oldWidget.page, widget.page) ||
-        oldWidget.index != widget.index ||
-        !identical(oldWidget.editing, widget.editing)) {
-      _pageRevision = widget.editing?.revisionId;
-    }
+    // whatever page the viewer delivers now is what it reconciled for the
+    // current revision - unchanged pages included
+    _pageRevision = widget.editing?.revisionId;
+    _reportCurrency();
   }
 
   void _onRasterReady() {
@@ -11762,34 +11759,48 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       _rastered = true;
     }
     widget.onRasterStateChanged(widget.index, true);
-    _retireLandedInk();
+    _reportCurrency();
   }
 
-  /// Hands back the committed-ink afterimages this page now draws itself.
-  void _retireLandedInk() {
+  /// Whether the on-screen raster and annotation layer show [widget.page].
+  ///
+  /// Clean page wrappers deliberately survive an incremental revision. Their
+  /// PdfDocument wrapper may therefore be older, but it shares the one live
+  /// COS graph and its page-tree caches self-invalidate from the COS revision
+  /// generation.
+  bool get _pageCurrent {
     final editing = widget.editing;
+    return _rastered &&
+        _annotationLayerCurrent &&
+        editing != null &&
+        identical(widget.page.document.cos, editing.document.cos);
+  }
+
+  /// Tells the editing session whether this page is current, which retires
+  /// the afterimages it now draws itself.
+  void _reportCurrency() {
+    final currency = widget.editing?.pageCurrency;
+    if (currency == null) return;
     final revision = _pageRevision;
-    if (editing == null ||
-        revision == null ||
-        !_rastered ||
-        !_annotationLayerCurrent ||
-        !identical(widget.page.document.cos, editing.document.cos)) {
-      return;
+    if (_pageCurrent && revision != null) {
+      currency.pageCurrent(widget.index, revision);
+    } else {
+      currency.pageStale(widget.index);
     }
-    editing.retireCommittedInk(widget.index, throughRevision: revision);
   }
 
   @override
   void dispose() {
     widget.onScreenSpan.removeListener(_onSpanChanged);
     if (_rastered) widget.onRasterStateChanged(widget.index, false);
+    widget.editing?.pageCurrency.pageStale(widget.index);
     super.dispose();
   }
 
   void _onAnnotationLayerReady() {
     if (_annotationLayerCurrent || !mounted) return;
     setState(() => _annotationLayerCurrent = true);
-    _retireLandedInk();
+    _reportCurrency();
   }
 
   @override
@@ -11938,15 +11949,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                       // low-latency hover layer even in ordinary reader/hand
                       // mode.
                       builder: (context, _) {
-                        final rasterCurrent = _rastered &&
-                            _annotationLayerCurrent &&
-                            // Clean page wrappers deliberately survive an
-                            // incremental revision. Their PdfDocument wrapper may
-                            // therefore be older, but it shares the one live COS
-                            // graph and its page-tree caches self-invalidate from
-                            // the COS revision generation.
-                            identical(
-                                widget.page.document.cos, editing.document.cos);
+                        final rasterCurrent = _pageCurrent;
                         final idle = editing.tool == null &&
                             !editing.isPickingColor &&
                             editing.activeSavedAnnotation == null &&
@@ -11957,16 +11960,15 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                             !editing.preferences.showPageRulers &&
                             !editing.preferences.showSnapGrid;
                         // a mounted overlay outlives its reason until the
-                        // page is current: it may hold the last edit's
-                        // afterimage (see [_editingOverlayHeld])
-                        _editingOverlayHeld =
-                            !rasterCurrent && (!idle || _editingOverlayHeld);
-                        return idle &&
-                                !_editingOverlayHeld &&
-                                (rasterCurrent ||
-                                    editing
-                                        .committedInksOn(widget.index)
-                                        .isEmpty)
+                        // page is current: it may be standing in for the
+                        // last edit, which the annotation layer has not
+                        // drawn yet - unmounting it on a deselect hid the
+                        // annotation until the layer caught up
+                        final currency = editing.pageCurrency;
+                        if (!idle && !rasterCurrent) {
+                          currency.keepOverlayUntilCurrent(widget.index);
+                        }
+                        return idle && !currency.needsOverlay(widget.index)
                             ? const SizedBox.shrink()
                             : Positioned.fill(
                                 child: ValueListenableBuilder<double>(
