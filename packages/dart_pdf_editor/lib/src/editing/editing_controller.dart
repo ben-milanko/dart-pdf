@@ -26,6 +26,7 @@ import 'models/custom_stamp.dart';
 import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/prompts.dart';
+import 'page_currency.dart';
 import 'paste_routing.dart';
 import 'saved_annotation.dart';
 import 'signature_validation_worker.dart';
@@ -914,6 +915,7 @@ class PdfEditingController extends ChangeNotifier {
     _settlePick(null);
     _inkTimer?.cancel();
     _flashTimer?.cancel();
+    pageCurrency.clear();
     _changeFeed?.close();
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
@@ -973,7 +975,38 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Advances the render stamps for a revision with [impact] landing or
   /// being reverted.
+  /// Pending visual results of committed revisions - the editing overlay's
+  /// afterimages and the committed-ink run - and when each retires. The
+  /// viewer reports page readiness to it and asks it whether a page still
+  /// needs its overlay mounted.
+  final PdfPageCurrency pageCurrency = PdfPageCurrency();
+
+  /// The pages the revision being committed changes on screen (null: all),
+  /// handed to [pageCurrency] once it lands.
+  Set<int>? _currencyChanged = {};
+
+  /// Set while [finishInk] commits, so the ink run survives the move.
+  bool _committingInk = false;
+
+  void _noteCurrencyChange(Set<int>? pages) {
+    final changed = _currencyChanged;
+    if (changed == null) return;
+    if (pages == null) {
+      _currencyChanged = null;
+    } else {
+      changed.addAll(pages);
+    }
+  }
+
+  void _reportDocumentMove() {
+    pageCurrency.documentAt(_revisionId,
+        changedPages: _currencyChanged, extendsRun: _committingInk);
+    _currencyChanged = {};
+  }
+
   void _bumpStampsFor(PdfEditImpact impact) {
+    _noteCurrencyChange(impact.visualPages);
+    _noteCurrencyChange(impact.annotationPages);
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     if (impact.pageStructureChanged) _pageStructureEpoch++;
@@ -1236,6 +1269,7 @@ class PdfEditingController extends ChangeNotifier {
     _dropSignatureCores(beyond: revision.length);
     _document = _openRevision(revision);
     _revisionId++;
+    _reportDocumentMove();
   }
 
   /// Opens [bytes] - another revision of this session's file - with the
@@ -1304,6 +1338,7 @@ class PdfEditingController extends ChangeNotifier {
       // signal, so the wrapper identity no longer has to change (#414).
       _document = _document.withIncrementalUpdate(bytes);
       _revisionId++;
+      _reportDocumentMove();
       return true;
     } on CosParseException {
       return false;
@@ -3011,46 +3046,18 @@ class PdfEditingController extends ChangeNotifier {
   /// Back-to-back commits accumulate: the next stroke can commit before the
   /// previous one has rendered (a slow or held render, quick handwriting), and
   /// the new revision restarts that render. Keeping only the latest commit
-  /// made every earlier stroke vanish until the page caught up. The viewer
-  /// drops a page's entries once that page is current again
-  /// ([retireCommittedInk]); any other revision (an undo, another edit) ends
-  /// the run.
-  final List<
-      ({
-        int revisionId,
-        Map<int, List<List<(double, double)>>> strokes,
-        Map<int, List<List<double>?>> pressures,
-        Color color,
-        double strokeWidth,
-      })> _committedInks = [];
-
-  /// The just-committed ink on [pageIndex], each commit that has not reached
-  /// the page's raster yet, oldest first (see [_committedInks]). Empty once
-  /// the document has moved past the committing revision.
+  /// made every earlier stroke vanish until the page caught up. Held as a run
+  /// in [pageCurrency], which retires a page's entries once that page is
+  /// current again; any other revision (an undo, another edit) ends the run.
   List<
       ({
         List<List<(double, double)>> strokes,
         List<List<double>?> pressures,
         Color color,
         double strokeWidth,
-      })> committedInksOn(int pageIndex) {
-    if (_committedInks.isEmpty ||
-        _committedInks.last.revisionId != _revisionId) {
-      return const [];
-    }
-    return [
-      for (final committed in _committedInks)
-        if (committed.strokes[pageIndex] case final strokes?
-            when strokes.isNotEmpty)
-          (
-            strokes: strokes,
-            pressures: committed.pressures[pageIndex] ??
-                List<List<double>?>.filled(strokes.length, null),
-            color: committed.color,
-            strokeWidth: committed.strokeWidth,
-          ),
-    ];
-  }
+      })> committedInksOn(
+          int pageIndex) =>
+      pageCurrency.allHeldOn<_CommittedInk>(pageIndex, _committedInkSlot);
 
   /// The most recent ink commit on [pageIndex] (the last of
   /// [committedInksOn]), or null once the document has moved past the
@@ -3066,18 +3073,14 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Forgets the committed ink on [pageIndex] from revisions up to
-  /// [throughRevision] ([revisionId] values): the viewer calls this once that
-  /// page shows a revision at least that new, so the overlay stops carrying
-  /// strokes the page now draws itself. Does not notify - the overlay only
-  /// paints this ink while the page is behind.
-  void retireCommittedInk(int pageIndex, {required int throughRevision}) {
-    for (final committed in _committedInks) {
-      if (committed.revisionId > throughRevision) break;
-      committed.strokes.remove(pageIndex);
-      committed.pressures.remove(pageIndex);
-    }
-    _committedInks.removeWhere((committed) => committed.strokes.isEmpty);
-  }
+  /// [throughRevision] ([revisionId] values): the page now shows a revision
+  /// at least that new, so the overlay stops carrying strokes the page now
+  /// draws itself. Does not notify - the overlay only paints this ink while
+  /// the page is behind. The viewer reports page readiness to
+  /// [pageCurrency] instead, which retires this ink with everything else.
+  void retireCommittedInk(int pageIndex, {required int throughRevision}) =>
+      pageCurrency.retireThrough(pageIndex, throughRevision,
+          slot: _committedInkSlot);
 
   /// Whether touch input is in play this session: always true on
   /// touch-first platforms (iOS/Android/Fuchsia), and flipped on by the
@@ -3155,41 +3158,45 @@ class PdfEditingController extends ChangeNotifier {
     _inkPressures.clear();
     _pendingInkOrder.clear();
     _undoneInk.clear();
-    final before = _revisionId;
-    final committed = apply(
-      (editor) {
-        strokes.forEach((page, pageStrokes) {
-          if (pageStrokes.isNotEmpty) {
-            editor.addInk(
-              page,
-              pageStrokes,
-              color: _colorValue,
-              strokeWidth: preferences.strokeWidth,
-              opacity: preferences.opacity,
-              pressures: pressures[page],
-              author: preferences.author,
-            );
-          }
-        });
-      },
-    );
-    if (committed) {
-      // A run of commits the page has not caught up with keeps growing; any
-      // revision in between (undo, another edit) starts a fresh one.
-      if (_committedInks.isNotEmpty &&
-          _committedInks.last.revisionId != before) {
-        _committedInks.clear();
-      }
-      _committedInks.add((
-        revisionId: _revisionId,
-        strokes: strokes,
-        pressures: pressures,
-        color: preferences.color.withValues(
-          alpha: preferences.opacity.clamp(0.0, 1.0),
-        ),
-        strokeWidth: preferences.strokeWidth,
-      ));
+    final bool committed;
+    _committingInk = true;
+    try {
+      committed = apply(
+        (editor) {
+          strokes.forEach((page, pageStrokes) {
+            if (pageStrokes.isNotEmpty) {
+              editor.addInk(
+                page,
+                pageStrokes,
+                color: _colorValue,
+                strokeWidth: preferences.strokeWidth,
+                opacity: preferences.opacity,
+                pressures: pressures[page],
+                author: preferences.author,
+              );
+            }
+          });
+        },
+      );
+    } finally {
+      _committingInk = false;
     }
+    if (!committed) return;
+    final color = preferences.color.withValues(
+      alpha: preferences.opacity.clamp(0.0, 1.0),
+    );
+    strokes.forEach((page, pageStrokes) {
+      if (pageStrokes.isEmpty) return;
+      final _CommittedInk ink = (
+        strokes: pageStrokes,
+        pressures: pressures[page] ??
+            List<List<double>?>.filled(pageStrokes.length, null),
+        color: color,
+        strokeWidth: preferences.strokeWidth,
+      );
+      pageCurrency.hold(page, _committedInkSlot, ink,
+          revision: _revisionId, run: true);
+    });
   }
 
   /// Throws away the buffered strokes.
@@ -12438,3 +12445,13 @@ bool _textJoins(PdfContentElement a, PdfContentElement b) {
   final gap = bb.left - ab.right;
   return bb.left > ab.left && gap > -height * 0.3 && gap < height * 0.15;
 }
+
+/// [PdfPageCurrency]'s slot for the committed-ink run.
+const _committedInkSlot = #pdfCommittedInk;
+
+typedef _CommittedInk = ({
+  List<List<(double, double)>> strokes,
+  List<List<double>?> pressures,
+  Color color,
+  double strokeWidth,
+});
