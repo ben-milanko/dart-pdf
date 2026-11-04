@@ -1285,6 +1285,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// gesture phases dispatch on - or null when nothing is armed.
   PdfEditToolBehavior? get _behavior => PdfEditToolBehavior.maybeOf(_tool);
 
+  /// What the armed tool's placement commits through.
+  late final PdfToolHost _toolHost = _OverlayToolHost(this);
+
+  void _clearStampPreview() {
+    if (_stampPreview != null) setState(() => _stampPreview = null);
+  }
+
   bool get _inkTool => _behavior?.isInk ?? false;
   bool get _drawTool => _behavior?.isDraw ?? false;
 
@@ -3943,17 +3950,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     final snappedPosition = _snapPointToGrid(position);
-    switch (_tool) {
-      case null:
-        break; // eyedropper only - taps, no drags
-      case PdfEditTool.select:
+    switch (_behavior?.drag ?? PdfToolDrag.none) {
+      case PdfToolDrag.none:
+        break; // taps only: the eyedropper, notes, the count, poly vertices
+      case PdfToolDrag.select:
         break; // handled by _selectPanStart above
-      case PdfEditTool.eraser:
+      case PdfToolDrag.erase:
         // mouse/trackpad erase through the arena like any drag
         _beginInteraction(PdfEditingInteractionIntent.erase, details.kind);
         _panErasing = true;
         _eraseAt(position);
-      case PdfEditTool.ink || PdfEditTool.highlight:
+      case PdfToolDrag.freehand:
         _beginInteraction(PdfEditingInteractionIntent.ink, details.kind);
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
@@ -3971,31 +3978,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // stroke, anything else stays uniform
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
-      case PdfEditTool.rectangle ||
-            PdfEditTool.ellipse ||
-            PdfEditTool.cloudPolygon ||
-            PdfEditTool.line ||
-            PdfEditTool.arrow ||
-            PdfEditTool.measureDistance ||
-            PdfEditTool.measureSlope ||
-            PdfEditTool.measureCustom ||
-            PdfEditTool.calibrate ||
-            PdfEditTool.freeText ||
-            PdfEditTool.callout ||
-            PdfEditTool.cloudCallout ||
-            PdfEditTool.stamp ||
-            PdfEditTool.image ||
-            PdfEditTool.redact ||
-            PdfEditTool.snapshot ||
-            PdfEditTool.signatureBox ||
-            PdfEditTool.contentDelete ||
-            PdfEditTool.link:
+      case PdfToolDrag.region:
         _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
         setState(() {
           _dragStart = snappedPosition;
           _dragCurrent = snappedPosition;
         });
-      case PdfEditTool.form:
+      case PdfToolDrag.form:
         // a resize handle or the body of the selected widget manipulates
         // it; a press on another widget grabs it (select + move in one
         // drag); empty page area drags out a new field
@@ -4035,7 +4024,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _dragCurrent = snappedPosition;
           });
         }
-      case PdfEditTool.signature:
+      case PdfToolDrag.signature:
         // press-drag-release placement: the preview rides the pointer
         // (touch has no hover), release commits where it landed
         if (_controller.preferences.signature != null) {
@@ -4046,15 +4035,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _signaturePreview = snappedPosition;
           });
         }
-      case PdfEditTool.polyline ||
-            PdfEditTool.polygon ||
-            PdfEditTool.measurePerimeter ||
-            PdfEditTool.measureArea ||
-            PdfEditTool.measureAngle ||
-            PdfEditTool.measureArc ||
-            PdfEditTool.measureVolume:
-        break; // taps add vertices; double-tap finishes
-      case PdfEditTool.content:
+      case PdfToolDrag.content:
         // a press on the selected element - or on any other one, grabbing
         // it in the same drag - repositions it; anywhere else stays a tap
         final rect = _selectedElementViewRect;
@@ -4068,8 +4049,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         }
         _controller.selectElementAt(widget.pageIndex, x, y);
         _beginElementMove(position, details.kind);
-      case PdfEditTool.note || PdfEditTool.count:
-        break; // driven by taps
     }
   }
 
@@ -4491,33 +4470,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (stroke != null && stroke.isNotEmpty) {
       _bufferInkStroke(stroke, strokePressures, shiftAnchor);
     } else if (dragStart != null && dragCurrent != null) {
-      final viewRect = Rect.fromPoints(dragStart, dragCurrent);
-      if (_lineDragTool) {
-        if ((dragCurrent - dragStart).distance < 4) return; // a click
-        _commitLineDrag(dragStart, dragCurrent);
-        return;
-      }
-      if (_tool == PdfEditTool.cloudCallout) {
-        // the drag draws the cloud around the area to mark; the note opens
-        // beside it. A too-short drag drops a default-size cloud.
-        _openCloudCalloutEditor((dragCurrent - dragStart).distance < 8
-            ? _defaultCloudRegion(dragStart)
-            : viewRect);
-        return;
-      }
-      if (_calloutTool) {
-        // the drag draws the leader: press at the terminus, release where
-        // the box goes. A too-short drag drops a default-offset box.
-        _openCalloutEditor(
-            _calloutPlacementRect(dragStart, dragCurrent), dragStart);
-        return;
-      }
-      if (viewRect.width < 4 || viewRect.height < 4) return; // a click
-      if (_tool == PdfEditTool.freeText) {
-        // type into the box just dragged out, instead of a dialog
-        _openTextEditor(viewRect, existing: false);
-      } else {
-        _commitRect(viewRect);
+      // the armed tool places what the drag laid out (its own rules for
+      // what counts as a click)
+      final behavior = _behavior;
+      if (behavior != null) {
+        unawaited(behavior.commitRegion(_toolHost, dragStart, dragCurrent));
       }
     }
   }
@@ -4713,21 +4670,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _holdAfterimage(after, revision: _controller.revisionId);
     // the next hover re-arms the preview; touch shouldn't keep a stale one
     _signaturePreview = null;
-  }
-
-  void _commitLineDrag(Offset start, Offset end) {
-    if (_tool == PdfEditTool.calibrate) {
-      unawaited(_commitCalibration(start, end));
-      return;
-    }
-    if (_tool == PdfEditTool.measureCustom) {
-      unawaited(_commitCustomMeasurement(start, end));
-      return;
-    }
-    final before = _controller.revisionId;
-    _behavior!.commitLineDrag(_controller, widget.pageIndex,
-        _geometry.toPagePoint(start), _geometry.toPagePoint(end));
-    _holdLineAfterimage(before, _tool!, start, end);
   }
 
   /// Paints the [tool]'s just-committed segment from [start] to [end] (view
@@ -5034,77 +4976,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       dashed: _controller.dashedStroke,
     );
     _holdAfterimage(after, revision: _controller.revisionId);
-  }
-
-  Future<void> _commitRect(Rect viewRect) async {
-    final rect = _geometry.toPageRect(viewRect);
-    switch (_tool) {
-      case PdfEditTool.rectangle ||
-            PdfEditTool.ellipse ||
-            PdfEditTool.cloudPolygon:
-        final tool = _tool!;
-        final before = _controller.revisionId;
-        _behavior!.commitShapeRect(_controller, widget.pageIndex, rect);
-        if (before == _controller.revisionId) return;
-        // the drag preview, frozen until the new revision renders
-        final after = _Afterimage();
-        after.shape = (
-          rect: viewRect,
-          tool: tool,
-          color: _controller.color.withValues(
-              alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
-          strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
-        );
-        _holdAfterimage(after, revision: _controller.revisionId);
-      case PdfEditTool.stamp:
-        final stamp = _controller.activeStamp;
-        if (stamp != null) {
-          final values = _controller.resolvedStampTemplateValues;
-          await _commitStampWithAfterimage(
-              _stampAfterimage(viewRect,
-                  text: pdfResolveStampTemplateText(stamp.text, values),
-                  template: stamp.template?.resolveText(values),
-                  color: Color(0xFF000000 | stamp.color)),
-              () => _controller.addCustomStamp(widget.pageIndex, rect, stamp));
-          return;
-        }
-        final text = await widget.textPrompt(context,
-            title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
-        if (text == null || text.isEmpty) return;
-        await _commitStampWithAfterimage(
-            _stampAfterimage(viewRect, text: text, color: _controller.color),
-            () => _controller.addStamp(widget.pageIndex, rect, text));
-      case PdfEditTool.image:
-        final picker = widget.imagePicker;
-        if (picker == null) return;
-        final bytes = await picker(context);
-        if (bytes == null) return;
-        await _controller.addImageInRectAsync(widget.pageIndex, rect, bytes);
-      case PdfEditTool.form:
-        _controller.addFormField(
-            _controller.newFormFieldKind, widget.pageIndex, rect);
-      case PdfEditTool.redact:
-        _controller.addRedaction(widget.pageIndex, rect);
-      case PdfEditTool.contentDelete:
-        _controller.deleteElementsInRect(widget.pageIndex, rect);
-      case PdfEditTool.link:
-        final target = await widget.linkPrompt(
-          context,
-          pageCount: _controller.document.pageCount,
-          currentPage: widget.pageIndex,
-          initialUrl: '',
-        );
-        if (target == null) return;
-        _controller.addLink(widget.pageIndex, [rect], target);
-      case PdfEditTool.signatureBox:
-        final placer = widget.onPlaceSignature;
-        if (placer == null) return;
-        await placer(context, pageIndex: widget.pageIndex, pageRect: rect);
-      case PdfEditTool.snapshot:
-        await _commitSnapshot(viewRect, rect);
-      default:
-        break;
-    }
   }
 
   /// The axis-aligned bounds of [points] (view space).
@@ -5475,95 +5346,22 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           toggle: _additiveModifier);
       return;
     }
-    final tapIntent = switch (_tool) {
-      PdfEditTool.note ||
-      PdfEditTool.count ||
-      PdfEditTool.signature ||
-      PdfEditTool.freeText ||
-      PdfEditTool.callout ||
-      PdfEditTool.cloudCallout ||
-      PdfEditTool.stamp ||
-      PdfEditTool.image =>
-        PdfEditingInteractionIntent.create,
-      _ => PdfEditingInteractionIntent.none,
-    };
+    final behavior = _behavior;
+    final tapIntent = behavior?.tapCreates ?? false
+        ? PdfEditingInteractionIntent.create
+        : PdfEditingInteractionIntent.none;
     final before = _controller.revisionId;
     if (tapIntent != PdfEditingInteractionIntent.none) {
       _beginInteraction(tapIntent, details.kind);
     }
     final transition = _interaction.state.transition;
     try {
-      switch (_tool) {
-        case null:
-          break;
-        case PdfEditTool.select:
-          break; // handled above
-        case PdfEditTool.content:
-          _controller.selectElementAt(widget.pageIndex, x, y);
-        case PdfEditTool.note:
-          final text = await widget.textPrompt(context,
-              title: pdfL10n(context).overlayNote, multiline: true);
-          if (text == null || text.isEmpty) return;
-          _controller.addNote(widget.pageIndex, placementX, placementY, text);
-        case PdfEditTool.count:
-          // each tap drops a check-mark and bumps the running tally
-          final before = _controller.revisionId;
-          _controller.placeCheckMark(widget.pageIndex, placementX, placementY);
-          _captureLastStampAfterimage(before,
-              check: true, text: null, color: _controller.color);
-        case PdfEditTool.signature:
-          _placeSignature(placementPosition);
-        case PdfEditTool.freeText:
-          // tapping without dragging out a box opens a default-sized one
-          _openTextEditor(_defaultPlacementRect(placementPosition),
-              existing: false);
-        case PdfEditTool.cloudCallout:
-          // a tap drops a default-size cloud there and opens its note
-          _openCloudCalloutEditor(_defaultCloudRegion(placementPosition));
-        case PdfEditTool.callout:
-          // a plain tap makes the tap the terminus and offsets the box; a drag
-          // (handled in _panEnd) instead aims the box where the drag released
-          _openCalloutEditor(
-              _defaultPlacementRect(placementPosition + const Offset(28, -28)),
-              placementPosition);
-        case PdfEditTool.stamp:
-          final stamp = _controller.activeStamp;
-          if (stamp != null) {
-            // an active custom stamp drops at its auto-size on tap
-            final preview = _activeStampAfterimageAt(placementPosition);
-            if (preview == null) return;
-            if (_stampPreview != null) setState(() => _stampPreview = null);
-            await _commitStampWithAfterimage(
-                preview,
-                () => _controller.placeStamp(
-                    widget.pageIndex, placementX, placementY));
-          } else {
-            // the classic flow normally drags out a box; a plain tap places
-            // a default-sized stamp after prompting for its caption
-            final text = await widget.textPrompt(context,
-                title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
-            if (text == null || text.isEmpty) return;
-            await _commitStampWithAfterimage(
-                _textStampAfterimageAt(
-                    placementPosition, text, _controller.color),
-                () => _controller.placeTextStamp(
-                    widget.pageIndex, placementX, placementY, text));
-          }
-        case PdfEditTool.image:
-          final picker = widget.imagePicker;
-          if (picker == null) return;
-          final bytes = await picker(context);
-          if (bytes == null) return;
-          await _controller.placeImageAsync(
-              widget.pageIndex, placementX, placementY, bytes);
-        case PdfEditTool.form:
-          // single tap selects the field for move/resize/menu; double-tap
-          // fills it (read mode is the no-tool path to just fill)
-          _controller.selectFormWidgetAt(widget.pageIndex, x, y,
-              toggle: _additiveModifier);
-        default:
-          break;
-      }
+      await behavior?.commitTap(_toolHost, (
+        at: placementPosition,
+        point: (placementX, placementY),
+        hit: (x, y),
+        additive: _additiveModifier,
+      ));
     } finally {
       if (tapIntent != PdfEditingInteractionIntent.none) {
         _finishInteraction(before, transition);
@@ -9546,4 +9344,155 @@ void paintMoveDragPreview(
     to: preview.to.shift(origin),
     scale: preview.scale,
   );
+}
+
+/// The overlay as the armed tool's [PdfToolHost]: the page, the inline
+/// editor, the host's prompts, and this page's afterimages.
+class _OverlayToolHost implements PdfToolHost {
+  _OverlayToolHost(this._state);
+
+  final _EditingPageOverlayState _state;
+
+  EditingPageOverlay get _widget => _state.widget;
+  BuildContext get _context => _state.context;
+
+  @override
+  PdfEditingController get controller => _state._controller;
+
+  @override
+  int get page => _widget.pageIndex;
+
+  @override
+  (double, double) toPagePoint(Offset view) =>
+      _state._geometry.toPagePoint(view);
+
+  @override
+  PdfRect toPageRect(Rect view) => _state._geometry.toPageRect(view);
+
+  @override
+  void openTextBox(Rect box) => _state._openTextEditor(box, existing: false);
+
+  @override
+  void openCallout(Rect box, Offset terminus) =>
+      _state._openCalloutEditor(box, terminus);
+
+  @override
+  void openCloudCallout(Rect region) => _state._openCloudCalloutEditor(region);
+
+  @override
+  Rect defaultBoxAt(Offset at) => _state._defaultPlacementRect(at);
+
+  @override
+  Rect defaultCloudAt(Offset center) => _state._defaultCloudRegion(center);
+
+  @override
+  Rect calloutBoxFor(Offset start, Offset end) =>
+      _state._calloutPlacementRect(start, end);
+
+  @override
+  Future<String?> promptNoteText() => _widget.textPrompt(_context,
+      title: pdfL10n(_context).overlayNote, multiline: true);
+
+  @override
+  Future<String?> promptStampText() => _widget.textPrompt(_context,
+      title: pdfL10n(_context).overlayStampText, initial: 'APPROVED');
+
+  @override
+  Future<void> calibrate(Offset start, Offset end) =>
+      _state._commitCalibration(start, end);
+
+  @override
+  Future<void> measureCustom(Offset start, Offset end) =>
+      _state._commitCustomMeasurement(start, end);
+
+  @override
+  Future<void> addImageIn(PdfRect rect) async {
+    final picker = _widget.imagePicker;
+    if (picker == null) return;
+    final bytes = await picker(_context);
+    if (bytes == null) return;
+    await controller.addImageInRectAsync(page, rect, bytes);
+  }
+
+  @override
+  Future<void> placeImageAt(double x, double y) async {
+    final picker = _widget.imagePicker;
+    if (picker == null) return;
+    final bytes = await picker(_context);
+    if (bytes == null) return;
+    await controller.placeImageAsync(page, x, y, bytes);
+  }
+
+  @override
+  Future<void> addLinkIn(PdfRect rect) async {
+    final target = await _widget.linkPrompt(
+      _context,
+      pageCount: controller.document.pageCount,
+      currentPage: page,
+      initialUrl: '',
+    );
+    if (target == null) return;
+    controller.addLink(page, [rect], target);
+  }
+
+  @override
+  Future<void> placeSignatureBox(PdfRect rect) async {
+    final placer = _widget.onPlaceSignature;
+    if (placer == null) return;
+    await placer(_context, pageIndex: page, pageRect: rect);
+  }
+
+  @override
+  Future<void> snapshot(Rect box, PdfRect rect) =>
+      _state._commitSnapshot(box, rect);
+
+  @override
+  void placeSignatureAt(Offset at) => _state._placeSignature(at);
+
+  @override
+  void holdShape(PdfEditTool tool, Rect box, int before) {
+    if (before == controller.revisionId) return;
+    final after = _Afterimage();
+    after.shape = (
+      rect: box,
+      tool: tool,
+      color: controller.color
+          .withValues(alpha: controller.preferences.opacity.clamp(0.0, 1.0)),
+      strokeWidth: controller.preferences.strokeWidth * _state._geometry.scale,
+    );
+    _state._holdAfterimage(after, revision: controller.revisionId);
+  }
+
+  @override
+  void holdLine(PdfEditTool tool, Offset start, Offset end, int before) =>
+      _state._holdLineAfterimage(before, tool, start, end);
+
+  @override
+  void holdCheckMark(int before) => _state._captureLastStampAfterimage(before,
+      check: true, text: null, color: controller.color);
+
+  @override
+  Future<void> stampBox(Rect box,
+          {required String? text,
+          PdfStampTemplate? template,
+          required Color color,
+          required void Function() run}) =>
+      _state._commitStampWithAfterimage(
+          _state._stampAfterimage(box,
+              text: text, template: template, color: color),
+          run);
+
+  @override
+  Future<void> stampAt(Offset at,
+      {String? text, required void Function() run}) async {
+    if (text != null) {
+      await _state._commitStampWithAfterimage(
+          _state._textStampAfterimageAt(at, text, controller.color), run);
+      return;
+    }
+    final preview = _state._activeStampAfterimageAt(at);
+    if (preview == null) return;
+    _state._clearStampPreview();
+    await _state._commitStampWithAfterimage(preview, run);
+  }
 }
