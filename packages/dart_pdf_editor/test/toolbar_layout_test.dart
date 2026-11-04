@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfLineEnding;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor/src/editing/first_fit_wrap.dart';
@@ -238,6 +239,48 @@ void main() {
                 rectOf(tester, const ValueKey(properties)).top + 0.5),
             reason: bar);
       }
+    });
+
+    testWidgets('the properties bar carries the popup\'s most-used rows',
+        (tester) async {
+      final prefs = await pumpEditor(tester);
+      Finder bar(String key) => inBar(properties, find.byKey(ValueKey(key)));
+
+      // a rectangle: fill and line type, out of the tune popup
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-rectangle')));
+      expect(bar('pdf-inline-fill'), findsOneWidget);
+      expect(bar('pdf-inline-line-type'), findsOneWidget);
+      expect(bar('pdf-inline-line-start'), findsNothing);
+      await tapMouse(tester, bar('pdf-inline-line-type'));
+      await tapMouse(tester,
+          find.byKey(const ValueKey('pdf-inline-line-type-dashed')).last);
+      expect(prefs.lineStyle, PdfLineStyle.dashed);
+      await tapMouse(tester, bar('pdf-inline-fill'));
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-inline-fill-0')));
+      expect(prefs.shapeFillColor, isNotNull);
+
+      // a polyline: both line endings
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-polyline')));
+      expect(bar('pdf-inline-fill'), findsNothing);
+      await tapMouse(tester, bar('pdf-inline-line-end'));
+      await tapMouse(tester,
+          find.byKey(const ValueKey('pdf-inline-line-end-closedArrow')).last);
+      expect(prefs.lineEndEnding, PdfLineEnding.closedArrow);
+      expect(bar('pdf-inline-line-start'), findsOneWidget);
+
+      // a text box: bold/italic and alignment after the font chip
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-freeText')));
+      expect(bar('pdf-inline-font-style'), findsOneWidget);
+      expect(bar('pdf-inline-text-align'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('floating strips keep those rows in the popup', (tester) async {
+      await pumpEditor(tester, configure: (p) => p.toolbarFloating = true);
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-shapes')));
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-rectangle')));
+      expect(find.byKey(const ValueKey('pdf-inline-fill')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-inline-line-type')), findsNothing);
     });
 
     testWidgets('a narrow window wraps the toolbars and never overflows',

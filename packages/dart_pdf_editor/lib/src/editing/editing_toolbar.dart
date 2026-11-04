@@ -3786,6 +3786,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }) {
     if (!widget.showStyle || (fields.isEmpty && !toolColor)) return const [];
     return [
+      ..._inlineStyleControls(context, fields, axis: axis),
       if (fields.font) _MiniDivider(axis: axis),
       _StyleMenu(
         controller: controller,
@@ -3797,7 +3798,214 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             fields.font && !compactTrigger && axis == Axis.horizontal,
         fontPicker: widget.fontPicker,
       ),
+      ..._inlineTextControls(context, fields, axis: axis),
     ];
+  }
+
+  /// The tune popup's most-used rows, out on the docked properties bar
+  /// itself: shape fill, line type and the line endings. The bar is a full
+  /// window width and fixed height, so there is room to show them rather
+  /// than make every arrowhead or fill change a trip into the popup (which
+  /// still holds them, with the rest). Floating strips and side rails are
+  /// short of room and keep them in the popup.
+  List<Widget> _inlineStyleControls(
+    BuildContext context,
+    _StyleFields fields, {
+    Axis axis = Axis.horizontal,
+  }) {
+    if (!_docked || !_bareCards || axis != Axis.horizontal) return const [];
+    final l10n = pdfL10n(context);
+    final controls = <Widget>[
+      if (fields.shapeFill && widget.showColor)
+        _InlineFillButton(
+          key: const ValueKey('pdf-inline-fill'),
+          label: l10n.tbFill,
+          value: controller.canFillSelected
+              ? controller.selectedShapeFill
+              : controller.preferences.shapeFillColor,
+          palette: widget.palette,
+          onChanged: (color) {
+            controller.preferences.shapeFillColor = color;
+            if (controller.canFillSelected) {
+              controller.restyleSelected(fill: (color,));
+            }
+          },
+          pickColor: (context, initial) =>
+              pickEditingColor(context, controller, initial: initial),
+        ),
+      if (fields.lineType)
+        Tooltip(
+          message: l10n.tbLineType,
+          child: PdfDropdown<PdfLineStyle>(
+            key: const ValueKey('pdf-inline-line-type'),
+            isDense: true,
+            underline: const SizedBox.shrink(),
+            value: controller.canRestyleSelected
+                ? (controller.selectedLineStyle ??
+                    controller.preferences.lineStyle)
+                : controller.preferences.lineStyle,
+            // the bar's own type size, not a form field's
+            selectedItemBuilder: (context) => [
+              for (final style in PdfLineStyle.values)
+                Text(pdfLineStyleLabel(context, style),
+                    style: Theme.of(context).textTheme.bodyMedium),
+            ],
+            items: [
+              for (final style in PdfLineStyle.values)
+                PdfDropdownItem(
+                  value: style,
+                  key: ValueKey('pdf-inline-line-type-${style.name}'),
+                  label: pdfLineStyleLabel(context, style),
+                ),
+            ],
+            onChanged: (value) {
+              controller.preferences.lineStyle = value;
+              if (controller.canRestyleSelected &&
+                  controller.canSetLineStyleSelected) {
+                controller.restyleSelected(lineStyle: value);
+              }
+            },
+          ),
+        ),
+      if (fields.lineEndings)
+        ...() {
+          final selected = controller.canSetLineEndings;
+          final (start, end) = selected
+              ? controller.selectedLineEndings!
+              : (
+                  controller.preferences.lineStartEnding,
+                  controller.preferences.lineEndEnding,
+                );
+          return [
+            _inlineLineEnding(
+              context,
+              key: 'pdf-inline-line-start',
+              tooltip: l10n.tbLineStart,
+              atEnd: false,
+              value: start,
+              onChanged: (ending) {
+                controller.preferences.lineStartEnding = ending;
+                if (controller.canSetLineEndings) {
+                  controller.setSelectedLineEndings(start: ending);
+                }
+              },
+            ),
+            _inlineLineEnding(
+              context,
+              key: 'pdf-inline-line-end',
+              tooltip: l10n.tbLineEnd,
+              atEnd: true,
+              value: end,
+              onChanged: (ending) {
+                controller.preferences.lineEndEnding = ending;
+                if (controller.canSetLineEndings) {
+                  controller.setSelectedLineEndings(end: ending);
+                }
+              },
+            ),
+          ];
+        }(),
+    ];
+    if (controls.isEmpty) return const [];
+    return [
+      _MiniDivider(axis: axis),
+      for (final control in controls)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: control,
+        ),
+    ];
+  }
+
+  /// The tune popup's text style rows that change most often - bold /
+  /// italic and alignment - after the font chip on the docked properties
+  /// bar, for a text tool, a selected text box or a measurement caption.
+  List<Widget> _inlineTextControls(
+    BuildContext context,
+    _StyleFields fields, {
+    Axis axis = Axis.horizontal,
+  }) {
+    if (!_docked || !_bareCards || axis != Axis.horizontal || !fields.font) {
+      return const [];
+    }
+    final caption = controller.selectedMeasurementCaptionStyle;
+    return [
+      FontStyleToggles(
+        key: const ValueKey('pdf-inline-font-style'),
+        font: controller.selectedTextStyle?.font ??
+            caption?.font ??
+            controller.fontFamily,
+        onChanged: (font) {
+          controller.fontFamily = font; // the new default either way
+          if (controller.restyleEditingTextSelection(font: font)) return;
+          if (controller.canRestyleSelectedText) {
+            controller.restyleSelectedText(font: font);
+          } else if (controller.canRestyleMeasurementCaption) {
+            controller.setSelectedMeasurementCaption(font: font);
+          }
+        },
+      ),
+      // a caption follows its measurement line, so it has no alignment
+      if (caption == null) ...[
+        _MiniDivider(axis: axis),
+        TextAlignToggles(
+          key: const ValueKey('pdf-inline-text-align'),
+          align: controller.selectedTextAlign ??
+              controller.preferences.textAlign ??
+              PdfTextAlign.left,
+          onChanged: controller.setSelectedTextAlign,
+        ),
+      ],
+    ];
+  }
+
+  /// One line-ending picker for the properties bar: each choice drawn as the
+  /// ending on a short segment (named in the menu), [atEnd] orienting it.
+  Widget _inlineLineEnding(
+    BuildContext context, {
+    required String key,
+    required String tooltip,
+    required bool atEnd,
+    required PdfLineEnding value,
+    required ValueChanged<PdfLineEnding> onChanged,
+  }) {
+    final color = Theme.of(context).colorScheme.onSurface;
+    Widget preview(PdfLineEnding ending) => SizedBox(
+          width: 36,
+          height: 14,
+          child: CustomPaint(
+            painter: _LineEndingPainter(ending, atEnd: atEnd, color: color),
+          ),
+        );
+    return Tooltip(
+      message: tooltip,
+      child: PdfDropdown<PdfLineEnding>(
+        key: ValueKey(key),
+        isDense: true,
+        underline: const SizedBox.shrink(),
+        value: value,
+        selectedItemBuilder: (context) => [
+          for (final ending in PdfLineEnding.values) preview(ending),
+        ],
+        items: [
+          for (final ending in PdfLineEnding.values)
+            PdfDropdownItem(
+              value: ending,
+              key: ValueKey('$key-${ending.name}'),
+              label: pdfLineEndingLabel(context, ending),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                preview(ending),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(pdfLineEndingLabel(context, ending),
+                      overflow: TextOverflow.ellipsis),
+                ),
+              ]),
+            ),
+        ],
+        onChanged: onChanged,
+      ),
+    );
   }
 
   /// The style controls relevant to [group]'s active tool - see
@@ -6419,4 +6627,105 @@ class _LineEndingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_LineEndingPainter old) =>
       old.ending != ending || old.atEnd != atEnd || old.color != color;
+}
+
+/// The properties bar's shape-fill control: a fill-bucket button underlined
+/// with the current fill (struck through for none) that opens the fill
+/// swatch row - the tune popup's Fill row, one click away.
+class _InlineFillButton extends StatelessWidget {
+  const _InlineFillButton({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.palette,
+    required this.onChanged,
+    required this.pickColor,
+  });
+
+  final String label;
+  final Color? value;
+  final List<Color> palette;
+  final ValueChanged<Color?> onChanged;
+  final Future<Color?> Function(BuildContext context, Color initial) pickColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fill = value;
+    return MenuAnchor(
+      menuChildren: [
+        Builder(
+          builder: (context) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: SizedBox(
+              width: 300,
+              child: PdfColorSwatchRow(
+                label: label,
+                keyPrefix: 'pdf-inline-fill',
+                value: fill,
+                palette: palette,
+                onChanged: (color) {
+                  onChanged(color);
+                  MenuController.maybeOf(context)?.close();
+                },
+                pickColor: pickColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+      builder: (context, menu, _) => IconButton(
+        tooltip: label,
+        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        icon: SizedBox(
+          width: 24,
+          height: 24,
+          child: Stack(children: [
+            const Positioned(
+              left: 2,
+              top: 0,
+              child: Icon(Icons.format_color_fill, size: 20),
+            ),
+            Positioned(
+              left: 2,
+              right: 2,
+              bottom: 0,
+              height: 5,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: fill ?? Colors.transparent,
+                  border: Border.all(color: scheme.outline, width: 1),
+                  borderRadius: BorderRadius.circular(1),
+                ),
+                child: fill == null
+                    ? CustomPaint(painter: _NoFillStrike(scheme.error))
+                    : null,
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// The diagonal "none" stroke across an empty fill bar.
+class _NoFillStrike extends CustomPainter {
+  const _NoFillStrike(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawLine(
+      Offset(0, size.height),
+      Offset(size.width, 0),
+      Paint()
+        ..color = color
+        ..strokeWidth = 1.2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_NoFillStrike old) => old.color != color;
 }
