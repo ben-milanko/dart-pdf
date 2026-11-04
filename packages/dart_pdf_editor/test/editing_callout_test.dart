@@ -498,6 +498,82 @@ void main() {
       await settle(tester);
     });
 
+    List<List<Offset>> previewLeaders(WidgetTester tester) => [
+          for (final paint
+              in tester.widgetList<CustomPaint>(find.byType(CustomPaint)))
+            if (paint.painter?.runtimeType.toString() ==
+                '_EditingPreviewPainter')
+              for (final leader
+                  in ((paint.painter! as dynamic).calloutLeaders as List?) ??
+                      const [])
+                (leader.$1 as List<Offset>),
+        ];
+
+    void expectSameLeader(List<Offset> preview, List<(double, double)> line,
+        {String? reason}) {
+      expect(preview, hasLength(line.length), reason: reason);
+      for (var i = 0; i < line.length; i++) {
+        final committed = view(line[i].$1, line[i].$2);
+        expect((preview[i] - committed).distance, lessThan(0.5),
+            reason: '$reason (point $i: $preview vs $committed)');
+      }
+    }
+
+    testWidgets('the placement drag previews the leader the commit draws',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.tool = PdfEditTool.callout;
+      await tester.pump();
+
+      // aim below the box: the leader leaves its bottom edge through a knee,
+      // not from the corner under the pointer
+      final gesture = await tester.startGesture(view(200, 380));
+      await gesture.moveTo(view(260, 520));
+      await gesture.moveTo(view(300, 660));
+      await tester.pump();
+      final dragging = previewLeaders(tester).single;
+      expect(dragging, hasLength(3), reason: 'the knee previews too');
+
+      await gesture.up();
+      await tester.pump();
+      final typing = previewLeaders(tester).single;
+      expect(typing, dragging, reason: 'opening the editor moves nothing');
+
+      await tester.enterText(find.byKey(editorKey), 'x');
+      await tap(tester, view(450, 400));
+      final line = editing.document.page(0).annotations.single.calloutLine!;
+      expectSameLeader(dragging, line, reason: 'the drag showed the commit');
+      await settle(tester);
+    });
+
+    testWidgets('moving the box previews the leaders the commit draws',
+        (tester) async {
+      final editing = await pumpEditor(tester);
+      editing.addCallout(0, const PdfRect(300, 600, 460, 660), 'x', (150, 480));
+      editing.tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.addSelectedCalloutLeader((520, 470)), isTrue);
+      await tester.pump();
+
+      // drag the box down past the second arrow's tip: that leader flips to
+      // the box's other side and grows a knee
+      final gesture = await tester.startGesture(view(380, 640));
+      await gesture.moveTo(view(380, 520));
+      await gesture.moveTo(view(380, 400));
+      await tester.pump();
+      final dragging = previewLeaders(tester);
+      expect(dragging, hasLength(2));
+
+      await gesture.up();
+      await tester.pump();
+      final leaders =
+          editing.document.page(0).annotations.single.calloutLeaders!;
+      for (var i = 0; i < leaders.length; i++) {
+        expectSameLeader(dragging[i], leaders[i], reason: 'leader $i');
+      }
+      await settle(tester);
+    });
+
     testWidgets('an empty callout box commits nothing', (tester) async {
       final editing = await pumpEditor(tester);
       editing.tool = PdfEditTool.callout;

@@ -142,4 +142,34 @@ void main() {
     expect(file.path, '/Users/ben/Library/CloudStorage/cloud.pdf');
     expect(file.bookmark, 'bookmark-data');
   });
+
+  test('Android cold and warm byte payloads have no writable origin', () async {
+    const channel = MethodChannel(IncomingFileService.channelName);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bytes = Uint8List.fromList([37, 80, 68, 70, 45, 49, 46, 55]);
+    final payload = {'name': 'attachment.pdf', 'bytes': bytes};
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getInitialFile') return payload;
+      throw MissingPluginException();
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = IncomingFileService();
+    addTearDown(service.dispose);
+    service.start();
+    final cold = (await service.initialFiles()).single;
+    expect(cold.bytes, bytes);
+    expect(cold.path, isNull);
+    final received = service.files.first;
+    await messenger.handlePlatformMessage(
+      IncomingFileService.channelName,
+      const StandardMethodCodec()
+          .encodeMethodCall(MethodCall('openFile', payload)),
+      (_) {},
+    );
+    final warm = (await received).single;
+    expect(warm.name, 'attachment.pdf');
+    expect(warm.bytes, bytes);
+    expect(warm.path, isNull);
+  });
 }

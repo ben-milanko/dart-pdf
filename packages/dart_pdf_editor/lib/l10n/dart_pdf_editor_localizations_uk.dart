@@ -460,6 +460,15 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Додати нотатку тут';
 
   @override
+  String get menuEditLink => 'Редагувати посилання…';
+
+  @override
+  String get menuRemoveLink => 'Видалити посилання';
+
+  @override
+  String get linkEditDialogTitle => 'Редагувати посилання';
+
+  @override
   String get menuSaveToStamps => 'Зберегти у штампи';
 
   @override
@@ -1130,6 +1139,12 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get shellShowScrollbarChapters =>
       'Показувати розділи на смузі прокручування';
+
+  @override
+  String get shellTwoPageView => 'Розворот із двох сторінок';
+
+  @override
+  String get shellTwoPageCover => 'Показувати обкладинку окремо';
 
   @override
   String get shellTabHere => 'Вкладка тут';

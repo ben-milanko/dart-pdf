@@ -455,6 +455,15 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'تێبینی لێرە زیاد بکە';
 
   @override
+  String get menuEditLink => 'دەستکاریکردنی بەستەر…';
+
+  @override
+  String get menuRemoveLink => 'لابردنی بەستەر';
+
+  @override
+  String get linkEditDialogTitle => 'دەستکاریکردنی بەستەر';
+
+  @override
   String get menuSaveToStamps => 'پاشەکەوتکردن لە مۆرەکان';
 
   @override
@@ -1114,6 +1123,12 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get shellShowScrollbarChapters =>
       'پیشاندانی بەشەکان لەسەر شریتی جووڵە';
+
+  @override
+  String get shellTwoPageView => 'پیشاندانی دوو لاپەڕە';
+
+  @override
+  String get shellTwoPageCover => 'لاپەڕەی بەرگ بە جیا پیشان بدە';
 
   @override
   String get shellTabHere => 'تابی نوێ لێرە';

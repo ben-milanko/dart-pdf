@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => '여기에 메모 추가';
 
   @override
+  String get menuEditLink => '링크 편집…';
+
+  @override
+  String get menuRemoveLink => '링크 제거';
+
+  @override
+  String get linkEditDialogTitle => '링크 편집';
+
+  @override
   String get menuSaveToStamps => '스탬프에 저장';
 
   @override
@@ -1106,6 +1115,12 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => '스크롤바에 장 표시';
+
+  @override
+  String get shellTwoPageView => '두 페이지 보기';
+
+  @override
+  String get shellTwoPageCover => '표지를 따로 표시';
 
   @override
   String get shellTabHere => '여기에 탭';

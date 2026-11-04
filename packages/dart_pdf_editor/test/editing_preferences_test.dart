@@ -27,6 +27,8 @@ void main() {
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
       a.showScrollbarChapters = true;
+      a.twoPageView = true;
+      a.twoPageCoverPage = true;
       a.bakePageColor = true;
       a.showReflowView = true;
       a.lineStartEnding = PdfLineEnding.circle;
@@ -58,6 +60,8 @@ void main() {
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
       expect(b.showScrollbarChapters, isTrue);
+      expect(b.twoPageView, isTrue);
+      expect(b.twoPageCoverPage, isTrue);
       expect(b.bakePageColor, isTrue);
       expect(b.showReflowView, isTrue);
       expect(b.lineStartEnding, PdfLineEnding.circle);

@@ -7,6 +7,7 @@ import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_table.dart';
+import 'paste_routing.dart';
 import 'editing_color_processing.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
@@ -269,6 +270,9 @@ PdfMenuItem<PdfTextMenuItem> pdfTextMenuEntry(PdfTextMenuItem item) =>
 /// [onSelectAllText] is given). [entriesBuilder] rewrites the rows last (see
 /// [PdfAnnotationMenuEntriesBuilder]).
 /// [onSaveImage] adds Save as image for one selected vector snapshot.
+/// [linkTarget] names a /Link under the press (page, /Annots slot - see
+/// [PdfEditingController.linkAnnotationAt]); it adds Edit link and Remove
+/// link, since a link can't be selected (a click follows it).
 Future<void> showPdfAnnotationMenu({
   required BuildContext context,
   required Offset position,
@@ -284,13 +288,12 @@ Future<void> showPdfAnnotationMenu({
   (int page, int slot)? unlockTarget,
   PdfSelectedContentImageHandler? onSaveImage,
   VoidCallback? onSelectAllText,
+  (int page, int slot)? linkTarget,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
   // annotation clipboard (the most recent copy wins)
-  final canPasteSnapshot = controller.hasSnapshotClipboard;
-  final canPaste =
-      onPaste != null || canPasteSnapshot || controller.hasAnnotationClipboard;
+  final canPaste = onPaste != null || PdfPasteRouter.canOffer(controller);
   final hasSelection = request.annotations.isNotEmpty;
   // A locked annotation can't be selected, so a right-click on one opens
   // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
@@ -300,7 +303,11 @@ Future<void> showPdfAnnotationMenu({
   // below. Without them a long-press there looked like it did nothing.
   final onEmptyPage =
       !hasSelection && unlockTarget == null && pagePoint != null;
-  if (!hasSelection && !canPaste && !onEmptyPage && unlockTarget == null) {
+  if (!hasSelection &&
+      !canPaste &&
+      !onEmptyPage &&
+      unlockTarget == null &&
+      linkTarget == null) {
     return;
   }
 
@@ -318,6 +325,37 @@ Future<void> showPdfAnnotationMenu({
         onSelected: (request) => request.controller
             .setAnnotationLocked(unlockTarget.$1, unlockTarget.$2, false),
       ),
+  ];
+  final link = <PdfAnnotationMenuItem>[
+    if (linkTarget != null) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-edit-link'),
+        label: pdfL10n(context).menuEditLink,
+        icon: Icons.edit_outlined,
+        onSelected: (request) async {
+          final (linkPage, slot) = linkTarget;
+          final current = request.controller.linkTargetAt(linkPage, slot);
+          final target = await PdfEditorPresenter.of(context).link(
+              context,
+              PdfLinkRequest(
+                pageCount: request.controller.document.pageCount,
+                currentPage: linkPage,
+                initialUrl: current?.uri ?? '',
+                initialPage: current?.page,
+                editing: true,
+              ));
+          if (target == null) return;
+          request.controller.editLink(linkPage, slot, target);
+        },
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-remove-link'),
+        label: pdfL10n(context).menuRemoveLink,
+        icon: Icons.link_off,
+        onSelected: (request) =>
+            request.controller.deleteAnnotation(linkTarget.$1, linkTarget.$2),
+      ),
+    ],
   ];
   final selectedTable = controller.selectedAnnotation?.table;
   final clipboard = <PdfAnnotationMenuItem>[
@@ -402,10 +440,8 @@ Future<void> showPdfAnnotationMenu({
         onSelected: (request) {
           if (onPaste != null) {
             onPaste();
-          } else if (canPasteSnapshot) {
-            request.controller.pasteSnapshot(pageIndex, at: pagePoint);
           } else {
-            request.controller.pasteAnnotations(pageIndex, at: pagePoint);
+            PdfPasteRouter.pasteInApp(request.controller, pageIndex, pagePoint);
           }
         },
       ),
@@ -661,8 +697,17 @@ Future<void> showPdfAnnotationMenu({
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
-  var entries = _menuRowsWithDividers(
-      [unlock, clipboard, page, arrange, nodes, recolor, destructive, custom]);
+  var entries = _menuRowsWithDividers([
+    unlock,
+    link,
+    clipboard,
+    page,
+    arrange,
+    nodes,
+    recolor,
+    destructive,
+    custom
+  ]);
   if (entriesBuilder != null) {
     entries = entriesBuilder(context, request, entries);
     if (entries.isEmpty) return;

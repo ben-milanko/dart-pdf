@@ -12,7 +12,10 @@ ReleaseInfo _release(
   String tag, {
   String notes = '',
   String html = '',
-  Map<String, String> assets = const {},
+  Map<String, String> assets = const {
+    'dartpdf-macos.dmg': 'https://example.test/dmg',
+    'dartpdf-windows-installer.exe': 'https://example.test/exe',
+  },
 }) =>
     ReleaseInfo(
       version: AppVersion.tryParse(tag)!,
@@ -31,7 +34,10 @@ ReleaseInfo _tagged(String tag, AppVersion version) => ReleaseInfo(
       name: tag,
       notes: '',
       htmlUrl: 'https://example.test/$tag',
-      assets: const {},
+      assets: const {
+        'dartpdf-macos.dmg': 'https://example.test/dmg',
+        'dartpdf-windows-installer.exe': 'https://example.test/exe',
+      },
     );
 
 UpdateService _service(
@@ -65,6 +71,221 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  group('eligible updates and persistent skips', () {
+    for (final assets in <Map<String, String>>[
+      {},
+      {'dartpdf-linux-x86_64.AppImage': 'https://example.test/linux'},
+      {'dartpdf-macos-x64.dmg': 'https://example.test/intel'},
+      {'dartpdf-macos-arm64.dmg': ''},
+      {'dartpdf-macos-arm64.dmg': 'http://example.test/insecure'},
+    ]) {
+      test(
+        'Apple silicon rejects unavailable/incompatible assets: $assets',
+        () async {
+          final service = UpdateService(
+            currentVersion: '1.0.0',
+            platform: TargetPlatform.macOS,
+            architecture: 'arm64',
+            fetcher: () async => [_release('app-v10.0.0', assets: assets)],
+          );
+          await service.checkForUpdates(force: true);
+          expect(service.shouldNotify, isFalse);
+          expect(service.downloadUrl, isNull);
+        },
+      );
+    }
+    for (final arch in ['x64', 'arm64']) {
+      test('macOS $arch accepts universal and native DMGs', () async {
+        for (final name in ['dartpdf-macos.dmg', 'dartpdf-macos-$arch.dmg']) {
+          final service = UpdateService(
+            currentVersion: '1.0.0',
+            platform: TargetPlatform.macOS,
+            architecture: arch,
+            fetcher: () async => [
+              _release(
+                'app-v2.0.0',
+                assets: {name: 'https://example.test/dmg'},
+              ),
+            ],
+          );
+          await service.checkForUpdates(force: true);
+          expect(service.shouldNotify, isTrue);
+          expect(service.downloadAssetName, name);
+        }
+      });
+    }
+    for (final platform in [TargetPlatform.windows, TargetPlatform.linux]) {
+      test('$platform ARM does not receive x64 packages', () async {
+        final service = UpdateService(
+          currentVersion: '1.0.0',
+          platform: platform,
+          architecture: 'arm64',
+          fetcher: () async => [
+            _release(
+              'app-v2.0.0',
+              assets: {
+                'dartpdf-windows-installer.exe': 'https://example.test/exe',
+                'dartpdf-windows-x64.zip': 'https://example.test/zip',
+                'dartpdf-linux-x86_64.AppImage': 'https://example.test/linux',
+              },
+            ),
+          ],
+        );
+        await service.checkForUpdates(force: true);
+        expect(service.updateAvailable, isFalse);
+      });
+    }
+    test(
+        'unavailable newest release does not hide an eligible upgrade or downgrade',
+        () async {
+      for (final current in ['1.0.0', '3.0.0']) {
+        final service = _service(
+          current,
+          releases: [
+            _release('app-v10.0.0', assets: {}),
+            _release('app-v2.0.0'),
+          ],
+        );
+        await service.checkForUpdates(force: true);
+        expect(service.updateAvailable, current == '1.0.0');
+        expect(service.latest!.version, const AppVersion(2, 0, 0));
+        if (current == '3.0.0') expect(service.downloadUrl, isNull);
+      }
+    });
+    test(
+      'skip persists, manual check exposes it, newer eligible release notifies',
+      () async {
+        var releases = [_release('app-v2.0.0')];
+        UpdateService create() => UpdateService(
+              currentVersion: '1.0.0',
+              platform: TargetPlatform.macOS,
+              architecture: 'arm64',
+              fetcher: () async => releases,
+            );
+        final first = create();
+        await first.checkForUpdates(force: true);
+        await first.skipVersion();
+        expect(first.shouldNotify, isFalse);
+        first.dispose();
+        final restored = create();
+        await restored.checkForUpdates(force: true);
+        expect(restored.isVersionSkipped, isTrue);
+        expect(restored.updateAvailable, isTrue);
+        expect(restored.downloadUrl, isNotNull);
+        expect(restored.shouldNotify, isFalse);
+        releases = [_release('app-v3.0.0', assets: {}), ...releases];
+        await restored.checkForUpdates(force: true);
+        expect(restored.shouldNotify, isFalse);
+        releases = [_release('app-v3.0.0'), ...releases];
+        await restored.checkForUpdates(force: true);
+        expect(restored.shouldNotify, isTrue);
+      },
+    );
+    test('a failed refresh clears previously offered download', () async {
+      var fails = false;
+      final service = UpdateService(
+        currentVersion: '1.0.0',
+        platform: TargetPlatform.macOS,
+        fetcher: () async {
+          if (fails) throw Exception('offline');
+          return [_release('app-v2.0.0')];
+        },
+      );
+      await service.checkForUpdates(force: true);
+      expect(service.downloadUrl, isNotNull);
+      fails = true;
+      await service.checkForUpdates(force: true);
+      expect(service.status, UpdateStatus.failed);
+      expect(service.downloadUrl, isNull);
+      expect(service.shouldNotify, isFalse);
+    });
+    test('ignores drafts, prereleases and incomplete uploads', () {
+      for (final flag in ['draft', 'prerelease']) {
+        expect(
+          ReleaseInfo.fromJson({'tag_name': 'app-v2.0.0', flag: true}),
+          isNull,
+        );
+      }
+      for (final extra in [
+        {'state': 'starter'},
+        {'size': 0},
+      ]) {
+        final release = ReleaseInfo.fromJson({
+          'tag_name': 'app-v2.0.0',
+          'assets': [
+            {
+              'name': 'dartpdf-macos.dmg',
+              'browser_download_url': 'https://example.test/dmg',
+              ...extra,
+            },
+          ],
+        });
+        expect(release!.assets, isEmpty);
+      }
+    });
+  });
+
+  test('unknown ABI fails closed', () async {
+    final service = UpdateService(
+        currentVersion: '1.0.0',
+        platform: TargetPlatform.macOS,
+        architecture: 'unknown',
+        fetcher: () async => [_release('app-v2.0.0')]);
+    await service.checkForUpdates(force: true);
+    expect(service.shouldNotify, isFalse);
+    expect(service.downloadUrl, isNull);
+  });
+
+  test('skipping nightly suppresses only its commit across restart', () async {
+    var commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    UpdateService create() => UpdateService(
+        currentVersion: '1.0.0',
+        platform: TargetPlatform.macOS,
+        architecture: 'arm64',
+        fetcher: () async => [
+              ReleaseInfo(
+                  version: const AppVersion(2, 0, 0),
+                  tagName: dartPdfNightlyTag,
+                  name: 'nightly',
+                  notes: '',
+                  htmlUrl: '',
+                  assets: const {
+                    'dartpdf-nightly-macos.dmg': 'https://example.test/dmg'
+                  },
+                  isNightly: true,
+                  commitSha: commit)
+            ]);
+    final first = create();
+    await first.setNightlyUpdates(true);
+    await first.checkForUpdates(force: true);
+    await first.skipVersion();
+    final restored = create();
+    await restored.checkForUpdates(force: true);
+    expect(restored.shouldNotify, isFalse);
+    commit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    await restored.checkForUpdates(force: true);
+    expect(restored.shouldNotify, isTrue);
+  });
+
+  for (final arch in ['arm64', 'x64']) {
+    test('nightly opt-in retains newer native Windows $arch stable installer',
+        () async {
+      final name = 'dartpdf-windows-$arch-installer.exe';
+      final service = UpdateService(
+          currentVersion: '1.0.0',
+          platform: TargetPlatform.windows,
+          architecture: arch,
+          fetcher: () async => [
+                _release('app-v2.0.0',
+                    assets: {name: 'https://example.test/exe'})
+              ]);
+      await service.setNightlyUpdates(true);
+      await service.checkForUpdates(force: true);
+      expect(service.shouldNotify, isTrue);
+      expect(service.downloadAssetName, name);
+    });
+  }
+
   group('AppVersion', () {
     test('parses tags with the app-v / v prefix and build metadata', () {
       expect(AppVersion.tryParse('app-v1.2.3'), const AppVersion(1, 2, 3));
@@ -80,14 +301,22 @@ void main() {
     });
 
     test('orders by major, then minor, then patch', () {
-      expect(AppVersion.tryParse('1.2.3')! > AppVersion.tryParse('1.2.2')!,
-          isTrue);
-      expect(AppVersion.tryParse('1.3.0')! > AppVersion.tryParse('1.2.9')!,
-          isTrue);
-      expect(AppVersion.tryParse('2.0.0')! > AppVersion.tryParse('1.9.9')!,
-          isTrue);
-      expect(AppVersion.tryParse('1.2.2')! > AppVersion.tryParse('1.2.2')!,
-          isFalse);
+      expect(
+        AppVersion.tryParse('1.2.3')! > AppVersion.tryParse('1.2.2')!,
+        isTrue,
+      );
+      expect(
+        AppVersion.tryParse('1.3.0')! > AppVersion.tryParse('1.2.9')!,
+        isTrue,
+      );
+      expect(
+        AppVersion.tryParse('2.0.0')! > AppVersion.tryParse('1.9.9')!,
+        isTrue,
+      );
+      expect(
+        AppVersion.tryParse('1.2.2')! > AppVersion.tryParse('1.2.2')!,
+        isFalse,
+      );
     });
 
     test('a final release outranks the same numbers as a pre-release', () {
@@ -199,8 +428,11 @@ Nightly build.
         );
 
     test('exposes the platform artifact name and size', () async {
-      final service = _service('1.2.0',
-          releases: [linuxRelease()], platform: TargetPlatform.linux);
+      final service = _service(
+        '1.2.0',
+        releases: [linuxRelease()],
+        platform: TargetPlatform.linux,
+      );
       await service.checkForUpdates(force: true);
       expect(service.downloadAssetName, 'dartpdf-linux-x86_64.AppImage');
       expect(service.downloadAssetSize, 999);
@@ -209,22 +441,28 @@ Nightly build.
 
     test('a release with no matching artifact has no asset name', () async {
       // macOS has no asset in this Linux-only release, so only the page URL.
-      final service = _service('1.2.0',
-          releases: [linuxRelease()], platform: TargetPlatform.macOS);
+      final service = _service(
+        '1.2.0',
+        releases: [linuxRelease()],
+        platform: TargetPlatform.macOS,
+      );
       await service.checkForUpdates(force: true);
       expect(service.downloadAssetName, isNull);
       expect(service.downloadAssetSize, isNull);
-      expect(service.downloadUrl, 'https://example.test/app-v1.3.0');
+      expect(service.downloadUrl, isNull);
     });
   });
 
   group('UpdateService.checkForUpdates', () {
     test('flags an update when a newer app release exists', () async {
-      final service = _service('1.2.2', releases: [
-        _release('app-v1.2.2'),
-        _release('app-v1.3.0'),
-        _tagged('v9.9.9', const AppVersion(9, 9, 9)), // not an app-v tag
-      ]);
+      final service = _service(
+        '1.2.2',
+        releases: [
+          _release('app-v1.2.2'),
+          _release('app-v1.3.0'),
+          _tagged('v9.9.9', const AppVersion(9, 9, 9)), // not an app-v tag
+        ],
+      );
       await service.checkForUpdates();
 
       expect(service.status, UpdateStatus.updateAvailable);
@@ -234,10 +472,10 @@ Nightly build.
     });
 
     test('reports up to date when nothing is newer', () async {
-      final service = _service('1.3.0', releases: [
-        _release('app-v1.2.2'),
-        _release('app-v1.3.0'),
-      ]);
+      final service = _service(
+        '1.3.0',
+        releases: [_release('app-v1.2.2'), _release('app-v1.3.0')],
+      );
       await service.checkForUpdates();
 
       expect(service.status, UpdateStatus.upToDate);
@@ -246,9 +484,10 @@ Nightly build.
     });
 
     test('a non-app release tag is never mistaken for an app update', () async {
-      final service = _service('1.2.2', releases: [
-        _tagged('v2.0.0', const AppVersion(2, 0, 0)),
-      ]);
+      final service = _service(
+        '1.2.2',
+        releases: [_tagged('v2.0.0', const AppVersion(2, 0, 0))],
+      );
       await service.checkForUpdates();
 
       expect(service.status, UpdateStatus.upToDate);
@@ -294,138 +533,157 @@ Nightly build.
       expect(service.updateAvailable, isTrue); // still available, just quiet
     });
 
-    test('nightly opt-in detects a new main commit at the same app version',
-        () async {
-      const newCommit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-      final nightly = ReleaseInfo(
-        version: const AppVersion(1, 3, 0),
-        tagName: dartPdfNightlyTag,
-        name: 'DartPDF nightly',
-        notes: '',
-        htmlUrl: 'https://example.test/nightly',
-        assets: const {
-          'dartpdf-nightly-windows-installer.exe':
-              'https://example.test/nightly.exe',
-        },
-        isNightly: true,
-        commitSha: newCommit,
-      );
-      final service = _service(
-        '1.3.0',
-        releases: [nightly],
-        currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        platform: TargetPlatform.windows,
-      );
-      addTearDown(service.dispose);
+    test(
+      'nightly opt-in detects a new main commit at the same app version',
+      () async {
+        const newCommit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        final nightly = ReleaseInfo(
+          version: const AppVersion(1, 3, 0),
+          tagName: dartPdfNightlyTag,
+          name: 'DartPDF nightly',
+          notes: '',
+          htmlUrl: 'https://example.test/nightly',
+          assets: const {
+            'dartpdf-nightly-windows-installer.exe':
+                'https://example.test/nightly.exe',
+          },
+          isNightly: true,
+          commitSha: newCommit,
+        );
+        final service = _service(
+          '1.3.0',
+          releases: [nightly],
+          currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          platform: TargetPlatform.windows,
+        );
+        addTearDown(service.dispose);
 
-      // Stable is the default channel, so the rolling prerelease is ignored.
-      await service.checkForUpdates(force: true);
-      expect(service.updateAvailable, isFalse);
+        // Stable is the default channel, so the rolling prerelease is ignored.
+        await service.checkForUpdates(force: true);
+        expect(service.updateAvailable, isFalse);
 
-      await service.setNightlyUpdates(true);
-      await service.checkForUpdates(force: true);
-      expect(service.updateAvailable, isTrue);
-      expect(service.latest, same(nightly));
-      expect(
-          service.downloadAssetName, 'dartpdf-nightly-windows-installer.exe');
-      expect(service.downloadUrl, 'https://example.test/nightly.exe');
-    });
+        await service.setNightlyUpdates(true);
+        await service.checkForUpdates(force: true);
+        expect(service.updateAvailable, isTrue);
+        expect(service.latest, same(nightly));
+        expect(
+          service.downloadAssetName,
+          'dartpdf-nightly-windows-installer.exe',
+        );
+        expect(service.downloadUrl, 'https://example.test/nightly.exe');
+      },
+    );
 
-    test('macOS opts into the nightly DMG; Linux has no nightly channel',
-        () async {
-      final nightly = ReleaseInfo(
-        version: const AppVersion(1, 3, 0),
-        tagName: dartPdfNightlyTag,
-        name: 'DartPDF nightly',
-        notes: '',
-        htmlUrl: 'https://example.test/nightly',
-        assets: const {
-          'dartpdf-nightly-windows-installer.exe':
-              'https://example.test/nightly.exe',
-          'dartpdf-nightly-macos.dmg': 'https://example.test/nightly.dmg',
-        },
-        isNightly: true,
-        commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      );
-      final service = _service(
-        '1.3.0',
-        releases: [nightly],
-        currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      );
-      addTearDown(service.dispose);
-      expect(service.nightlySupported, isTrue);
+    test(
+      'macOS opts into the nightly DMG; Linux has no nightly channel',
+      () async {
+        final nightly = ReleaseInfo(
+          version: const AppVersion(1, 3, 0),
+          tagName: dartPdfNightlyTag,
+          name: 'DartPDF nightly',
+          notes: '',
+          htmlUrl: 'https://example.test/nightly',
+          assets: const {
+            'dartpdf-nightly-windows-installer.exe':
+                'https://example.test/nightly.exe',
+            'dartpdf-nightly-macos.dmg': 'https://example.test/nightly.dmg',
+          },
+          isNightly: true,
+          commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        );
+        final service = _service(
+          '1.3.0',
+          releases: [nightly],
+          currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        );
+        addTearDown(service.dispose);
+        expect(service.nightlySupported, isTrue);
 
-      await service.setNightlyUpdates(true);
-      await service.checkForUpdates(force: true);
-      expect(service.latest, same(nightly));
-      expect(service.downloadAssetName, 'dartpdf-nightly-macos.dmg');
-      expect(service.downloadUrl, 'https://example.test/nightly.dmg');
+        await service.setNightlyUpdates(true);
+        await service.checkForUpdates(force: true);
+        expect(service.latest, same(nightly));
+        expect(service.downloadAssetName, 'dartpdf-nightly-macos.dmg');
+        expect(service.downloadUrl, 'https://example.test/nightly.dmg');
 
-      final linux = _service('1.3.0',
-          releases: [nightly], platform: TargetPlatform.linux);
-      addTearDown(linux.dispose);
-      expect(linux.nightlySupported, isFalse);
-      await linux.setNightlyUpdates(true);
-      expect(linux.nightlyUpdates, isFalse);
-    });
+        final linux = _service(
+          '1.3.0',
+          releases: [nightly],
+          platform: TargetPlatform.linux,
+        );
+        addTearDown(linux.dispose);
+        expect(linux.nightlySupported, isFalse);
+        await linux.setNightlyUpdates(true);
+        expect(linux.nightlyUpdates, isFalse);
+      },
+    );
 
-    test('an installed nightly does not offer its own rolling release',
-        () async {
-      const commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-      final nightly = ReleaseInfo(
-        version: const AppVersion(1, 3, 0),
-        tagName: dartPdfNightlyTag,
-        name: 'DartPDF nightly',
-        notes: '',
-        htmlUrl: 'https://example.test/nightly',
-        assets: const {},
-        isNightly: true,
-        commitSha: commit,
-      );
-      final service = _service(
-        '1.3.0',
-        releases: [nightly],
-        currentBuildCommit: commit.substring(0, 7),
-        platform: TargetPlatform.windows,
-      );
-      addTearDown(service.dispose);
+    test(
+      'an installed nightly does not offer its own rolling release',
+      () async {
+        const commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        final nightly = ReleaseInfo(
+          version: const AppVersion(1, 3, 0),
+          tagName: dartPdfNightlyTag,
+          name: 'DartPDF nightly',
+          notes: '',
+          htmlUrl: 'https://example.test/nightly',
+          assets: const {
+            'dartpdf-macos.dmg': 'https://example.test/dmg',
+            'dartpdf-windows-installer.exe': 'https://example.test/exe',
+          },
+          isNightly: true,
+          commitSha: commit,
+        );
+        final service = _service(
+          '1.3.0',
+          releases: [nightly],
+          currentBuildCommit: commit.substring(0, 7),
+          platform: TargetPlatform.windows,
+        );
+        addTearDown(service.dispose);
 
-      await service.setNightlyUpdates(true);
-      await service.checkForUpdates(force: true);
-      expect(service.status, UpdateStatus.upToDate);
-      expect(service.updateAvailable, isFalse);
-    });
+        await service.setNightlyUpdates(true);
+        await service.checkForUpdates(force: true);
+        expect(service.status, UpdateStatus.upToDate);
+        expect(service.updateAvailable, isFalse);
+      },
+    );
 
-    test('dismissing one rolling nightly does not silence the next commit',
-        () async {
-      var commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-      ReleaseInfo nightly() => ReleaseInfo(
-            version: const AppVersion(1, 3, 0),
-            tagName: dartPdfNightlyTag,
-            name: 'DartPDF nightly',
-            notes: '',
-            htmlUrl: 'https://example.test/nightly',
-            assets: const {},
-            isNightly: true,
-            commitSha: commit,
-          );
-      final service = UpdateService(
-        currentVersion: '1.3.0',
-        currentBuildCommit: 'cccccccccccccccccccccccccccccccccccccccc',
-        platform: TargetPlatform.windows,
-        fetcher: () async => [nightly()],
-      );
-      addTearDown(service.dispose);
+    test(
+      'dismissing one rolling nightly does not silence the next commit',
+      () async {
+        var commit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        ReleaseInfo nightly() => ReleaseInfo(
+              version: const AppVersion(1, 3, 0),
+              tagName: dartPdfNightlyTag,
+              name: 'DartPDF nightly',
+              notes: '',
+              htmlUrl: 'https://example.test/nightly',
+              assets: const {
+                'dartpdf-macos.dmg': 'https://example.test/dmg',
+                'dartpdf-windows-installer.exe': 'https://example.test/exe',
+              },
+              isNightly: true,
+              commitSha: commit,
+            );
+        final service = UpdateService(
+          currentVersion: '1.3.0',
+          currentBuildCommit: 'cccccccccccccccccccccccccccccccccccccccc',
+          platform: TargetPlatform.windows,
+          fetcher: () async => [nightly()],
+        );
+        addTearDown(service.dispose);
 
-      await service.setNightlyUpdates(true);
-      await service.checkForUpdates(force: true);
-      await service.dismiss();
-      expect(service.shouldNotify, isFalse);
+        await service.setNightlyUpdates(true);
+        await service.checkForUpdates(force: true);
+        await service.dismiss();
+        expect(service.shouldNotify, isFalse);
 
-      commit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-      await service.checkForUpdates(force: true);
-      expect(service.shouldNotify, isTrue);
-    });
+        commit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        await service.checkForUpdates(force: true);
+        expect(service.shouldNotify, isTrue);
+      },
+    );
 
     test('a newer stable version wins over an older rolling nightly', () async {
       final nightly = ReleaseInfo(
@@ -434,7 +692,10 @@ Nightly build.
         name: 'DartPDF nightly',
         notes: '',
         htmlUrl: 'https://example.test/nightly',
-        assets: const {},
+        assets: const {
+          'dartpdf-macos.dmg': 'https://example.test/dmg',
+          'dartpdf-windows-installer.exe': 'https://example.test/exe',
+        },
         isNightly: true,
         commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       );
@@ -478,10 +739,7 @@ Nightly build.
       expect(restored.nightlyUpdates, isTrue);
 
       final store = await SharedPreferences.getInstance();
-      expect(
-        store.getBool('dart_pdf_editor_app.update.nightly'),
-        isTrue,
-      );
+      expect(store.getBool('dart_pdf_editor_app.update.nightly'), isTrue);
       expect(
         store.containsKey('dart_pdf_editor_app.update.lastChecked'),
         isFalse,
@@ -503,7 +761,7 @@ Nightly build.
       (platform: TargetPlatform.macOS, url: 'https://example.test/dmg'),
       (
         platform: TargetPlatform.windows,
-        url: 'https://example.test/win-installer'
+        url: 'https://example.test/win-installer',
       ),
       (platform: TargetPlatform.linux, url: 'https://example.test/appimage'),
     ]) {
@@ -518,37 +776,40 @@ Nightly build.
       });
     }
 
-    test('falls back to the portable Windows bundle when no installer exists',
-        () async {
-      final service = _service(
-        '1.2.2',
-        releases: [
-          _release(
-            'app-v1.3.0',
-            assets: const {
-              'dartpdf-windows-portable.exe':
-                  'https://example.test/win-portable',
-              'dartpdf-windows-x64.zip': 'https://example.test/win-zip',
-            },
-          ),
-        ],
-        platform: TargetPlatform.windows,
-      );
-      await service.checkForUpdates();
-      expect(service.downloadUrl, 'https://example.test/win-portable');
-    });
+    test(
+      'falls back to the portable Windows bundle when no installer exists',
+      () async {
+        final service = _service(
+          '1.2.2',
+          releases: [
+            _release(
+              'app-v1.3.0',
+              assets: const {
+                'dartpdf-windows-portable.exe':
+                    'https://example.test/win-portable',
+                'dartpdf-windows-x64.zip': 'https://example.test/win-zip',
+              },
+            ),
+          ],
+          platform: TargetPlatform.windows,
+        );
+        await service.checkForUpdates();
+        expect(service.downloadUrl, 'https://example.test/win-portable');
+      },
+    );
 
-    test('falls back to the release page when no asset matches', () async {
-      final service = _service(
-        '1.2.2',
-        releases: [
-          _release('app-v1.3.0', html: 'https://example.test/page'),
-        ],
-        platform: TargetPlatform.linux,
-      );
-      await service.checkForUpdates();
-      expect(service.downloadUrl, 'https://example.test/page');
-    });
+    test(
+      'does not fall back to the release page when no asset matches',
+      () async {
+        final service = _service(
+          '1.2.2',
+          releases: [_release('app-v1.3.0', html: 'https://example.test/page')],
+          platform: TargetPlatform.linux,
+        );
+        await service.checkForUpdates();
+        expect(service.downloadUrl, isNull);
+      },
+    );
   });
 
   group('UpdateService.supported', () {
@@ -558,8 +819,11 @@ Nightly build.
       TargetPlatform.linux,
     ]) {
       test('is on for the desktop ${platform.name} build', () {
-        final service =
-            _service('1.2.2', releases: const [], platform: platform);
+        final service = _service(
+          '1.2.2',
+          releases: const [],
+          platform: platform,
+        );
         addTearDown(service.dispose);
         expect(service.supported, isTrue);
       });
@@ -600,8 +864,11 @@ Nightly build.
     // build they can't install yet.
     for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
       test('is off for the store-distributed ${platform.name} build', () {
-        final service =
-            _service('1.2.2', releases: const [], platform: platform);
+        final service = _service(
+          '1.2.2',
+          releases: const [],
+          platform: platform,
+        );
         addTearDown(service.dispose);
         expect(service.supported, isFalse);
       });
@@ -677,59 +944,62 @@ Nightly build.
       expect(service.updateAvailable, isFalse);
     });
 
-    test('nightly channel fetches the rolling release directly by tag',
-        () async {
-      final requested = <Uri>[];
-      final service = UpdateService(
-        currentVersion: '1.3.0',
-        currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        platform: TargetPlatform.windows,
-        clientFactory: () => MockClient((request) async {
-          requested.add(request.url);
-          if (request.url.path.endsWith('/releases')) {
-            return http.Response('[]', 200);
-          }
-          if (request.url.path.endsWith('/releases/tags/app-nightly')) {
-            return http.Response(
-              jsonEncode({
-                'tag_name': dartPdfNightlyTag,
-                'name': 'DartPDF nightly',
-                'body': '''
+    test(
+      'nightly channel fetches the rolling release directly by tag',
+      () async {
+        final requested = <Uri>[];
+        final service = UpdateService(
+          currentVersion: '1.3.0',
+          currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          platform: TargetPlatform.windows,
+          clientFactory: () => MockClient((request) async {
+            requested.add(request.url);
+            if (request.url.path.endsWith('/releases')) {
+              return http.Response('[]', 200);
+            }
+            if (request.url.path.endsWith('/releases/tags/app-nightly')) {
+              return http.Response(
+                jsonEncode({
+                  'tag_name': dartPdfNightlyTag,
+                  'name': 'DartPDF nightly',
+                  'body': '''
 <!-- main-sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->
 <!-- app-version: 1.3.0 -->
 ''',
-                'html_url': 'https://example.test/nightly',
-                'assets': [
-                  {
-                    'name': 'dartpdf-nightly-windows-installer.exe',
-                    'browser_download_url': 'https://example.test/nightly.exe',
-                  },
-                ],
-              }),
-              200,
-            );
-          }
-          return http.Response('not found', 404);
-        }),
-      );
-      addTearDown(service.dispose);
+                  'html_url': 'https://example.test/nightly',
+                  'assets': [
+                    {
+                      'name': 'dartpdf-nightly-windows-installer.exe',
+                      'browser_download_url':
+                          'https://example.test/nightly.exe',
+                    },
+                  ],
+                }),
+                200,
+              );
+            }
+            return http.Response('not found', 404);
+          }),
+        );
+        addTearDown(service.dispose);
 
-      await service.setNightlyUpdates(true);
-      await service.checkForUpdates(force: true);
+        await service.setNightlyUpdates(true);
+        await service.checkForUpdates(force: true);
 
-      expect(
-        requested.map((uri) => uri.path),
-        contains('/repos/ben-milanko/dart-pdf/releases/tags/app-nightly'),
-      );
-      expect(service.updateAvailable, isTrue);
-      expect(service.latest!.isNightly, isTrue);
-      expect(
-        service.downloadAssetName,
-        'dartpdf-nightly-windows-installer.exe',
-      );
-    });
+        expect(
+          requested.map((uri) => uri.path),
+          contains('/repos/ben-milanko/dart-pdf/releases/tags/app-nightly'),
+        );
+        expect(service.updateAvailable, isTrue);
+        expect(service.latest!.isNightly, isTrue);
+        expect(
+          service.downloadAssetName,
+          'dartpdf-nightly-windows-installer.exe',
+        );
+      },
+    );
 
-    test('a non-list body is treated as no releases', () async {
+    test('a non-list body fails safely', () async {
       final service = UpdateService(
         currentVersion: '1.2.2',
         platform: TargetPlatform.macOS,
@@ -739,7 +1009,7 @@ Nightly build.
 
       await service.checkForUpdates();
 
-      expect(service.status, UpdateStatus.upToDate);
+      expect(service.status, UpdateStatus.failed);
       expect(service.latest, isNull);
     });
   });

@@ -13,7 +13,9 @@ ReleaseInfo _release(String tag) => ReleaseInfo(
       name: tag,
       notes: '',
       htmlUrl: 'https://example.test/$tag',
-      assets: const {},
+      assets: const {
+        'dartpdf-macos.dmg': 'https://example.test/dartpdf-macos.dmg',
+      },
     );
 
 ReleaseInfo _nightlyRelease({
@@ -46,6 +48,7 @@ UpdateService _fakeService({
       currentVersion: current,
       currentBuildCommit: currentBuildCommit,
       platform: platform,
+      architecture: 'x64',
       fetcher: () async => releases,
     );
 
@@ -92,6 +95,87 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('1.3.0'), findsWidgets);
+  });
+
+  testWidgets('Settings skips notifications but keeps manual installation',
+      (tester) async {
+    final updates =
+        _fakeService(current: '1.2.0', releases: [_release('app-v1.3.0')]);
+    addTearDown(updates.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(prefs: prefs, updateService: updates),
+    ));
+    await tester.pump();
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    final check = find.byKey(const ValueKey('settings-check-updates'));
+    await tester.ensureVisible(check);
+    await tester.tap(check);
+    await tester.pumpAndSettle();
+    final skip = find.byKey(const ValueKey('settings-skip-update'));
+    await tester.ensureVisible(skip);
+    expect(find.text('Skip this version'), findsOneWidget);
+    await tester.tap(skip);
+    await tester.pumpAndSettle();
+    expect(updates.isVersionSkipped, isTrue);
+    expect(updates.shouldNotify, isFalse);
+    expect(skip, findsNothing);
+    expect(
+        find.byKey(const ValueKey('settings-update-skipped')), findsOneWidget);
+    expect(
+        find.textContaining('you can still install it here'), findsOneWidget);
+    final download = find.byKey(const ValueKey('settings-download-update'));
+    expect(tester.widget<FilledButton>(download).onPressed, isNotNull);
+
+    await tester.ensureVisible(check);
+    await tester.tap(check);
+    await tester.pumpAndSettle();
+    expect(updates.updateAvailable, isTrue);
+    expect(updates.isVersionSkipped, isTrue);
+    expect(
+        find.byKey(const ValueKey('settings-update-skipped')), findsOneWidget);
+    expect(tester.widget<FilledButton>(download).onPressed, isNotNull);
+  });
+
+  testWidgets('startup banner can skip a version across screen restarts',
+      (tester) async {
+    final releases = [_release('app-v1.3.0')];
+    final updates = _fakeService(current: '1.2.0', releases: releases);
+    addTearDown(updates.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        updateService: updates,
+        autoCheckUpdates: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Later'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('update-banner-skip')));
+    await tester.pumpAndSettle();
+    expect(updates.isVersionSkipped, isTrue);
+    expect(updates.updateAvailable, isTrue);
+    expect(find.byKey(const ValueKey('update-available-banner')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    final restarted = _fakeService(current: '1.2.0', releases: releases);
+    addTearDown(restarted.dispose);
+    // Startup is throttled across restarts; a manual check reloads the release
+    // without clearing its persisted skip.
+    await restarted.checkForUpdates(force: true);
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        updateService: restarted,
+        autoCheckUpdates: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(restarted.isVersionSkipped, isTrue);
+    expect(find.byKey(const ValueKey('update-available-banner')), findsNothing);
   });
 
   testWidgets('Settings names the running build and its channel',

@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'ここにメモを追加';
 
   @override
+  String get menuEditLink => 'リンクを編集…';
+
+  @override
+  String get menuRemoveLink => 'リンクを削除';
+
+  @override
+  String get linkEditDialogTitle => 'リンクを編集';
+
+  @override
   String get menuSaveToStamps => 'スタンプに保存';
 
   @override
@@ -1106,6 +1115,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => 'スクロールバーに章を表示';
+
+  @override
+  String get shellTwoPageView => '見開き表示';
+
+  @override
+  String get shellTwoPageCover => '表紙を単独で表示';
 
   @override
   String get shellTabHere => 'ここにタブ';

@@ -2343,5 +2343,61 @@ void main() {
           ));
       expect(doc.page(0).annotations.single.flags & 4, 4);
     });
+
+    test('setLinkUri re-points a link and keeps its region and look', () {
+      final first = roundTripLink(
+          (e) => e.addLinkToPage(
+                0,
+                const [PdfRect(72, 700, 200, 712)],
+                targetPage: 1,
+                borderColor: 0x0000FF,
+              ),
+          pages: 2);
+      final editor = PdfEditor(first);
+      final link = first.page(0).annotations.single;
+      final name = link.name;
+      editor.setLinkUri(0, link, 'https://example.org/new');
+      final doc = PdfDocument.open(editor.save());
+
+      final edited = doc.page(0).annotations.single;
+      expect((edited.action as PdfUriAction).uri, 'https://example.org/new');
+      expect(edited.rect, const PdfRect(72, 700, 200, 712));
+      expect(edited.normalAppearance, isNotNull);
+      expect(edited.name, name);
+    });
+
+    test('setLinkDestination replaces a bare /Dest with a /GoTo', () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+      editor.addLinkToUri(0, const [PdfRect(72, 700, 200, 712)],
+          uri: 'https://example.com');
+      final reopened = PdfDocument.open(editor.save());
+      // a foreign writer's link: /Dest instead of /A
+      final link = reopened.page(0).annotations.single;
+      link.dict.entries.remove('A');
+      link.dict['Dest'] = CosArray([
+        reopened.cos.referenceTo(reopened.page(1).dict)!,
+        const CosName('Fit'),
+      ]);
+      final again = PdfEditor(reopened)
+        ..setLinkDestination(0, link, const PdfExplicitDestination.fit(2));
+      final doc = PdfDocument.open(again.save());
+
+      final edited = doc.page(0).annotations.single;
+      expect(edited.dict.containsKey('Dest'), isFalse);
+      final action = edited.action as PdfGoToAction;
+      expect(action.destination.pageIndex, 2);
+    });
+
+    test('the link setters refuse other annotations and an empty URI', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      editor.addLinkToUri(0, const [PdfRect(72, 700, 200, 712)],
+          uri: 'https://example.com');
+      editor.addNote(0, 100, 100, 'hi');
+      final doc = PdfDocument.open(editor.save());
+      final again = PdfEditor(doc);
+      final [link, note] = doc.page(0).annotations;
+      expect(() => again.setLinkUri(0, link, ''), throwsArgumentError);
+      expect(() => again.setLinkUri(0, note, 'https://x'), throwsArgumentError);
+    });
   });
 }

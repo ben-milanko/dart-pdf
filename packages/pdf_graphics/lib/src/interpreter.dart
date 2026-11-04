@@ -3186,6 +3186,8 @@ class PdfInterpreter {
           glyphs: glyphs,
           charOffsets: charOffsets,
           invisible: mode == 3 || mode == 7 || paintedAsTiling,
+          overlaysDrawnText:
+              mode == 3 && glyphs == null && font.declaresNoWidths,
           mcid: _currentMcid,
         ));
       }

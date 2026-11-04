@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Importa y exporta datos de formularios y comentarios con archivos FDF, XFDF y XDP. Edita enlaces existentes. Lee hilos de notas junto a la página y mantén varias notas abiertas. Comparte pestañas seleccionadas juntas. Mejora la pantalla de inicio, la apertura de PDF y las actualizaciones. La vista de impresión sigue las páginas seleccionadas.

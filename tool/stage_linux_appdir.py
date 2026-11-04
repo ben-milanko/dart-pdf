@@ -80,6 +80,10 @@ def stage_appdir(bundle: Path, appdir: Path) -> None:
             shutil.copytree(source, target, symlinks=True)
         else:
             shutil.copy2(source, target)
+    # The recovery workflow can repackage a release predating this helper.
+    # Ship the helper alongside AppRun from the same source revision.
+    shutil.copy2(Path(__file__).resolve().parents[1] /
+                 "app/linux/install-desktop.py", binaries / "install-desktop.py")
     shutil.copytree(bundle / "share", appdir / "usr/share", symlinks=True)
 
     # Only generated AppImage metadata changes. Retain the description, license,
@@ -114,6 +118,11 @@ def stage_appdir(bundle: Path, appdir: Path) -> None:
         '#!/bin/bash\n'
         'set -euo pipefail\n'
         'HERE="$(dirname "$(readlink -f "$0")")"\n'
+        'if [[ "${1:-}" == --install-desktop || "${1:-}" == --uninstall-desktop ]]; then\n'
+        '  action="$1"; shift\n'
+        '  if [[ "$action" == --uninstall-desktop ]]; then set -- --uninstall "$@"; fi\n'
+        '  exec python3 "$HERE/usr/bin/install-desktop.py" "$@"\n'
+        'fi\n'
         'export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH:-}"\n'
         'export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\n'
         f'exec "$HERE/usr/bin/{BINARY}" "$@"\n', encoding="utf-8")

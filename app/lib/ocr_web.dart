@@ -52,6 +52,7 @@ class OnDeviceOcr {
     BuildContext context, {
     required void Function(String) onToast,
     required void Function(Uint8List, String) onComplete,
+    bool Function()? automaticEnabled,
   }) async {
     if (isBusy || _disposed || _recovering || ocrShouldPause) return;
     _recovering = true;
@@ -64,6 +65,14 @@ class OnDeviceOcr {
           continue;
         }
         if (job.state == OcrJobState.failed) continue;
+        // Turning automatic OCR off also pauses its saved jobs. Keep their
+        // checkpoints so re-enabling it can resume without repeating pages.
+        // Completed results and explicitly requested OCR remain recoverable.
+        if (job.automatic &&
+            job.state != OcrJobState.complete &&
+            !(automaticEnabled?.call() ?? true)) {
+          continue;
+        }
         {
           final source = await _jobs.source(job);
           if (!context.mounted) return;

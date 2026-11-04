@@ -5,6 +5,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -243,6 +244,49 @@ bool rsaVerifyPss(
 /// Produces a PKCS#1 v1.5 signature over a precomputed [digest].
 Uint8List rsaSign(RsaPrivateKey key, String digestOid, List<int> digest) {
   final em = _emsaPkcs1v15(digestOid, digest, key.byteLength);
+  return _toBytes(
+      _toBigInt(em).modPow(key.privateExponent, key.modulus), key.byteLength);
+}
+
+/// Produces an RSASSA-PSS signature (RFC 8017 §8.1.1) over a precomputed
+/// message hash [mHash], with [hash] as both the message and MGF1 hash. This
+/// is the counterpart of [rsaVerifyPss]. Pass [salt] for a reproducible
+/// signature (an empty salt makes PSS deterministic, which is what the
+/// known-answer tests use). Otherwise a salt as long as the hash is drawn
+/// from [random], which defaults to [Random.secure].
+Uint8List rsaSignPss(
+  RsaPrivateKey key,
+  crypto.Hash hash,
+  List<int> mHash, {
+  List<int>? salt,
+  Random? random,
+}) {
+  final hLen = mHash.length;
+  final saltBytes = salt ??
+      List<int>.generate(hLen, (_) => (random ?? Random.secure()).nextInt(256));
+  final modBits = key.modulus.bitLength;
+  final emBits = modBits - 1;
+  final emLen = (emBits + 7) >> 3;
+  if (emLen < hLen + saltBytes.length + 2) {
+    throw ArgumentError('RSA key too short for RSASSA-PSS with this salt');
+  }
+
+  // H = Hash(0x00 x 8 || mHash || salt); DB = PS || 0x01 || salt.
+  final h = hash.convert([...List.filled(8, 0), ...mHash, ...saltBytes]).bytes;
+  final dbLen = emLen - hLen - 1;
+  final db = Uint8List(dbLen);
+  db[dbLen - saltBytes.length - 1] = 0x01;
+  db.setRange(dbLen - saltBytes.length, dbLen, saltBytes);
+  final dbMask = _mgf1(hash, h, dbLen);
+  for (var i = 0; i < dbLen; i++) {
+    db[i] ^= dbMask[i];
+  }
+  db[0] &= 0xFF >> (8 * emLen - emBits);
+
+  final em = Uint8List(emLen)
+    ..setRange(0, dbLen, db)
+    ..setRange(dbLen, dbLen + hLen, h)
+    ..[emLen - 1] = 0xBC;
   return _toBytes(
       _toBigInt(em).modPow(key.privateExponent, key.modulus), key.byteLength);
 }

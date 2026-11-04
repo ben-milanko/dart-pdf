@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Buraya not ekle';
 
   @override
+  String get menuEditLink => 'Bağlantıyı düzenle…';
+
+  @override
+  String get menuRemoveLink => 'Bağlantıyı kaldır';
+
+  @override
+  String get linkEditDialogTitle => 'Bağlantıyı düzenle';
+
+  @override
   String get menuSaveToStamps => 'Damgalara kaydet';
 
   @override
@@ -1112,6 +1121,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get shellShowScrollbarChapters =>
       'Kaydırma çubuğunda bölümleri göster';
+
+  @override
+  String get shellTwoPageView => 'İki sayfa görünümü';
+
+  @override
+  String get shellTwoPageCover => 'Kapak sayfasını ayrı göster';
 
   @override
   String get shellTabHere => 'Buraya sekmele';

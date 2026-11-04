@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -59,4 +60,74 @@ void guardPlatformSemanticsToggles() {
     WidgetsBinding.instance.platformDispatcher.onSemanticsEnabledChanged =
         () {};
   });
+}
+
+/// Reports *what* overflowed when a [RenderFlex] overflow fails a test.
+///
+/// Flutter's overflow report names only the flex and its own size, and by the
+/// time Patrol prints it the render tree is disposed. This walks the flex
+/// while it is still alive: each child's creator and size, then down the
+/// tallest child through every render object taller than the flex, so the log
+/// ends at the box that is actually too big. Returns a callback that puts the
+/// previous [FlutterError.onError] back; call it before the test ends.
+VoidCallback reportFlexOverflowCulprits() {
+  final previous = FlutterError.onError;
+  FlutterError.onError = (details) {
+    final flex = _overflowingFlex(details);
+    if (flex != null) debugPrint(_describeOverflow(flex));
+    previous?.call(details);
+  };
+  return () => FlutterError.onError = previous;
+}
+
+RenderFlex? _overflowingFlex(FlutterErrorDetails details) {
+  if (!details.exceptionAsString().contains('overflowed')) return null;
+  // the report describes the flex itself as one of its diagnostics nodes
+  for (final node
+      in details.informationCollector?.call() ?? const <DiagnosticsNode>[]) {
+    if (node.value case final RenderFlex flex) return flex;
+  }
+  return null;
+}
+
+String _describeOverflow(RenderFlex flex) {
+  final out = StringBuffer('flex overflow culprits: ${_box(flex)}\n');
+  final children = <RenderBox>[];
+  flex.visitChildren((child) => children.add(child as RenderBox));
+  for (final child in children) {
+    out.writeln('  child ${_box(child)}');
+  }
+  final extent =
+      flex.direction == Axis.vertical ? flex.size.height : flex.size.width;
+  double main(RenderBox box) => !box.hasSize
+      ? 0
+      : flex.direction == Axis.vertical
+          ? box.size.height
+          : box.size.width;
+  RenderObject? tallest = children.isEmpty
+      ? null
+      : children.reduce((a, b) => main(a) >= main(b) ? a : b);
+  for (var depth = 0; tallest is RenderBox && depth < 60; depth++) {
+    out.writeln('  ${'  ' * (depth % 20)}> ${_box(tallest)}');
+    RenderBox? next;
+    tallest.visitChildren((child) {
+      if (child is RenderBox &&
+          main(child) > extent &&
+          (next == null || main(child) > main(next!))) {
+        next = child;
+      }
+    });
+    tallest = next;
+  }
+  return out.toString();
+}
+
+String _box(RenderBox box) {
+  final creator = box.debugCreator?.toString() ?? '?';
+  final shortCreator =
+      creator.length > 240 ? '${creator.substring(0, 240)}…' : creator;
+  return '${box.runtimeType} '
+      'size=${box.hasSize ? box.size : 'none'} '
+      'constraints=${box.constraints} '
+      'creator=$shortCreator';
 }

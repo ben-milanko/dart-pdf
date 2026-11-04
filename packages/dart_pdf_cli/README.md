@@ -30,6 +30,7 @@ retroactively):
 | Desktop build | CLI/MCP executable |
 |---|---|
 | macOS app | `/Applications/DartPDF.app/Contents/MacOS/dartpdf-cli` |
+| macOS nightly | `"/Applications/DartPDF Nightly.app/Contents/MacOS/dartpdf-cli"` |
 | Windows installer | `%LOCALAPPDATA%\Programs\DartPDF\dartpdf.exe` |
 | Windows portable | `dartpdf.exe` beside `dart_pdf_editor_app.exe` |
 | Linux tarball / AppImage payload | `dartpdf-cli` beside `dart_pdf_editor_app` |

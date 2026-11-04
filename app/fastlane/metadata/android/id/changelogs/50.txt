@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Impor dan ekspor data formulir serta komentar melalui FDF, XFDF dan XDP. Edit tautan yang ada. Baca utas catatan di samping halaman dan biarkan beberapa catatan terbuka. Bagikan tab dokumen terpilih bersama. Perbaiki layar awal, pembukaan PDF dan pemeriksaan pembaruan. Pratinjau cetak mengikuti halaman terpilih.

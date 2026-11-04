@@ -1,4 +1,5 @@
 import 'l10n/app_localizations.dart';
+import 'middle_ellipsis_text.dart';
 import 'ocr_status.dart';
 
 /// The short chip label for an [OcrJobStatus], localized.
@@ -20,3 +21,13 @@ String ocrStatusLabel(AppLocalizations l10n, OcrJobStatus status) =>
           : l10n.ocrChipRecognising(status.page, status.pageCount),
       OcrPhase.finishing => l10n.ocrChipFinishing,
     };
+
+/// The tab title (and suggested filename) for the OCR result of [title].
+///
+/// The label goes before the extension: "Scan.pdf" becomes "Scan (OCR).pdf",
+/// not "Scan.pdf (OCR)", which would save as "Scan.pdf (OCR).pdf".
+String ocrResultTitle(AppLocalizations l10n, String title) {
+  final stem = pdfDisplayName(title);
+  final labelled = l10n.editorOcrTitle(stem);
+  return stem == title ? labelled : '$labelled.pdf';
+}

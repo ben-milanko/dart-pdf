@@ -14,9 +14,11 @@ void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('dev.milanko.dart_pdf_printing');
   final calls = <MethodCall>[];
+  PrintDialogResult? result;
 
   setUp(() {
     calls.clear();
+    result = null;
     binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
         (call) async {
       calls.add(call);
@@ -39,8 +41,11 @@ void main() {
       home: Builder(
           builder: (context) => Scaffold(
                   body: TextButton(
-                onPressed: () => printPdfWithPreview(context,
-                    document: document, title: 'Report.pdf', currentPage: 1),
+                onPressed: () async => result = await printPdfWithPreview(
+                    context,
+                    document: document,
+                    title: 'Report.pdf',
+                    currentPage: 1),
                 child: const Text('Open'),
               ))),
     ));
@@ -63,6 +68,21 @@ void main() {
     expect(args['pageWidth'], 612);
     expect(args['pageHeight'], 792);
     expect(PdfDocument.open(args['pdf'] as Uint8List).pageCount, 1);
+    expect(result, PrintDialogResult.handedToSystem);
+  });
+
+  testWidgets('a dismissed system dialog after the preview reports a cancel',
+      (tester) async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      calls.add(call);
+      return false;
+    });
+    await open(tester);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle();
+    expect(calls.single.method, 'printPdf');
+    expect(result, PrintDialogResult.cancelled);
   });
 
   testWidgets('canceling the public preview never invokes the printer',
@@ -71,6 +91,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('print-preview-cancel')));
     await tester.pumpAndSettle();
     expect(calls, isEmpty);
+    expect(result, PrintDialogResult.cancelled);
   });
 
   testWidgets('the public Windows flow sends the destination and duplex copies',
@@ -174,7 +195,7 @@ void main() {
       releasePage = Completer<bool>();
       pending = printPdfWithProgress(hostContext,
               bytes: buildMultiPagePdf(3), title: 'Report')
-          .catchError((Object value) {
+          .then<void>((_) {}, onError: (Object value) {
         error = value;
       });
       await secondPage.future.timeout(const Duration(seconds: 10));

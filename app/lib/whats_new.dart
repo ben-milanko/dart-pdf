@@ -13,6 +13,11 @@
 // into the `app-nightly` GitHub release body
 // (.github/scripts/nightly-release-tickets.py), so a nightly fetches that body
 // when the dialog opens and parses the one section back out.
+//
+// A nightly's bundled changelog is frozen at the commit it was built from, so
+// it can predate the latest published release. A nightly therefore reads the
+// changelog at the latest release's tag instead (falling back to the bundled
+// one offline), so the notes under the ticket list are that release's.
 import 'dart:convert' show LineSplitter, jsonDecode;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -250,15 +255,62 @@ Future<String> fetchNightlyReleaseNotes({http.Client? client}) async {
   }
 }
 
+/// Fetches the changelog of the latest published release, for [showWhatsNew].
+typedef ReleaseChangelogFetcher = Future<String> Function();
+
+/// The default [ReleaseChangelogFetcher]: `app/CHANGELOG.md` at the tag of
+/// GitHub's latest release, which excludes drafts and prereleases (the rolling
+/// nightly among them) - the same release the nightly's ticket list counts
+/// from.
+Future<String> fetchLatestReleaseChangelog({http.Client? client}) async {
+  final latest = Uri.https(
+    'api.github.com',
+    '/repos/ben-milanko/dart-pdf/releases/latest',
+  );
+  final owned = client == null;
+  final c = client ?? http.Client();
+  try {
+    final response = await c.get(latest, headers: const {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'DartPDF-whats-new',
+    });
+    if (response.statusCode != 200) {
+      throw http.ClientException(
+          'GitHub returned HTTP ${response.statusCode}', latest);
+    }
+    final decoded = jsonDecode(response.body);
+    final tag = decoded is Map ? decoded['tag_name'] : null;
+    if (tag is! String || tag.isEmpty) {
+      throw http.ClientException('Latest release has no tag', latest);
+    }
+    final changelog = Uri.https('raw.githubusercontent.com',
+        '/ben-milanko/dart-pdf/$tag/app/$appChangelogAsset');
+    final file = await c
+        .get(changelog, headers: const {'User-Agent': 'DartPDF-whats-new'});
+    if (file.statusCode != 200) {
+      throw http.ClientException(
+          'GitHub returned HTTP ${file.statusCode}', changelog);
+    }
+    return file.body;
+  } finally {
+    if (owned) c.close();
+  }
+}
+
 /// Opens the "What's new" dialog over [context].
 ///
 /// A nightly build also lists the tickets merged since the last release,
-/// fetched with [nightlyNotes] (default [fetchNightlyReleaseNotes]); other
-/// builds skip that section unless a test passes its own fetcher.
+/// fetched with [nightlyNotes] (default [fetchNightlyReleaseNotes]), and
+/// shows the latest release's changelog, fetched with [releaseChangelog]
+/// (default [fetchLatestReleaseChangelog]), rather than the one bundled into
+/// the installed build. Other builds skip both unless a test passes its own
+/// fetchers.
 Future<void> showWhatsNew(
   BuildContext context, {
   AssetBundle? bundle,
   NightlyNotesFetcher? nightlyNotes,
+  ReleaseChangelogFetcher? releaseChangelog,
 }) =>
     showPdfDialog<void>(
       context: context,
@@ -266,24 +318,46 @@ Future<void> showWhatsNew(
         bundle: bundle,
         nightlyNotes: nightlyNotes ??
             (AppInfo.isNightly ? fetchNightlyReleaseNotes : null),
+        releaseChangelog: releaseChangelog ??
+            (AppInfo.isNightly ? fetchLatestReleaseChangelog : null),
       ),
     );
 
 /// The bundled release notes, newest first, with the running build's own
 /// section badged so a reader can tell what they already have.
 class _WhatsNewDialog extends StatefulWidget {
-  const _WhatsNewDialog({this.bundle, this.nightlyNotes});
+  const _WhatsNewDialog({
+    this.bundle,
+    this.nightlyNotes,
+    this.releaseChangelog,
+  });
 
   final AssetBundle? bundle;
   final NightlyNotesFetcher? nightlyNotes;
+  final ReleaseChangelogFetcher? releaseChangelog;
 
   @override
   State<_WhatsNewDialog> createState() => _WhatsNewDialogState();
 }
 
 class _WhatsNewDialogState extends State<_WhatsNewDialog> {
-  late final Future<List<ChangelogRelease>> _releases =
-      loadAppChangelog(bundle: widget.bundle);
+  late final Future<List<ChangelogRelease>> _releases = _loadReleases();
+
+  /// The latest release's changelog when there is a fetcher for it, else (or
+  /// when it can't be fetched or parsed) the one bundled into this build.
+  Future<List<ChangelogRelease>> _loadReleases() async {
+    final fetch = widget.releaseChangelog;
+    if (fetch != null) {
+      try {
+        final releases = parseChangelog(await fetch());
+        if (releases.isNotEmpty) return releases;
+      } catch (_) {
+        // Offline or GitHub unavailable - the bundled notes still help.
+      }
+    }
+    return loadAppChangelog(bundle: widget.bundle);
+  }
+
   late final Future<NightlyTickets?>? _tickets =
       widget.nightlyNotes?.call().then(parseNightlyTickets);
 
@@ -328,7 +402,12 @@ class _WhatsNewDialogState extends State<_WhatsNewDialog> {
                   ],
                   for (final (index, release) in releases.indexed) ...[
                     if (index > 0) const SizedBox(height: 20),
-                    _ReleaseSection(release: release),
+                    _ReleaseSection(
+                      release: release,
+                      // A nightly is none of the releases listed, whatever
+                      // package version it carries.
+                      badgeInstalled: widget.nightlyNotes == null,
+                    ),
                   ],
                 ],
               ),
@@ -349,9 +428,10 @@ class _WhatsNewDialogState extends State<_WhatsNewDialog> {
 }
 
 class _ReleaseSection extends StatelessWidget {
-  const _ReleaseSection({required this.release});
+  const _ReleaseSection({required this.release, required this.badgeInstalled});
 
   final ChangelogRelease release;
+  final bool badgeInstalled;
 
   @override
   Widget build(BuildContext context) {
@@ -372,7 +452,7 @@ class _ReleaseSection extends StatelessWidget {
             Flexible(
               child: Text(release.version, style: theme.textTheme.titleSmall),
             ),
-            if (release.version == AppInfo.version) ...[
+            if (badgeInstalled && release.version == AppInfo.version) ...[
               const SizedBox(width: 8),
               // The running build's own section, so a reader can place
               // themselves in the list without checking About first.

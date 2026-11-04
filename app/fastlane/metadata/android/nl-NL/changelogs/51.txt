@@ -1,0 +1,3 @@
+DartPDF 14.0.0
+
+Lees opeenvolgende pagina’s naast elkaar in de tweepaginaweergave, met een afzonderlijk voorblad als optie. Exporteer geselecteerde pagina’s met Ctrl/Cmd+Shift+X. Verbeterde afdrukken en melding wanneer het afdrukvenster wordt geannuleerd. Tooltips bij recente bestanden verschijnen later.

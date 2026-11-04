@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Importeer en exporteer formuliergegevens en opmerkingen met FDF, XFDF en XDP. Bewerk bestaande links. Lees notitiereacties naast de pagina en houd meerdere notities open. Deel geselecteerde documenttabs samen. Verbeter het startscherm, PDF-openen en updatecontroles. Het afdrukvoorbeeld volgt de geselecteerde pagina’s.

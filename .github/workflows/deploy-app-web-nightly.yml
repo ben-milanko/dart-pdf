@@ -1,0 +1,156 @@
+name: Deploy App Web Nightly
+
+# Publishes a nightly build of the standalone DartPDF web app from main to the
+# `dartpdf-app-nightly` Firebase Hosting site (app-nightly.dart-pdf.com). It is
+# the web counterpart of nightly-desktop.yml: PDF_BUILD_CHANNEL=nightly makes
+# the build call itself "DartPDF Nightly", stamp its commit into the version,
+# and show the nightly ticket list in What's new. Settings on either site has a
+# row that opens the other one (app/lib/web_channel.dart).
+#
+# The stable site (app.dart-pdf.com) keeps deploying from every main push in
+# deploy-app-web.yml. Both sites build from the same app/firebase.json; this
+# workflow only retargets its `site` and marks the nightly noindex.
+#
+# One-time setup (Firebase project dart-pdf-demo, outside this repo):
+#   firebase hosting:sites:create dartpdf-app-nightly --project dart-pdf-demo
+#   then Hosting -> dartpdf-app-nightly -> Add custom domain
+#   app-nightly.dart-pdf.com, and add the DNS records it asks for.
+# The deploy reuses FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO.
+
+on:
+  schedule:
+    # 02:20 AEST / 03:20 AEDT, alongside nightly-desktop.yml.
+    - cron: '20 16 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Deploy even if the nightly site already serves main's HEAD
+        type: boolean
+        default: false
+
+concurrency:
+  group: app-web-nightly
+  cancel-in-progress: false
+
+env:
+  NIGHTLY_SITE: dartpdf-app-nightly
+  NIGHTLY_URL: https://app-nightly.dart-pdf.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      # Each deploy publishes build-commit.txt; skip the build when the site
+      # already serves main's HEAD. Anything that isn't a bare commit (first
+      # deploy: the SPA rewrite answers with index.html) means "deploy".
+      - name: Compare main with the deployed nightly
+        id: changes
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          deployed="$(curl -fsSL --max-time 30 "$NIGHTLY_URL/build-commit.txt" 2>/dev/null | tr -d '[:space:]' || true)"
+          should_deploy=true
+          if [[ "$FORCE" != "true" && "$deployed" == "$head_sha" ]]; then
+            should_deploy=false
+            echo "The nightly web app already serves $head_sha; nothing to deploy." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$deployed" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Deploying $head_sha over $deployed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No deployed nightly marker found; deploying $head_sha." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        if: steps.changes.outputs.should_deploy == 'true'
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      - if: steps.changes.outputs.should_deploy == 'true'
+        run: flutter pub get
+
+      # Same worker build as deploy-app-web.yml: without it heavy PDFs hang
+      # the tab.
+      - name: Build the render worker
+        if: steps.changes.outputs.should_deploy == 'true'
+        working-directory: app
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out ../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+
+      # The dark blue nightly icon and name, so an installed nightly PWA and
+      # its tab are told apart from the stable app. The icon is the one the
+      # desktop nightlies ship (app/tool/gen_nightly_icon.py).
+      - name: Brand the build as DartPDF Nightly
+        if: steps.changes.outputs.should_deploy == 'true'
+        working-directory: app
+        run: |
+          set -euo pipefail
+          cp packaging/nightly/web/Icon-512.png web/icons/Icon-512.png
+          jq '.name = "DartPDF Nightly" | .short_name = "DartPDF Nightly"' \
+            web/manifest.json > "$RUNNER_TEMP/manifest.json"
+          mv "$RUNNER_TEMP/manifest.json" web/manifest.json
+          sed -i \
+            -e 's|<title>DartPDF</title>|<title>DartPDF Nightly</title>|' \
+            -e 's|name="apple-mobile-web-app-title" content="DartPDF"|name="apple-mobile-web-app-title" content="DartPDF Nightly"|' \
+            web/index.html
+          grep -q '<title>DartPDF Nightly</title>' web/index.html
+
+      - name: Build web
+        if: steps.changes.outputs.should_deploy == 'true'
+        working-directory: app
+        env:
+          HEAD_SHA: ${{ steps.changes.outputs.head_sha }}
+        run: >-
+          flutter build web --release
+          --dart-define=PDF_BUILD_COMMIT=$HEAD_SHA
+          --dart-define=PDF_BUILD_CHANNEL=nightly
+
+      - name: Cache-bust web build
+        if: steps.changes.outputs.should_deploy == 'true'
+        run: bash tool/web_cache_bust.sh app/build/web
+
+      - name: Add the OCR models
+        if: steps.changes.outputs.should_deploy == 'true'
+        run: bash tool/fetch_ocr_models.sh app/build/web
+
+      # Retarget the shared hosting config at the nightly site, keep search
+      # engines off it (it would compete with app.dart-pdf.com), and serve the
+      # commit marker the next night's check reads, uncached.
+      - name: Point the hosting config at the nightly site
+        if: steps.changes.outputs.should_deploy == 'true'
+        working-directory: app
+        env:
+          HEAD_SHA: ${{ steps.changes.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$HEAD_SHA" > build/web/build-commit.txt
+          printf 'User-agent: *\nDisallow: /\n' > build/web/robots.txt
+          jq --arg site "$NIGHTLY_SITE" '
+            .hosting.site = $site
+            | .hosting.headers += [
+                {source: "**", headers: [{key: "X-Robots-Tag", value: "noindex"}]},
+                {source: "/build-commit.txt", headers: [{key: "Cache-Control", value: "no-cache, no-store, must-revalidate"}]}
+              ]' firebase.json > "$RUNNER_TEMP/firebase.json"
+          mv "$RUNNER_TEMP/firebase.json" firebase.json
+          jq -e --arg site "$NIGHTLY_SITE" '.hosting.site == $site' firebase.json
+
+      - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
+        if: steps.changes.outputs.should_deploy == 'true'
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+          projectId: dart-pdf-demo
+          channelId: live
+          entryPoint: app

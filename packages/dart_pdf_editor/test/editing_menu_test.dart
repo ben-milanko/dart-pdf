@@ -480,7 +480,8 @@ void main() {
           0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
       await tester.pump();
 
-      await rightClick(tester, viewPoint(450, 650)); // inside the polygon
+      // on its outline: an unfilled polygon is hit on its stroke, not inside
+      await rightClick(tester, viewPoint(450, 601));
       expect(editing.selectedAnnotation?.subtype, 'Polygon');
       expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
           findsOneWidget);

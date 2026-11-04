@@ -13,6 +13,7 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import 'asn1.dart';
 import 'ecdsa.dart';
+import 'rsa.dart';
 
 abstract final class _CertOid {
   static const commonName = '2.5.4.3';
@@ -31,12 +32,49 @@ abstract final class _CertOid {
   static const extAuthorityInfoAccess = '1.3.6.1.5.5.7.1.1';
   static const adOcsp = '1.3.6.1.5.5.7.48.1';
   static const ocspNoCheck = '1.3.6.1.5.5.7.48.1.5';
+  static const rsaEncryption = '1.2.840.113549.1.1.1';
+  static const rsassaPss = '1.2.840.113549.1.1.10';
+  static const mgf1 = '1.2.840.113549.1.1.8';
 }
 
 /// The ecdsa-with-SHAx AlgorithmIdentifier for [hash] - a bare OID, with no
 /// parameters, exactly as RFC 5758 §3.2 specifies for ECDSA.
 Uint8List ecdsaSignatureAlgorithm(crypto.Hash hash) =>
     derSequence([derOid(_ecdsaSignatureOid(hash))]);
+
+/// The rsaEncryption AlgorithmIdentifier (OID + NULL) - what a CMS
+/// SignerInfo names for an RSA PKCS#1 v1.5 signature, the digest coming
+/// from the SignerInfo's separate digestAlgorithm.
+Uint8List rsaPkcs1SignatureAlgorithm() =>
+    derSequence([derOid(_CertOid.rsaEncryption), derNull()]);
+
+/// The id-RSASSA-PSS AlgorithmIdentifier with explicit RSASSA-PSS-params
+/// (RFC 4055 §3.1): [hash] as the message hash and the MGF1 hash, and a
+/// [saltLength] that defaults to the hash length. The default trailer field
+/// is left out, as DER requires. The same DER serves as a CMS SignerInfo's
+/// signatureAlgorithm and, via its parameters, a remote signer's
+/// signing-algorithm parameters.
+Uint8List rsaPssSignatureAlgorithm(crypto.Hash hash, {int? saltLength}) {
+  final digestOid = _digestOid(hash);
+  final hashAlgorithm = derSequence([derOid(digestOid), derNull()]);
+  return derSequence([
+    derOid(_CertOid.rsassaPss),
+    derSequence([
+      derContext(0, hashAlgorithm),
+      derContext(1, derSequence([derOid(_CertOid.mgf1), hashAlgorithm])),
+      derContext(2, derInteger(BigInt.from(saltLength ?? _hashLength(hash)))),
+    ]),
+  ]);
+}
+
+String _digestOid(crypto.Hash hash) {
+  if (hash == crypto.sha256) return DigestOid.sha256;
+  if (hash == crypto.sha384) return DigestOid.sha384;
+  if (hash == crypto.sha512) return DigestOid.sha512;
+  throw ArgumentError('unsupported RSASSA-PSS hash');
+}
+
+int _hashLength(crypto.Hash hash) => hash.convert(const []).bytes.length;
 
 /// The DER `SubjectPublicKeyInfo` for an EC public key: an AlgorithmIdentifier
 /// of id-ecPublicKey + the named-curve OID, then the uncompressed SEC1 point in

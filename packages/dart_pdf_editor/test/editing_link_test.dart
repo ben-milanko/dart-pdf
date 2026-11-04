@@ -126,6 +126,141 @@ void main() {
       expect(editing.document.page(0).annotations, isEmpty);
       expect(editing.canUndo, isFalse);
     });
+
+    test('linkAnnotationAt + editLink re-point an existing link', () {
+      final editing = controller(3);
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 715, 200, 735)],
+        const PdfLinkTarget.uri('https://example.com'),
+      );
+      expect(editing.linkAnnotationAt(0, 10, 10), isNull);
+      final (slot, _) = editing.linkAnnotationAt(0, 100, 720)!;
+      expect(editing.linkTargetAt(0, slot)?.uri, 'https://example.com');
+
+      expect(
+          editing.editLink(0, slot, const PdfLinkTarget.uri('https://b.test')),
+          isTrue);
+      var link = editing.document.page(0).annotations.single;
+      expect((link.action as PdfUriAction).uri, 'https://b.test');
+      // the decoration and region stay
+      expect(link.rect, const PdfRect(72, 715, 200, 735));
+      expect(link.normalAppearance, isNotNull);
+
+      expect(editing.editLink(0, slot, const PdfLinkTarget.page(2)), isTrue);
+      link = editing.document.page(0).annotations.single;
+      expect((link.action as PdfGoToAction).destination.pageIndex, 2);
+      expect(editing.linkTargetAt(0, slot)?.page, 2);
+
+      editing.undo();
+      link = editing.document.page(0).annotations.single;
+      expect((link.action as PdfUriAction).uri, 'https://b.test');
+    });
+
+    test('editLink refuses a non-link slot and an empty URI', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addNote(0, 100, 100, 'note');
+      editing.addLink(
+        0,
+        const [PdfRect(72, 715, 200, 735)],
+        const PdfLinkTarget.uri('https://example.com'),
+      );
+      expect(editing.editLink(0, 0, const PdfLinkTarget.uri('https://x')),
+          isFalse);
+      expect(editing.editLink(0, 1, const PdfLinkTarget.uri('')), isFalse);
+      expect(editing.linkTargetAt(0, 0), isNull);
+    });
+  });
+
+  group('edit-link menu', () {
+    Future<void> openMenu(
+        WidgetTester tester, PdfEditingController editing) async {
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates:
+            DartPdfEditorLocalizations.localizationsDelegates,
+        supportedLocales: DartPdfEditorLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showPdfAnnotationMenu(
+                context: context,
+                position: const Offset(100, 100),
+                controller: editing,
+                pageIndex: 0,
+                linkTarget: (0, 0),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Edit link pre-fills the dialog and re-points the link',
+        (tester) async {
+      final editing = controller(3);
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 715, 200, 735)],
+        const PdfLinkTarget.uri('https://old.test'),
+      );
+      await openMenu(tester, editing);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-edit-link')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit link'), findsOneWidget);
+      final field = find.byKey(const ValueKey('pdf-link-url'));
+      expect(
+          tester.widget<TextField>(field).controller!.text, 'https://old.test');
+      await tester.enterText(field, 'https://new.test');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final link = editing.document.page(0).annotations.single;
+      expect((link.action as PdfUriAction).uri, 'https://new.test');
+    });
+
+    testWidgets('an internal link opens on its page', (tester) async {
+      final editing = controller(3);
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 715, 200, 735)],
+        const PdfLinkTarget.page(1),
+      );
+      await openMenu(tester, editing);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-edit-link')));
+      await tester.pumpAndSettle();
+
+      final field = find.byKey(const ValueKey('pdf-link-page'));
+      expect(tester.widget<TextField>(field).controller!.text, '2');
+      await tester.enterText(field, '3');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final link = editing.document.page(0).annotations.single;
+      expect((link.action as PdfGoToAction).destination.pageIndex, 2);
+    });
+
+    testWidgets('Remove link deletes it', (tester) async {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addLink(
+        0,
+        const [PdfRect(72, 715, 200, 735)],
+        const PdfLinkTarget.uri('https://old.test'),
+      );
+      await openMenu(tester, editing);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-remove-link')));
+      await tester.pumpAndSettle();
+      expect(editing.document.page(0).annotations, isEmpty);
+    });
   });
 
   group('add-link dialog', () {

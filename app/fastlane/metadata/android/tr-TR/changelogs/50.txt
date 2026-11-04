@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+FDF, XFDF ve XDP ile form verilerini ve yorumları içe ve dışa aktarın. Mevcut bağlantıları düzenleyin. Yorum dizilerini sayfanın yanında okuyun ve birden çok notu açık tutun. Seçili belge sekmelerini birlikte paylaşın. Karşılama ekranı, PDF açma ve güncelleme denetimleri iyileştirildi. Baskı önizlemesi seçili sayfaları izler.

@@ -467,39 +467,84 @@ CmsVerification cmsVerify(
   if (cert == null) {
     return CmsVerification(digestMatches, false, 'no signer certificate');
   }
-  if (signer.signatureAlgorithmOid == _Oid.rsassaPss) {
+  final (valid, problem) = _verifySignatureValue(
+    cert,
+    signer.signatureAlgorithmOid,
+    signer.signatureAlgorithmParams,
+    hash,
+    signedBytes,
+    signer.signature,
+  );
+  return CmsVerification(digestMatches, valid, problem);
+}
+
+/// Whether [signature] is a valid signature over [signedBytes] by
+/// [certificate]'s key under [signatureAlgorithm] (a DER AlgorithmIdentifier
+/// as a SignerInfo carries it: rsaEncryption, sha*WithRSA, id-RSASSA-PSS with
+/// its parameters, or ecdsa-with-SHA*). [digestHash] is the SignerInfo's
+/// digest algorithm, used when the signature algorithm does not name one.
+///
+/// This is the signature-value half of [cmsVerify], for a signer that wants
+/// to check a value produced elsewhere (a hardware token or a remote signing
+/// service) before writing it into a document.
+bool cmsSignatureValueVerifies({
+  required X509Certificate certificate,
+  required Uint8List signatureAlgorithm,
+  required List<int> signedBytes,
+  required List<int> signature,
+  crypto.Hash digestHash = crypto.sha256,
+}) {
+  final algorithm = DerObject.parse(signatureAlgorithm).children;
+  return _verifySignatureValue(
+    certificate,
+    algorithm[0].asOid,
+    algorithm.length > 1 ? algorithm[1] : null,
+    digestHash,
+    signedBytes,
+    signature,
+  ).$1;
+}
+
+(bool, String?) _verifySignatureValue(
+  X509Certificate cert,
+  String signatureAlgorithmOid,
+  DerObject? signatureAlgorithmParams,
+  crypto.Hash hash,
+  List<int> signedBytes,
+  List<int> signature,
+) {
+  if (signatureAlgorithmOid == _Oid.rsassaPss) {
     if (cert.publicKey case final RsaPublicKey key) {
       // PSS names its own hash in the parameters; fall back to the
       // signer's digest algorithm when they are absent.
-      var (pssHash, saltLength) = _pssParams(signer.signatureAlgorithmParams);
-      if (signer.signatureAlgorithmParams == null) pssHash = hash;
+      var (pssHash, saltLength) = _pssParams(signatureAlgorithmParams);
+      if (signatureAlgorithmParams == null) pssHash = hash;
       final signedDigest = pssHash.convert(signedBytes).bytes;
-      return CmsVerification(
-          digestMatches,
-          rsaVerifyPss(key, pssHash, signedDigest, signer.signature,
-              saltLength: saltLength),
-          null);
+      return (
+        rsaVerifyPss(key, pssHash, signedDigest, signature,
+            saltLength: saltLength),
+        null
+      );
     }
-    return CmsVerification(
-        digestMatches, false, 'RSASSA-PSS requires an RSA key');
+    return (false, 'RSASSA-PSS requires an RSA key');
   }
 
   // the signature algorithm may name the digest itself (sha256WithRSA);
   // otherwise the separate digest algorithm applies
-  final signatureHash = _hashFor(signer.signatureAlgorithmOid) ?? hash;
+  final signatureHash = _hashFor(signatureAlgorithmOid) ?? hash;
   final digestOid = _digestOidFor(signatureHash)!;
   final signedDigest = signatureHash.convert(signedBytes).bytes;
 
   switch (cert.publicKey) {
     case final RsaPublicKey key:
-      return CmsVerification(digestMatches,
-          rsaVerify(key, digestOid, signedDigest, signer.signature), null);
+      return (rsaVerify(key, digestOid, signedDigest, signature), null);
     case final EcPublicKey key:
-      return CmsVerification(digestMatches,
-          ecdsaVerify(key, signedDigest, signer.signature), null);
+      return (
+        ecdsaVerify(key, signedDigest, Uint8List.fromList(signature)),
+        null
+      );
     default:
-      return CmsVerification(digestMatches, false,
-          'unsupported key algorithm ${cert.publicKeyAlgorithmOid}');
+      return (false, 'unsupported key algorithm ${cert.publicKeyAlgorithmOid}');
   }
 }
 

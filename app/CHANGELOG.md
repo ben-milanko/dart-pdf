@@ -1,5 +1,23 @@
 # Changelog
 
+## 14.0.0+51
+
+- Read consecutive pages in continuous two-page spreads, with an optional separate cover and matching thumbnails.
+- Export pages with Ctrl/Cmd+Shift+X.
+- Correct rotated images and dashed lines in Windows vector printing, and report cancelled print dialogs.
+- Delay recent-file tile tooltips so they do not interrupt navigation.
+
+## 13.0.0+50
+
+- Import and export form data and comments with FDF, XFDF and XDP files.
+- Edit existing links and read comment threads beside their annotations. Keep several note cards open at once.
+- Select several document tabs to share together and use the redesigned welcome screen.
+- Show loading feedback while opening cloud files and fix Android PDF-handler discovery and shared-file opening.
+- Remember skipped update versions and offer updates only when a compatible download is available.
+- Align CAD text-selection bands, hit-test annotation strokes and match callout leader previews to saved geometry.
+- Re-arm the last editing tool with X, autosize text boxes with Alt+Z while typing, and hide the status bar in full-screen reading.
+- Open print preview on the selected pages and name recognised scans consistently.
+
 ## 12.0.0+49
 
 - Add cloud callouts with an attached note and a marked cloud or polygon area.

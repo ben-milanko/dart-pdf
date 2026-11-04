@@ -43,6 +43,7 @@ class PdfFontInfo {
     CosDictionary? type3Resources,
     List<double>? type3Matrix,
     this.isVertical = false,
+    this.declaresNoWidths = false,
     List<double> dw2 = const [880, -1000],
     Map<int, List<double>> w2 = const {},
   })  : _widths = widths,
@@ -65,6 +66,12 @@ class PdfFontInfo {
         _type3Matrix = type3Matrix;
 
   final String? baseFont;
+
+  /// True for a simple (non-Type3) font dictionary with no /Widths, which
+  /// leaves every advance to the viewer's built-in metrics (§9.6.2.2). An
+  /// OCR tool sizing words to their boxes states its widths; a CAD exporter
+  /// naming a stand-in for lettering it draws as paths often does not.
+  final bool declaresNoWidths;
 
   /// True for Type0 composite fonts. Identity-H/V (the common case) and
   /// embedded CMap streams use two-byte codes here; a predefined CJK CMap on a
@@ -209,6 +216,7 @@ class PdfFontInfo {
     Uint8List? cidToGid;
     var symbolic = false;
     var serif = false;
+    var declaresNoWidths = false;
     CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
     var differenceNames = const <int, String>{};
@@ -299,6 +307,7 @@ class PdfFontInfo {
       // back to a flat 500, so text measured ~15% wide and selection /
       // extraction bounds drifted from what was painted.
       if (widths.isEmpty && subtypeName != 'Type3') {
+        declaresNoWidths = true;
         _fillStandardWidths(baseFont, widths);
       }
     }
@@ -329,6 +338,7 @@ class PdfFontInfo {
       type3Resources: type3Resources,
       type3Matrix: type3Matrix,
       isVertical: isVertical,
+      declaresNoWidths: declaresNoWidths,
       dw2: dw2,
       w2: w2,
     );

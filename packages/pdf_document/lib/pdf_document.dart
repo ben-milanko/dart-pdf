@@ -13,6 +13,7 @@ export 'src/compressor.dart';
 export 'src/conformance.dart';
 export 'src/content_elements.dart';
 export 'src/content_writer.dart';
+export 'src/csc.dart';
 export 'src/disk_cache.dart';
 export 'src/document.dart';
 export 'src/document_identity.dart';
@@ -44,6 +45,7 @@ export 'src/stamp_template.dart';
 export 'src/struct_tree.dart';
 export 'src/takeoff.dart';
 export 'src/sync.dart';
+export 'src/sync_folder.dart';
 export 'src/text_box_appearance.dart';
 export 'src/xmp.dart';
 

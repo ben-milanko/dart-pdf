@@ -11,6 +11,7 @@ import 'devtools.dart';
 import 'document_tab.dart';
 import 'editor_screen.dart';
 import 'keyless_signing.dart';
+import 'launcher_offer.dart';
 import 'keyboard_availability.dart';
 import 'l10n/app_delegates.dart';
 import 'l10n/app_localizations.dart';
@@ -265,16 +266,21 @@ class _DartPdfWindow extends StatelessWidget {
           useMaterial3: true,
         ),
         themeMode: materialThemeMode(prefs.themePreference),
-        home: EditorScreen(
-          prefs: prefs,
-          tabDragCoordinator: tabDragCoordinator,
-          launchArgs: launchArgs,
-          autoCheckUpdates: autoCheckUpdates,
-          onNewWindow: onNewWindow,
-          initialHandoff: initialHandoff,
-          oidcTokenProvider: oidcTokenProvider,
-          oidcSilentTokenProvider: oidcSilentTokenProvider,
-          ownsApplicationSession: ownsApplicationSession,
+        home: LauncherOffer(
+          enabled: ownsApplicationSession &&
+              !kIsWeb &&
+              defaultTargetPlatform == TargetPlatform.linux,
+          child: EditorScreen(
+            prefs: prefs,
+            tabDragCoordinator: tabDragCoordinator,
+            launchArgs: launchArgs,
+            autoCheckUpdates: autoCheckUpdates,
+            onNewWindow: onNewWindow,
+            initialHandoff: initialHandoff,
+            oidcTokenProvider: oidcTokenProvider,
+            oidcSilentTokenProvider: oidcSilentTokenProvider,
+            ownsApplicationSession: ownsApplicationSession,
+          ),
         ),
       ),
     );

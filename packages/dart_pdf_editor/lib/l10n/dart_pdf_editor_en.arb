@@ -587,6 +587,18 @@
   "@menuAddNoteHere": {
     "description": "Page context-menu item (long-press or right-click on empty page area) that adds a sticky note at the pressed point."
   },
+  "menuEditLink": "Edit link…",
+  "@menuEditLink": {
+    "description": "Page context-menu item (right-click or long-press on a hyperlink) that opens the link dialog to change where an existing link goes."
+  },
+  "menuRemoveLink": "Remove link",
+  "@menuRemoveLink": {
+    "description": "Page context-menu item (right-click or long-press on a hyperlink) that deletes the link annotation, leaving the page content beneath it."
+  },
+  "linkEditDialogTitle": "Edit link",
+  "@linkEditDialogTitle": {
+    "description": "Title of the link dialog when it re-targets an existing hyperlink."
+  },
   "menuSaveToStamps": "Save to stamps",
   "@menuSaveToStamps": {
     "description": "Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection."
@@ -1444,6 +1456,14 @@
   "shellShowScrollbarChapters": "Show chapters on scrollbar",
   "@shellShowScrollbarChapters": {
     "description": "Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar."
+  },
+  "shellTwoPageView": "Two-page view",
+  "@shellTwoPageView": {
+    "description": "Toggle label for the facing-pages layout: consecutive pages shown side by side as two-page spreads, like an open book or notebook."
+  },
+  "shellTwoPageCover": "Show cover page separately",
+  "@shellTwoPageCover": {
+    "description": "Toggle label, shown with the two-page view, for keeping the first page alone (a book cover) so the spreads start at pages 2-3."
   },
   "shellTabHere": "Tab here",
   "@shellTabHere": {

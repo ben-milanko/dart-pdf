@@ -36,6 +36,7 @@ import 'table_data.dart';
 import 'content_run_rewriter.dart';
 import 'text_box_appearance.dart';
 import 'type0_font.dart';
+import 'trust_lists/xml_lite.dart';
 import 'xmp.dart';
 
 // Preserve the compression result API for callers importing this library.
@@ -68,6 +69,10 @@ part 'pades_editor.dart';
 part 'page_editor.dart';
 part 'page_insert.dart';
 part 'document_merge.dart';
+part 'fdf_codec.dart';
+part 'form_data_exchange.dart';
+part 'xdp_codec.dart';
+part 'xfdf_codec.dart';
 part 'signature_editor.dart';
 part 'struct_tree_editor.dart';
 part 'vector_snapshot.dart';

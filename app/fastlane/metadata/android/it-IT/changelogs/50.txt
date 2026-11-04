@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Importa ed esporta dati dei moduli e commenti con file FDF, XFDF e XDP. Modifica i link esistenti. Leggi le discussioni accanto alla pagina e tieni aperte più note. Condividi insieme le schede selezionate. Migliora la schermata iniziale, l’apertura dei PDF e gli aggiornamenti. L’anteprima di stampa segue le pagine selezionate.

@@ -454,6 +454,15 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Thêm ghi chú tại đây';
 
   @override
+  String get menuEditLink => 'Sửa liên kết…';
+
+  @override
+  String get menuRemoveLink => 'Xóa liên kết';
+
+  @override
+  String get linkEditDialogTitle => 'Sửa liên kết';
+
+  @override
   String get menuSaveToStamps => 'Lưu vào con dấu';
 
   @override
@@ -1113,6 +1122,12 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => 'Hiện các chương trên thanh cuộn';
+
+  @override
+  String get shellTwoPageView => 'Xem hai trang';
+
+  @override
+  String get shellTwoPageCover => 'Hiển thị trang bìa riêng';
 
   @override
   String get shellTabHere => 'Ghép thẻ tại đây';

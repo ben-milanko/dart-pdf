@@ -184,7 +184,7 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
       {bool annotations = true, List<(double, double)>? clip}) {
     final page = document.page(pageIndex);
-    final copier = _SnapshotCopier(document);
+    final copier = _SnapshotCopier(document.cos);
     var content = page.contentBytes();
     final resources = copier.copy(page.resources) as CosDictionary;
     if (annotations) {

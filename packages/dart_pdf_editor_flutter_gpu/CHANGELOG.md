@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1
+
+- No additional public API changes.
+
+## 0.12.0
+
+- Require the 13.0.0 package suite; no additional public API changes.
+
 ## 0.11.0
 
 - Require the 12.0.0 package suite; no additional public API changes.

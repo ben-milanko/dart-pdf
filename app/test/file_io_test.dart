@@ -40,6 +40,22 @@ class _FakeFileSelector extends fs.FileSelectorPlatform {
   }
 }
 
+class _FakeDirectoryPicker extends fs.FileSelectorPlatform {
+  _FakeDirectoryPicker(this.directory);
+
+  final String? directory;
+  int asked = 0;
+
+  @override
+  Future<String?> getDirectoryPath({
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    asked++;
+    return directory;
+  }
+}
+
 void main() {
   test('ensurePdfName adds a .pdf extension and a default stem', () {
     expect(ensurePdfName('report'), 'report.pdf');
@@ -112,8 +128,9 @@ void main() {
   testWidgets('single-file pickers pass their localized filter label through',
       (tester) async {
     final original = fs.FileSelectorPlatform.instance;
-    final fake = _FakeFileSelector(
-        [fs.XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'x')]);
+    final fake = _FakeFileSelector([
+      fs.XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'x')
+    ]);
     fs.FileSelectorPlatform.instance = fake;
     addTearDown(() => fs.FileSelectorPlatform.instance = original);
 
@@ -301,4 +318,65 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  group('shareDocumentsAs on desktop', () {
+    late Directory dir;
+    late BuildContext context;
+
+    Future<_FakeDirectoryPicker> setUpDesktop(
+        WidgetTester tester, String? picked) async {
+      final original = fs.FileSelectorPlatform.instance;
+      final fake = _FakeDirectoryPicker(picked);
+      fs.FileSelectorPlatform.instance = fake;
+      addTearDown(() => fs.FileSelectorPlatform.instance = original);
+      await tester.pumpWidget(Builder(builder: (c) {
+        context = c;
+        return const SizedBox();
+      }));
+      return fake;
+    }
+
+    setUp(() => dir = Directory.systemTemp.createTempSync('dartpdf_share'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    testWidgets('copies every document into the folder without overwriting',
+        (tester) async {
+      File('${dir.path}/report.pdf').writeAsBytesSync([7]);
+      await setUpDesktop(tester, dir.path);
+
+      final result = await tester.runAsync(() => shareDocumentsAs(context, [
+            (bytes: Uint8List.fromList([1]), name: 'report.pdf'),
+            (bytes: Uint8List.fromList([2]), name: 'REPORT.pdf'),
+            (bytes: Uint8List.fromList([3]), name: 'notes'),
+          ]));
+
+      expect(result!.succeeded, isTrue);
+      expect(result.message, 'Saved 3 files to ${dir.path}');
+      // The file already in the folder is untouched; repeats in the batch
+      // (case-insensitively) and against the folder are numbered.
+      expect(File('${dir.path}/report.pdf').readAsBytesSync(), [7]);
+      expect(File('${dir.path}/report (2).pdf').readAsBytesSync(), [1]);
+      expect(File('${dir.path}/REPORT (2).pdf').readAsBytesSync(), [2]);
+      expect(File('${dir.path}/notes.pdf').readAsBytesSync(), [3]);
+      expect(dir.listSync(), hasLength(4));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+    testWidgets('a cancelled folder picker writes nothing', (tester) async {
+      final fake = await setUpDesktop(tester, null);
+      final result = await tester.runAsync(() => shareDocumentsAs(context, [
+            (bytes: Uint8List.fromList([1]), name: 'a.pdf'),
+          ]));
+      expect(fake.asked, 1);
+      expect(result!.succeeded, isFalse);
+      expect(result.message, isNull);
+      expect(dir.listSync(), isEmpty);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+    testWidgets('nothing to share asks nothing', (tester) async {
+      final fake = await setUpDesktop(tester, dir.path);
+      final result = await shareDocumentsAs(context, const []);
+      expect(fake.asked, 0);
+      expect(result.message, isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+  });
 }

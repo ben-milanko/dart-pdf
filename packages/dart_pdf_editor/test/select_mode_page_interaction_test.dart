@@ -4,6 +4,7 @@
 // to go dead.
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -52,6 +53,29 @@ void main() {
     expect((actions.single as PdfUriAction).uri, 'app://invoice/42');
     expect(editing.tool, PdfEditTool.select);
     expect(editing.hasAnnotationSelection, isFalse);
+  });
+
+  testWidgets('a right-click on a link offers Edit link', (tester) async {
+    final editing = await pumpEditor(tester, bytes: buildAnnotatedPdf());
+
+    await tester.tapAt(view(136, 652), buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-edit-link')));
+    await tester.pumpAndSettle();
+
+    final field = find.byKey(const ValueKey('pdf-link-url'));
+    expect(
+        tester.widget<TextField>(field).controller!.text, 'app://invoice/42');
+    await tester.enterText(field, 'app://invoice/43');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    final link = editing.document
+        .page(0)
+        .annotations
+        .whereType<PdfLinkAnnotation>()
+        .firstWhere((a) => a.action is PdfUriAction);
+    expect((link.action as PdfUriAction).uri, 'app://invoice/43');
   });
 
   testWidgets('app page widgets take taps in Select mode, not under a tool',

@@ -97,3 +97,40 @@ class PdfRevocationMaterial {
 /// gather. Injected by the caller; the library performs no I/O.
 typedef PdfRevocationClient = Future<PdfRevocationMaterial> Function(
     List<X509Certificate> chain);
+
+/// A signer whose private key lives somewhere this library cannot reach: a
+/// remote signing service (see `cscRemoteSigner`), a hardware token, or a
+/// platform keystore. Hand one to [PdfPadesSigning.saveSignedPadesRemote].
+///
+/// The editor lays out the signature revision, builds the CAdES signed
+/// attributes, and asks [signDigest] to sign their SHA-256 digest. The value
+/// that comes back is checked against [certificates]`.first` under
+/// [signatureAlgorithm] before anything is written, so a signer that used the
+/// wrong key or algorithm fails loudly instead of producing a broken PDF.
+abstract interface class PdfRemoteSigner {
+  /// The signer's DER certificate chain, leaf first. Known before signing,
+  /// because the signature revision reserves room for it.
+  List<Uint8List> get certificates;
+
+  /// The DER AlgorithmIdentifier the SignerInfo names for the value
+  /// [signDigest] returns: [rsaPkcs1SignatureAlgorithm],
+  /// [rsaPssSignatureAlgorithm] or [ecdsaSignatureAlgorithm].
+  Uint8List get signatureAlgorithm;
+
+  /// Signs [digest] (SHA-256 of the DER signed attributes) and returns the
+  /// signature value: the RSA octets, or a DER `SEQUENCE { r, s }` for ECDSA.
+  /// It may take as long as the signer needs, for example while a person
+  /// approves the request on their phone.
+  Future<Uint8List> signDigest(Uint8List digest);
+}
+
+/// A [PdfRemoteSigner] returned a value that does not verify against its own
+/// certificate. Thrown before any byte of the signed revision is returned.
+class PdfRemoteSigningException implements Exception {
+  const PdfRemoteSigningException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'PdfRemoteSigningException: $message';
+}

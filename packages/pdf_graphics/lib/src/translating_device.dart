@@ -97,6 +97,7 @@ class TranslatingPdfDevice implements PdfDevice {
         fontSize: run.fontSize,
         glyphs: run.glyphs,
         invisible: run.invisible,
+        overlaysDrawnText: run.overlaysDrawnText,
         fill: run.fill,
         strokeColor: run.strokeColor,
         strokeWidth: run.strokeWidth,

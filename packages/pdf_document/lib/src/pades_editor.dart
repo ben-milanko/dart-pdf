@@ -42,7 +42,7 @@ extension PdfPadesSigning on PdfEditor {
     PdfSignatureAppearance? appearance,
   }) =>
       _saveSignedPades(
-        signAttributes: (digest) =>
+        signAttributes: (digest) async =>
             rsaSign(privateKey, DigestOid.sha256, digest),
         signatureAlgorithm: null, // rsaEncryption (the assembler's default)
         certificates: certificates,
@@ -83,7 +83,7 @@ extension PdfPadesSigning on PdfEditor {
     PdfSignatureAppearance? appearance,
   }) =>
       _saveSignedPades(
-        signAttributes: (digest) => ecdsaSign(privateKey, digest),
+        signAttributes: (digest) async => ecdsaSign(privateKey, digest),
         signatureAlgorithm: ecdsaSignatureAlgorithm(crypto.sha256),
         certificates: certificates,
         level: level,
@@ -137,11 +137,73 @@ extension PdfPadesSigning on PdfEditor {
         appearance: appearance,
       );
 
+  /// Signs at PAdES baseline [level] with a [PdfRemoteSigner] - a key held by
+  /// a remote signing service, a hardware token, or a platform keystore -
+  /// instead of a private key in memory. The signer's chain sizes the
+  /// reserved /Contents, the editor builds the CAdES signed attributes, and
+  /// [PdfRemoteSigner.signDigest] signs their SHA-256 digest.
+  ///
+  /// The returned value is verified against the signer certificate before it
+  /// is written; a mismatch throws [PdfRemoteSigningException] and nothing is
+  /// produced. All other arguments behave exactly as in [saveSignedPades],
+  /// and the signer name defaults to the certificate subject.
+  Future<Uint8List> saveSignedPadesRemote({
+    required PdfRemoteSigner signer,
+    PdfPadesLevel level = PdfPadesLevel.bB,
+    PdfTimestampClient? timestampClient,
+    PdfRevocationClient? revocationClient,
+    String? fieldName,
+    String? signerName,
+    String? reason,
+    String? location,
+    String? contactInfo,
+    DateTime? signingTime,
+    bool certify = false,
+    int docMdpPermissions = 2,
+    PdfSignatureAppearance? appearance,
+  }) {
+    final certificates = signer.certificates;
+    final algorithm = signer.signatureAlgorithm;
+    return _saveSignedPades(
+      signAttributes: (digest) => signer.signDigest(Uint8List.fromList(digest)),
+      verifyAttributes: (signedAttributes, signature) {
+        if (!cmsSignatureValueVerifies(
+          certificate: X509Certificate.parse(certificates.first),
+          signatureAlgorithm: algorithm,
+          signedBytes: signedAttributes,
+          signature: signature,
+        )) {
+          throw const PdfRemoteSigningException(
+              'the signature does not verify against the signer certificate');
+        }
+      },
+      signatureAlgorithm: algorithm,
+      certificates: certificates,
+      level: level,
+      timestampClient: timestampClient,
+      revocationClient: revocationClient,
+      fieldName: fieldName,
+      signerName: signerName,
+      reason: reason,
+      location: location,
+      contactInfo: contactInfo,
+      signingTime: signingTime,
+      certify: certify,
+      docMdpPermissions: docMdpPermissions,
+      appearance: appearance,
+    );
+  }
+
   /// Shared PAdES core: [signAttributes] signs the SHA-256 digest of the
-  /// signed attributes (RSA or ECDSA), and [signatureAlgorithm] is the
-  /// matching SignerInfo AlgorithmIdentifier (null = rsaEncryption).
+  /// signed attributes (RSA or ECDSA, locally or remotely), and
+  /// [signatureAlgorithm] is the matching SignerInfo AlgorithmIdentifier
+  /// (null = rsaEncryption). [verifyAttributes], when given, checks the value
+  /// before the timestamp is fetched or anything is written.
   Future<Uint8List> _saveSignedPades({
-    required Uint8List Function(List<int> attributeDigest) signAttributes,
+    required Future<Uint8List> Function(List<int> attributeDigest)
+        signAttributes,
+    void Function(Uint8List signedAttributes, Uint8List signature)?
+        verifyAttributes,
     required Uint8List? signatureAlgorithm,
     required List<Uint8List> certificates,
     required PdfPadesLevel level,
@@ -192,7 +254,9 @@ extension PdfPadesSigning on PdfEditor {
       signingTime: time.toUtc(),
       essCertificate: signerCert,
     );
-    final signature = signAttributes(crypto.sha256.convert(signedAttrs).bytes);
+    final signature =
+        await signAttributes(crypto.sha256.convert(signedAttrs).bytes);
+    verifyAttributes?.call(signedAttrs, signature);
 
     final unsigned = <Uint8List>[];
     var tsaChain = const <X509Certificate>[];

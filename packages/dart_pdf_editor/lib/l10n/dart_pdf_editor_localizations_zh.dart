@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => '在此添加注释';
 
   @override
+  String get menuEditLink => '编辑链接…';
+
+  @override
+  String get menuRemoveLink => '移除链接';
+
+  @override
+  String get linkEditDialogTitle => '编辑链接';
+
+  @override
   String get menuSaveToStamps => '保存到图章';
 
   @override
@@ -1104,6 +1113,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => '在滚动条上显示章节';
+
+  @override
+  String get shellTwoPageView => '双页视图';
+
+  @override
+  String get shellTwoPageCover => '单独显示封面';
 
   @override
   String get shellTabHere => '停靠为标签页';
@@ -3067,6 +3082,15 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuAddNoteHere => '在此新增註解';
 
   @override
+  String get menuEditLink => '編輯連結…';
+
+  @override
+  String get menuRemoveLink => '移除連結';
+
+  @override
+  String get linkEditDialogTitle => '編輯連結';
+
+  @override
   String get menuSaveToStamps => '儲存至戳記';
 
   @override
@@ -3718,6 +3742,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellShowScrollbarChapters => '在捲動軸上顯示章節';
+
+  @override
+  String get shellTwoPageView => '雙頁檢視';
+
+  @override
+  String get shellTwoPageCover => '單獨顯示封面';
 
   @override
   String get shellTabHere => '在此建立分頁';

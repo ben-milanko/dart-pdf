@@ -454,6 +454,15 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'Notitie hier toevoegen';
 
   @override
+  String get menuEditLink => 'Link bewerken…';
+
+  @override
+  String get menuRemoveLink => 'Link verwijderen';
+
+  @override
+  String get linkEditDialogTitle => 'Link bewerken';
+
+  @override
   String get menuSaveToStamps => 'Opslaan bij stempels';
 
   @override
@@ -1114,6 +1123,12 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get shellShowScrollbarChapters =>
       'Hoofdstukken op de schuifbalk tonen';
+
+  @override
+  String get shellTwoPageView => 'Weergave van twee pagina\'s';
+
+  @override
+  String get shellTwoPageCover => 'Voorpagina apart tonen';
 
   @override
   String get shellTabHere => 'Tabblad hier';

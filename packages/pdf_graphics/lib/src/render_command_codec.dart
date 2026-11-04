@@ -70,7 +70,11 @@ import 'text_extraction.dart';
 /// Version 12: a text run carries its font descriptor's Serif flag
 /// ([PdfTextRun.serif]) after its font name, for the face a substituting
 /// device picks.
-const int _formatVersion = 12;
+///
+/// Version 13: a text run carries [PdfTextRun.overlaysDrawnText] after its
+/// invisible flag, so search over a worker recording bands CAD text layers
+/// the way a fresh extraction does.
+const int _formatVersion = 13;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1209,7 +1213,19 @@ _ImageRegionPlan? _imageRegionPlan(
   double? ratio,
   double budgetScale,
 ) {
-  final size = _declaredImageSize(document, request.stream);
+  // Region coordinates address the decoded pixel plane, not necessarily the
+  // colour XObject's /Width and /Height. Word/MRC exports can use a 2x2 solid
+  // colour plane with a high-resolution text mask; the decoder promotes the
+  // composite to that mask's size. Cropping it in 2x2 coordinates selects only
+  // a blank corner and makes the text disappear when detail tiles replace
+  // the fitted page. Already-decoded requests use their actual (possibly
+  // display-capped) dimensions; luminosity decoding ignores separate masks.
+  final decoded = request.decoded;
+  final size = decoded != null
+      ? (decoded.width, decoded.height)
+      : request.isLuminosityMask
+          ? _declaredImageSize(document, request.stream)
+          : _declaredCompositeImageSize(document, request.stream);
   if (size == null) return null;
   final imageWidth = size.$1;
   final imageHeight = size.$2;
@@ -1919,6 +1935,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     }
   }
   w.boolean(run.invisible);
+  w.boolean(run.overlaysDrawnText);
   w.boolean(run.fill);
   if (run.strokeColor == null) {
     w.boolean(false);
@@ -1979,6 +1996,7 @@ PdfTextRun _readTextRun(_Reader r) {
     }
   }
   final invisible = r.boolean();
+  final overlaysDrawnText = r.boolean();
   final fill = r.boolean();
   final strokeColor = r.boolean() ? _readColor(r) : null;
   final strokeWidth = r.f64();
@@ -2001,6 +2019,7 @@ PdfTextRun _readTextRun(_Reader r) {
     fontSize: fontSize,
     glyphs: glyphs,
     invisible: invisible,
+    overlaysDrawnText: overlaysDrawnText,
     fill: fill,
     strokeColor: strokeColor,
     strokeWidth: strokeWidth,

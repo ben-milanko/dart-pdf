@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'เพิ่มบันทึกที่นี่';
 
   @override
+  String get menuEditLink => 'แก้ไขลิงก์…';
+
+  @override
+  String get menuRemoveLink => 'ลบลิงก์';
+
+  @override
+  String get linkEditDialogTitle => 'แก้ไขลิงก์';
+
+  @override
   String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';
 
   @override
@@ -1109,6 +1118,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => 'แสดงบทบนแถบเลื่อน';
+
+  @override
+  String get shellTwoPageView => 'มุมมองสองหน้า';
+
+  @override
+  String get shellTwoPageCover => 'แสดงหน้าปกแยกต่างหาก';
 
   @override
   String get shellTabHere => 'แท็บที่นี่';

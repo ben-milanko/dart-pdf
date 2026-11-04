@@ -462,6 +462,15 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'إضافة ملاحظة هنا';
 
   @override
+  String get menuEditLink => 'تعديل الرابط…';
+
+  @override
+  String get menuRemoveLink => 'إزالة الرابط';
+
+  @override
+  String get linkEditDialogTitle => 'تعديل الرابط';
+
+  @override
   String get menuSaveToStamps => 'حفظ في الأختام';
 
   @override
@@ -1132,6 +1141,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => 'إظهار الفصول على شريط التمرير';
+
+  @override
+  String get shellTwoPageView => 'عرض صفحتين';
+
+  @override
+  String get shellTwoPageCover => 'إظهار صفحة الغلاف منفصلة';
 
   @override
   String get shellTabHere => 'علامة تبويب هنا';

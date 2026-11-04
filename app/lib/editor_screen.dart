@@ -26,6 +26,7 @@ import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'doc_scan.dart';
 import 'document_tab.dart';
+import 'document_tabs.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
@@ -39,6 +40,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_auto.dart';
 import 'ocr_status_chip.dart';
+import 'ocr_status_label.dart';
 import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'recent_thumbnails.dart';
@@ -144,6 +146,7 @@ class EditorScreen extends StatefulWidget {
     this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
+    this.shareDocuments,
     this.compressDocument,
     this.snapshotClipboardWriter,
     this.pdfClipboardReader,
@@ -223,6 +226,13 @@ class EditorScreen extends StatefulWidget {
     String path, {
     String? bookmark,
   })? saveDocumentToPath;
+
+  /// Overrides the multi-document share/save-copies backend the tabs
+  /// overview's selection uses (see [shareDocumentsAs]).
+  final Future<SaveResult> Function(
+    BuildContext context,
+    List<SharedDocument> documents,
+  )? shareDocuments;
 
   /// Overrides the optimizer worker for tests or a host-provided executor.
   /// Results are offered as a copy through [saveDocumentAs].
@@ -360,16 +370,19 @@ class _EditorScreenState extends State<EditorScreen>
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
 
-  /// How many tabs at the head of [_tabs] were put there by startup restore
-  /// (recovered unsaved work, then the last session's documents).
-  ///
-  /// Restore races the OS file-open that launched the app: on macOS the file
-  /// arrives on the warm `openFile` stream whenever the runner finishes
-  /// building its payload, which can land before, during, or after the store
-  /// read. Restored tabs therefore slot in at this index rather than at the
-  /// end, so the document the user actually double-clicked stays last in the
-  /// strip - and keeps focus (see [_addTab]).
-  int _restoredTabs = 0;
+  /// The open tabs and which one is active. Every change notifies
+  /// [_onTabsChanged], which rebuilds and persists the session.
+  late final DocumentTabs _tabsModel = DocumentTabs()
+    ..addListener(_onTabsChanged);
+
+  List<DocumentTab> get _tabs => _tabsModel.tabs;
+  int get _activeIndex => _tabsModel.activeIndex;
+
+  void _onTabsChanged() {
+    if (!mounted) return;
+    setState(() {});
+    unawaited(_persistSession());
+  }
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
@@ -400,8 +413,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// insertion marker says everything, so the full-window hint steps aside.
   bool _draggingOverThumbnails = false;
 
-  final List<DocumentTab> _tabs = [];
-  int _activeIndex = 0;
   // The tab strip's context, for its on-screen geometry. Not a GlobalKey:
   // the strip lives in the app bar, which an editable document draws inside
   // the editor (one header) and any other tab in the Scaffold - switching
@@ -447,8 +458,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// True while the command palette is up, so ⌘K can't stack copies.
   bool _paletteOpen = false;
 
-  DocumentTab? get _active =>
-      _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+  DocumentTab? get _active => _tabsModel.active;
 
   /// Whole-app read-only toggle: swaps [PdfEditorView] for [PdfReader].
   bool _readOnly = false;
@@ -680,6 +690,14 @@ class _EditorScreenState extends State<EditorScreen>
           },
           child: Text(appL10n(context).editorUpdateLater),
         ),
+        TextButton(
+          key: const ValueKey('update-banner-skip'),
+          onPressed: () {
+            messenger.hideCurrentMaterialBanner();
+            unawaited(_updates.skipVersion());
+          },
+          child: Text(appL10n(context).updateSkipVersion),
+        ),
         FilledButton(
           key: const ValueKey('update-banner-download'),
           onPressed: () {
@@ -744,9 +762,9 @@ class _EditorScreenState extends State<EditorScreen>
     // Detaches only - the mirrored records stay, so an editor torn down with
     // dirty tabs (a crash, a forced quit) can still hand the work back.
     _autosave.dispose();
-    for (final tab in _tabs) {
-      tab.dispose();
-    }
+    _tabsModel
+      ..removeListener(_onTabsChanged)
+      ..dispose();
     _recents.dispose();
     if (widget.recentThumbnails == null) _recentThumbnails.dispose();
     _viewMode.dispose();
@@ -1116,19 +1134,14 @@ class _EditorScreenState extends State<EditorScreen>
     if (!mounted) return false;
     try {
       final tab = _tabFromHandoff(handoff);
-      final index = insertionIndex.clamp(0, _tabs.length).toInt();
-      setState(() {
-        _heldTabWidth = null;
-        _tabs.insert(index, tab);
-        _activeIndex = index;
-      });
+      _heldTabWidth = null;
+      _tabsModel.insert(insertionIndex, tab);
       _recents.add(
         title: handoff.title,
         path: handoff.originPath,
         cachePath: handoff.cachePath,
         bookmark: handoff.originBookmark,
       );
-      unawaited(_persistSession());
       return true;
     } catch (error) {
       AppDevTools.instance.addLog(
@@ -1263,32 +1276,12 @@ class _EditorScreenState extends State<EditorScreen>
     return 0;
   }
 
-  /// Adds [tab] to the strip and makes it active.
-  ///
-  /// A tab added by startup restore ([restored]) is the exception on both
-  /// counts: it joins the restored block at the head of the strip instead of
-  /// the end, and it takes focus only while nothing else is open. A document
-  /// the user asked for - the file the OS launched us with - keeps its place
-  /// at the end and stays the one on screen, whichever order the two
-  /// asynchronous sources happen to resolve in.
+  /// Adds [tab] to the strip and makes it active - or, from startup restore
+  /// ([restored]), to the restored block (see [DocumentTabs.add]).
   void _addTab(DocumentTab tab, {bool restored = false}) {
-    setState(() {
-      // A new tab shrinks the others to fit; drop any close-streak width hold.
-      _heldTabWidth = null;
-      if (!restored) {
-        _tabs.add(tab);
-        _activeIndex = _tabs.length - 1;
-        return;
-      }
-      final at = _restoredTabs.clamp(0, _tabs.length);
-      // Anything at or past the restored block was opened explicitly this
-      // launch; if one of those is active it stays active, just shifted along.
-      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
-      _tabs.insert(at, tab);
-      _restoredTabs = at + 1;
-      _activeIndex = userTabActive ? _activeIndex + 1 : at;
-    });
-    unawaited(_persistSession());
+    // A new tab shrinks the others to fit; drop any close-streak width hold.
+    _heldTabWidth = null;
+    _tabsModel.add(tab, restored: restored);
   }
 
   /// Releases the close-streak width hold, letting the tabs animate back out to
@@ -1314,21 +1307,12 @@ class _EditorScreenState extends State<EditorScreen>
     return tab;
   }
 
-  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
-    final index = _tabs.indexOf(loading);
-    if (index == -1) {
-      replacement.dispose();
-      return false;
-    }
-    // Swap in place, leaving the selection alone: the placeholder is normally
-    // the active tab already, and when it isn't - a session restore finishing
-    // behind the file the OS launched us with - stealing focus here would undo
-    // the ordering _addTab just got right.
-    setState(() => _tabs[index] = replacement);
-    loading.dispose();
-    unawaited(_persistSession());
-    return true;
-  }
+  // Swaps in place, leaving the selection alone: the placeholder is normally
+  // the active tab already, and when it isn't - a session restore finishing
+  // behind the file the OS launched us with - stealing focus here would undo
+  // the ordering _addTab just got right.
+  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) =>
+      _tabsModel.replace(loading, replacement);
 
   Future<void> _openLoadedBytes(
     Future<Uint8List> bytesFuture, {
@@ -1349,7 +1333,16 @@ class _EditorScreenState extends State<EditorScreen>
         .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
             '(defer=$defer, path=${originPath ?? "-"})');
     try {
-      final bytes = await bytesFuture;
+      var bytes = await bytesFuture;
+      // An XDP package opens as the PDF it embeds with its form data filled
+      // in. The result is a new document - saving must not write a PDF over
+      // the .xdp - so it keeps no origin and takes a .pdf title.
+      if (pdfFromXdpPackage(bytes) case final pdf?) {
+        bytes = pdf;
+        title = pdfTitleForXdp(title);
+        originPath = null;
+        originBookmark = null;
+      }
       AppDevTools.instance
           .addLog('open-trace: "$title" bytes ready — ${bytes.length} B; '
               'waiting for end of frame');
@@ -1443,25 +1436,15 @@ class _EditorScreenState extends State<EditorScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
-      if (index == -1 || bytes == null) return;
+      if (!_tabsModel.contains(tab) || bytes == null) return;
       AppDevTools.instance
           .addLog('open-trace: materializing deferred "${tab.title}" '
               '— building session over ${bytes.length} B');
-      final built = DocumentTab.document(
-        title: tab.title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: tab.originPath,
-        originBookmark: tab.originBookmark,
-        cachePath: tab.cachePath,
-      );
-      setState(() => _tabs[index] = built);
+      _tabsModel.replace(
+          tab, DocumentTab.promoted(tab, bytes: bytes, preferences: _prefs));
       AppDevTools.instance.addLog(
           'open-trace: materialized deferred "${tab.title}" — session ready');
-      tab.dispose();
-      unawaited(_persistSession());
     });
   }
 
@@ -1837,13 +1820,13 @@ class _EditorScreenState extends State<EditorScreen>
         _swapPreviewToDocument(preview, full);
       } catch (error2) {
         if (!mounted) return;
-        final index = _tabs.indexOf(preview);
-        if (index == -1) return;
-        setState(() => _tabs[index] = DocumentTab.error(
+        if (!_tabsModel.contains(preview)) return;
+        _tabsModel.replace(
+            preview,
+            DocumentTab.error(
               title: preview.title,
               error: _openFailureDetail(preview.title, error2),
             ));
-        preview.dispose();
       }
     }
   }
@@ -1852,17 +1835,13 @@ class _EditorScreenState extends State<EditorScreen>
   /// from the complete [bytes], in place (keeping the tab's position and, if it
   /// is active, focus). Returns false if the tab was closed meanwhile.
   bool _swapPreviewToDocument(DocumentTab preview, Uint8List bytes) {
-    final index = _tabs.indexOf(preview);
-    if (index == -1) return false;
-    final built = DocumentTab.document(
-      title: preview.title,
-      bytes: bytes,
-      preferences: _prefs,
-      originPath: preview.originPath,
-      originBookmark: preview.originBookmark,
-      cachePath: preview.cachePath,
-    );
-    setState(() => _tabs[index] = built);
+    if (!_tabsModel.contains(preview)) return false;
+    final built =
+        DocumentTab.promoted(preview, bytes: bytes, preferences: _prefs);
+    // The preview's live viewer is disposed only after this frame swaps the
+    // read-only PdfReader out of the tree - disposing its controller while the
+    // widget is still mounted would fault its in-flight render.
+    _tabsModel.replace(preview, built);
     // A mobile progressive open (#364) has no reopenable origin - the reference
     // token dies with the pick - so snapshot the now-complete bytes into the
     // app's private store, behind the first paint, so Recent/restore reopen
@@ -1874,11 +1853,6 @@ class _EditorScreenState extends State<EditorScreen>
         canCacheRecentPdfs) {
       unawaited(_snapshotOpenedDocument(built, bytes));
     }
-    // Dispose the preview's live viewer only after this frame swaps the
-    // read-only PdfReader out of the tree - disposing its controller while the
-    // widget is still mounted would fault its in-flight render.
-    WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
-    unawaited(_persistSession());
     return true;
   }
 
@@ -1965,7 +1939,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     try {
-      final files = await pickPdfFiles(l10n.fileTypePdf);
+      final files = await pickOpenableFiles(l10n.fileTypePdf, l10n.fileTypeXdp);
       if (files.isEmpty || !mounted) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
@@ -1998,8 +1972,11 @@ class _EditorScreenState extends State<EditorScreen>
     final bookmark = await securityBookmarkForPath(path);
     // A single desktop pick opens progressively (first paint from ranged
     // reads, full bytes behind it). A batch keeps the deferred whole-file
-    // path so the picker doesn't fan out many concurrent streams.
-    if (!defer && progressiveOpenSupported(path)) {
+    // path so the picker doesn't fan out many concurrent streams. An XDP
+    // package is never a PDF to range-read: it converts whole.
+    if (!defer &&
+        progressiveOpenSupported(path) &&
+        !file.name.toLowerCase().endsWith('.xdp')) {
       await _openProgressive(
           title: file.name, path: path!, bookmark: bookmark, into: loading);
     } else {
@@ -2278,20 +2255,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        final tab = _tabs[existing];
-        // Only a restored tab the user has never opened moves: it is still a
-        // placeholder, so re-slotting it is invisible. A document already on
-        // its feet keeps its place - the user put it there.
-        final move = existing < _restoredTabs &&
-            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
-        setState(() {
-          if (move) {
-            _restoredTabs--;
-            _tabs.add(_tabs.removeAt(existing));
-          }
-          _activeIndex = move ? _tabs.length - 1 : existing;
-        });
-        if (move) unawaited(_persistSession());
+        _tabsModel.focusOpened(_tabs[existing]);
         return;
       }
     }
@@ -2394,7 +2358,12 @@ class _EditorScreenState extends State<EditorScreen>
     // their live geometry, which the clear repaints away.
     final at = _thumbnailDrop.indexAt(details.globalPosition);
     _thumbnailDrop.endDrag();
-    if (pdfs.isEmpty) return;
+    final exchange = [
+      for (final item in details.files)
+        if (_isFormDataFileName(item.name)) item,
+    ];
+    if (exchange.isNotEmpty) await _onFormDataFilesDropped(exchange);
+    if (pdfs.isEmpty || !mounted) return;
 
     final tab = _active;
     final session = tab?.session;
@@ -2420,6 +2389,44 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     await _openDropped(pdfs);
+  }
+
+  static bool _isFormDataFileName(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.fdf') ||
+        lower.endsWith('.xfdf') ||
+        lower.endsWith('.xdp');
+  }
+
+  /// Handles dropped Acrobat exchange files: an XDP package opens in its own
+  /// tab (as the PDF it embeds, data filled in); FDF/XFDF form data and
+  /// comments import into the document that was active when they were
+  /// dropped, when it is editable - with nothing to import into they are
+  /// ignored, like any other non-PDF drop.
+  Future<void> _onFormDataFilesDropped(List<DropItem> items) async {
+    final target = _active;
+    final xdps = [
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.xdp')) item,
+    ];
+    if (xdps.isNotEmpty) await _openDropped(xdps);
+    for (final item in items) {
+      if (xdps.contains(item)) continue;
+      if (!mounted || _readOnly || target == null) return;
+      if (target.session == null || !_tabs.contains(target)) return;
+      final Uint8List bytes;
+      try {
+        bytes = await item.readAsBytes();
+      } catch (e) {
+        if (mounted) {
+          _toast(appL10n(context)
+              .editorCouldNotImportFormData(item.name, openErrorSummary(e)));
+        }
+        continue;
+      }
+      if (!mounted) return;
+      _applyFormDataFile(target, item.name, bytes);
+    }
   }
 
   /// Tracks a file drag across the window so the thumbnail panels can mark
@@ -2461,7 +2468,9 @@ class _EditorScreenState extends State<EditorScreen>
       if (!_tabs.contains(loading)) continue;
       final path = pathOf(item);
       final bookmark = await securityBookmarkForPath(path);
-      if (!defer && progressiveOpenSupported(path)) {
+      if (!defer &&
+          progressiveOpenSupported(path) &&
+          !item.name.toLowerCase().endsWith('.xdp')) {
         await _openProgressive(
             title: item.name, path: path!, bookmark: bookmark, into: loading);
       } else {
@@ -2804,14 +2813,11 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final other = await pickPdfBytes(l10n.fileTypePdf);
       if (other == null) return;
-      setState(() {
-        _tabs.add(DocumentTab.comparison(
-          title: l10n.editorCompareTitle(tab!.title),
-          before: current,
-          after: other,
-        ));
-        _activeIndex = _tabs.length - 1;
-      });
+      _tabsModel.add(DocumentTab.comparison(
+        title: l10n.editorCompareTitle(tab!.title),
+        before: current,
+        after: other,
+      ));
     } catch (e) {
       _openError(l10n.editorCompareFailedTitle,
           l10n.editorCouldNotOpenSecond(openErrorSummary(e)));
@@ -2823,16 +2829,21 @@ class _EditorScreenState extends State<EditorScreen>
   /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
-  void _recoverOcr() {
-    unawaited(_ocr.recover(context, onToast: (message) {
-      if (mounted) _toast(message);
-    }, onComplete: (result, title) {
-      if (mounted) unawaited(_openOcrResult(result, title));
-    }));
+  Future<void> _recoverOcr() async {
+    await _autoOcr.load();
+    if (!mounted) return;
+    await _ocr.recover(context,
+        automaticEnabled: () => _autoOcr.value,
+        onToast: (message) {
+          if (mounted) _toast(message);
+        },
+        onComplete: (result, title) {
+          if (mounted) unawaited(_openOcrResult(result, title));
+        });
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
-    _openBytes(result, appL10n(context).editorOcrTitle(title));
+    _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
     await _snapshotOpenedDocument(tab, result);
@@ -2990,7 +3001,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// Removes tabs after their contents have either been discarded or handed
   /// safely to another window.
   void _removeTabs(List<DocumentTab> targets) {
-    final active = _active;
     // Chrome-style width hold: while the cursor is over the strip, keep the
     // surviving tabs at their current width so the next close button lands
     // under the cursor. `??=` preserves the width from the first close of a
@@ -2998,30 +3008,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (_tabStripHovered && _lastNaturalTabWidth > 0) {
       _heldTabWidth ??= _lastNaturalTabWidth;
     }
-    setState(() {
-      for (final tab in targets) {
-        final index = _tabs.indexOf(tab);
-        if (index == -1) continue;
-        // Keep the restored-block count honest: a session document whose file
-        // has vanished drops its placeholder mid-restore.
-        if (index < _restoredTabs) _restoredTabs--;
-        _tabs.removeAt(index);
-      }
-      // Keep the previously active document active when it survived.
-      final keep = active == null ? -1 : _tabs.indexOf(active);
-      if (keep >= 0) {
-        _activeIndex = keep;
-      } else {
-        if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
-        if (_activeIndex < 0) _activeIndex = 0;
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final tab in targets) {
-        tab.dispose();
-      }
-    });
-    unawaited(_persistSession());
+    _tabsModel.remove(targets);
   }
 
   void _moveTabToNewWindow(DocumentTab tab) {
@@ -3298,6 +3285,52 @@ class _EditorScreenState extends State<EditorScreen>
     // Up to here the export said nothing at all, so a write that failed
     // (a full disk, a folder gone read-only) passed in silence.
     if (result.message != null) _toast(result.message!);
+  }
+
+  /// Shares [tabs] in one go (the tabs overview's selection): one share sheet
+  /// on phones, a download each on the web, copies into a chosen folder on
+  /// desktop. Each document goes out as its current revision, unsaved edits
+  /// included, exactly as Save As would write it. A restored tab that was never
+  /// opened is read from its file; tabs with nothing to send (still loading,
+  /// failed, a comparison) or whose file can no longer be read are left out,
+  /// with a toast saying how many.
+  Future<void> _shareTabs(List<DocumentTab> tabs) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final documents = <SharedDocument>[];
+    var skipped = 0;
+    for (final tab in tabs) {
+      final bytes = await _shareableBytes(tab);
+      if (!mounted) return;
+      if (bytes == null) {
+        skipped++;
+      } else {
+        documents.add((bytes: bytes, name: tab.title));
+      }
+    }
+    if (skipped > 0) _toast(appL10n(context).editorTabsNotShared(skipped));
+    if (documents.isEmpty) return;
+    final share = widget.shareDocuments ?? shareDocumentsAs;
+    final result = await share(context, documents);
+    if (mounted && result.message != null) _toast(result.message!);
+  }
+
+  /// The bytes [tab] would save, or null when it has none to give.
+  Future<Uint8List?> _shareableBytes(DocumentTab tab) async {
+    tab.session?.finishInk();
+    final session = tab.session;
+    if (session != null) {
+      return _withBakedPageColor(session.bytes, source: session.document);
+    }
+    final deferred = tab.deferredBytes;
+    if (deferred != null) return _withBakedPageColor(deferred);
+    final path = tab.originPath;
+    if (!tab.isDeferredPath || path == null) return null;
+    try {
+      return _withBakedPageColor(
+          await _readOriginFully(path: path, bookmark: tab.originBookmark));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Mobile picks are app-managed copies; their title is the share filename.
@@ -3603,6 +3636,109 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  // --- form data exchange (FDF / XFDF / XDP) -------------------------------
+
+  /// Imports form field values and comments from an FDF, XFDF or XDP file
+  /// into [tab]'s document as one undoable edit - Acrobat's Import Data and
+  /// Import Comments in one. Comments already present (same /NM) are replaced
+  /// rather than duplicated.
+  Future<void> _importFormData(DocumentTab tab) async {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    final (String, Uint8List)? picked;
+    try {
+      picked = await pickFormDataFile(l10n.fileTypeFormData);
+    } catch (e) {
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(
+            l10n.fileTypeFormData, openErrorSummary(e)));
+      }
+      return;
+    }
+    if (picked == null || !mounted || !identical(tab.session, session)) return;
+    final (name, bytes) = picked;
+    _applyFormDataFile(tab, name, bytes);
+  }
+
+  /// Applies the FDF/XFDF/XDP file [bytes] (named [name]) to [tab]'s document
+  /// as one undoable edit, toasting what it did.
+  void _applyFormDataFile(DocumentTab tab, String name, Uint8List bytes) {
+    final session = tab.session;
+    if (session == null) return;
+    final l10n = appL10n(context);
+    try {
+      // parse before touching the session, so a bad file changes nothing
+      final xdp = pdfSniffExchangeFormat(bytes) == PdfExchangeFormat.xdp
+          ? PdfXdpPackage.parse(bytes)
+          : null;
+      final data = xdp == null ? PdfFormData.parse(bytes) : null;
+      session.finishInk();
+      PdfFormDataImportResult? result;
+      session.apply((editor) => result =
+          xdp != null ? editor.importXdp(xdp) : editor.importFormData(data!));
+      final imported = result!;
+      AppDevTools.instance.addLog('form data import: $name - $imported');
+      _toast(imported.changed
+          ? l10n.editorImportedFormData(
+              imported.filledFields.length +
+                  (imported.xfaDatasetsReplaced ? 1 : 0),
+              imported.annotationsAdded + imported.annotationsReplaced)
+          : l10n.editorImportFormDataNothing);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data import failed: $name - $e',
+          level: DevLogLevel.error);
+      if (mounted) {
+        _toast(l10n.editorCouldNotImportFormData(name, openErrorSummary(e)));
+      }
+    }
+  }
+
+  /// Exports [tab]'s form field values and comments as FDF or XFDF, or the
+  /// whole document as an XDP package ([format]). The current revision is
+  /// used, so unsaved edits are included.
+  Future<void> _exportFormData(
+      DocumentTab tab, PdfExchangeFormat format) async {
+    final session = tab.session;
+    if (session == null) return;
+    // include ink waiting for its auto-commit and the inline editor's text
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || !identical(tab.session, session)) return;
+    session.finishInk();
+    final l10n = appL10n(context);
+    final pdfName = ensurePdfName(tab.title);
+    final stem = pdfName.substring(0, pdfName.length - '.pdf'.length);
+    try {
+      final document = PdfDocument.open(Uint8List.fromList(session.bytes));
+      final (bytes, extension, mimeType) = switch (format) {
+        PdfExchangeFormat.fdf => (
+            PdfFormData.of(document, targetFile: pdfName).toFdf(),
+            'fdf',
+            'application/vnd.fdf',
+          ),
+        PdfExchangeFormat.xfdf => (
+            PdfFormData.of(document, targetFile: pdfName).toXfdf(),
+            'xfdf',
+            'application/vnd.adobe.xfdf',
+          ),
+        _ => (
+            PdfXdpPackage.build(document),
+            'xdp',
+            'application/vnd.adobe.xdp+xml',
+          ),
+      };
+      final result = await saveFormDataAs(
+          context, bytes, '$stem.$extension', mimeType,
+          extension: extension, typeLabel: l10n.fileTypeFormData);
+      if (mounted && result.message != null) _toast(result.message!);
+    } catch (e) {
+      AppDevTools.instance.addLog('form data export failed: ${tab.title} - $e',
+          level: DevLogLevel.error);
+      if (mounted) _toast(l10n.editorCouldNotExport(tab.title));
+    }
+  }
+
   Future<void> _exportSelectedContentImage(
     BuildContext exportContext,
     DocumentTab tab,
@@ -3796,13 +3932,14 @@ class _EditorScreenState extends State<EditorScreen>
                 const Icon(Icons.arrow_right),
               ],
             ));
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
     return [
-      PopupMenuItem<VoidCallback>(
+      _SubmenuMenuItem(
+        key: const ValueKey('open-recent-submenu'),
         height: _appMenuItemHeight(),
-        value: () {},
-        padding: EdgeInsets.zero,
+        open: () => buttonKey.currentState?.showButtonMenu(),
         child: PopupMenuButton<VoidCallback>(
-          key: const ValueKey('open-recent-submenu'),
+          key: buttonKey,
           tooltip: appL10n(context).editorOpenRecent,
           onSelected: (action) {
             action();
@@ -3881,6 +4018,45 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       ),
     ];
+  }
+
+  /// A popup row that opens [items] in a cascading submenu (key
+  /// `menu-group-<id>`, like the phone sheet's folded groups). Picking an
+  /// item runs it and closes the parent popup too.
+  PopupMenuItem<VoidCallback> _submenuItem(
+    BuildContext menuContext, {
+    required String id,
+    required IconData icon,
+    required String title,
+    required List<PopupMenuEntry<VoidCallback>> items,
+  }) {
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
+    return _SubmenuMenuItem(
+      key: ValueKey('menu-group-$id'),
+      height: _appMenuItemHeight(),
+      open: () => buttonKey.currentState?.showButtonMenu(),
+      child: PopupMenuButton<VoidCallback>(
+        key: buttonKey,
+        tooltip: title,
+        onSelected: (action) {
+          if (Navigator.of(menuContext).canPop()) {
+            Navigator.of(menuContext).pop();
+          }
+          action();
+        },
+        itemBuilder: (_) => items,
+        // as Open Recent: no item padding so the button fills the row,
+        // the content inset to line up with the plain rows
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: _appMenuTile(
+            icon: icon,
+            title: title,
+            trailing: const Icon(Icons.arrow_right),
+          ),
+        ),
+      ),
+    );
   }
 
   /// The app menu's plain rows, grouped by the section they belong to.
@@ -3988,6 +4164,33 @@ class _EditorScreenState extends State<EditorScreen>
           if (tab != null) unawaited(_exportImage(tab));
         },
       ),
+      _MenuAction(
+        id: 'import-form-data',
+        requiresDocument: true,
+        sheet: _SheetPlacement.formData,
+        icon: Icons.input_outlined,
+        title: l.editorMenuImportFormData,
+        run: () {
+          final tab = _active;
+          if (tab != null) unawaited(_importFormData(tab));
+        },
+      ),
+      for (final (id, format, title) in [
+        ('export-fdf', PdfExchangeFormat.fdf, l.editorMenuExportFdf),
+        ('export-xfdf', PdfExchangeFormat.xfdf, l.editorMenuExportXfdf),
+        ('export-xdp', PdfExchangeFormat.xdp, l.editorMenuExportXdp),
+      ])
+        _MenuAction(
+          id: id,
+          requiresDocument: true,
+          sheet: _SheetPlacement.formData,
+          icon: Icons.output_outlined,
+          title: title,
+          run: () {
+            final tab = _active;
+            if (tab != null) unawaited(_exportFormData(tab, format));
+          },
+        ),
       _MenuAction(
         id: 'digital-signature',
         requiresDocument: true,
@@ -4130,10 +4333,28 @@ class _EditorScreenState extends State<EditorScreen>
       ..._fileActions().map(item),
       ..._recentMenuItems(menuContext),
     ];
-    final document = <PopupMenuEntry<VoidCallback>>[
+    final documentActions = [
       if (hasDocument)
         for (final action in _documentActions())
-          if (!(action.hiddenWhenReadOnly && _readOnly)) item(action),
+          if (!(action.hiddenWhenReadOnly && _readOnly)) action,
+    ];
+    final formData = [
+      for (final action in documentActions)
+        if (action.sheet == _SheetPlacement.formData) action,
+    ];
+    final document = <PopupMenuEntry<VoidCallback>>[
+      for (final action in documentActions)
+        if (action.sheet != _SheetPlacement.formData)
+          item(action)
+        // the group takes the place of its first action
+        else if (identical(action, formData.first))
+          _submenuItem(
+            menuContext,
+            id: 'form-data',
+            icon: Icons.swap_vert_outlined,
+            title: l.editorMenuFormData,
+            items: formData.map(item).toList(),
+          ),
     ];
     final app = <PopupMenuEntry<VoidCallback>>[
       if (hasDocument) _readOnlyMenuItem(),
@@ -4179,6 +4400,12 @@ class _EditorScreenState extends State<EditorScreen>
     final session = tab?.session;
     final hasDocument = session != null;
     final commands = <AppCommand>[];
+    List<String> searchTerms(String id) => switch (id) {
+          'menu-reduce-file-size' => l.paletteTermsReduceFileSize.split(';'),
+          'tool-freeText' => l.paletteTermsAddText.split(';'),
+          'tool-signature' => l.paletteTermsSignature.split(';'),
+          _ => const [],
+        };
 
     for (final action in [
       ..._fileActions(),
@@ -4189,6 +4416,7 @@ class _EditorScreenState extends State<EditorScreen>
       final blockedByReadOnly = action.hiddenWhenReadOnly && _readOnly;
       commands.add(AppCommand(
         id: 'menu-${action.id}',
+        searchTerms: searchTerms('menu-${action.id}'),
         label: action.title,
         icon: action.icon,
         source: l.paletteSourceMenu,
@@ -4245,6 +4473,7 @@ class _EditorScreenState extends State<EditorScreen>
         final blocked = tool && _readOnly;
         commands.add(AppCommand(
           id: command.id,
+          searchTerms: searchTerms(command.id),
           label: command.label(context),
           icon: command.icon,
           source: switch (command.category) {
@@ -4271,6 +4500,7 @@ class _EditorScreenState extends State<EditorScreen>
               ? 'tool-${tool.name}'
               : 'markup-${entry.markup!.name}',
           label: entry.label(context),
+          searchTerms: searchTerms('tool-${tool?.name}'),
           icon: entry.icon,
           source: l.paletteSourceTool(group.label(context)),
           shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
@@ -4611,6 +4841,7 @@ class _EditorScreenState extends State<EditorScreen>
       return WelcomeScreen(
         recents: _recents,
         onOpen: _pickAndOpen,
+        onNewDocument: () => unawaited(_newDocument()),
         onOpenRecent: _openRecent,
         onOpenRecentInNewWindow: _openRecentInNewWindow,
         // Recents can load before the session list. Starting their first-page
@@ -4890,6 +5121,7 @@ class _EditorScreenState extends State<EditorScreen>
             )
           : null,
       export: placed(_SheetPlacement.export),
+      formData: placed(_SheetPlacement.formData),
       moreTools: placed(_SheetPlacement.moreTools),
       readOnly: hasDocument ? _readOnly : null,
       onToggleReadOnly: () => setState(() => _readOnly = !_readOnly),
@@ -5108,7 +5340,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
 
     void activate(int index) {
-      setState(() => _activeIndex = index);
+      _tabsModel.activate(index);
       Navigator.of(overlayContext).pop();
     }
 
@@ -5125,13 +5357,23 @@ class _EditorScreenState extends State<EditorScreen>
         unawaited(_pickAndOpen());
       },
       onActivate: activate,
-      tileBuilder: (context, index) {
+      shareLabel: _usesMobileShare
+          ? WidgetsLocalizations.of(context).shareButtonLabel
+          : appL10n(context).editorSaveCopies,
+      shareIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+      onShare: _shareTabs,
+      onCloseTabs: (tabs) async {
+        await _closeTabs(tabs);
+        refreshOverlay();
+      },
+      tileBuilder: (context, index, selection) {
         final tab = _tabs[index];
         return _MobileTabTile(
           key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
           tab: tab,
           storedThumbnails: _recentThumbnails,
           selected: index == _activeIndex,
+          selection: selection,
           onTap: () => activate(index),
           onClose: () async {
             await _closeTabs([tab]);
@@ -5153,15 +5395,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
   /// currently active document active wherever it lands. [newIndex] is already
   /// adjusted for the removed item (the `onReorderItem` convention).
-  void _reorderTabs(int oldIndex, int newIndex) {
-    setState(() {
-      final active = _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
-      final moved = _tabs.removeAt(oldIndex);
-      _tabs.insert(newIndex, moved);
-      _activeIndex = _tabs.indexOf(active);
-    });
-    unawaited(_persistSession());
-  }
+  void _reorderTabs(int oldIndex, int newIndex) =>
+      _tabsModel.reorder(oldIndex, newIndex);
 
   Widget _buildTabStrip() {
     final coordinator = _registeredTabDragCoordinator;
@@ -5399,7 +5634,7 @@ class _EditorScreenState extends State<EditorScreen>
             if (selected && _usesMobileShare && tab.session != null) {
               unawaited(_renameDocument(tab));
             } else {
-              setState(() => _activeIndex = index);
+              _tabsModel.activate(index);
             }
           },
           onSecondaryTapUp: (details) =>
@@ -6053,9 +6288,20 @@ class _DropOverlay extends StatelessWidget {
   }
 }
 
+/// A grid tile's part in the tabs overview's multi-select: whether the grid
+/// is selecting at all, whether this tile is checked, and how to flip it
+/// (which also starts selecting, from a long-press).
+typedef _TabTileSelection = ({
+  bool selecting,
+  bool checked,
+  VoidCallback toggle,
+});
+
 /// The open-tabs grid shown in the compact bottom sheet and the desktop
 /// dialog: a title-search field over a thumbnail grid that opens scrolled to
-/// the active tab.
+/// the active tab. The header's select button (or a long-press on a tile)
+/// switches the grid into a multi-select whose header shares or closes the
+/// checked tabs together.
 class _TabsOverview extends StatefulWidget {
   const _TabsOverview({
     required this.tabs,
@@ -6065,6 +6311,10 @@ class _TabsOverview extends StatefulWidget {
     required this.autofocusSearch,
     required this.onOpen,
     required this.onActivate,
+    required this.shareLabel,
+    required this.shareIcon,
+    required this.onShare,
+    required this.onCloseTabs,
     required this.tileBuilder,
   });
 
@@ -6077,7 +6327,21 @@ class _TabsOverview extends StatefulWidget {
   final bool autofocusSearch;
   final VoidCallback onOpen;
   final void Function(int index) onActivate;
-  final Widget Function(BuildContext context, int index) tileBuilder;
+
+  /// The selection header's share action: its label and icon (Share on a
+  /// phone, Save copies elsewhere) and what it does with the checked tabs.
+  final String shareLabel;
+  final IconData shareIcon;
+  final Future<void> Function(List<DocumentTab> tabs) onShare;
+
+  /// Closes the checked tabs (confirming unsaved edits once for all of them).
+  final Future<void> Function(List<DocumentTab> tabs) onCloseTabs;
+
+  final Widget Function(
+    BuildContext context,
+    int index,
+    _TabTileSelection selection,
+  ) tileBuilder;
 
   static const double _padding = 12;
   static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
@@ -6094,6 +6358,32 @@ class _TabsOverview extends StatefulWidget {
 class _TabsOverviewState extends State<_TabsOverview> {
   final _query = TextEditingController();
   ScrollController? _scroll;
+
+  /// The checked tabs while the grid is selecting; null when it is not.
+  /// Held by identity, so a tab closed meanwhile simply drops out.
+  Set<DocumentTab>? _selected;
+
+  void _toggle(DocumentTab tab) => setState(() {
+        final selected = _selected ??= {};
+        if (!selected.remove(tab)) selected.add(tab);
+      });
+
+  /// Checks every tab the search shows, or unchecks them when they all are.
+  void _toggleAll(List<int> matches) => setState(() {
+        final selected = _selected ??= {};
+        final shown = [for (final i in matches) widget.tabs[i]];
+        if (shown.every(selected.contains)) {
+          selected.removeAll(shown);
+        } else {
+          selected.addAll(shown);
+        }
+      });
+
+  /// The checked tabs in strip order.
+  List<DocumentTab> get _checkedTabs => [
+        for (final tab in widget.tabs)
+          if (_selected!.contains(tab)) tab
+      ];
 
   @override
   void dispose() {
@@ -6147,6 +6437,62 @@ class _TabsOverviewState extends State<_TabsOverview> {
     return centred.clamp(0.0, maxOffset);
   }
 
+  /// The header while selecting: leave, the count, then select all, share
+  /// and close for the checked tabs.
+  Widget _buildSelectionHeader(
+    BuildContext context,
+    Set<DocumentTab> selected,
+    List<int> matches,
+  ) {
+    final l10n = appL10n(context);
+    final material = MaterialLocalizations.of(context);
+    final prefix = widget.keyPrefix;
+    final none = selected.isEmpty;
+    return Row(
+      children: [
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-done'),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: material.cancelButtonLabel,
+          onPressed: () => setState(() => _selected = null),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            material.selectedRowCountTitle(selected.length),
+            key: ValueKey('$prefix-tabs-selected-count'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-select-all'),
+          icon: const Icon(Icons.select_all),
+          tooltip: material.selectAllButtonLabel,
+          onPressed: matches.isEmpty ? null : () => _toggleAll(matches),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-share-selected'),
+          icon: Icon(widget.shareIcon),
+          tooltip: widget.shareLabel,
+          onPressed: none ? null : () => widget.onShare(_checkedTabs),
+        ),
+        IconButton(
+          key: ValueKey('$prefix-tabs-close-selected'),
+          icon: const Icon(Icons.close),
+          tooltip: l10n.editorCloseSelectedTabs,
+          onPressed: none
+              ? null
+              : () async {
+                  await widget.onCloseTabs(_checkedTabs);
+                  if (mounted) setState(() {});
+                },
+        ),
+      ],
+    );
+  }
+
   void _onQueryChanged(String _) {
     setState(() {});
     // A new result set starts from its first match.
@@ -6161,24 +6507,35 @@ class _TabsOverviewState extends State<_TabsOverview> {
     final scheme = theme.colorScheme;
     final prefix = widget.keyPrefix;
     final matches = _matches();
+    _selected?.removeWhere((tab) => !widget.tabs.contains(tab));
+    final selected = _selected;
     return Column(
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(20, widget.headerTopPadding, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child:
-                    Text(l10n.editorTabs, style: theme.textTheme.titleMedium),
-              ),
-              IconButton(
-                key: ValueKey('$prefix-tabs-open'),
-                icon: const Icon(Icons.add),
-                tooltip: l10n.editorOpenPdfNewTab,
-                onPressed: widget.onOpen,
-              ),
-            ],
-          ),
+          padding: EdgeInsets.fromLTRB(
+              selected == null ? 20 : 8, widget.headerTopPadding, 12, 8),
+          child: selected == null
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: Text(l10n.editorTabs,
+                          style: theme.textTheme.titleMedium),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-select'),
+                      icon: const Icon(Icons.checklist),
+                      tooltip: l10n.editorSelectTabs,
+                      onPressed: () => setState(() => _selected = {}),
+                    ),
+                    IconButton(
+                      key: ValueKey('$prefix-tabs-open'),
+                      icon: const Icon(Icons.add),
+                      tooltip: l10n.editorOpenPdfNewTab,
+                      onPressed: widget.onOpen,
+                    ),
+                  ],
+                )
+              : _buildSelectionHeader(context, selected, matches),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -6205,9 +6562,15 @@ class _TabsOverviewState extends State<_TabsOverview> {
               border: const OutlineInputBorder(),
             ),
             onChanged: _onQueryChanged,
-            // Enter opens the best (first) match, like a quick switcher.
+            // Enter opens the best (first) match, like a quick switcher
+            // (or checks it, while selecting).
             onSubmitted: (_) {
-              if (matches.isNotEmpty) widget.onActivate(matches.first);
+              if (matches.isEmpty) return;
+              if (selected != null) {
+                _toggle(widget.tabs[matches.first]);
+              } else {
+                widget.onActivate(matches.first);
+              }
             },
           ),
         ),
@@ -6241,8 +6604,14 @@ class _TabsOverviewState extends State<_TabsOverview> {
                     padding: const EdgeInsets.all(_TabsOverview._padding),
                     gridDelegate: _TabsOverview.gridDelegate,
                     itemCount: matches.length,
-                    itemBuilder: (context, i) =>
-                        widget.tileBuilder(context, matches[i]),
+                    itemBuilder: (context, i) {
+                      final tab = widget.tabs[matches[i]];
+                      return widget.tileBuilder(context, matches[i], (
+                        selecting: selected != null,
+                        checked: selected?.contains(tab) ?? false,
+                        toggle: () => _toggle(tab),
+                      ));
+                    },
                   );
                 },
               ),
@@ -6278,15 +6647,23 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.selection,
     this.onContextMenu,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
+
+  /// Whether this is the active tab.
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// The overview's multi-select: while it is selecting a tap checks the tile
+  /// instead of switching to it and a checkbox stands in for the close
+  /// button; a long-press starts selecting with this tile checked.
+  final _TabTileSelection? selection;
 
   /// Opens the tab's context menu at the given global position (right-click on
   /// desktop, long-press on touch). Null disables the affordance.
@@ -6304,31 +6681,40 @@ class _MobileTabTile extends StatelessWidget {
 
   Widget _build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final selection = this.selection;
+    final selecting = selection?.selecting ?? false;
+    final checked = selection?.checked ?? false;
+    final highlighted = selecting ? checked : selected;
     return Material(
       key: const ValueKey('mobile-tab-tile'),
       color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
+          color: highlighted ? scheme.primary : scheme.outlineVariant,
+          width: highlighted ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
-        onSecondaryTapUp: onContextMenu == null
+        onTap: selecting ? selection!.toggle : onTap,
+        onSecondaryTapUp: onContextMenu == null || selecting
             ? null
             : (details) => onContextMenu!(details.globalPosition),
-        onLongPress: onContextMenu == null
-            ? null
-            : () {
-                // InkWell's long-press carries no position, so anchor the menu
-                // at the tile's centre (touch parity for the right-click menu).
-                final box = context.findRenderObject() as RenderBox?;
-                if (box == null || !box.hasSize) return;
-                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
-              },
+        // A long-press starts (or extends) a multi-select, the touch
+        // convention; without one it opens the context menu instead.
+        onLongPress: selection != null
+            ? selection.toggle
+            : onContextMenu == null
+                ? null
+                : () {
+                    // InkWell's long-press carries no position, so anchor the menu
+                    // at the tile's centre (touch parity for the right-click menu).
+                    final box = context.findRenderObject() as RenderBox?;
+                    if (box == null || !box.hasSize) return;
+                    onContextMenu!(
+                        box.localToGlobal(box.size.center(Offset.zero)));
+                  },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -6368,15 +6754,26 @@ class _MobileTabTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: appL10n(context).editorCloseTab,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 32, height: 32),
-                    onPressed: onClose,
-                  ),
+                  if (selecting)
+                    SizedBox.square(
+                      dimension: 32,
+                      child: Checkbox(
+                        key: const ValueKey('mobile-tab-tile-checkbox'),
+                        value: checked,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: (_) => selection!.toggle(),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: appL10n(context).editorCloseTab,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 32, height: 32),
+                      onPressed: onClose,
+                    ),
                 ],
               ),
             ),
@@ -6818,6 +7215,30 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   }
 }
 
+/// Both the outer menu item's semantic action and its nested button must
+/// open the submenu. PopupMenuItem's default action pops the parent route;
+/// MergeSemantics otherwise makes assistive activation close the whole menu.
+class _SubmenuMenuItem extends PopupMenuItem<VoidCallback> {
+  const _SubmenuMenuItem({
+    super.key,
+    required super.height,
+    required super.child,
+    required this.open,
+  }) : super(padding: EdgeInsets.zero);
+
+  final VoidCallback open;
+
+  @override
+  PopupMenuItemState<VoidCallback, _SubmenuMenuItem> createState() =>
+      _SubmenuMenuItemState();
+}
+
+class _SubmenuMenuItemState
+    extends PopupMenuItemState<VoidCallback, _SubmenuMenuItem> {
+  @override
+  void handleTap() => widget.open();
+}
+
 /// One plain row of the app menu: what it says, what it runs, and the state
 /// that decides whether it can run at all.
 ///
@@ -6876,6 +7297,10 @@ enum _SheetPlacement {
 
   /// Folded under More tools.
   moreTools,
+
+  /// Folded under Form data and comments: the FDF/XFDF/XDP import and
+  /// export actions. The desktop popup shows the same group as a submenu.
+  formData,
 
   /// The rows at the foot of the sheet.
   app,

@@ -453,6 +453,15 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuAddNoteHere => 'यहाँ नोट जोड़ें';
 
   @override
+  String get menuEditLink => 'लिंक संपादित करें…';
+
+  @override
+  String get menuRemoveLink => 'लिंक हटाएँ';
+
+  @override
+  String get linkEditDialogTitle => 'लिंक संपादित करें';
+
+  @override
   String get menuSaveToStamps => 'स्टैम्प में सहेजें';
 
   @override
@@ -1110,6 +1119,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get shellShowScrollbarChapters => 'स्क्रॉलबार पर अध्याय दिखाएँ';
+
+  @override
+  String get shellTwoPageView => 'दो-पृष्ठ दृश्य';
+
+  @override
+  String get shellTwoPageCover => 'कवर पृष्ठ अलग से दिखाएँ';
 
   @override
   String get shellTabHere => 'यहाँ टैब करें';

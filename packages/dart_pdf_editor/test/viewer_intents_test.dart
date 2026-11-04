@@ -66,11 +66,53 @@ void main() {
           PdfAutosizeTextBoxIntent,
           PdfRotateSelectionIntent,
           PdfNudgeSelectionIntent,
+          PdfArmLastToolIntent,
         ]));
     expect(
         pdfViewerDefaultShortcuts[
             const SingleActivator(LogicalKeyboardKey.backspace)],
         isA<PdfDeleteSelectionIntent>());
+  });
+
+  test('lastUsedTool is the tool before the current one, Select aside', () {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    expect(editing.lastUsedTool, isNull);
+    editing.tool = PdfEditTool.rectangle;
+    expect(editing.lastUsedTool, isNull, reason: 'nothing used before it');
+    editing.tool = PdfEditTool.select;
+    expect(editing.lastUsedTool, PdfEditTool.rectangle);
+    editing.tool = PdfEditTool.ink;
+    expect(editing.lastUsedTool, PdfEditTool.rectangle,
+        reason: 'Select is skipped');
+    editing.tool = PdfEditTool.rectangle;
+    expect(editing.lastUsedTool, PdfEditTool.ink, reason: 'flips between two');
+    editing.markupTool = PdfMarkupKind.highlight;
+    expect(editing.lastUsedTool, PdfEditTool.rectangle);
+  });
+
+  testWidgets('X re-arms the last used tool', (tester) async {
+    final editing = await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+    await tester.pump();
+    expect(editing.tool, isNot(PdfEditTool.ink),
+        reason: 'no tool used yet: the key does nothing');
+
+    editing.tool = PdfEditTool.ink;
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+    await tester.pump();
+    expect(editing.tool, PdfEditTool.ink);
+
+    editing.tool = PdfEditTool.ellipse;
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+    await tester.pump();
+    expect(editing.tool, PdfEditTool.ink);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+    await tester.pump();
+    expect(editing.tool, PdfEditTool.ellipse);
   });
 
   testWidgets('PdfViewer.shortcuts rebinds keys', (tester) async {

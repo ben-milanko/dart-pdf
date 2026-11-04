@@ -77,4 +77,11 @@ void main() {
     expect(s.fraction, isNull);
     expect(ocrStatusLabel(l10n, s), 'Finishing OCR…');
   });
+
+  test('OCR result title keeps the .pdf extension last', () {
+    expect(ocrResultTitle(l10n, 'Scan 2026-10-27 (2).pdf'),
+        'Scan 2026-10-27 (2) (OCR).pdf');
+    expect(ocrResultTitle(l10n, 'Scan.PDF'), 'Scan (OCR).pdf');
+    expect(ocrResultTitle(l10n, 'Untitled'), 'Untitled (OCR)');
+  });
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Route ⌘V and the context menu's Paste through one priority order (`PdfPasteRouter`), and keep the in-app snapshot and annotation clipboards exclusive in one place. Add `PdfEditingController.inAppPasteSource`. A touch long-press on empty page area now also opens the paste menu when a vector snapshot is on the clipboard.
+- Fix pasting a copied screenshot with ⌘V/Ctrl+V on the web. The paste key now also reaches the browser, and its paste event supplies the clipboard image and text with no clipboard-read permission. A host without its own image or text reader gets this by default, and `pdfBrowserPaste()` hands the same data to hosts that have one.
+- Keep zoomed-region rendering selective on CAD sheets that explicitly disable overprint, avoiding full-sheet replay for each detail tile.
+
+## 14.0.0
+
+- **BREAKING:** add `shellTwoPageView` and `shellTwoPageCover` to `DartPdfEditorLocalizations`. Custom subclasses must implement both; see `doc/MIGRATING-14.0.0.md`.
+- Add continuous two-page spreads, an optional separate cover, spread-aware thumbnails and persisted layout settings.
+- Add the export-pages command shortcut and toolbar command.
+
+## 13.0.0
+
+- **BREAKING:** add five abstract localization getters for note pinning, link editing and comment threads. Custom localization subclasses must implement them; see `doc/MIGRATING-13.0.0.md`.
+- Read and pin note popup cards beside the page, show comment threads and edit or remove existing links.
+- Hit-test annotation strokes, match callout leader previews to saved geometry and re-arm the last editing tool with X.
+- Require the 13.0.0 package suite.
+
 ## 12.0.0
 
 - **BREAKING:** add `PdfEditTool.cloudCallout` and 12 abstract localization members. Update exhaustive switches and custom localizations; see `doc/MIGRATING-12.0.0.md`.

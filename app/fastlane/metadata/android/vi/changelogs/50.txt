@@ -1,0 +1,3 @@
+DartPDF 13.0.0
+
+Nhập và xuất dữ liệu biểu mẫu và nhận xét bằng FDF, XFDF và XDP. Sửa liên kết có sẵn. Đọc chuỗi ghi chú bên cạnh trang và giữ nhiều ghi chú mở. Chia sẻ các thẻ tài liệu đã chọn cùng nhau. Cải thiện màn hình chào, mở PDF và kiểm tra cập nhật. Xem trước khi in theo các trang đã chọn.

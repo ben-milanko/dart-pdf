@@ -73,6 +73,9 @@ String formatPrintPageRange(List<int> pages) {
 }
 
 /// Shows the same composed sheets that are sent to the printer.
+///
+/// Two or more [selectedPages] open it on the Selected range, whatever range
+/// the last job used.
 Future<PrintPreviewResult?> showPrintPreviewDialog(
   BuildContext context, {
   required PdfDocument document,
@@ -125,7 +128,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   // still showed the revision that was open when this dialog appeared.
   late PdfDocument _document = _snapshotPrintSource(widget.document);
   late final int _currentPage = widget.currentPage.clamp(0, _pageCount - 1);
-  late PrintSettings _settings = PrintSettings(pages: _allPages);
+  late PrintSettings _settings = PrintSettings(pages: _pages);
   final _rangeInput = TextEditingController();
   // What the user typed for Range mode. Outside Range the field mirrors the
   // pages the chosen chip covers, so this keeps the typed list for when
@@ -134,7 +137,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   final _previewAnchor = GlobalKey();
   final _numbers = <String, TextEditingController>{};
   final _invalidNumbers = <String>{};
-  PrintPageRange _range = PrintPageRange.all;
+  late PrintPageRange _range =
+      _followsSelection ? PrintPageRange.selected : PrintPageRange.all;
   int _previewSlot = 0;
   bool _rangeInvalid = false;
   bool _choosingRegion = false;
@@ -167,6 +171,9 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       .toSet()
       .toList()
     ..sort();
+  // A plain thumbnail click selects (and navigates to) one page, so only a
+  // deliberate multi-page selection in the strip decides what prints.
+  bool get _followsSelection => _selectedPages.length > 1;
   String get _defaultCustomRange => '${_currentPage + 1}-$_pageCount';
   bool get _marginMode =>
       _settings.scaling == PrintScaling.fitMargins ||
@@ -186,10 +193,18 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     if (!mounted) return;
     setState(() {
       _preferences = preferences;
-      _range = PrintPageRange.values
+      final saved = PrintPageRange.values
               .where((value) => value.name == preferences.range)
               .firstOrNull ??
           PrintPageRange.all;
+      // The strip's selection is fresher intent than the last job's range,
+      // and a remembered Selected with nothing selected now would print no
+      // pages. Neither overrides the saved range until the user changes it.
+      _range = _followsSelection
+          ? PrintPageRange.selected
+          : saved == PrintPageRange.selected && _selectedPages.isEmpty
+              ? PrintPageRange.all
+              : saved;
       // A typed page list belongs to the document it was typed for. Only
       // bring it back when the job resumes in Range mode; otherwise the field
       // keeps this document's own default instead of, say, a previous

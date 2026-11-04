@@ -47,6 +47,7 @@ Future<VoidCallback?> showAppMenuSheet(
   required List<AppMenuSheetEntry> recents,
   required AppMenuSheetEntry? seeAllRecents,
   required List<AppMenuSheetEntry> export,
+  List<AppMenuSheetEntry> formData = const [],
   required List<AppMenuSheetEntry> moreTools,
   required bool? readOnly,
   required VoidCallback onToggleReadOnly,
@@ -64,6 +65,7 @@ Future<VoidCallback?> showAppMenuSheet(
         recents: recents,
         seeAllRecents: seeAllRecents,
         export: export,
+        formData: formData,
         moreTools: moreTools,
         readOnly: readOnly,
         onToggleReadOnly: onToggleReadOnly,
@@ -80,6 +82,7 @@ class AppMenuSheet extends StatefulWidget {
     required this.recents,
     required this.seeAllRecents,
     required this.export,
+    this.formData = const [],
     required this.moreTools,
     required this.readOnly,
     required this.onToggleReadOnly,
@@ -100,6 +103,9 @@ class AppMenuSheet extends StatefulWidget {
 
   /// Folded groups. A group of one shows as its own row instead.
   final List<AppMenuSheetEntry> export;
+
+  /// FDF/XFDF/XDP import and export.
+  final List<AppMenuSheetEntry> formData;
   final List<AppMenuSheetEntry> moreTools;
 
   /// Null without a document (no switch to show).
@@ -156,6 +162,8 @@ class _AppMenuSheetState extends State<AppMenuSheet> {
     final document = [
       _group(
           'export', l.appMenuExport, Icons.ios_share_outlined, widget.export),
+      _group('form-data', l.editorMenuFormData, Icons.swap_vert_outlined,
+          widget.formData),
       _group('more-tools', l.appMenuMoreTools, Icons.handyman_outlined,
           widget.moreTools),
     ].expand((rows) => rows).toList();
