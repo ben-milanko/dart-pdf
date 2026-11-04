@@ -222,13 +222,16 @@ void main() {
             widget is PdfPageView && identical(widget.page, originalFirst),
       ));
       final presentationEpoch = viewer.pagePresentationEpoch;
-      final tileNamespace = viewer.debugTileCacheNamespace;
-      final keyedBefore = viewer.debugKeyedPageReconciliations;
+      final tileNamespace = viewer.tileCacheNamespaceIdentity;
+      final reconciledBefore = viewer.debugPageReconciliationDiagnostics;
       editing.movePage(0, editing.document.pageCount - 1);
       await _waitFor(
         $,
-        () => viewer.debugKeyedPageReconciliations == keyedBefore + 1,
-        reason: 'a pure move must use stable page identities',
+        () => !identical(
+          viewer.debugPageReconciliationDiagnostics,
+          reconciledBefore,
+        ),
+        reason: 'the move should reconcile the page set',
       );
       expect(
         viewer.debugPageReconciliationDiagnostics!.mode,
@@ -257,14 +260,14 @@ void main() {
         reason: 'the moved page State should follow its stable page key',
       );
       expect(viewer.pagePresentationEpoch, presentationEpoch);
-      expect(viewer.debugTileCacheNamespace, same(tileNamespace));
+      expect(viewer.tileCacheNamespaceIdentity, tileNamespace);
 
       PdfPerfLog.log(
         'scenario name=heavy-document phase=validated '
         'rasterBytes=${stats.retainedBytes} rasterEntries=${stats.entries} '
         'warmCompletions=${stats.completions} '
         'thumbnailRasters=${PdfThumbnailSidebar.debugRasterizations} '
-        'keyed=${viewer.debugKeyedPageReconciliations}',
+        'reconcile=${viewer.debugPageReconciliationDiagnostics!.mode.name}',
       );
     } finally {
       await $.pumpWidget(const SizedBox());
