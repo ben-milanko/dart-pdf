@@ -82,7 +82,23 @@ class RecentFile {
 /// number. Backed by `shared_preferences`; when storage is unavailable (widget
 /// tests) it degrades to an in-memory list so the UI stays deterministic with
 /// no mocking, mirroring how [PdfEditingPreferences] handles the same case.
-class RecentsStore extends ChangeNotifier {
+/// The Recent files list as the document library writes it (this is
+/// [RecentsStore]; tests pass a fake).
+abstract interface class RecentsLog {
+  List<RecentFile> get items;
+
+  Future<void> add(
+      {required String title,
+      String? path,
+      String? cachePath,
+      String? bookmark});
+
+  /// Marks which of the [checked] snapshot keys are still [available].
+  Future<void> updateCachedAvailability(
+      Set<String> checked, Set<String> available);
+}
+
+class RecentsStore extends ChangeNotifier implements RecentsLog {
   RecentsStore({CachedPdfKeyResolver? resolveCacheKey})
       : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
 
@@ -100,6 +116,7 @@ class RecentsStore extends ChangeNotifier {
     super.dispose();
   }
 
+  @override
   List<RecentFile> get items => List.unmodifiable(_items);
   bool get isEmpty => _items.isEmpty;
 
@@ -152,6 +169,7 @@ class RecentsStore extends ChangeNotifier {
   }
 
   /// Records (or refreshes) a recently opened document at the front.
+  @override
   Future<void> add(
       {required String title,
       String? path,
@@ -202,6 +220,7 @@ class RecentsStore extends ChangeNotifier {
 
   /// Reconciles only the keys inspected by the caller, so a concurrent add
   /// isn't marked missing using an older inventory. Keeps ordering/identity.
+  @override
   Future<void> updateCachedAvailability(
       Set<String> checked, Set<String> available) async {
     if (_disposed) return;
