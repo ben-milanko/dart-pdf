@@ -103,6 +103,74 @@ void main() {
     }
   });
 
+  testWidgets('a failed full read disposes the preview only after unmount',
+      (tester) async {
+    const channel = MethodChannel('dev.milanko.dartpdf/file_access');
+    final failFullRead = Completer<void>();
+    final bytes = Uint8List.fromList(buildClassicPdf());
+    var fallbackReads = 0;
+
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      switch (call.method) {
+        case 'fileLength':
+          return bytes.length;
+        case 'readFileRange':
+          if (AppDevTools.instance.log.any((entry) => entry.message
+              .startsWith('progressive open: "broken.pdf" first paint'))) {
+            await failFullRead.future;
+            throw PlatformException(code: 'read_failed');
+          }
+          final args = (call.arguments as Map).cast<Object?, Object?>();
+          final offset = args['offset'] as int;
+          final end = (offset + (args['length'] as int)).clamp(0, bytes.length);
+          return Uint8List.sublistView(bytes, offset, end);
+        case 'readFile':
+          fallbackReads++;
+          throw PlatformException(code: 'read_failed');
+      }
+      return null;
+    });
+    addTearDown(() {
+      if (!failFullRead.isCompleted) failFullRead.complete();
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.session': jsonEncode([
+        {'t': 'broken.pdf', 'p': '/broken.pdf', 'b': 'test-bookmark'}
+      ]),
+    });
+
+    await pump(tester, () async {
+      await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    });
+    final preview = tester.widget<PdfReader>(find.byType(PdfReader));
+    final viewer = preview.controller!;
+    expect(fallbackReads, 0);
+
+    // Let both reads fail without pumping the replacement frame. The old
+    // reader is still mounted and must retain a live controller until then.
+    await tester.runAsync(() async {
+      failFullRead.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    expect(fallbackReads, 1);
+    expect(find.byType(PdfReader), findsOneWidget);
+    void listener() {}
+    expect(() => viewer.addListener(listener), returnsNormally);
+    viewer.removeListener(listener);
+
+    await tester.pump();
+    expect(find.byType(PdfReader), findsNothing);
+    expect(tabTitle('broken.pdf'), findsOneWidget);
+    expect(find.byType(PdfEditorView), findsNothing);
+    expect(() => viewer.addListener(listener), throwsFlutterError,
+        reason: 'the removed preview controller must still be released');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
   testWidgets('restores a desktop session tab lazily, opening it progressively',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;

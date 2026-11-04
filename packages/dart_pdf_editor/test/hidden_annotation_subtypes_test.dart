@@ -4,6 +4,7 @@
 // controller's hit tests, and the persisted preference. Like
 // showAnnotations, the document never changes.
 
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -13,6 +14,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -60,6 +62,7 @@ class _LoggingWorker extends PdfRenderWorker {
 
   final PdfRenderWorker _inner;
   final List<Set<String>> hiddenPerRecord = [];
+  Completer<void>? gate;
 
   @override
   bool get isActive => _inner.isActive;
@@ -76,8 +79,9 @@ class _LoggingWorker extends PdfRenderWorker {
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
     PdfRecordDecodeGate? decodeGate,
-  }) {
+  }) async {
     hiddenPerRecord.add(hiddenAnnotationSubtypes);
+    await gate?.future;
     return _inner.record(
       pageIndex,
       annotations: annotations,
@@ -268,6 +272,157 @@ void main() {
   });
 
   group('viewer', () {
+    testWidgets('a subtype toggle invalidates readiness until its raster lands',
+        (tester) async {
+      final bytes = _squareAndLink();
+      final document = PdfDocument.open(bytes);
+      final worker = _LoggingWorker(PdfRenderWorker.start(bytes));
+      final controller = PdfViewerController();
+      addTearDown(worker.dispose);
+      addTearDown(controller.dispose);
+
+      Widget view(Set<String> hidden) => MaterialApp(
+            home: PdfViewer(
+              document: document,
+              controller: controller,
+              renderWorker: worker,
+              pagePreviews: false,
+              hiddenAnnotationSubtypes: hidden,
+            ),
+          );
+
+      Future<void> waitForRaster() async {
+        for (var i = 0; i < 100 && !controller.isPageRasterReady(0); i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        expect(controller.isPageRasterReady(0), isTrue);
+      }
+
+      await tester.pumpWidget(view(const {}));
+      await waitForRaster();
+
+      for (final hidden in [
+        const {'Link', 'Square'},
+        const <String>{}
+      ]) {
+        final gate = worker.gate = Completer<void>();
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete();
+        });
+        await tester.pumpWidget(view(hidden));
+        expect(controller.isPageRasterReady(0), isFalse,
+            reason: 'the old raster does not reflect the new subtype filter');
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(controller.isPageRasterReady(0), isFalse);
+        gate.complete();
+        await waitForRaster();
+        worker.gate = null;
+      }
+
+      await tester.pumpWidget(view(const {'Link', 'Square'}));
+      await waitForRaster();
+      final before = worker.hiddenPerRecord.length;
+      await tester.pumpWidget(view(const {'Square', 'Link'}));
+      expect(controller.isPageRasterReady(0), isTrue,
+          reason: 'set order alone does not change the pixels');
+      expect(worker.hiddenPerRecord.length, before);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a pending afterimage survives a subtype toggle until ready',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.smartAlignmentGuides = false
+        ..tool = PdfEditTool.rectangle;
+      final controller = PdfViewerController();
+      final worker = _LoggingWorker(PdfRenderWorker.start(editing.bytes));
+      final appearanceGate = Completer<void>();
+      final rasterGate = Completer<void>();
+      addTearDown(editing.dispose);
+      addTearDown(controller.dispose);
+      addTearDown(worker.dispose);
+      addTearDown(() {
+        PdfViewer.debugAnnotationAppearancePicturesRendererOverride = null;
+        if (!appearanceGate.isCompleted) appearanceGate.complete();
+        if (!rasterGate.isCompleted) rasterGate.complete();
+      });
+      var hidden = const <String>{};
+      Widget view() => MaterialApp(
+            home: ListenableBuilder(
+              listenable: editing,
+              builder: (context, _) => PdfViewer(
+                document: editing.document,
+                editing: editing,
+                controller: controller,
+                renderWorker: worker,
+                initialFit: PdfViewerFit.width,
+                pagePreviews: false,
+                hiddenAnnotationSubtypes: hidden,
+              ),
+            ),
+          );
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+      }
+
+      EditingPageOverlay overlay() =>
+          tester.widget<EditingPageOverlay>(find.byType(EditingPageOverlay));
+      dynamic painter() => tester
+          .widget<CustomPaint>(find
+              .descendant(
+                  of: find.byType(EditingPageOverlay),
+                  matching: find.byType(CustomPaint))
+              .first)
+          .painter;
+
+      await tester.pumpWidget(view());
+      await settle();
+      expect(controller.isPageRasterReady(0), isTrue);
+      PdfViewer.debugAnnotationAppearancePicturesRendererOverride =
+          (page, annotation, rotation) async {
+        await appearanceGate.future;
+        return PdfPageRenderer.renderAnnotationPictures(page, annotation,
+            rotation: rotation);
+      };
+      final pageRect = tester.getRect(find.byType(PdfPageView).first);
+      final gesture =
+          await tester.startGesture(pageRect.topLeft + const Offset(100, 100));
+      await gesture.moveBy(const Offset(120, 80));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(painter().afterShape, isNotNull);
+
+      worker.gate = rasterGate;
+      hidden = const {'Link'};
+      await tester.pumpWidget(view());
+      // Let the separate annotation layer catch up while the page's newly
+      // filtered base raster remains pending.
+      appearanceGate.complete();
+      await settle();
+      expect(overlay().rasterCurrent, isFalse);
+      expect(painter().afterShape, isNotNull,
+          reason: 'the afterimage must outlive the pending replacement raster');
+      editing.tool = null;
+      await tester.pump();
+      expect(find.byType(EditingPageOverlay), findsOneWidget,
+          reason: 'deselecting must not unmount the held afterimage');
+
+      rasterGate.complete();
+      await settle();
+      expect(controller.isPageRasterReady(0), isTrue);
+      expect(find.byType(EditingPageOverlay), findsNothing,
+          reason: 'the afterimage retires when the current pixels land');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('a hidden link takes no taps; a shown one navigates',
         (tester) async {
       // the GoTo link in buildAnnotatedPdf: rect (72, 600)-(200, 624) on a
