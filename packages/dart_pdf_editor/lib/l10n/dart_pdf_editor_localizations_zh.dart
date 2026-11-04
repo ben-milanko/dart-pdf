@@ -2443,6 +2443,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbFloatingToolbarsHint => '让工具栏浮动在页面上，而不是停靠在窗口边缘';
 
   @override
+  String get tbPackToolbars => '紧凑排列工具栏';
+
+  @override
+  String get tbPackToolbarsHint => '填补前面各行的空隙，让停靠的工具栏占用更少空间。工具栏可能不按顺序显示。';
+
+  @override
   String get insertPagesTitle => '插入页面';
 
   @override
@@ -5071,6 +5077,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbFloatingToolbarsHint => '讓工具列浮動在頁面上，而不是停駐在視窗邊緣';
+
+  @override
+  String get tbPackToolbars => '緊湊排列工具列';
+
+  @override
+  String get tbPackToolbarsHint => '填補前面各列的空隙，讓停駐的工具列佔用較少空間。工具列可能不依順序顯示。';
 
   @override
   String get insertPagesTitle => '插入頁面';

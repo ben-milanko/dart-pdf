@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "Bilah properti menampilkan tindakan pilihan serta opsi dan gaya alat di satu tempat.",
   "tbFloatingToolbars": "Toolbar mengambang",
   "tbFloatingToolbarsHint": "Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela",
+  "tbPackToolbars": "Rapatkan bilah alat",
+  "tbPackToolbarsHint": "Isi celah di baris sebelumnya agar bilah alat yang tertambat memakan lebih sedikit ruang. Bilah alat mungkin tampil tidak berurutan.",
   "insertPagesTitle": "Sisipkan halaman",
   "insertPagesFiles": "File",
   "insertPagesAddFiles": "Tambahkan file…",

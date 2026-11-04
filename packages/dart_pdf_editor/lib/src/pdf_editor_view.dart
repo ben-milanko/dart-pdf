@@ -1898,6 +1898,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 toolStripDocks: prefs.toolStripDocks,
                 onToolStripDock: dockToolbar ? null : prefs.setToolStripDock,
                 styleBarDock: prefs.styleBarDock,
+                packToolbars: prefs.toolbarPackTightly,
                 onStyleBarDock:
                     dockToolbar ? null : (dock) => prefs.styleBarDock = dock,
                 compact: dockToolbar,

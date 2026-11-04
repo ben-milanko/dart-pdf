@@ -4506,6 +4506,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Float the toolbars over the page instead of docking them to the window edges'**
   String get tbFloatingToolbarsHint;
 
+  /// Setting: pack the docked toolbars first-fit, so a later toolbar fills a gap left in an earlier row.
+  ///
+  /// In en, this message translates to:
+  /// **'Pack toolbars tightly'**
+  String get tbPackToolbars;
+
+  /// Subtitle explaining the Pack toolbars tightly setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.'**
+  String get tbPackToolbarsHint;
+
   /// Title of the multi-document insert-pages dialog.
   ///
   /// In en, this message translates to:

@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "De eigenschappenbalk toont de acties van de selectie en de opties en stijl van het gereedschap op één plek.",
   "tbFloatingToolbars": "Zwevende werkbalken",
   "tbFloatingToolbarsHint": "Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten",
+  "tbPackToolbars": "Werkbalken compact plaatsen",
+  "tbPackToolbarsHint": "Vult gaten in eerdere rijen zodat vastgezette werkbalken minder ruimte innemen. Werkbalken kunnen buiten volgorde verschijnen.",
   "insertPagesTitle": "Pagina's invoegen",
   "insertPagesFiles": "Bestanden",
   "insertPagesAddFiles": "Bestanden toevoegen…",

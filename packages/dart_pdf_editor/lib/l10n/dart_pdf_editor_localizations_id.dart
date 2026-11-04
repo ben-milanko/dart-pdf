@@ -2490,6 +2490,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       'Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela';
 
   @override
+  String get tbPackToolbars => 'Rapatkan bilah alat';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Isi celah di baris sebelumnya agar bilah alat yang tertambat memakan lebih sedikit ruang. Bilah alat mungkin tampil tidak berurutan.';
+
+  @override
   String get insertPagesTitle => 'Sisipkan halaman';
 
   @override

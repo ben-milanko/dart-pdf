@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "Die Eigenschaftenleiste zeigt Aktionen der Auswahl sowie Optionen und Stil des Werkzeugs an einem Ort.",
   "tbFloatingToolbars": "Schwebende Symbolleisten",
   "tbFloatingToolbarsHint": "Symbolleisten über der Seite schweben lassen, statt sie an den Fensterrändern anzudocken",
+  "tbPackToolbars": "Symbolleisten dicht anordnen",
+  "tbPackToolbarsHint": "Lücken in früheren Zeilen füllen, damit angedockte Symbolleisten weniger Platz brauchen. Symbolleisten können außer der Reihe erscheinen.",
   "insertPagesTitle": "Seiten einfügen",
   "insertPagesFiles": "Dateien",
   "insertPagesAddFiles": "Dateien hinzufügen…",

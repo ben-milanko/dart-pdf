@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "Özellikler çubuğu seçimin eylemlerini ve aracın seçeneklerini ile stilini tek yerde gösterir.",
   "tbFloatingToolbars": "Yüzen araç çubukları",
   "tbFloatingToolbarsHint": "Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür",
+  "tbPackToolbars": "Araç çubuklarını sıkı yerleştir",
+  "tbPackToolbarsHint": "Yerleştirilmiş araç çubukları daha az yer kaplasın diye önceki satırlardaki boşlukları doldurur. Araç çubukları sırasız görünebilir.",
   "insertPagesTitle": "Sayfa ekle",
   "insertPagesFiles": "Dosyalar",
   "insertPagesAddFiles": "Dosya ekle…",

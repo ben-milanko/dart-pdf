@@ -257,6 +257,17 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   value: widget.prefs.toolbarFloating,
                   onChanged: (value) => widget.prefs.toolbarFloating = value,
                 ),
+                SwitchListTile(
+                  key: const ValueKey('settings-pack-toolbars'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbPackToolbars),
+                  subtitle: Text(pdfL10n(context).tbPackToolbarsHint),
+                  value: widget.prefs.toolbarPackTightly,
+                  // only docked toolbars wrap into rows
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarPackTightly = value,
+                ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
                     style: theme.textTheme.titleSmall),

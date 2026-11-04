@@ -2531,6 +2531,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna';
 
   @override
+  String get tbPackToolbars => 'Układaj paski narzędzi ciasno';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Wypełnia luki we wcześniejszych wierszach, aby zadokowane paski zajmowały mniej miejsca. Paski mogą pojawić się w innej kolejności.';
+
+  @override
   String get insertPagesTitle => 'Wstaw strony';
 
   @override

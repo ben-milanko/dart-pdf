@@ -33,6 +33,7 @@ import 'editing_form_options.dart';
 import 'editing_form_style.dart';
 import 'editing_panel.dart';
 import 'editing_value_field.dart';
+import 'first_fit_wrap.dart';
 import 'editing_preferences.dart';
 import 'editing_takeoff.dart';
 import 'line_style.dart';
@@ -303,6 +304,20 @@ Future<void> showPdfToolbarLayoutDialog(
                       onChanged: (value) => preferences.toolbarFloating = value,
                     ),
                   ),
+                  // the floating layout shows one group at a time, so only
+                  // the docked toolbars have rows to pack
+                  if (!preferences.toolbarFloating)
+                    SwitchListTile(
+                      key: const ValueKey('pdf-layout-pack'),
+                      secondary: const Icon(Icons.view_compact_outlined),
+                      title: Text(l10n.tbPackToolbars),
+                      subtitle: Text(l10n.tbPackToolbarsHint),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 24),
+                      value: preferences.toolbarPackTightly,
+                      onChanged: (value) =>
+                          preferences.toolbarPackTightly = value,
+                    ),
                   picker(
                     key: const ValueKey('pdf-layout-main'),
                     icon: Icons.build_outlined,
@@ -496,6 +511,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.styleBarDock,
     this.onStyleBarDock,
     this.overlay = false,
+    this.packToolbars = false,
     this.body,
     this.onFloatingChanged,
     this.compact,
@@ -683,6 +699,14 @@ class PdfEditingToolbar extends StatefulWidget {
   /// over its viewer. False (the default) sizes the toolbar to its content
   /// with every bar beside the dock - the standalone layout.
   final bool overlay;
+
+  /// Docked only: packs each edge's toolbars **first-fit** - a toolbar goes
+  /// into the first row (or rail column) with room for it, so a shorter one
+  /// back-fills the gap a longer one left when it wrapped (at 800px, Edit
+  /// joins Shapes' row and the area is a row shorter). False (the default)
+  /// keeps them strictly in order, wrapping to a new row like text. See
+  /// [PdfEditingPreferences.toolbarPackTightly].
+  final bool packToolbars;
 
   /// Docks the toolbar: when set, the toolbar lays [body] (the panels and
   /// the page viewer) out with its bars as solid bands along the edges around
@@ -2086,12 +2110,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         child: Theme(
           data: dense,
           child: LayoutBuilder(
-            builder: (context, constraints) => Wrap(
-              direction: axis,
-              // physical edges, not reading order
-              textDirection: TextDirection.ltr,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
+            builder: (context, constraints) {
+              final children = [
                 for (final segment in segments)
                   Container(
                     // the key names the visible toolbar, not its scrolled
@@ -2116,8 +2136,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                       child: segment.child,
                     ),
                   ),
-              ],
-            ),
+              ];
+              return widget.packToolbars
+                  ? FirstFitWrap(direction: axis, children: children)
+                  : Wrap(
+                      direction: axis,
+                      // physical edges, not reading order
+                      textDirection: TextDirection.ltr,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: children,
+                    );
+            },
           ),
         ),
       ),

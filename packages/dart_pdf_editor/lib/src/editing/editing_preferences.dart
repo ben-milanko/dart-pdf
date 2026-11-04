@@ -244,6 +244,9 @@ class PdfEditingPreferences extends ChangeNotifier
   // Docked (solid bands along the window edges, the default) or floating
   // (cards over the page).
   bool _toolbarFloating = false;
+  // Docked toolbars packed first-fit (a later toolbar back-fills an earlier
+  // row's gap) instead of strictly in order.
+  bool _toolbarPackTightly = false;
   // Tool bars pinned to an edge of their own, by group. A group absent here
   // rides with the main toolbar and shows only while its group is open.
   final Map<PdfEditToolGroup, PdfPanelDock> _toolStripDocks = {};
@@ -520,6 +523,8 @@ class PdfEditingPreferences extends ChangeNotifier
       _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
       _toolbarFloating =
           store.getBool('${_prefix}toolbarFloating') ?? _toolbarFloating;
+      _toolbarPackTightly =
+          store.getBool('${_prefix}toolbarPackTightly') ?? _toolbarPackTightly;
       for (final group in PdfEditToolGroup.values) {
         final dock = PdfPanelDock.values.asNameMap()[
             store.getString('${_prefix}toolStripDock.${group.name}')];
@@ -1951,11 +1956,26 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Whether the docked toolbars pack **first-fit**: each toolbar goes into
+  /// the first row (or rail column) with room for it, so a shorter toolbar
+  /// fills the gap a longer one left when it wrapped and the toolbar area
+  /// takes fewer rows - at the cost of toolbars no longer reading strictly
+  /// in order. Off (the default) keeps the in-order layout. Persisted.
+  bool get toolbarPackTightly => _toolbarPackTightly;
+
+  set toolbarPackTightly(bool value) {
+    if (value == _toolbarPackTightly) return;
+    _toolbarPackTightly = value;
+    _write((s) => s.setBool('${_prefix}toolbarPackTightly', value));
+    notifyListeners();
+  }
+
   /// Docks the toolbars again with the main toolbar on the top edge, returns
   /// every tool bar to it, and puts the style controls back in their default
   /// place.
   void resetToolbarLayout() {
     toolbarFloating = false;
+    toolbarPackTightly = false;
     toolbarDock = PdfPanelDock.top;
     styleBarDock = null;
     for (final group in _toolStripDocks.keys.toList()) {

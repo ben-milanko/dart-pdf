@@ -2486,6 +2486,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür';
 
   @override
+  String get tbPackToolbars => 'Araç çubuklarını sıkı yerleştir';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Yerleştirilmiş araç çubukları daha az yer kaplasın diye önceki satırlardaki boşlukları doldurur. Araç çubukları sırasız görünebilir.';
+
+  @override
   String get insertPagesTitle => 'Sayfa ekle';
 
   @override

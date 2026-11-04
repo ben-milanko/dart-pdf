@@ -2490,6 +2490,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       'شریتەکانی ئامراز بە سەر لاپەڕەکەدا هەڵواسە لەبری لکاندنیان بە کەنارەکانی پەنجەرەکەوە';
 
   @override
+  String get tbPackToolbars => 'ڕێکخستنی چڕی تووڵبارەکان';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'بۆشاییەکانی ڕیزەکانی پێشوو پڕ بکەرەوە بۆ ئەوەی تووڵبارە جێگیرکراوەکان شوێنی کەمتر بگرن. لەوانەیە تووڵبارەکان بە ڕیزبەندی خۆیان دەرنەکەون.';
+
+  @override
   String get insertPagesTitle => 'خستنەناوی پەڕەکان';
 
   @override

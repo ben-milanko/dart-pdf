@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "プロパティバーには、選択範囲の操作とツールのオプションやスタイルがまとめて表示されます。",
   "tbFloatingToolbars": "フローティングツールバー",
   "tbFloatingToolbarsHint": "ツールバーをウィンドウの端にドッキングせず、ページ上に浮かせて表示します",
+  "tbPackToolbars": "ツールバーを詰めて配置",
+  "tbPackToolbarsHint": "前の行の空きを埋めて、ドッキングしたツールバーが占める領域を減らします。ツールバーの並び順が変わることがあります。",
   "insertPagesTitle": "ページを挿入",
   "insertPagesFiles": "ファイル",
   "insertPagesAddFiles": "ファイルを追加…",

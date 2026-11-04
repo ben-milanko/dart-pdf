@@ -2531,6 +2531,13 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       'Показувати панелі інструментів над сторінкою, а не закріплювати біля країв вікна';
 
   @override
+  String get tbPackToolbars => 'Щільно розміщувати панелі інструментів';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Заповнює порожнечі в попередніх рядах, щоб закріплені панелі займали менше місця. Порядок панелей може змінюватися.';
+
+  @override
   String get insertPagesTitle => 'Вставити сторінки';
 
   @override

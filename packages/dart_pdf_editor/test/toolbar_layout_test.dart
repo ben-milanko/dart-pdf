@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dart_pdf_editor/src/editing/first_fit_wrap.dart';
 
 // Toolbar layout: docked bars (solid bands along the window edges, the
 // default), tool bars docked to edges of their own, the properties bar, the
@@ -60,6 +61,8 @@ void main() {
       a.styleBarDock = PdfPanelDock.left;
       a.toolbarDock = PdfPanelDock.bottom;
       a.toolbarFloating = true;
+      expect(a.toolbarPackTightly, isFalse, reason: 'in order by default');
+      a.toolbarPackTightly = true;
       await pumpEventQueue();
 
       final b = PdfEditingPreferences();
@@ -71,6 +74,7 @@ void main() {
       expect(b.toolStripDock(PdfEditToolGroup.draw), isNull);
       expect(b.styleBarDock, PdfPanelDock.left);
       expect(b.toolbarFloating, isTrue);
+      expect(b.toolbarPackTightly, isTrue);
 
       b.setToolStripDock(PdfEditToolGroup.markup, null);
       expect(b.toolStripDock(PdfEditToolGroup.markup), isNull);
@@ -80,6 +84,7 @@ void main() {
       expect(b.styleBarDock, isNull);
       expect(b.toolbarDock, PdfPanelDock.top);
       expect(b.toolbarFloating, isFalse);
+      expect(b.toolbarPackTightly, isFalse);
 
       final c = PdfEditingPreferences();
       await c.ready;
@@ -205,6 +210,34 @@ void main() {
       expect(tester.getRect(hint).center.dy, closeTo(title.center.dy, 1));
       expect(
           tester.widget<Text>(hint).style!.fontSize, greaterThanOrEqualTo(12));
+    });
+
+    testWidgets('packing tightly lays the toolbars out first-fit',
+        (tester) async {
+      final prefs = await pumpEditor(tester);
+      expect(find.byType(FirstFitWrap), findsNothing);
+      prefs.toolbarPackTightly = true;
+      await tester.pumpAndSettle();
+      expect(find.byType(FirstFitWrap), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      // every toolbar is still there, inside the window
+      for (final bar in [
+        'pdf-docked-main',
+        'pdf-tool-bar-markup',
+        'pdf-tool-bar-draw',
+        'pdf-tool-bar-shapes',
+        'pdf-tool-bar-insert',
+        'pdf-tool-bar-measure',
+        'pdf-tool-bar-edit',
+      ]) {
+        final rect = rectOf(tester, ValueKey(bar));
+        expect(rect.right, lessThanOrEqualTo(1280.5), reason: bar);
+        expect(
+            rect.bottom,
+            lessThanOrEqualTo(
+                rectOf(tester, const ValueKey(properties)).top + 0.5),
+            reason: bar);
+      }
     });
 
     testWidgets('a narrow window wraps the toolbars and never overflows',
@@ -435,6 +468,12 @@ void main() {
         find.byKey(const ValueKey('pdf-layout-bar-measure-right')).last);
     expect(prefs.toolStripDock(PdfEditToolGroup.measure), PdfPanelDock.right);
 
+    final pack = find.byKey(const ValueKey('pdf-layout-pack'));
+    await tester.ensureVisible(pack);
+    await tester.pumpAndSettle();
+    await tapMouse(tester, pack);
+    expect(prefs.toolbarPackTightly, isTrue);
+
     final mode = find.byKey(const ValueKey('pdf-layout-mode'));
     await tester.ensureVisible(mode);
     await tester.pumpAndSettle();
@@ -442,9 +481,12 @@ void main() {
     await tapMouse(
         tester, find.byKey(const ValueKey('pdf-layout-mode-floating')).last);
     expect(prefs.toolbarFloating, isTrue);
+    // floating shows one group at a time: no rows to pack
+    expect(find.byKey(const ValueKey('pdf-layout-pack')), findsNothing);
 
     await tapMouse(tester, find.byKey(const ValueKey('pdf-layout-reset')));
     expect(prefs.toolbarFloating, isFalse);
+    expect(prefs.toolbarPackTightly, isFalse);
     expect(prefs.styleBarDock, isNull);
     expect(prefs.toolStripDocks, isEmpty);
     await tapMouse(tester, find.byKey(const ValueKey('pdf-layout-done')));

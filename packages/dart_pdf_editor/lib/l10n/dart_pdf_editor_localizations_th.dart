@@ -2472,6 +2472,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'แสดงแถบเครื่องมือลอยเหนือหน้าแทนการเชื่อมไว้ที่ขอบหน้าต่าง';
 
   @override
+  String get tbPackToolbars => 'จัดแถบเครื่องมือให้ชิดกัน';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'เติมช่องว่างในแถวก่อนหน้าเพื่อให้แถบเครื่องมือที่ยึดไว้ใช้พื้นที่น้อยลง แถบเครื่องมืออาจไม่เรียงตามลำดับ';
+
+  @override
   String get insertPagesTitle => 'แทรกหน้า';
 
   @override

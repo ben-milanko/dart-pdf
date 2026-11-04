@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "يعرض شريط الخصائص إجراءات التحديد وخيارات الأداة ونمطها في مكان واحد.",
   "tbFloatingToolbars": "أشرطة أدوات عائمة",
   "tbFloatingToolbarsHint": "عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة",
+  "tbPackToolbars": "ترتيب أشرطة الأدوات بإحكام",
+  "tbPackToolbarsHint": "املأ الفراغات في الصفوف السابقة لتشغل أشرطة الأدوات المثبتة مساحة أقل. قد تظهر أشرطة الأدوات بغير ترتيبها.",
   "insertPagesTitle": "إدراج صفحات",
   "insertPagesFiles": "الملفات",
   "insertPagesAddFiles": "إضافة ملفات…",

@@ -2490,6 +2490,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten';
 
   @override
+  String get tbPackToolbars => 'Werkbalken compact plaatsen';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Vult gaten in eerdere rijen zodat vastgezette werkbalken minder ruimte innemen. Werkbalken kunnen buiten volgorde verschijnen.';
+
+  @override
   String get insertPagesTitle => 'Pagina\'s invoegen';
 
   @override

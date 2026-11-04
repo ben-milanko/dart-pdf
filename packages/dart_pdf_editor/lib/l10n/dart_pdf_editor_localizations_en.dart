@@ -2478,6 +2478,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       'Float the toolbars over the page instead of docking them to the window edges';
 
   @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -5157,6 +5164,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       'Float the toolbars over the page instead of docking them to the window edges';
 
   @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -7834,6 +7848,13 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbFloatingToolbarsHint =>
       'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
 
   @override
   String get insertPagesTitle => 'Insert pages';

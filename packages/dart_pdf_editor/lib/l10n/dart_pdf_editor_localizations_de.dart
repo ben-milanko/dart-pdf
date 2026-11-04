@@ -2495,6 +2495,13 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Symbolleisten über der Seite schweben lassen, statt sie an den Fensterrändern anzudocken';
 
   @override
+  String get tbPackToolbars => 'Symbolleisten dicht anordnen';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Lücken in früheren Zeilen füllen, damit angedockte Symbolleisten weniger Platz brauchen. Symbolleisten können außer der Reihe erscheinen.';
+
+  @override
   String get insertPagesTitle => 'Seiten einfügen';
 
   @override

@@ -2479,6 +2479,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ';
 
   @override
+  String get tbPackToolbars => 'Xếp thanh công cụ sát nhau';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Lấp chỗ trống ở các hàng trước để thanh công cụ được neo chiếm ít chỗ hơn. Thanh công cụ có thể không theo thứ tự.';
+
+  @override
   String get insertPagesTitle => 'Chèn trang';
 
   @override

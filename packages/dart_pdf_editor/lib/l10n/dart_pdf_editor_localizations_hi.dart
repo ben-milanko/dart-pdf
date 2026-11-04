@@ -2484,6 +2484,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'टूलबार को विंडो के किनारों पर डॉक करने के बजाय पेज के ऊपर तैराएँ';
 
   @override
+  String get tbPackToolbars => 'टूलबार को सघन रूप से रखें';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'पिछली पंक्तियों की खाली जगह भरें ताकि डॉक किए गए टूलबार कम जगह लें। टूलबार क्रम से बाहर दिख सकते हैं।';
+
+  @override
   String get insertPagesTitle => 'पेज डालें';
 
   @override

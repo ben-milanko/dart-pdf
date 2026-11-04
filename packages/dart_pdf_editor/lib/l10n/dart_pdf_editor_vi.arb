@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "Thanh thuộc tính hiển thị thao tác của vùng chọn cùng tùy chọn và kiểu của công cụ ở một chỗ.",
   "tbFloatingToolbars": "Thanh công cụ nổi",
   "tbFloatingToolbarsHint": "Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ",
+  "tbPackToolbars": "Xếp thanh công cụ sát nhau",
+  "tbPackToolbarsHint": "Lấp chỗ trống ở các hàng trước để thanh công cụ được neo chiếm ít chỗ hơn. Thanh công cụ có thể không theo thứ tự.",
   "insertPagesTitle": "Chèn trang",
   "insertPagesFiles": "Tệp",
   "insertPagesAddFiles": "Thêm tệp…",

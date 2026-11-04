@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "Pasek właściwości pokazuje w jednym miejscu akcje zaznaczenia oraz opcje i styl narzędzia.",
   "tbFloatingToolbars": "Pływające paski narzędzi",
   "tbFloatingToolbarsHint": "Wyświetlaj paski narzędzi nad stroną zamiast dokować je przy krawędziach okna",
+  "tbPackToolbars": "Układaj paski narzędzi ciasno",
+  "tbPackToolbarsHint": "Wypełnia luki we wcześniejszych wierszach, aby zadokowane paski zajmowały mniej miejsca. Paski mogą pojawić się w innej kolejności.",
   "insertPagesTitle": "Wstaw strony",
   "insertPagesFiles": "Pliki",
   "insertPagesAddFiles": "Dodaj pliki…",

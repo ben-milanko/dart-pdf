@@ -2528,6 +2528,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'عرض أشرطة الأدوات عائمة فوق الصفحة بدلًا من إرسائها على حواف النافذة';
 
   @override
+  String get tbPackToolbars => 'ترتيب أشرطة الأدوات بإحكام';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'املأ الفراغات في الصفوف السابقة لتشغل أشرطة الأدوات المثبتة مساحة أقل. قد تظهر أشرطة الأدوات بغير ترتيبها.';
+
+  @override
   String get insertPagesTitle => 'إدراج صفحات';
 
   @override

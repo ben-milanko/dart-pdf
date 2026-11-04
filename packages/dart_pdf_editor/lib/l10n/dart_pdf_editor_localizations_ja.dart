@@ -2454,6 +2454,13 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbFloatingToolbarsHint => 'ツールバーをウィンドウの端にドッキングせず、ページ上に浮かせて表示します';
 
   @override
+  String get tbPackToolbars => 'ツールバーを詰めて配置';
+
+  @override
+  String get tbPackToolbarsHint =>
+      '前の行の空きを埋めて、ドッキングしたツールバーが占める領域を減らします。ツールバーの並び順が変わることがあります。';
+
+  @override
   String get insertPagesTitle => 'ページを挿入';
 
   @override

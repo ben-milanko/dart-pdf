@@ -2494,6 +2494,13 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Mostra le barre degli strumenti sopra la pagina invece di agganciarle ai bordi della finestra';
 
   @override
+  String get tbPackToolbars => 'Compatta le barre degli strumenti';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Riempie gli spazi nelle righe precedenti così le barre ancorate occupano meno spazio. Le barre possono apparire fuori ordine.';
+
+  @override
   String get insertPagesTitle => 'Inserisci pagine';
 
   @override

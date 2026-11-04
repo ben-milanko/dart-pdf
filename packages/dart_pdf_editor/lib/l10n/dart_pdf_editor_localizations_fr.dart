@@ -2501,6 +2501,13 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Faire flotter les barres d’outils sur la page au lieu de les ancrer aux bords de la fenêtre';
 
   @override
+  String get tbPackToolbars => 'Compacter les barres d’outils';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Remplit les espaces des rangées précédentes pour que les barres ancrées prennent moins de place. Les barres peuvent apparaître dans le désordre.';
+
+  @override
   String get insertPagesTitle => 'Insérer des pages';
 
   @override

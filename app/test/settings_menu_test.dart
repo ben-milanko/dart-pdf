@@ -65,6 +65,8 @@ void main() {
     expect(prefs.locale, isNull);
     expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-language')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-language')));
     await tester.pumpAndSettle();
     // The menu lists each language by its native name; pick Spanish.
@@ -72,6 +74,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(prefs.locale, const Locale('es'));
+  });
+
+  testWidgets('settings switch the docked toolbars to tight packing and back',
+      (tester) async {
+    await openSettings(tester);
+    final pack = find.byKey(const ValueKey('settings-pack-toolbars'));
+    await tester.ensureVisible(pack);
+    await tester.pumpAndSettle();
+    // the current, in-order layout stays the default
+    expect(prefs.toolbarPackTightly, isFalse);
+    await tester.tap(pack);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarPackTightly, isTrue);
+    await tester.tap(pack);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarPackTightly, isFalse);
+
+    // floating toolbars have no rows to pack
+    prefs.toolbarFloating = true;
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(pack).onChanged, isNull);
   });
 
   testWidgets('settings offer default application setup', (tester) async {

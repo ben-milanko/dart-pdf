@@ -3181,6 +3181,14 @@
   "@tbFloatingToolbarsHint": {
     "description": "Subtitle explaining the Floating toolbars setting."
   },
+  "tbPackToolbars": "Pack toolbars tightly",
+  "@tbPackToolbars": {
+    "description": "Setting: pack the docked toolbars first-fit, so a later toolbar fills a gap left in an earlier row."
+  },
+  "tbPackToolbarsHint": "Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.",
+  "@tbPackToolbarsHint": {
+    "description": "Subtitle explaining the Pack toolbars tightly setting."
+  },
   "insertPagesTitle": "Insert pages",
   "@insertPagesTitle": {
     "description": "Title of the multi-document insert-pages dialog."

@@ -728,6 +728,8 @@
   "tbToolbarLayoutPropertiesHint": "La barre des propriétés réunit les actions de la sélection ainsi que les options et le style de l’outil.",
   "tbFloatingToolbars": "Barres d’outils flottantes",
   "tbFloatingToolbarsHint": "Faire flotter les barres d’outils sur la page au lieu de les ancrer aux bords de la fenêtre",
+  "tbPackToolbars": "Compacter les barres d’outils",
+  "tbPackToolbarsHint": "Remplit les espaces des rangées précédentes pour que les barres ancrées prennent moins de place. Les barres peuvent apparaître dans le désordre.",
   "insertPagesTitle": "Insérer des pages",
   "insertPagesFiles": "Fichiers",
   "insertPagesAddFiles": "Ajouter des fichiers…",

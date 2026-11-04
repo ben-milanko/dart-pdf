@@ -2455,6 +2455,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbFloatingToolbarsHint => '도구 모음을 창 가장자리에 도킹하지 않고 페이지 위에 띄웁니다';
 
   @override
+  String get tbPackToolbars => '도구 모음 촘촘하게 배치';
+
+  @override
+  String get tbPackToolbarsHint =>
+      '앞 줄의 빈 공간을 채워 고정된 도구 모음이 차지하는 공간을 줄입니다. 도구 모음 순서가 바뀔 수 있습니다.';
+
+  @override
   String get insertPagesTitle => '페이지 삽입';
 
   @override
