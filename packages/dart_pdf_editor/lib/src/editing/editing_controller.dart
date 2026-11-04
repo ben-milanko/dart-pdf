@@ -32,6 +32,7 @@ import 'models/prompts.dart';
 import 'page_currency.dart';
 import 'paste_routing.dart';
 import 'saved_annotation.dart';
+import 'selection_manipulation.dart';
 import 'signature_validation_worker.dart';
 import 'text_edit_session.dart';
 import 'thumbnail_cache.dart';
@@ -7825,19 +7826,15 @@ class PdfEditingController extends ChangeNotifier {
   /// user-chosen point justifies the position (the paste cascade): it
   /// keeps a strip this wide on the paper so repeats can never march the
   /// copies out of sight.
-  static const double pageTether = 24.0;
+  static const double pageTether = pdfPageTether;
 
   /// How far to move the interval [lo, hi] so at least [pageTether] of it
   /// stays inside [min, max] - the whole interval when it is shorter than
   /// the tether, and the whole of [min, max] when the page is shorter
   /// still. Already-tethered intervals do not move, so an interval that
   /// hangs off the edge keeps hanging off it.
-  static double _tetherShift(double lo, double hi, double min, double max) {
-    final keep = math.min(pageTether, math.min(hi - lo, max - min));
-    if (hi < min + keep) return min + keep - hi;
-    if (lo > max - keep) return max - keep - lo;
-    return 0;
-  }
+  static double _tetherShift(double lo, double hi, double min, double max) =>
+      pdfTetherShift(lo, hi, min, max);
 
   // ---------------------------------------------------------------------
   // restyle
@@ -8392,14 +8389,10 @@ class PdfEditingController extends ChangeNotifier {
     final annotationPage = selectedPage;
     final page = annotationPage ?? selectedElementPage;
     if (page == null) return;
-    // Mirror of PdfPageGeometry.toPagePoint: view y is down and /Rotate turns
-    // the page clockwise, so recover the page-space (y-up) delta per rotation.
-    final (dx, dy) = switch (_page(page).rotation % 360) {
-      90 => (screenDy, screenDx),
-      180 => (-screenDx, screenDy),
-      270 => (-screenDy, -screenDx),
-      _ => (screenDx, -screenDy),
-    };
+    // view y is down and /Rotate turns the page clockwise: the same
+    // mapping the drag preview and commit use
+    final (dx, dy) =
+        pdfViewDeltaToPage(_page(page).rotation, screenDx, screenDy);
     if (annotationPage != null) {
       moveSelected(dx, dy);
     } else {
@@ -9055,6 +9048,50 @@ class PdfEditingController extends ChangeNotifier {
         pageRotation: _page(_selected.last.$1).rotation,
       ),
     );
+  }
+
+  /// Commits a selection drag ([PdfSelectionDrag]'s commit): the one place
+  /// a drag's page-space result becomes an edit.
+  void applySelectionEdit(PdfSelectionEdit edit) {
+    switch (edit) {
+      case PdfMoveEdit(:final dx, :final dy, :final wholeCallout):
+        moveSelected(dx, dy, wholeCallout: wholeCallout);
+      case PdfRehomeEdit(:final page, :final dx, :final dy):
+        moveSelectedToPage(page, dx, dy);
+      case PdfElementMoveEdit(:final dx, :final dy):
+        moveSelectedElement(dx, dy);
+      case PdfElementRehomeEdit(
+          :final page,
+          :final sourceX,
+          :final sourceY,
+          :final targetX,
+          :final targetY
+        ):
+        moveSelectedElementToPage(page,
+            sourceX: sourceX,
+            sourceY: sourceY,
+            targetX: targetX,
+            targetY: targetY);
+      case PdfResizeEdit(:final rect, :final local, :final flipX, :final flipY):
+        if (local) {
+          resizeSelectedLocal(rect, flipX: flipX, flipY: flipY);
+        } else {
+          resizeSelected(rect, flipX: flipX, flipY: flipY);
+        }
+      case PdfRotateEdit(:final degrees):
+        rotateSelected(degrees);
+      case PdfReshapeEdit(:final handle, :final points):
+        switch (handle) {
+          case PdfCloudRegionHandle():
+            reshapeSelectedCalloutRegion(points);
+          case PdfCalloutTerminusHandle(:final leader):
+            reshapeSelectedCalloutTarget(edit.moved, leader: leader);
+          case PdfCalloutBaseHandle(:final leader):
+            reshapeSelectedCalloutBase(edit.moved, leader: leader);
+          case PdfLineVertexHandle():
+            reshapeSelectedLine(points);
+        }
+    }
   }
 
   /// Replaces the defining vertices of the selected Line, PolyLine, or
@@ -11109,11 +11146,7 @@ class PdfEditingController extends ChangeNotifier {
     // takes the dedicated [moveSelectedElementToPage] path instead.
     final bounds = element.bounds;
     if (bounds != null) {
-      final box = _page(selected.$1).cropBox;
-      dx += _tetherShift(
-          bounds.left + dx, bounds.right + dx, box.left, box.right);
-      dy += _tetherShift(
-          bounds.bottom + dy, bounds.top + dy, box.bottom, box.top);
+      (dx, dy) = pdfTetheredDelta(bounds, dx, dy, _page(selected.$1).cropBox);
       if (dx == 0 && dy == 0) return false;
     }
     var moved = 0;

@@ -55,6 +55,7 @@ export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_link.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_mode.dart';
+export 'src/editing/selection_manipulation.dart';
 export 'src/editing/text_edit_session.dart';
 export 'src/editing/editing_menu.dart';
 export 'src/editing/editing_page_clipboard.dart';
