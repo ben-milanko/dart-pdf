@@ -77,9 +77,9 @@ void main() {
 
     // The tune popup opens: it keeps the editor focused for the whole session
     // (both the commit-hold and the keep-focused window).
-    editing.beginEditingTextFocusHold();
-    editing.beginKeepEditingTextFocused();
-    expect(editing.shouldKeepEditingTextFocused, isTrue);
+    final session = editing.textEditSession!;
+    final holds = [session.holdCommit(), session.keepFocused()];
+    expect(session.keepsFocus, isTrue);
 
     // A control tap steals focus (as it does on desktop/web). The field takes
     // it straight back, so the selection - and its highlight - survives.
@@ -101,8 +101,9 @@ void main() {
     expect(field.focusNode!.hasFocus, isTrue,
         reason: 'the highlight survives repeated edits from the popup');
 
-    editing.endKeepEditingTextFocused();
-    editing.endEditingTextFocusHold();
+    for (final hold in holds.reversed) {
+      hold.release();
+    }
     await tester.pump();
   });
 
@@ -139,8 +140,8 @@ void main() {
     await tester.pump();
 
     final field = await openEditorWithSelection(tester, editing);
-    editing.beginEditingTextFocusHold();
-    editing.beginKeepEditingTextFocused();
+    final session = editing.textEditSession!;
+    final holds = [session.holdCommit(), session.keepFocused()];
 
     // focus moves to the popup's value field: the editor must NOT snatch it
     // back, or the user could never type into the popup
@@ -153,19 +154,27 @@ void main() {
     expect(find.byKey(editorKey), findsOneWidget,
         reason: 'the session stays open (held), just not focused');
 
-    editing.endKeepEditingTextFocused();
-    editing.endEditingTextFocusHold();
+    for (final hold in holds.reversed) {
+      hold.release();
+    }
     await tester.pump();
   });
 
   testWidgets('keeping focus is only active while editing text',
       (tester) async {
     final (editing, _) = await pumpEditor(tester);
-    // no editor open: the window is inert
-    editing.beginKeepEditingTextFocused();
-    expect(editing.shouldKeepEditingTextFocused, isFalse,
-        reason: 'nothing to keep focused when no text editor is open');
-    editing.endKeepEditingTextFocused();
+    final field = await openEditorWithSelection(tester, editing);
+    final session = editing.textEditSession!;
+    final hold = session.keepFocused();
+    expect(session.keepsFocus, isTrue);
+    // the editor closes: the hold is inert, nothing to keep focused
+    expect(field.focusNode!.hasFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(editing.textEditSession, isNull);
+    expect(session.keepsFocus, isFalse,
+        reason: 'nothing to keep focused once the text editor closed');
+    hold.release();
   });
 
   testWidgets('opening the tune popup keeps the editor focused',
@@ -173,7 +182,7 @@ void main() {
     final (editing, _) = await pumpEditor(tester, withToolbar: true);
     await openEditorWithSelection(tester, editing);
 
-    expect(editing.shouldKeepEditingTextFocused, isFalse);
+    expect(editing.textEditSession!.keepsFocus, isFalse);
     // the selected free text's tune trigger is the font chip ("Aa …")
     await tester.tap(find.text('Aa'));
     await tester.pump();
@@ -182,11 +191,11 @@ void main() {
     // the tune popup is open and it holds the editing field's focus so the
     // selection highlight survives the open on platforms that blur the field
     expect(find.byKey(const ValueKey('pdf-text-fill-1')), findsOneWidget);
-    expect(editing.shouldKeepEditingTextFocused, isTrue);
+    expect(editing.textEditSession!.keepsFocus, isTrue);
 
     // closing the popup releases the window
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
-    expect(editing.shouldKeepEditingTextFocused, isFalse);
+    expect(editing.textEditSession?.keepsFocus ?? false, isFalse);
   });
 }
