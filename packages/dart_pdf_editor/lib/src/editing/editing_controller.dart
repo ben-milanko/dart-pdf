@@ -29,6 +29,7 @@ import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/prompts.dart';
 import 'page_currency.dart';
+import 'paste_routing.dart';
 import 'saved_annotation.dart';
 import 'signature_validation_worker.dart';
 import 'thumbnail_cache.dart';
@@ -850,6 +851,17 @@ class PdfEditingController extends ChangeNotifier {
   /// a session. See [copySelectedAnnotations], [cutSelectedAnnotations], and
   /// [pasteAnnotations].
   final PdfAnnotationSnapshotClipboard annotationClipboard;
+
+  /// [snapshotClipboard] and [annotationClipboard] as one exclusive pair:
+  /// every copy goes through it so the most recent one wins Paste.
+  late final PdfInAppClipboard _clipboard =
+      PdfInAppClipboard(snapshotClipboard, annotationClipboard);
+
+  /// What an in-app Paste would place - [PdfPasteSource.snapshot] or
+  /// [PdfPasteSource.annotations] - or null when neither clipboard holds
+  /// anything. [PdfPasteRouter] owns the full order, system clipboard
+  /// included.
+  PdfPasteSource? get inAppPasteSource => _clipboard.next;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -4085,8 +4097,7 @@ class PdfEditingController extends ChangeNotifier {
   /// over this newer text copy when Paste returns to a PDF page.
   Future<void> copyTableCellsText(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
-    annotationClipboard.clear();
-    snapshotClipboard.clear();
+    _clipboard.clear();
     pageClipboard.clear();
   }
 
@@ -7189,12 +7200,11 @@ class PdfEditingController extends ChangeNotifier {
     clearAnnotationSelection();
     clearElementSelection();
     _activeSavedAnnotationId = current.id;
-    annotationClipboard.set(
+    _clipboard.holdAnnotations(
       [current.snapshot],
       owner: current,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     notifyListeners();
     return true;
   }
@@ -7216,12 +7226,11 @@ class PdfEditingController extends ChangeNotifier {
     }
     // Refill defensively: another tab may have replaced the shared clipboard
     // since this item was armed.
-    annotationClipboard.set(
+    _clipboard.holdAnnotations(
       [annotation.snapshot],
       owner: annotation,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     return pasteAnnotations(pageIndex, at: (x, y), selectPasted: false);
   }
 
@@ -7231,12 +7240,11 @@ class PdfEditingController extends ChangeNotifier {
     if (!savedAnnotations.any((entry) => entry.id == annotation.id)) {
       return false;
     }
-    annotationClipboard.set(
+    _clipboard.holdAnnotations(
       [annotation.snapshot],
       owner: annotation,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     notifyListeners();
     return true;
   }
@@ -7276,12 +7284,11 @@ class PdfEditingController extends ChangeNotifier {
       }
     }
     if (snapshots.isEmpty) return 0;
-    annotationClipboard.set(snapshots,
+    // the most recent copy wins ⌘V (see [copyVectorSnapshot])
+    _clipboard.holdAnnotations(snapshots,
         owner: this,
         sourcePage: _selected.last.$1,
         groups: _snapshotGroups(sourceSlots));
-    // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    snapshotClipboard.clear();
     notifyListeners();
     return snapshots.length;
   }
@@ -7591,8 +7598,7 @@ class PdfEditingController extends ChangeNotifier {
     }
     _importedSnapshotBytes = Uint8List.fromList(pdfBytes);
     _importedSnapshot = snapshot;
-    snapshotClipboard.set(snapshot);
-    annotationClipboard.clear();
+    _clipboard.holdSnapshot(snapshot);
     return pasteSnapshot(pageIndex, at: at);
   }
 
@@ -7621,8 +7627,7 @@ class PdfEditingController extends ChangeNotifier {
     // publish to the shared clipboard; paste resets its per-document
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).
-    snapshotClipboard.set(snapshot);
-    annotationClipboard.clear();
+    _clipboard.holdSnapshot(snapshot);
     notifyListeners();
     return snapshot;
   }

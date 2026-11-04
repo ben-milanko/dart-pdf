@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Route ⌘V and the context menu's Paste through one priority order (`PdfPasteRouter`), and keep the in-app snapshot and annotation clipboards exclusive in one place. Add `PdfEditingController.inAppPasteSource`. A touch long-press on empty page area now also opens the paste menu when a vector snapshot is on the clipboard.
+- Fix pasting a copied screenshot with ⌘V/Ctrl+V on the web. The paste key now also reaches the browser, and its paste event supplies the clipboard image and text with no clipboard-read permission. A host without its own image or text reader gets this by default, and `pdfBrowserPaste()` hands the same data to hosts that have one.
 - Keep zoomed-region rendering selective on CAD sheets that explicitly disable overprint, avoiding full-sheet replay for each detail tile.
 
 ## 14.0.0
