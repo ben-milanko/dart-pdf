@@ -26,6 +26,7 @@ import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'doc_scan.dart';
 import 'document_tab.dart';
+import 'document_tabs.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
@@ -369,16 +370,19 @@ class _EditorScreenState extends State<EditorScreen>
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
 
-  /// How many tabs at the head of [_tabs] were put there by startup restore
-  /// (recovered unsaved work, then the last session's documents).
-  ///
-  /// Restore races the OS file-open that launched the app: on macOS the file
-  /// arrives on the warm `openFile` stream whenever the runner finishes
-  /// building its payload, which can land before, during, or after the store
-  /// read. Restored tabs therefore slot in at this index rather than at the
-  /// end, so the document the user actually double-clicked stays last in the
-  /// strip - and keeps focus (see [_addTab]).
-  int _restoredTabs = 0;
+  /// The open tabs and which one is active. Every change notifies
+  /// [_onTabsChanged], which rebuilds and persists the session.
+  late final DocumentTabs _tabsModel = DocumentTabs()
+    ..addListener(_onTabsChanged);
+
+  List<DocumentTab> get _tabs => _tabsModel.tabs;
+  int get _activeIndex => _tabsModel.activeIndex;
+
+  void _onTabsChanged() {
+    if (!mounted) return;
+    setState(() {});
+    unawaited(_persistSession());
+  }
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
@@ -409,8 +413,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// insertion marker says everything, so the full-window hint steps aside.
   bool _draggingOverThumbnails = false;
 
-  final List<DocumentTab> _tabs = [];
-  int _activeIndex = 0;
   // The tab strip's context, for its on-screen geometry. Not a GlobalKey:
   // the strip lives in the app bar, which an editable document draws inside
   // the editor (one header) and any other tab in the Scaffold - switching
@@ -456,8 +458,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// True while the command palette is up, so ⌘K can't stack copies.
   bool _paletteOpen = false;
 
-  DocumentTab? get _active =>
-      _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+  DocumentTab? get _active => _tabsModel.active;
 
   /// Whole-app read-only toggle: swaps [PdfEditorView] for [PdfReader].
   bool _readOnly = false;
@@ -761,9 +762,9 @@ class _EditorScreenState extends State<EditorScreen>
     // Detaches only - the mirrored records stay, so an editor torn down with
     // dirty tabs (a crash, a forced quit) can still hand the work back.
     _autosave.dispose();
-    for (final tab in _tabs) {
-      tab.dispose();
-    }
+    _tabsModel
+      ..removeListener(_onTabsChanged)
+      ..dispose();
     _recents.dispose();
     if (widget.recentThumbnails == null) _recentThumbnails.dispose();
     _viewMode.dispose();
@@ -1133,19 +1134,14 @@ class _EditorScreenState extends State<EditorScreen>
     if (!mounted) return false;
     try {
       final tab = _tabFromHandoff(handoff);
-      final index = insertionIndex.clamp(0, _tabs.length).toInt();
-      setState(() {
-        _heldTabWidth = null;
-        _tabs.insert(index, tab);
-        _activeIndex = index;
-      });
+      _heldTabWidth = null;
+      _tabsModel.insert(insertionIndex, tab);
       _recents.add(
         title: handoff.title,
         path: handoff.originPath,
         cachePath: handoff.cachePath,
         bookmark: handoff.originBookmark,
       );
-      unawaited(_persistSession());
       return true;
     } catch (error) {
       AppDevTools.instance.addLog(
@@ -1280,32 +1276,12 @@ class _EditorScreenState extends State<EditorScreen>
     return 0;
   }
 
-  /// Adds [tab] to the strip and makes it active.
-  ///
-  /// A tab added by startup restore ([restored]) is the exception on both
-  /// counts: it joins the restored block at the head of the strip instead of
-  /// the end, and it takes focus only while nothing else is open. A document
-  /// the user asked for - the file the OS launched us with - keeps its place
-  /// at the end and stays the one on screen, whichever order the two
-  /// asynchronous sources happen to resolve in.
+  /// Adds [tab] to the strip and makes it active - or, from startup restore
+  /// ([restored]), to the restored block (see [DocumentTabs.add]).
   void _addTab(DocumentTab tab, {bool restored = false}) {
-    setState(() {
-      // A new tab shrinks the others to fit; drop any close-streak width hold.
-      _heldTabWidth = null;
-      if (!restored) {
-        _tabs.add(tab);
-        _activeIndex = _tabs.length - 1;
-        return;
-      }
-      final at = _restoredTabs.clamp(0, _tabs.length);
-      // Anything at or past the restored block was opened explicitly this
-      // launch; if one of those is active it stays active, just shifted along.
-      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
-      _tabs.insert(at, tab);
-      _restoredTabs = at + 1;
-      _activeIndex = userTabActive ? _activeIndex + 1 : at;
-    });
-    unawaited(_persistSession());
+    // A new tab shrinks the others to fit; drop any close-streak width hold.
+    _heldTabWidth = null;
+    _tabsModel.add(tab, restored: restored);
   }
 
   /// Releases the close-streak width hold, letting the tabs animate back out to
@@ -1331,21 +1307,12 @@ class _EditorScreenState extends State<EditorScreen>
     return tab;
   }
 
-  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
-    final index = _tabs.indexOf(loading);
-    if (index == -1) {
-      replacement.dispose();
-      return false;
-    }
-    // Swap in place, leaving the selection alone: the placeholder is normally
-    // the active tab already, and when it isn't - a session restore finishing
-    // behind the file the OS launched us with - stealing focus here would undo
-    // the ordering _addTab just got right.
-    setState(() => _tabs[index] = replacement);
-    loading.dispose();
-    unawaited(_persistSession());
-    return true;
-  }
+  // Swaps in place, leaving the selection alone: the placeholder is normally
+  // the active tab already, and when it isn't - a session restore finishing
+  // behind the file the OS launched us with - stealing focus here would undo
+  // the ordering _addTab just got right.
+  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) =>
+      _tabsModel.replace(loading, replacement);
 
   Future<void> _openLoadedBytes(
     Future<Uint8List> bytesFuture, {
@@ -1469,25 +1436,15 @@ class _EditorScreenState extends State<EditorScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
-      if (index == -1 || bytes == null) return;
+      if (!_tabsModel.contains(tab) || bytes == null) return;
       AppDevTools.instance
           .addLog('open-trace: materializing deferred "${tab.title}" '
               '— building session over ${bytes.length} B');
-      final built = DocumentTab.document(
-        title: tab.title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: tab.originPath,
-        originBookmark: tab.originBookmark,
-        cachePath: tab.cachePath,
-      );
-      setState(() => _tabs[index] = built);
+      _tabsModel.replace(
+          tab, DocumentTab.promoted(tab, bytes: bytes, preferences: _prefs));
       AppDevTools.instance.addLog(
           'open-trace: materialized deferred "${tab.title}" — session ready');
-      tab.dispose();
-      unawaited(_persistSession());
     });
   }
 
@@ -1863,15 +1820,13 @@ class _EditorScreenState extends State<EditorScreen>
         _swapPreviewToDocument(preview, full);
       } catch (error2) {
         if (!mounted) return;
-        final index = _tabs.indexOf(preview);
-        if (index == -1) return;
-        setState(() => _tabs[index] = DocumentTab.error(
+        if (!_tabsModel.contains(preview)) return;
+        _tabsModel.replace(
+            preview,
+            DocumentTab.error(
               title: preview.title,
               error: _openFailureDetail(preview.title, error2),
             ));
-        // The failed preview remains mounted until the replacement frame,
-        // just as it does on the successful full-document swap below.
-        WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
       }
     }
   }
@@ -1880,17 +1835,13 @@ class _EditorScreenState extends State<EditorScreen>
   /// from the complete [bytes], in place (keeping the tab's position and, if it
   /// is active, focus). Returns false if the tab was closed meanwhile.
   bool _swapPreviewToDocument(DocumentTab preview, Uint8List bytes) {
-    final index = _tabs.indexOf(preview);
-    if (index == -1) return false;
-    final built = DocumentTab.document(
-      title: preview.title,
-      bytes: bytes,
-      preferences: _prefs,
-      originPath: preview.originPath,
-      originBookmark: preview.originBookmark,
-      cachePath: preview.cachePath,
-    );
-    setState(() => _tabs[index] = built);
+    if (!_tabsModel.contains(preview)) return false;
+    final built =
+        DocumentTab.promoted(preview, bytes: bytes, preferences: _prefs);
+    // The preview's live viewer is disposed only after this frame swaps the
+    // read-only PdfReader out of the tree - disposing its controller while the
+    // widget is still mounted would fault its in-flight render.
+    _tabsModel.replace(preview, built);
     // A mobile progressive open (#364) has no reopenable origin - the reference
     // token dies with the pick - so snapshot the now-complete bytes into the
     // app's private store, behind the first paint, so Recent/restore reopen
@@ -1902,11 +1853,6 @@ class _EditorScreenState extends State<EditorScreen>
         canCacheRecentPdfs) {
       unawaited(_snapshotOpenedDocument(built, bytes));
     }
-    // Dispose the preview's live viewer only after this frame swaps the
-    // read-only PdfReader out of the tree - disposing its controller while the
-    // widget is still mounted would fault its in-flight render.
-    WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
-    unawaited(_persistSession());
     return true;
   }
 
@@ -2309,20 +2255,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        final tab = _tabs[existing];
-        // Only a restored tab the user has never opened moves: it is still a
-        // placeholder, so re-slotting it is invisible. A document already on
-        // its feet keeps its place - the user put it there.
-        final move = existing < _restoredTabs &&
-            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
-        setState(() {
-          if (move) {
-            _restoredTabs--;
-            _tabs.add(_tabs.removeAt(existing));
-          }
-          _activeIndex = move ? _tabs.length - 1 : existing;
-        });
-        if (move) unawaited(_persistSession());
+        _tabsModel.focusOpened(_tabs[existing]);
         return;
       }
     }
@@ -2880,14 +2813,11 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final other = await pickPdfBytes(l10n.fileTypePdf);
       if (other == null) return;
-      setState(() {
-        _tabs.add(DocumentTab.comparison(
-          title: l10n.editorCompareTitle(tab!.title),
-          before: current,
-          after: other,
-        ));
-        _activeIndex = _tabs.length - 1;
-      });
+      _tabsModel.add(DocumentTab.comparison(
+        title: l10n.editorCompareTitle(tab!.title),
+        before: current,
+        after: other,
+      ));
     } catch (e) {
       _openError(l10n.editorCompareFailedTitle,
           l10n.editorCouldNotOpenSecond(openErrorSummary(e)));
@@ -3071,7 +3001,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// Removes tabs after their contents have either been discarded or handed
   /// safely to another window.
   void _removeTabs(List<DocumentTab> targets) {
-    final active = _active;
     // Chrome-style width hold: while the cursor is over the strip, keep the
     // surviving tabs at their current width so the next close button lands
     // under the cursor. `??=` preserves the width from the first close of a
@@ -3079,30 +3008,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (_tabStripHovered && _lastNaturalTabWidth > 0) {
       _heldTabWidth ??= _lastNaturalTabWidth;
     }
-    setState(() {
-      for (final tab in targets) {
-        final index = _tabs.indexOf(tab);
-        if (index == -1) continue;
-        // Keep the restored-block count honest: a session document whose file
-        // has vanished drops its placeholder mid-restore.
-        if (index < _restoredTabs) _restoredTabs--;
-        _tabs.removeAt(index);
-      }
-      // Keep the previously active document active when it survived.
-      final keep = active == null ? -1 : _tabs.indexOf(active);
-      if (keep >= 0) {
-        _activeIndex = keep;
-      } else {
-        if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
-        if (_activeIndex < 0) _activeIndex = 0;
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final tab in targets) {
-        tab.dispose();
-      }
-    });
-    unawaited(_persistSession());
+    _tabsModel.remove(targets);
   }
 
   void _moveTabToNewWindow(DocumentTab tab) {
@@ -5434,7 +5340,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
 
     void activate(int index) {
-      setState(() => _activeIndex = index);
+      _tabsModel.activate(index);
       Navigator.of(overlayContext).pop();
     }
 
@@ -5489,15 +5395,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
   /// currently active document active wherever it lands. [newIndex] is already
   /// adjusted for the removed item (the `onReorderItem` convention).
-  void _reorderTabs(int oldIndex, int newIndex) {
-    setState(() {
-      final active = _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
-      final moved = _tabs.removeAt(oldIndex);
-      _tabs.insert(newIndex, moved);
-      _activeIndex = _tabs.indexOf(active);
-    });
-    unawaited(_persistSession());
-  }
+  void _reorderTabs(int oldIndex, int newIndex) =>
+      _tabsModel.reorder(oldIndex, newIndex);
 
   Widget _buildTabStrip() {
     final coordinator = _registeredTabDragCoordinator;
@@ -5735,7 +5634,7 @@ class _EditorScreenState extends State<EditorScreen>
             if (selected && _usesMobileShare && tab.session != null) {
               unawaited(_renameDocument(tab));
             } else {
-              setState(() => _activeIndex = index);
+              _tabsModel.activate(index);
             }
           },
           onSecondaryTapUp: (details) =>
