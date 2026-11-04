@@ -4024,13 +4024,14 @@ class _EditorScreenState extends State<EditorScreen>
                 const Icon(Icons.arrow_right),
               ],
             ));
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
     return [
-      PopupMenuItem<VoidCallback>(
+      _SubmenuMenuItem(
+        key: const ValueKey('open-recent-submenu'),
         height: _appMenuItemHeight(),
-        value: () {},
-        padding: EdgeInsets.zero,
+        open: () => buttonKey.currentState?.showButtonMenu(),
         child: PopupMenuButton<VoidCallback>(
-          key: const ValueKey('open-recent-submenu'),
+          key: buttonKey,
           tooltip: appL10n(context).editorOpenRecent,
           onSelected: (action) {
             action();
@@ -4120,33 +4121,35 @@ class _EditorScreenState extends State<EditorScreen>
     required IconData icon,
     required String title,
     required List<PopupMenuEntry<VoidCallback>> items,
-  }) =>
-      PopupMenuItem<VoidCallback>(
-        height: _appMenuItemHeight(),
-        value: () {},
-        padding: EdgeInsets.zero,
-        child: PopupMenuButton<VoidCallback>(
-          key: ValueKey('menu-group-$id'),
-          tooltip: title,
-          onSelected: (action) {
-            if (Navigator.of(menuContext).canPop()) {
-              Navigator.of(menuContext).pop();
-            }
-            action();
-          },
-          itemBuilder: (_) => items,
-          // as Open Recent: no item padding so the button fills the row,
-          // the content inset to line up with the plain rows
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _appMenuTile(
-              icon: icon,
-              title: title,
-              trailing: const Icon(Icons.arrow_right),
-            ),
+  }) {
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
+    return _SubmenuMenuItem(
+      key: ValueKey('menu-group-$id'),
+      height: _appMenuItemHeight(),
+      open: () => buttonKey.currentState?.showButtonMenu(),
+      child: PopupMenuButton<VoidCallback>(
+        key: buttonKey,
+        tooltip: title,
+        onSelected: (action) {
+          if (Navigator.of(menuContext).canPop()) {
+            Navigator.of(menuContext).pop();
+          }
+          action();
+        },
+        itemBuilder: (_) => items,
+        // as Open Recent: no item padding so the button fills the row,
+        // the content inset to line up with the plain rows
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: _appMenuTile(
+            icon: icon,
+            title: title,
+            trailing: const Icon(Icons.arrow_right),
           ),
         ),
-      );
+      ),
+    );
+  }
 
   /// The app menu's plain rows, grouped by the section they belong to.
   ///
@@ -4489,6 +4492,12 @@ class _EditorScreenState extends State<EditorScreen>
     final session = tab?.session;
     final hasDocument = session != null;
     final commands = <AppCommand>[];
+    List<String> searchTerms(String id) => switch (id) {
+          'menu-reduce-file-size' => l.paletteTermsReduceFileSize.split(';'),
+          'tool-freeText' => l.paletteTermsAddText.split(';'),
+          'tool-signature' => l.paletteTermsSignature.split(';'),
+          _ => const [],
+        };
 
     for (final action in [
       ..._fileActions(),
@@ -4499,6 +4508,7 @@ class _EditorScreenState extends State<EditorScreen>
       final blockedByReadOnly = action.hiddenWhenReadOnly && _readOnly;
       commands.add(AppCommand(
         id: 'menu-${action.id}',
+        searchTerms: searchTerms('menu-${action.id}'),
         label: action.title,
         icon: action.icon,
         source: l.paletteSourceMenu,
@@ -4555,6 +4565,7 @@ class _EditorScreenState extends State<EditorScreen>
         final blocked = tool && _readOnly;
         commands.add(AppCommand(
           id: command.id,
+          searchTerms: searchTerms(command.id),
           label: command.label(context),
           icon: command.icon,
           source: switch (command.category) {
@@ -4581,6 +4592,7 @@ class _EditorScreenState extends State<EditorScreen>
               ? 'tool-${tool.name}'
               : 'markup-${entry.markup!.name}',
           label: entry.label(context),
+          searchTerms: searchTerms('tool-${tool?.name}'),
           icon: entry.icon,
           source: l.paletteSourceTool(group.label(context)),
           shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
@@ -7300,6 +7312,30 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       ),
     );
   }
+}
+
+/// Both the outer menu item's semantic action and its nested button must
+/// open the submenu. PopupMenuItem's default action pops the parent route;
+/// MergeSemantics otherwise makes assistive activation close the whole menu.
+class _SubmenuMenuItem extends PopupMenuItem<VoidCallback> {
+  const _SubmenuMenuItem({
+    super.key,
+    required super.height,
+    required super.child,
+    required this.open,
+  }) : super(padding: EdgeInsets.zero);
+
+  final VoidCallback open;
+
+  @override
+  PopupMenuItemState<VoidCallback, _SubmenuMenuItem> createState() =>
+      _SubmenuMenuItemState();
+}
+
+class _SubmenuMenuItemState
+    extends PopupMenuItemState<VoidCallback, _SubmenuMenuItem> {
+  @override
+  void handleTap() => widget.open();
 }
 
 /// One plain row of the app menu: what it says, what it runs, and the state

@@ -389,5 +389,8 @@
   "editorImportedFormData": "Formulardaten importiert – Felder: {fields}, Kommentare: {comments}",
   "editorImportFormDataNothing": "Nichts in dieser Datei passt zu diesem Dokument",
   "editorCouldNotImportFormData": "{name} konnte nicht importiert werden: {error}",
-  "editorMenuFormData": "Formulardaten und Kommentare"
+  "editorMenuFormData": "Formulardaten und Kommentare",
+  "paletteTermsReduceFileSize": "komprimieren;verkleinern;kleiner machen;PDF komprimieren",
+  "paletteTermsAddText": "Text hinzufügen;Text eingeben;Textfeld",
+  "paletteTermsSignature": "unterschreiben;Unterschrift zeichnen;handschriftliche Unterschrift"
 }

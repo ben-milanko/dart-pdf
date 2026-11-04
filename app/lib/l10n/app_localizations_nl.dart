@@ -1523,4 +1523,15 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Formuliergegevens en opmerkingen';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'comprimeren;verkleinen;kleiner maken;PDF comprimeren';
+
+  @override
+  String get paletteTermsAddText => 'tekst toevoegen;tekst typen;tekstvak';
+
+  @override
+  String get paletteTermsSignature =>
+      'ondertekenen;handtekening tekenen;handgeschreven handtekening';
 }

@@ -389,5 +389,8 @@
   "editorImportedFormData": "Form verileri içe aktarıldı – alanlar: {fields}, yorumlar: {comments}",
   "editorImportFormDataNothing": "Bu dosyadaki hiçbir şey bu belgeyle eşleşmedi",
   "editorCouldNotImportFormData": "{name} içe aktarılamadı: {error}",
-  "editorMenuFormData": "Form verileri ve yorumlar"
+  "editorMenuFormData": "Form verileri ve yorumlar",
+  "paletteTermsReduceFileSize": "sıkıştır;küçült;boyutu azalt;PDF sıkıştır",
+  "paletteTermsAddText": "metin ekle;metin yaz;metin kutusu",
+  "paletteTermsSignature": "imzala;imza çiz;el yazısı imza"
 }

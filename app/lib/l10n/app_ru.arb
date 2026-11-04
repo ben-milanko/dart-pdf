@@ -389,5 +389,8 @@
   "editorImportedFormData": "Данные формы импортированы — поля: {fields}, комментарии: {comments}",
   "editorImportFormDataNothing": "В этом файле нет ничего, что подходит к этому документу",
   "editorCouldNotImportFormData": "Не удалось импортировать {name}: {error}",
-  "editorMenuFormData": "Данные формы и комментарии"
+  "editorMenuFormData": "Данные формы и комментарии",
+  "paletteTermsReduceFileSize": "сжать;уменьшить;уменьшить размер;сжать PDF",
+  "paletteTermsAddText": "добавить текст;ввести текст;текстовое поле",
+  "paletteTermsSignature": "подписать;нарисовать подпись;рукописная подпись"
 }

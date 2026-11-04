@@ -1473,4 +1473,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get editorMenuFormData => '양식 데이터 및 주석';
+
+  @override
+  String get paletteTermsReduceFileSize => '압축;축소;크기 줄이기;PDF 압축';
+
+  @override
+  String get paletteTermsAddText => '텍스트 추가;글자 입력;텍스트 상자';
+
+  @override
+  String get paletteTermsSignature => '서명;서명 그리기;손글씨 서명';
 }

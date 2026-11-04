@@ -389,5 +389,8 @@
   "editorImportedFormData": "Formuliergegevens geïmporteerd – velden: {fields}, opmerkingen: {comments}",
   "editorImportFormDataNothing": "Niets in dat bestand komt overeen met dit document",
   "editorCouldNotImportFormData": "Kan {name} niet importeren: {error}",
-  "editorMenuFormData": "Formuliergegevens en opmerkingen"
+  "editorMenuFormData": "Formuliergegevens en opmerkingen",
+  "paletteTermsReduceFileSize": "comprimeren;verkleinen;kleiner maken;PDF comprimeren",
+  "paletteTermsAddText": "tekst toevoegen;tekst typen;tekstvak",
+  "paletteTermsSignature": "ondertekenen;handtekening tekenen;handgeschreven handtekening"
 }

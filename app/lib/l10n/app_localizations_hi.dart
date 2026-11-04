@@ -1510,4 +1510,16 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'फ़ॉर्म डेटा और टिप्पणियाँ';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'संपीड़ित करें;छोटा करें;आकार कम करें;PDF संपीड़ित करें';
+
+  @override
+  String get paletteTermsAddText =>
+      'टेक्स्ट जोड़ें;पाठ जोड़ें;टेक्स्ट लिखें;टेक्स्ट बॉक्स';
+
+  @override
+  String get paletteTermsSignature =>
+      'हस्ताक्षर करें;हस्ताक्षर बनाएँ;हस्तलिखित हस्ताक्षर';
 }
