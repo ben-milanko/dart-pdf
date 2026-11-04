@@ -125,6 +125,24 @@ class DocumentTab {
         compareAfter = null,
         isLoading = false;
 
+  /// The editable document a placeholder, [deferred] or [preview] tab
+  /// becomes once its complete [bytes] are in hand, carrying its title and
+  /// save destination forward. A mobile reference token is not carried: it
+  /// only serves the progressive first paint, and the promoted tab is backed
+  /// by its snapshot ([cachePath]) instead.
+  DocumentTab.promoted(
+    DocumentTab from, {
+    required Uint8List bytes,
+    required PdfEditingPreferences preferences,
+  }) : this.document(
+          title: from.title,
+          bytes: bytes,
+          preferences: preferences,
+          originPath: from.originPath,
+          originBookmark: from.originBookmark,
+          cachePath: from.cachePath,
+        );
+
   /// A document whose bytes are already in hand but not yet parsed: the
   /// expensive [PdfEditingController] construction (a synchronous PDF open,
   /// noticeable for large files) is postponed until this tab is first
@@ -346,8 +364,17 @@ class DocumentTab {
   }
 
   /// A stable identity per open document, used by the shells to remember the
-  /// scroll position and zoom across reopens.
-  String get documentId => title;
+  /// scroll position and zoom across reopens: the file it was opened from
+  /// (or its private snapshot), so two different files that share a name do
+  /// not share a remembered viewport. A document with neither falls back to
+  /// its title.
+  String get documentId {
+    final path = originPath;
+    if (path != null && path.isNotEmpty) return path;
+    final cache = cachePath;
+    if (cache != null && cache.isNotEmpty) return cache;
+    return title;
+  }
 
   void dispose() {
     // Closing a still-loading preview cancels its ranged fetch and background
