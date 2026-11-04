@@ -1756,7 +1756,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           if (labelled) {
             return _LabeledToolButton(
               key: key,
-              iconOnly: _sideStrip,
+              iconOnly: _iconOnlyLabels,
               icon: command.icon,
               label: command.label(context),
               tooltip: command.tooltipOf(context),
@@ -1812,6 +1812,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// labelled buttons go icon-only (the tooltip keeps the name) and the
   /// wide inline controls stack.
   bool get _sideStrip => _stripAxis == Axis.vertical;
+
+  /// Whether the labelled tool buttons (Edit's tools, Color, Flatten,
+  /// Totals) drop their text for a bare icon, leaving the name to the
+  /// tooltip: on a side strip, which has no width for it, and in every
+  /// docked bar - there every group's toolbar is out at once, and the
+  /// outlined labels alone took Edit to ~800px, a toolbar row of its own
+  /// (three rows at 1280px, five at 800px with Flatten clipped off the
+  /// edge). Icon-only, the docked area fits two rows from 1280px, like the
+  /// icon toolbars of other desktop editors. Floating strips show one group
+  /// at a time and keep the labels.
+  bool get _iconOnlyLabels => _sideStrip || _docked;
 
   Widget _stripFlex(List<Widget> children) => Flex(
         direction: _stripAxis,
@@ -1892,6 +1903,26 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   ThemeData _denseTheme(ThemeData source) {
     if (!identical(source, _denseSource)) {
       _denseSource = source;
+      // the armed tool is a tinted tile, the Hand/Select pill's active
+      // fill: with every group's toolbar out at once, a recoloured icon
+      // alone is lost among ~45 others. A host's own selected background
+      // (its icon button theme) still wins.
+      final primary = source.colorScheme.primary;
+      final selected = ButtonStyle(
+        // a 38px tile rather than 40 (the glyph keeps its 24px): two pixels
+        // a button is what lets the docked toolbars fit two rows at 1280px
+        // instead of three. An M3 icon button ignores the theme's density
+        // and holds a 40px minimum of its own, so the minimum goes too.
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(7)),
+        minimumSize: const WidgetStatePropertyAll(Size.square(38)),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) &&
+                  !states.contains(WidgetState.disabled)
+              ? primary.withValues(alpha: 0.15)
+              : null,
+        ),
+      );
+      final hostStyle = source.iconButtonTheme.style;
       // the densest standard setting: 32px buttons, as desktop editors'
       // docked toolbars have
       _dense = source.copyWith(
@@ -1900,6 +1931,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           vertical: VisualDensity.minimumDensity,
         ),
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        iconButtonTheme: IconButtonThemeData(
+          style: hostStyle == null ? selected : hostStyle.merge(selected),
+        ),
       );
     }
     return _dense!;
@@ -2153,7 +2187,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       PdfEditToolGroup.edit when widget.showFlatten => [
           _LabeledToolButton(
             key: const ValueKey('pdf-flatten-all'),
-            iconOnly: !_docked && _sideStrip,
+            iconOnly: _iconOnlyLabels,
             icon: Icons.layers_outlined,
             label: l10n.tbFlattenLabel,
             tooltip: l10n.tbFlattenAnnotationsTooltip,
@@ -2233,16 +2267,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             current: widget.styleBarDock,
           ),
         content ??
-            Padding(
-              padding: _stripAxis == Axis.horizontal
-                  ? const EdgeInsets.symmetric(horizontal: 6, vertical: 7)
-                  : const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-              child: _StripLabel(
-                l10n.propPropertiesTitle,
-                hint: l10n.tbPropertiesHint,
-                axis: _stripAxis,
-              ),
-            ),
+            (_stripAxis == Axis.horizontal
+                ? _PropertiesEmptyLabel(
+                    title: l10n.propPropertiesTitle,
+                    hint: l10n.tbPropertiesHint,
+                  )
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                    child: _StripLabel(
+                      l10n.propPropertiesTitle,
+                      hint: l10n.tbPropertiesHint,
+                      axis: _stripAxis,
+                    ),
+                  )),
       ]),
     );
   }
@@ -2781,7 +2819,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         final tool = entry.tool!;
         toolButtons.add(_LabeledToolButton(
           key: ValueKey('pdf-tool-${tool.name}'),
-          iconOnly: _sideStrip,
+          iconOnly: _iconOnlyLabels,
           icon: entry.icon,
           label: _toolName(context, tool),
           tooltip: _entryTip(context, entry),
@@ -2821,7 +2859,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (group.kind == PdfEditToolGroup.edit && _showColorProcessingAction) {
       toolButtons.add(_LabeledToolButton(
         key: const ValueKey('pdf-toolbar-color-processing'),
-        iconOnly: _sideStrip,
+        iconOnly: _iconOnlyLabels,
         icon: Icons.palette_outlined,
         label: pdfL10n(context).tbColorLabel,
         tooltip: pdfL10n(context).tbColorProcessingTooltip,
@@ -3679,7 +3717,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _takeoffButton(BuildContext context) {
     return _LabeledToolButton(
       key: const ValueKey('pdf-takeoff-totals'),
-      iconOnly: _sideStrip,
+      iconOnly: _iconOnlyLabels,
       icon: Icons.functions,
       label: pdfL10n(context).tbTotals,
       tooltip: pdfL10n(context).tbTakeoffTotals,
@@ -4684,6 +4722,45 @@ class _StripLabel extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The docked properties bar's resting state: its name and a hint on one
+/// line, the hint at a readable size - the bar is a fixed 48px whatever it
+/// holds, so there is room for body text rather than the 9px caption a
+/// strip label stacks under its name.
+class _PropertiesEmptyLabel extends StatelessWidget {
+  const _PropertiesEmptyLabel({required this.title, required this.hint});
+
+  final String title;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: const ValueKey('pdf-properties-empty'),
+      padding: const EdgeInsetsDirectional.only(start: 2, end: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+              color: scheme.onSurfaceFaintOr,
+            ).merge(PdfEditorThemeData.of(context).sectionLabel),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            hint,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
         ],
       ),
     );
