@@ -1,4 +1,5 @@
 import 'editing_controller.dart' show PdfEditTool, PdfMarkupKind;
+import 'editing_tool_behavior.dart';
 
 /// What a [PdfEditingController]'s pointer input does - exactly one at a
 /// time. The controller holds one of these and changes it at a single
@@ -20,6 +21,35 @@ sealed class PdfEditingMode {
   /// Whether page presses belong to the editing overlay rather than the
   /// viewer's reader gestures (scrolling, text selection, links).
   bool get armsEditingGestures => false;
+
+  /// Whether a page tool other than Select is armed - one that owns the
+  /// whole page (drawing, placing, content and form tools). Every other
+  /// mode leaves the viewer's reading affordances in play: note popups,
+  /// opening a table, a double-click into a text box, long-press text
+  /// selection, and the plain tap.
+  bool get armsPageTool => false;
+
+  /// Whether the Select tool is armed: annotations are picked, a touch
+  /// long-press on empty page rubber-bands, and select-all takes the page's
+  /// annotations.
+  bool get armsSelect => false;
+
+  /// Whether the form-authoring tool is armed: it owns the page's fields.
+  bool get authorsForms => false;
+
+  /// Whether a right-click on a form widget selects it: any mode without a
+  /// page tool, plus form authoring.
+  bool get picksFormWidgets => !armsPageTool || authorsForms;
+
+  /// Whether a freehand tool (ink, highlighter, eraser) is armed - it draws
+  /// through raw pointers, so the viewer's own drags and trackpad zoom
+  /// stand aside.
+  bool get drawsFreehand => false;
+
+  /// Whether Escape backs out of this mode before anything else - a
+  /// placement the host started as one step (the signature box), so the
+  /// selection under it goes too.
+  bool get escapesFirst => false;
 }
 
 /// No tool: the viewer reads, selects text and follows links; a click may
@@ -54,6 +84,21 @@ final class PdfToolMode extends PdfEditingMode {
 
   @override
   bool get armsEditingGestures => true;
+
+  @override
+  bool get armsPageTool => tool != PdfEditTool.select;
+
+  @override
+  bool get armsSelect => tool == PdfEditTool.select;
+
+  @override
+  bool get authorsForms => tool == PdfEditTool.form;
+
+  @override
+  bool get drawsFreehand => PdfEditToolBehavior.of(tool).isDraw;
+
+  @override
+  bool get escapesFirst => PdfEditToolBehavior.of(tool).escapesFirst;
 
   @override
   bool operator ==(Object other) => other is PdfToolMode && other.tool == tool;
