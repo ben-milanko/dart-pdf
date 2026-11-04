@@ -290,6 +290,25 @@ void main() {
       expect(await shownUnit(tester, const Locale('en', 'US')), 'm');
     });
 
+    testWidgets('Liberia and Myanmar locales are checked against their zones',
+        (tester) async {
+      debugPdfTimeZoneOffset = () => Duration.zero; // Monrovia
+      expect(await shownUnit(tester, const Locale('en', 'LR')), 'ft');
+      expect(await shownUnit(tester, const Locale('my', 'MM')), 'm');
+      debugPdfTimeZoneOffset = () => const Duration(hours: 6, minutes: 30);
+      expect(await shownUnit(tester, const Locale('my', 'MM')), 'ft');
+      expect(await shownUnit(tester, const Locale('en', 'LR')), 'm');
+    });
+
+    testWidgets('without the seam the real device clock decides',
+        (tester) async {
+      debugPdfTimeZoneOffset = null;
+      final minutes = DateTime.now().timeZoneOffset.inMinutes;
+      final inUs = minutes >= -10 * 60 && minutes <= -4 * 60;
+      expect(
+          await shownUnit(tester, const Locale('en', 'US')), inUs ? 'ft' : 'm');
+    });
+
     test('an explicit locale is not second-guessed by the clock', () {
       debugPdfTimeZoneOffset = () => const Duration(hours: 10);
       expect(pdfDefaultMeasurementUnit(const Locale('en', 'US')), 'ft');
