@@ -605,6 +605,12 @@ class _PdfDropdownItemBox extends StatelessWidget {
   Widget build(BuildContext context) => ConstrainedBox(
         constraints:
             BoxConstraints(minHeight: dense ? 0 : kMinInteractiveDimension),
-        child: Align(alignment: AlignmentDirectional.centerStart, child: child),
+        // heightFactor 1: an unfactored Align grows to the parent's max
+        // height, so a picker in a Row (the scale dialog's ratio row) took
+        // the whole dialog's height and drew its underline at the bottom
+        child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            heightFactor: 1,
+            child: child),
       );
 }
