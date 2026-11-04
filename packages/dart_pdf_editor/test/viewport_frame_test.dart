@@ -163,4 +163,138 @@ void main() {
         zoom: 1);
     expect(captured.page, 1);
   });
+
+  group('zoom about a focal point', () {
+    test('the content under the pointer stays under it', () {
+      final random = math.Random(11);
+      for (var trial = 0; trial < 200; trial++) {
+        final before = PdfViewportFrame(
+          scroll: random.nextDouble() * 4000,
+          scale: 2 + random.nextDouble() * 2,
+          mainTranslate: -random.nextDouble() * mainView,
+          crossTranslate: -random.nextDouble() * crossView,
+        );
+        // a pointer well inside the view, zooming in from 2-4x to 4-8x keeps
+        // every translation clear of the clamps
+        final atMain = mainView * (0.3 + random.nextDouble() * 0.4);
+        final atCross = crossView * (0.3 + random.nextDouble() * 0.4);
+        final listMain = before.listMainAt(atMain);
+        final listCross = before.listCrossAt(atCross);
+        final scale = before.scale * 2;
+        final after = PdfViewportFrame.zoomedAbout(
+            scroll: before.scroll,
+            listMain: listMain,
+            listCross: listCross,
+            scale: scale,
+            atMain: atMain,
+            atCross: atCross,
+            mainView: mainView,
+            crossView: crossView);
+        expect(after.scroll, before.scroll, reason: 'trial $trial');
+        expect(after.scale, scale);
+        expect(after.viewMainOf(listMain), closeTo(atMain, 1e-9),
+            reason: 'trial $trial');
+        expect(after.viewCrossOf(listCross), closeTo(atCross, 1e-9),
+            reason: 'trial $trial');
+      }
+    });
+
+    test('clamps at the content edge, or leaves the cross axis free', () {
+      PdfViewportFrame zoom({bool clampCross = true}) =>
+          PdfViewportFrame.zoomedAbout(
+              scroll: 0,
+              listMain: 0,
+              listCross: -100, // left of the content
+              scale: 3,
+              atMain: 0,
+              atCross: 0,
+              mainView: mainView,
+              crossView: crossView,
+              clampCross: clampCross);
+      expect(zoom().crossTranslate, 0);
+      expect(zoom(clampCross: false).crossTranslate, 300);
+      expect(zoom().mainTranslate, 0);
+    });
+
+    test('within 1% of fit it snaps to the identity', () {
+      expect(
+          PdfViewportFrame.zoomedAbout(
+              scroll: 120,
+              listMain: 400,
+              listCross: 90,
+              scale: 1.005,
+              atMain: 300,
+              atCross: 200,
+              mainView: mainView,
+              crossView: crossView),
+          const PdfViewportFrame(scroll: 120));
+    });
+  });
+
+  group('layout zoom', () {
+    final random = math.Random(5);
+    final extents = [
+      for (var i = 0; i < 12; i++) 500 + random.nextDouble() * 900
+    ];
+    final axis = PdfLayoutZoomAxis(
+      slotCount: extents.length,
+      unitExtentOf: (i) => extents[i],
+      spacing: 12,
+      crossView: crossView,
+    );
+    double startAt(int slot, double zoom) {
+      var start = 0.0;
+      for (var i = 0; i < slot; i++) {
+        start += extents[i] * zoom + axis.spacing;
+      }
+      return start;
+    }
+
+    test('a point keeps its fraction into its page', () {
+      for (var trial = 0; trial < 200; trial++) {
+        final from = 0.2 + random.nextDouble() * 0.8;
+        final to = 0.2 + random.nextDouble() * 0.8;
+        final slot = random.nextInt(extents.length);
+        final fraction = random.nextDouble();
+        final main = startAt(slot, from) + fraction * extents[slot] * from;
+        final mapped = axis.remapMain(main, from, to);
+        expect(mapped,
+            closeTo(startAt(slot, to) + fraction * extents[slot] * to, 1e-6),
+            reason: 'trial $trial');
+        expect(axis.remapMain(mapped, to, from), closeTo(main, 1e-6),
+            reason: 'round trip, trial $trial');
+      }
+    });
+
+    test('the spacing does not scale', () {
+      // the start of page 10 moves by the pages' growth alone
+      final main = startAt(10, 0.5);
+      expect(axis.remapMain(main, 0.5, 1), closeTo(startAt(10, 1), 1e-9));
+      expect(main * 2, isNot(closeTo(startAt(10, 1), 1)),
+          reason: 'a plain ratio would drift a gap per page');
+    });
+
+    test('the cross axis scales about the view centre', () {
+      expect(axis.remapCross(crossView / 2, 0.5, 1), crossView / 2);
+      expect(axis.remapCross(crossView / 2 + 40, 0.5, 1), crossView / 2 + 80);
+      expect(axis.remapCross(axis.remapCross(123, 0.4, 0.9), 0.9, 0.4),
+          closeTo(123, 1e-9));
+    });
+
+    test('the scroll keeps the content at the anchor', () {
+      for (var trial = 0; trial < 100; trial++) {
+        final from = 0.3 + random.nextDouble() * 0.7;
+        final to = 0.3 + random.nextDouble() * 0.7;
+        final content = startAt(4, from) + random.nextDouble() * 3000;
+        final anchor = random.nextDouble() * mainView;
+        final scroll =
+            axis.scrollKeeping(content, from: from, to: to, anchor: anchor);
+        expect(
+            axis.remapMain(content, from, to) - scroll, closeTo(anchor, 1e-6),
+            reason: 'trial $trial');
+      }
+      expect(axis.scrollKeeping(10, from: 1, to: 0.5, anchor: 300), 0,
+          reason: 'never before the start of the list');
+    });
+  });
 }

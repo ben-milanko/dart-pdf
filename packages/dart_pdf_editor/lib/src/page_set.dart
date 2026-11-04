@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:pdf_cos/pdf_cos.dart' show CosDictionary, CosReference;
 import 'package:pdf_document/pdf_document.dart';
 
+import 'viewport.dart';
+
 /// How the viewer reconciled its page presentation across a document change.
 enum PdfPageReconciliationMode {
   /// Only pages named by the edit impact were re-wrapped.
@@ -624,6 +626,15 @@ class PdfPageSetChange {
   bool get epochMoved => next.epoch != previous.epoch;
   bool get namespaceMoved =>
       !identical(next.tileNamespace, previous.tileNamespace);
+
+  /// [viewport], captured against [previous], as it reads in [next]: the
+  /// same fractions and zoom on the page it was on, wherever that page went.
+  PdfViewport remapViewport(PdfViewport viewport) => PdfViewport(
+        page: remapPage(viewport.page),
+        top: viewport.top,
+        left: viewport.left,
+        zoom: viewport.zoom,
+      );
 
   /// Where old page [oldIndex] is in [next]: moved with a reorder, matched by
   /// stable reference across a full revision, otherwise the same index. A

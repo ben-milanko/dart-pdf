@@ -2971,82 +2971,57 @@ class _PdfViewerState extends State<PdfViewer>
   /// under the first.
   void _zoomTo(double target, Offset focal) {
     final zoom = target.clamp(widget.minZoom, _effectiveMaxZoom);
-    final before = _transform.value;
-    final scale = before.getMaxScaleOnAxis();
-    // where the pointer is in the viewport (below fit the transform is
-    // identity and the two spaces coincide; above it they do not)
-    final viewFocal = Offset(focal.dx * scale + before.storage[12],
-        focal.dy * scale + before.storage[13]);
+    final before = _currentFrame;
     // the list coordinate of the content under the pointer, at the layout
-    // zoom in force right now
-    final contentMain =
-        (_scroll.hasClients ? _scroll.position.pixels : 0.0) + _mainOf(focal);
+    // zoom in force right now, and where the pointer is in the viewport
+    // (below fit the transform is identity and the two spaces coincide;
+    // above it they do not)
+    final contentMain = before.scroll + _mainOf(focal);
+    final viewMain = before.viewMainOf(contentMain);
+    final viewCross = before.viewCrossOf(_crossOf(focal));
     if (zoom <= 1) {
-      if (scale > 1) _transform.value = Matrix4.identity();
+      if (before.scale > 1) _transform.value = Matrix4.identity();
       // the anchor is where the content must land once the transform is
       // gone, which is the pointer's viewport position - not the list point
       // it maps to today
-      _setLayoutZoom(zoom,
-          focalMain: _mainOf(viewFocal), contentMain: contentMain);
+      _setLayoutZoom(zoom, focalMain: viewMain, contentMain: contentMain);
       return;
     }
-    var scene = focal;
+    var listMain = contentMain;
+    var listCross = _crossOf(focal);
     if (_layoutZoom < 1) {
       final from = _layoutZoom;
-      _setLayoutZoom(1,
-          focalMain: _mainOf(viewFocal), contentMain: contentMain);
-      // the pages just relaid out under the pointer: the scene point to hold
-      // has moved - along the main axis by as much of the scroll jump as the
-      // extents allowed, along the cross axis by the re-centring, which no
-      // scroll offset can absorb
-      final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
-      scene = _axisOffset(
-        _remapMain(contentMain, from, _layoutZoom) - pixels,
-        _remapCross(_crossOf(focal), from, _layoutZoom),
+      _setLayoutZoom(1, focalMain: viewMain, contentMain: contentMain);
+      // the pages just relaid out under the pointer: the content to hold has
+      // moved - along the main axis with the relayout (the scroll jump
+      // absorbs as much as the extents allow), along the cross axis by the
+      // re-centring, which no scroll offset can absorb
+      final axis = _layoutZoomAxis;
+      listMain = axis.remapMain(contentMain, from, _layoutZoom);
+      listCross = axis.remapCross(listCross, from, _layoutZoom);
+    }
+    // hold that content under the pointer at the new zoom
+    _transform.value = _transformOf(PdfViewportFrame.zoomedAbout(
+      scroll: _scroll.hasClients ? _scroll.position.pixels : 0.0,
+      listMain: listMain,
+      listCross: listCross,
+      scale: zoom,
+      atMain: viewMain,
+      atCross: viewCross,
+      mainView: _mainView,
+      crossView: _crossView,
+      clampCross: !_touchPanning,
+    ));
+  }
+
+  /// The slots' main-axis extents at layout zoom 1, for remapping a point
+  /// across a layout-zoom change.
+  PdfLayoutZoomAxis get _layoutZoomAxis => PdfLayoutZoomAxis(
+        slotCount: _pages.isEmpty ? 0 : _slotCount,
+        unitExtentOf: (slot) => _slotMain(slot, 1),
+        spacing: widget.pageSpacing,
+        crossView: _crossView,
       );
-    }
-    // hold [scene] under [viewFocal] at the new zoom
-    final matrix = Matrix4.identity()
-      ..translateByDouble(viewFocal.dx, viewFocal.dy, 0, 1)
-      ..scaleByDouble(zoom, zoom, zoom, 1)
-      ..translateByDouble(-scene.dx, -scene.dy, 0, 1);
-    _transform.value = _touchPanning
-        ? _clampedTransformMainOnly(matrix)
-        : _clampedTransform(matrix);
-  }
-
-  /// Maps a main-axis list coordinate from layout zoom [from] to [to].
-  ///
-  /// Page sizes scale with the layout zoom but [PdfViewer.pageSpacing] does
-  /// not, so the plain ratio drifts by one gap per page ahead of the point -
-  /// a whole page's worth deep into a long document.
-  double _remapMain(double main, double from, double to) {
-    if (from <= 0 || to == from) return main;
-    final ratio = to / from;
-    final spacing = widget.pageSpacing;
-    if (spacing == 0 || _pages.isEmpty) return main * ratio;
-    var oldStart = 0.0;
-    var newStart = 0.0;
-    for (var i = 0; i < _slotCount; i++) {
-      final extent = _slotMain(i, 1);
-      final oldMain = extent * from;
-      if (main < oldStart + oldMain || i == _slotCount - 1) {
-        return newStart + (main - oldStart) * ratio;
-      }
-      oldStart += oldMain + spacing;
-      newStart += extent * to + spacing;
-    }
-    return main * ratio;
-  }
-
-  /// Maps a cross-axis list coordinate from layout zoom [from] to [to]. Every
-  /// page is centred on the cross axis and scales about that centre, so the
-  /// whole axis does.
-  double _remapCross(double cross, double from, double to) {
-    if (from <= 0 || to == from) return cross;
-    final centre = _crossView / 2;
-    return centre + (cross - centre) * (to / from);
-  }
 
   /// Lays the pages out at [zoom] × fit (≤ 1), keeping [contentMain] (a
   /// list coordinate along the scroll axis, at the *current* layout zoom;
@@ -3059,11 +3034,12 @@ class _PdfViewerState extends State<PdfViewer>
     final anchor = focalMain ?? _mainView / 2;
     final pixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     final content = contentMain ?? pixels + anchor;
-    final target = _remapMain(content, _layoutZoom, z) - anchor;
+    final scroll = _layoutZoomAxis.scrollKeeping(content,
+        from: _layoutZoom, to: z, anchor: anchor);
     setState(() => _layoutZoom = z);
     _controller._bumpViewport();
     if (_scroll.hasClients) {
-      _scroll.jumpTo(math.max(0, target));
+      _scroll.jumpTo(scroll);
       // the new extents only exist after this frame's layout
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
@@ -4017,12 +3993,7 @@ class _PdfViewerState extends State<PdfViewer>
 
     switch (invalidation.viewport) {
       case PdfViewportCarry.remap when carried != null:
-        final remapped = PdfViewport(
-          page: change.remapPage(carried.page),
-          top: carried.top,
-          left: carried.left,
-          zoom: carried.zoom,
-        );
+        final remapped = change.remapViewport(carried);
         if (invalidation.placeViewportNow &&
             _scroll.hasClients &&
             _viewWidth > 0 &&
@@ -4949,10 +4920,16 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// The scroll offset and zoom transform as one value. Needs a laid-out
   /// scroll view.
-  PdfViewportFrame get _viewportFrame {
+  PdfViewportFrame get _viewportFrame => _frameAt(_scroll.position.pixels);
+
+  /// [_viewportFrame], or at scroll 0 before the list has laid out.
+  PdfViewportFrame get _currentFrame =>
+      _frameAt(_scroll.hasClients ? _scroll.position.pixels : 0.0);
+
+  PdfViewportFrame _frameAt(double scroll) {
     final m = _transform.value;
     return PdfViewportFrame(
-      scroll: _scroll.position.pixels,
+      scroll: scroll,
       scale: m.getMaxScaleOnAxis(),
       mainTranslate: m.storage[_mainTranslate],
       crossTranslate: m.storage[_crossTranslate],
@@ -8491,8 +8468,8 @@ class _PdfViewerState extends State<PdfViewer>
       // scroll jump above instead, and its translation is whatever that jump
       // could not absorb once the extents clamped it.
       final settled = _scroll.hasClients ? _scroll.position.pixels : 0.0;
-      matrix.storage[_mainTranslate] =
-          anchor - total * (_remapMain(content, fold, 1) - settled);
+      matrix.storage[_mainTranslate] = anchor -
+          total * (_layoutZoomAxis.remapMain(content, fold, 1) - settled);
       _transform.value = _clampedTransformMainOnly(matrix);
     } else {
       _transform.value = _clampedTransformMainOnly(_transform.value.clone());
