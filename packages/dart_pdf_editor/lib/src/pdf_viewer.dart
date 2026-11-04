@@ -27,6 +27,7 @@ import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/editing_table.dart';
+import 'editing/browser_paste.dart';
 import 'editing/paste_routing.dart';
 import 'editing/editing_reach.dart';
 import 'temporary_pan.dart';
@@ -2718,6 +2719,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void initState() {
     super.initState();
+    ensurePdfBrowserPasteWatch();
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
@@ -10713,10 +10715,11 @@ class _PdfViewerState extends State<PdfViewer>
   late final Map<Type, Action<Intent>> _keyActions = () {
     bool editing(Intent _) => widget.editing != null;
     Action<Intent> action<T extends Intent>(void Function(T intent) invoke,
-            {bool Function(T intent)? enabled}) =>
+            {bool Function(T intent)? enabled, bool consumesKey = true}) =>
         Action<T>.overridable(
           context: context,
-          defaultAction: _PdfViewerKeyAction<T>(invoke, enabled),
+          defaultAction:
+              _PdfViewerKeyAction<T>(invoke, enabled, consumesKey: consumesKey),
         );
     return <Type, Action<Intent>>{
       PdfCopyIntent: action<PdfCopyIntent>((_) => _onCopy()),
@@ -10739,8 +10742,10 @@ class _PdfViewerState extends State<PdfViewer>
           (intent) => widget.editing?.rotateSelected(intent.degrees),
           enabled: (_) => widget.editing?.canRotateSelected ?? false),
       PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
-      PdfPasteIntent:
-          action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
+      // on the web the key also reaches the browser, whose paste event
+      // carries the clipboard without a permission prompt ([pdfBrowserPaste])
+      PdfPasteIntent: action<PdfPasteIntent>((_) => _onPaste(),
+          enabled: editing, consumesKey: !pdfPasteKeyReachesBrowser),
       PdfDeleteSelectionIntent: action<PdfDeleteSelectionIntent>(
           (_) => widget.editing?.deleteSelected(),
           enabled: editing),
@@ -12752,13 +12757,18 @@ class _SelectionHandlePainter extends CustomPainter {
 
 /// One of the viewer's own key actions ([_PdfViewerState._keyActions]).
 class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
-  _PdfViewerKeyAction(this._invoke, this._enabled);
+  _PdfViewerKeyAction(this._invoke, this._enabled, {bool consumesKey = true})
+      : _consumesKey = consumesKey;
 
   final void Function(T intent) _invoke;
   final bool Function(T intent)? _enabled;
+  final bool _consumesKey;
 
   @override
   bool isEnabled(T intent) => _enabled?.call(intent) ?? true;
+
+  @override
+  bool consumesKey(T intent) => _consumesKey;
 
   @override
   Object? invoke(T intent) {

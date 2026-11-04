@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:pdf_document/pdf_document.dart';
 
+import 'browser_paste.dart';
 import 'editing_annotation_clipboard.dart';
 import 'editing_controller.dart';
 import 'editing_snapshot_clipboard.dart';
@@ -42,9 +43,11 @@ abstract interface class PdfSystemClipboardPort {
   Future<String?> readText();
 }
 
-/// [PdfSystemClipboardPort] over a host's injected providers. Text falls
-/// back to Flutter's [Clipboard] when the host injected no reader; a
-/// throwing provider reads as empty, so local paste stays usable.
+/// [PdfSystemClipboardPort] over a host's injected providers. Without an
+/// injected image or text reader, a keyboard paste on the web reads what the
+/// browser's paste event carried ([pdfBrowserPaste]), and text falls back to
+/// Flutter's [Clipboard]; a throwing provider reads as empty, so local paste
+/// stays usable.
 class PdfProviderClipboardPort implements PdfSystemClipboardPort {
   PdfProviderClipboardPort(
     this.context, {
@@ -72,8 +75,10 @@ class PdfProviderClipboardPort implements PdfSystemClipboardPort {
 
   @override
   Future<Uint8List?> readImage() async {
+    final provider = image;
     try {
-      return await image?.call(context);
+      if (provider == null) return (await pdfBrowserPaste())?.image;
+      return await provider(context);
     } catch (_) {
       return null;
     }
@@ -84,6 +89,8 @@ class PdfProviderClipboardPort implements PdfSystemClipboardPort {
     final provider = text;
     try {
       if (provider != null) return await provider(context);
+      final pasted = await pdfBrowserPaste();
+      if (pasted != null) return pasted.text;
       return (await Clipboard.getData(Clipboard.kTextPlain))?.text;
     } catch (_) {
       return null;
