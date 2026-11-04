@@ -27,6 +27,8 @@ import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/editing_table.dart';
+import 'editing/browser_paste.dart';
+import 'editing/paste_routing.dart';
 import 'editing/editing_reach.dart';
 import 'temporary_pan.dart';
 import 'editing/editor_commands.dart' show PdfEditorCommandsScope;
@@ -69,10 +71,6 @@ export 'annotation_tap.dart'
 
 const double _defaultMaxZoom = 24;
 const double _defaultMaxDisplayZoom = 100;
-
-// Clipboard revisions are shared across viewer windows just like the snapshot
-// holder. Weak keys keep private clipboard lifetimes independent of this cache.
-final _pastedSystemPdfCopies = Expando<Object>('pasted system PDF copy');
 
 /// How the viewer reconciled its page presentation across a document change.
 enum PdfPageReconciliationMode {
@@ -2721,6 +2719,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void initState() {
     super.initState();
+    ensurePdfBrowserPasteWatch();
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
@@ -7371,9 +7370,8 @@ class _PdfViewerState extends State<PdfViewer>
         if (hit != null ||
             link != null ||
             (!onSelectedText &&
-                (editing.hasAnnotationClipboard ||
-                    editing.hasSnapshotClipboard ||
-                    (widget.systemPdfPasteProvider != null &&
+                (editing.inAppPasteSource != null ||
+                    (_systemClipboard.offersPdf &&
                         editing.lockedAnnotationAt(page, x, y) == null)))) {
           if (hit != null && !editing.isAnnotationSelected(page, hit.$1)) {
             editing.selectAnnotationAt(page, x, y);
@@ -8367,115 +8365,23 @@ class _PdfViewerState extends State<PdfViewer>
   Future<void> _pasteWithExternalPdf(
       PdfEditingController editing, int page, (double, double)? at) async {
     _readingPaste = true;
-    final revision = editing.revisionId;
     try {
-      PdfClipboardPdf? pdf;
-      try {
-        pdf = await widget.systemPdfPasteProvider?.call(context);
-      } catch (_) {
-        // Missing support or denied clipboard access keeps local paste usable.
-      }
-      if (!mounted ||
-          widget.editing != editing ||
-          editing.revisionId != revision) {
-        return;
-      }
-      final token = pdf?.changeToken;
-      final alreadyPasted = token != null &&
-          _pastedSystemPdfCopies[editing.snapshotClipboard] == token;
-      if (pdf != null &&
-          !alreadyPasted &&
-          editing.pasteSnapshotBytes(pdf.bytes, page, at: at)) {
-        if (token != null) {
-          _pastedSystemPdfCopies[editing.snapshotClipboard] = token;
-        }
-        return;
-      }
-      final imageFirst =
-          widget.systemImagePasteOverridesLocalClipboard && !alreadyPasted;
-      if (imageFirst &&
-          await _pasteSystemClipboardImage(editing, page, at, revision)) {
-        return;
-      }
-      if (!mounted ||
-          widget.editing != editing ||
-          editing.revisionId != revision) {
-        return;
-      }
-      if (editing.hasSnapshotClipboard) {
-        editing.pasteSnapshot(page, at: at);
-      } else if (editing.hasAnnotationClipboard) {
-        editing.pasteAnnotations(page, at: at);
-      } else {
-        if (!imageFirst &&
-            await _pasteSystemClipboardImage(editing, page, at, revision)) {
-          return;
-        }
-        await _pasteSystemClipboardText(editing, page, at, revision);
-      }
+      await _pasteRouter.paste(editing, page, at,
+          stillCurrent: () => mounted && widget.editing == editing);
     } finally {
       _readingPaste = false;
     }
   }
 
-  Future<bool> _pasteSystemClipboardImage(PdfEditingController editing,
-      int page, (double, double)? at, int revision) async {
-    final provider = widget.systemImagePasteProvider;
-    if (provider == null) return false;
-    Uint8List? bytes;
-    try {
-      bytes = await provider(context);
-    } catch (_) {
-      return false;
-    }
-    if (bytes == null || bytes.isEmpty) return false;
-    if (!mounted ||
-        widget.editing != editing ||
-        editing.revisionId != revision) {
-      return false;
-    }
-    if (page < 0 || page >= editing.document.pageCount) return false;
-    final box = editing.pageAt(page).cropBox;
-    return editing.placeImageAsync(
-      page,
-      at?.$1 ?? (box.left + box.right) / 2,
-      at?.$2 ?? (box.bottom + box.top) / 2,
-      bytes,
-    );
-  }
+  PdfPasteRouter get _pasteRouter => PdfPasteRouter(_systemClipboard,
+      systemImageFirst: widget.systemImagePasteOverridesLocalClipboard);
 
-  Future<void> _pasteSystemClipboardText(PdfEditingController editing, int page,
-      (double, double)? at, int revision) async {
-    // Prefer the host's reader (the web build wires one over the browser Async
-    // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
-    // fall back to Flutter's clipboard when none is injected.
-    String? text;
-    final provider = widget.systemTextPasteProvider;
-    if (provider != null) {
-      try {
-        text = await provider(context);
-      } catch (_) {
-        text = null;
-      }
-    } else {
-      try {
-        final data = await Clipboard.getData(Clipboard.kTextPlain);
-        text = data?.text;
-      } catch (_) {
-        return;
-      }
-    }
-    if (text == null || text.trim().isEmpty) return;
-    if (!mounted ||
-        widget.editing != editing ||
-        editing.revisionId != revision) {
-      return;
-    }
-    if (page < 0 || page >= editing.document.pageCount) return;
-    final box = editing.pageAt(page).cropBox;
-    editing.placeFreeText(page, at?.$1 ?? (box.left + box.right) / 2,
-        at?.$2 ?? (box.bottom + box.top) / 2, text);
-  }
+  PdfSystemClipboardPort get _systemClipboard => PdfProviderClipboardPort(
+        context,
+        pdf: widget.systemPdfPasteProvider,
+        image: widget.systemImagePasteProvider,
+        text: widget.systemTextPasteProvider,
+      );
 
   /// ⌘A/Ctrl+A: with an annotation selection in play, widens it to every
   /// annotation on the current page; otherwise selects the current page's
@@ -10808,10 +10714,11 @@ class _PdfViewerState extends State<PdfViewer>
   late final Map<Type, Action<Intent>> _keyActions = () {
     bool editing(Intent _) => widget.editing != null;
     Action<Intent> action<T extends Intent>(void Function(T intent) invoke,
-            {bool Function(T intent)? enabled}) =>
+            {bool Function(T intent)? enabled, bool consumesKey = true}) =>
         Action<T>.overridable(
           context: context,
-          defaultAction: _PdfViewerKeyAction<T>(invoke, enabled),
+          defaultAction:
+              _PdfViewerKeyAction<T>(invoke, enabled, consumesKey: consumesKey),
         );
     return <Type, Action<Intent>>{
       PdfCopyIntent: action<PdfCopyIntent>((_) => _onCopy()),
@@ -10834,8 +10741,10 @@ class _PdfViewerState extends State<PdfViewer>
           (intent) => widget.editing?.rotateSelected(intent.degrees),
           enabled: (_) => widget.editing?.canRotateSelected ?? false),
       PdfCutIntent: action<PdfCutIntent>((_) => _onCut(), enabled: editing),
-      PdfPasteIntent:
-          action<PdfPasteIntent>((_) => _onPaste(), enabled: editing),
+      // on the web the key also reaches the browser, whose paste event
+      // carries the clipboard without a permission prompt ([pdfBrowserPaste])
+      PdfPasteIntent: action<PdfPasteIntent>((_) => _onPaste(),
+          enabled: editing, consumesKey: !pdfPasteKeyReachesBrowser),
       PdfDeleteSelectionIntent: action<PdfDeleteSelectionIntent>(
           (_) => widget.editing?.deleteSelected(),
           enabled: editing),
@@ -12837,13 +12746,18 @@ class _SelectionHandlePainter extends CustomPainter {
 
 /// One of the viewer's own key actions ([_PdfViewerState._keyActions]).
 class _PdfViewerKeyAction<T extends Intent> extends Action<T> {
-  _PdfViewerKeyAction(this._invoke, this._enabled);
+  _PdfViewerKeyAction(this._invoke, this._enabled, {bool consumesKey = true})
+      : _consumesKey = consumesKey;
 
   final void Function(T intent) _invoke;
   final bool Function(T intent)? _enabled;
+  final bool _consumesKey;
 
   @override
   bool isEnabled(T intent) => _enabled?.call(intent) ?? true;
+
+  @override
+  bool consumesKey(T intent) => _consumesKey;
 
   @override
   Object? invoke(T intent) {

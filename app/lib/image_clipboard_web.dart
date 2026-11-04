@@ -3,7 +3,8 @@ import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
-import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfClipboardPdf;
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfClipboardPdf, pdfBrowserPaste;
 
 /// Web [copyPngToClipboard]: writes the PNG [bytes] to the browser clipboard
 /// through the Async Clipboard API directly. Returns true on success; rejects
@@ -52,12 +53,19 @@ Future<({Uint8List? image, String? text})> _readClipboard() async {
   return (image: image, text: text);
 }
 
-/// Reads a PNG/JPEG image from the browser clipboard. Browsers require a
-/// secure context and a user-initiated paste gesture; denied access or a
-/// clipboard without an image returns null. Any text found alongside is
+/// Reads a PNG/JPEG image from the browser clipboard: a keyboard paste's
+/// own paste event when there is one ([pdfBrowserPaste], no permission
+/// needed), otherwise the Async Clipboard API, which requires a secure
+/// context, a user gesture and the clipboard-read permission; denied access
+/// or a clipboard without an image returns null. Any text found alongside is
 /// stashed for a following [readTextFromClipboard] so the pair costs a single
 /// clipboard read.
 Future<Uint8List?> readImageFromClipboard() async {
+  final pasted = await pdfBrowserPaste();
+  if (pasted != null) {
+    _pending = (image: pasted.image, text: pasted.text);
+    return pasted.image;
+  }
   try {
     final read = await _readClipboard();
     _pending = read;

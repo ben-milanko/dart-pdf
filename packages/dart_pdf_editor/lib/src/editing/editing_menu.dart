@@ -7,6 +7,7 @@ import '../l10n/pdf_l10n.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_table.dart';
+import 'paste_routing.dart';
 import 'editing_color_processing.dart';
 import 'editing_form_options.dart';
 import 'editing_form_style.dart';
@@ -292,9 +293,7 @@ Future<void> showPdfAnnotationMenu({
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
   // annotation clipboard (the most recent copy wins)
-  final canPasteSnapshot = controller.hasSnapshotClipboard;
-  final canPaste =
-      onPaste != null || canPasteSnapshot || controller.hasAnnotationClipboard;
+  final canPaste = onPaste != null || PdfPasteRouter.canOffer(controller);
   final hasSelection = request.annotations.isNotEmpty;
   // A locked annotation can't be selected, so a right-click on one opens
   // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
@@ -441,10 +440,8 @@ Future<void> showPdfAnnotationMenu({
         onSelected: (request) {
           if (onPaste != null) {
             onPaste();
-          } else if (canPasteSnapshot) {
-            request.controller.pasteSnapshot(pageIndex, at: pagePoint);
           } else {
-            request.controller.pasteAnnotations(pageIndex, at: pagePoint);
+            PdfPasteRouter.pasteInApp(request.controller, pageIndex, pagePoint);
           }
         },
       ),
