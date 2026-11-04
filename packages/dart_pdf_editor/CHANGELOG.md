@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Route ⌘V and the context menu's Paste through one priority order (`PdfPasteRouter`), and keep the in-app snapshot and annotation clipboards exclusive in one place. Add `PdfEditingController.inAppPasteSource`. A touch long-press on empty page area now also opens the paste menu when a vector snapshot is on the clipboard.
 - Keep zoomed-region rendering selective on CAD sheets that explicitly disable overprint, avoiding full-sheet replay for each detail tile.
 
 ## 14.0.0

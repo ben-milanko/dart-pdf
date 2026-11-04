@@ -66,6 +66,7 @@ export 'src/editing/editing_signature.dart';
 export 'src/editing/signature_pad.dart';
 export 'src/editing/saved_annotation.dart';
 export 'src/editing/editing_snapshot_clipboard.dart';
+export 'src/editing/paste_routing.dart' show PdfPasteSource;
 export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnail_drop.dart';

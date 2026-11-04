@@ -4852,7 +4852,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // release opens this same paste menu there. Claiming it here too would
     // race that recognizer and the paste menu would always win.
     if (_tool == PdfEditTool.select) return false;
-    return _controller.hasAnnotationClipboard;
+    return _controller.inAppPasteSource != null;
   }
 
   /// Touch/stylus long-press: the context menu mice reach by
@@ -4873,7 +4873,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (!_controller.isAnnotationSelected(widget.pageIndex, hit.$1)) {
         _controller.selectAnnotationAt(widget.pageIndex, x, y);
       }
-    } else if (!_controller.hasAnnotationClipboard) {
+    } else if (_controller.inAppPasteSource == null) {
       return;
     }
     HapticFeedback.selectionClick();
