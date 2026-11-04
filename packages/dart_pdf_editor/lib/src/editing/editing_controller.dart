@@ -33,6 +33,7 @@ import 'page_currency.dart';
 import 'paste_routing.dart';
 import 'saved_annotation.dart';
 import 'signature_validation_worker.dart';
+import 'text_edit_session.dart';
 import 'thumbnail_cache.dart';
 
 PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>
@@ -540,6 +541,8 @@ class PdfEditingController extends ChangeNotifier {
             annotationClipboard ?? PdfAnnotationSnapshotClipboard.instance {
     _history.pushDraft(_inkDraft, _inkDraft);
     this.preferences.addListener(notifyListeners);
+    // an open inline text editor previews the panel's live edits
+    addListener(_followTextEditSession);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
     this.pageClipboard.addListener(notifyListeners);
@@ -2797,83 +2800,177 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // in-place text editing
 
-  bool _editingText = false;
-  TextSelection? _editingTextSelection;
-  int _editingTextStyleRevision = 0;
-  ({
-    PdfTextFont? font,
-    double? size,
-    int? color,
-    bool? underline
-  })? _editingTextStyleRequest;
-  int _editSelectedTextRevision = 0;
-  int _editingTextFocusHoldCount = 0;
-  int _editingTextFocusHoldRevision = 0;
-  int _keepEditingTextFocusedCount = 0;
+  PdfTextEditSession? _textEditSession;
+  final Map<int, void Function()> _inlineTextEditOpeners = {};
+
+  /// The open inline text editor (free text, callout or cloud-callout note),
+  /// or null. The toolbar and properties panel restyle it directly; the page
+  /// overlay hosts its field.
+  PdfTextEditSession? get textEditSession => _textEditSession;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts -
   /// backspace must delete characters, not the annotation.
-  bool get isEditingText => _editingText;
+  bool get isEditingText => _textEditSession != null || _editingFieldText;
 
-  bool get hasEditingTextSelection =>
-      _editingText &&
-      _editingTextSelection != null &&
-      _editingTextSelection!.isValid &&
-      !_editingTextSelection!.isCollapsed;
+  bool _editingFieldText = false;
 
-  int get editingTextStyleRevision => _editingTextStyleRevision;
-
-  ({PdfTextFont? font, double? size, int? color, bool? underline})?
-      get editingTextStyleRequest => _editingTextStyleRequest;
-
-  int get editSelectedTextRevision => _editSelectedTextRevision;
-
-  bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
-
-  int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
-
-  /// Whether an open in-place text editor should hold on to keyboard focus.
-  /// Set while the tune popup is open over a text-editing session: a
-  /// `TextField` only paints its selection highlight while focused, so the
-  /// popup's controls (which steal focus on tap on some platforms) would
-  /// otherwise hide the very selection they restyle. The overlay reclaims
-  /// focus for the field while this is true. Only meaningful while editing.
-  bool get shouldKeepEditingTextFocused =>
-      _editingText && _keepEditingTextFocusedCount > 0;
-
-  /// Begins a keep-focused window (see [shouldKeepEditingTextFocused]).
-  /// Balanced by [endKeepEditingTextFocused]; reference-counted so nested
-  /// popups don't drop the guard early.
-  void beginKeepEditingTextFocused() {
-    _keepEditingTextFocusedCount++;
-    notifyListeners();
-  }
-
-  void endKeepEditingTextFocused() {
-    if (_keepEditingTextFocusedCount == 0) return;
-    _keepEditingTextFocusedCount--;
-    notifyListeners();
-  }
-
-  /// Marks an in-place text editor open/closed. Called by the page
-  /// overlay that owns the editor.
+  /// Marks another in-place text field (a form field's fill editor) open or
+  /// closed, for [isEditingText]. The annotation text editor is a
+  /// [PdfTextEditSession] instead ([beginTextEdit]).
   void setEditingText(bool value) {
-    if (value == _editingText) return;
-    _editingText = value;
-    if (!value) {
-      _editingTextSelection = null;
-      _editingTextStyleRequest = null;
-    }
+    if (value == _editingFieldText) return;
+    _editingFieldText = value;
     notifyListeners();
   }
 
-  void setEditingTextSelection(TextSelection selection) {
-    if (!_editingText) return;
-    if (_editingTextSelection == selection) return;
-    final hadSelection = hasEditingTextSelection;
-    _editingTextSelection = selection;
-    if (hadSelection != hasEditingTextSelection) notifyListeners();
+  bool get hasEditingTextSelection => _textEditSession?.hasSelection ?? false;
+
+  /// Opens an inline text editor for [target] over [rect] (page space),
+  /// seeded from the selected annotation when the target is existing and
+  /// from the creation defaults otherwise. [rotation] is the box's resting
+  /// view-space rotation. [buffer] lets the host keep one text controller
+  /// across sessions; [holdsFrom] carries an editor's focus holds into the
+  /// one reopened from it.
+  PdfTextEditSession beginTextEdit(
+    PdfTextEditTarget target, {
+    required PdfRect rect,
+    double rotation = 0,
+    PdfTextEditBuffer? buffer,
+    PdfTextEditSession? holdsFrom,
+  }) {
+    final existing = target.isExisting;
+    final style = existing ? selectedTextStyle : null;
+    // /DA carries the text color; /C is the box background for free text
+    final annotation = existing ? selectedAnnotation : null;
+    final parsed = annotation?.behavior.style.freeText;
+    final annotationColor = annotation?.behavior.style.color;
+    // an existing box's real face: its embedded font recovered from the
+    // appearance when it has one, else the base-14 face its /DA names
+    final font = existing
+        ? (selectedTextFont ?? style?.font ?? fontFamily)
+        : (activeFont ?? fontFamily);
+    final typing = PdfTextEditStyle(
+      font: font,
+      size: style?.size ?? preferences.fontSize,
+      color: annotationColor != null
+          ? ui.Color(0xFF000000 | annotationColor)
+          : color,
+      underline: existing ? (parsed?.underline ?? false) : textUnderline,
+    );
+    final layout = existing
+        ? PdfTextEditLayout(
+            align: parsed?.alignment,
+            verticalAlign:
+                parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
+            lineSpacing: parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing,
+            charSpacing: parsed?.charSpacing ?? 0,
+            fill: parsed?.fillColor != null
+                ? ui.Color(0xFF000000 | parsed!.fillColor!)
+                : null,
+            opacity: annotation?.appearanceOpacity ?? 1,
+            rotation: rotation,
+          )
+        : PdfTextEditLayout(
+            align: preferences.textAlign,
+            verticalAlign: preferences.textVerticalAlign,
+            lineSpacing: lineSpacing,
+            charSpacing: charSpacing,
+            fill: preferences.textFillColor,
+            opacity: preferences.opacity,
+            rotation: rotation,
+          );
+    final session = PdfTextEditSession(
+      target: target,
+      rect: rect,
+      style: typing,
+      layout: layout,
+      text: existing ? (selectedText ?? '') : '',
+      runs: existing ? selectedRichRuns : null,
+      standardFace: font is PdfStandardFont ? font : fontFamily,
+      tool: tool,
+      buffer: buffer,
+      holdsFrom: holdsFrom,
+    )..onSelectionPresenceChanged = notifyListeners;
+    _textEditSession?.close();
+    _textEditSession = session;
+    notifyListeners();
+    return session;
+  }
+
+  /// Closes [session] without writing anything.
+  void endTextEdit(PdfTextEditSession session) {
+    session.close();
+    if (!identical(_textEditSession, session)) return;
+    _textEditSession = null;
+    notifyListeners();
+  }
+
+  /// Writes what [PdfTextEditSession.decide] decided.
+  void applyTextEditCommit(PdfTextEditCommit commit) {
+    switch (commit) {
+      case PdfTextEditNoChange():
+        break;
+      case PdfTextEditSetRichText(:final runs):
+        setSelectedRichText(runs);
+      case PdfTextEditRestyle(
+          :final text,
+          :final font,
+          :final size,
+          :final color,
+          :final underline
+        ):
+        setSelectedText(text,
+            font: font, size: size, color: color, underline: underline);
+      case PdfTextEditSetText(:final text):
+        setSelectedText(text);
+      case PdfTextEditAdd(:final target, :final rect, :final text, :final runs):
+        switch (target) {
+          case PdfNewCloudCallout(:final page, :final region):
+            addCloudCallout(page, region, rect, text);
+          case PdfNewCallout(:final page, :final terminus):
+            addCallout(page, rect, text, terminus);
+          case PdfNewTextBox(:final page):
+            if (runs != null) {
+              addFreeTextRich(page, rect, runs);
+            } else {
+              addFreeText(page, rect, text);
+            }
+          case PdfExistingTextBox():
+            break; // decide() never adds over an existing box
+        }
+    }
+  }
+
+  /// Keeps the open editor's preview on the defaults and appearance the
+  /// panel edits while it is open.
+  void _followTextEditSession() {
+    final session = _textEditSession;
+    if (session == null) return;
+    final target = session.target;
+    if (target is PdfExistingTextBox) {
+      // The opacity control restyles the selected annotation in place while
+      // its inline editor stays open. Follow the new appearance alpha so the
+      // live glyphs do not remain opaque and make the control look inert.
+      session.followAppearance(
+        opacity: selectedAnnotationSlot == target.slot
+            ? selectedAnnotation?.appearanceOpacity
+            : null,
+        verticalAlign: selectedTextVerticalAlign,
+      );
+    } else {
+      // a new box in flight follows the tune popup's box-level defaults live
+      // (alignment, spacing, underline) instead of only picking them up on
+      // open
+      session.adoptBoxDefaults(
+        align: preferences.textAlign,
+        verticalAlign: preferences.textVerticalAlign,
+        lineSpacing: lineSpacing,
+        charSpacing: charSpacing,
+        opacity: preferences.opacity,
+        underline: textUnderline,
+      );
+    }
   }
 
   /// Restyles the open in-place text editor: the selected run when text is
@@ -2886,36 +2983,34 @@ class PdfEditingController extends ChangeNotifier {
     int? color,
     bool? underline,
   }) {
-    if (!_editingText) return false;
-    _editingTextStyleRequest =
-        (font: font, size: size, color: color, underline: underline);
-    _editingTextStyleRevision++;
-    notifyListeners();
+    final session = _textEditSession;
+    if (session == null) return false;
+    session.restyle(font: font, size: size, color: color, underline: underline);
     return true;
   }
 
+  /// Registers how page [page]'s overlay opens its inline editor on the
+  /// selected free text ([requestEditSelectedTextInline]). Returns a
+  /// callback that unregisters it.
+  VoidCallback registerInlineTextEditOpener(int page, void Function() open) {
+    _inlineTextEditOpeners[page] = open;
+    return () {
+      if (identical(_inlineTextEditOpeners[page], open)) {
+        _inlineTextEditOpeners.remove(page);
+      }
+    };
+  }
+
+  /// Opens the selected free-text box in its page's inline editor.
   bool requestEditSelectedTextInline() {
     if (_selected.length != 1 ||
         selectedAnnotation?.subtype != 'FreeText' ||
         selectedAnnotation?.isLockedContents == true) {
       return false;
     }
-    _editSelectedTextRevision++;
-    notifyListeners();
+    final page = selectedAnnotationSlot?.$1;
+    if (page != null) _inlineTextEditOpeners[page]?.call();
     return true;
-  }
-
-  void beginEditingTextFocusHold() {
-    _editingTextFocusHoldCount++;
-    _editingTextFocusHoldRevision++;
-    notifyListeners();
-  }
-
-  void endEditingTextFocusHold() {
-    if (_editingTextFocusHoldCount == 0) return;
-    _editingTextFocusHoldCount--;
-    _editingTextFocusHoldRevision++;
-    notifyListeners();
   }
 
   // ---------------------------------------------------------------------
