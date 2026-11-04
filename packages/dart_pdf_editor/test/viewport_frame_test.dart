@@ -10,11 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// A single-column layout: pages stacked along the main axis with [spacing],
 /// centred on the cross axis of a [crossView]-wide view.
 class _Column implements PdfViewportLayout {
-  _Column(this.sizes, {this.spacing = 8, required this.crossView});
+  _Column(this.sizes, {required this.crossView});
 
   /// (main, cross) extent per page.
   final List<(double, double)> sizes;
-  final double spacing;
+  static const spacing = 8.0;
   final double crossView;
 
   @override
