@@ -1475,9 +1475,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// Select-tool behavior applies: the tool is armed, or an annotation
   /// was selected in default mode (no tool) by a mouse click - the
   /// selection needs its move/resize/marquee interactions either way.
-  bool get _selectMode =>
-      _tool == PdfEditTool.select ||
-      (_tool == null && _controller.hasAnnotationSelection);
+  bool get _selectMode => _controller.selectsAnnotations;
 
   @override
   void initState() {
@@ -7270,9 +7268,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // hand mode. In that passive state the MouseRegion paints them, but no
     // gesture recognizer may enter the arena and steal scrolling or text
     // selection from the viewer underneath.
-    final acceptsEditingGestures = _tool != null ||
-        _selectMode ||
-        _controller.activeSavedAnnotation != null;
+    final acceptsEditingGestures = _controller.acceptsEditingGestures;
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
             _afterGhost == null &&
