@@ -1899,9 +1899,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   /// The ambient theme at compact density, made once per ambient theme: a
   /// fresh `copyWith` on every rebuild would read as a new theme and rebuild
-  /// every themed control in the bars each time a tool is armed.
+  /// every themed control in the bars each time a tool is armed. Keyed on
+  /// equality, not identity: a host can hand down an equal but new theme on
+  /// every tick (the app does, per style-slider frame), and the selected-tile
+  /// style below is a closure, so a remade dense theme never compares equal
+  /// to the last one (app_prefs_rebuild_test went 1,008 -> 2,423 per tick).
   ThemeData _denseTheme(ThemeData source) {
-    if (!identical(source, _denseSource)) {
+    if (!identical(source, _denseSource) && source != _denseSource) {
       _denseSource = source;
       // the armed tool is a tinted tile, the Hand/Select pill's active
       // fill: with every group's toolbar out at once, a recoloured icon

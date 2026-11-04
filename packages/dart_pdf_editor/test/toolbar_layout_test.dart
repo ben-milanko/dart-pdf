@@ -149,6 +149,64 @@ void main() {
       expect(prefs.toolbarFloating, isFalse);
     });
 
+    testWidgets('labelled tools go icon-only, so Edit is no row of its own',
+        (tester) async {
+      await pumpEditor(tester);
+      // Edit's tools, Color, Flatten and Totals keep their names for the
+      // tooltip only: outlined labels made Edit a row of its own
+      for (final label in ['Content', 'Erase', 'Redact', 'Flatten']) {
+        expect(inBar('pdf-tool-bar-edit', find.text(label)), findsNothing,
+            reason: label);
+      }
+      for (final key in ['pdf-tool-content', 'pdf-flatten-all']) {
+        expect(
+            find.descendant(
+                of: find.byKey(ValueKey(key)), matching: find.byType(Text)),
+            findsNothing,
+            reason: key);
+        expect(
+            find.descendant(
+                of: find.byKey(ValueKey(key)),
+                matching: find.byType(IconButton),
+                matchRoot: true),
+            findsOneWidget,
+            reason: key);
+      }
+      expect(inBar('pdf-tool-bar-measure', find.text('Totals')), findsNothing);
+      // labelled, Edit alone was ~800px - a toolbar row of its own, and
+      // three rows at 1280 and 1440px
+      expect(rectOf(tester, const ValueKey('pdf-tool-bar-edit')).width,
+          lessThan(500));
+    });
+
+    testWidgets('the armed tool is a tinted tile', (tester) async {
+      await pumpEditor(tester);
+      final rectangle = find.byKey(const ValueKey('pdf-tool-rectangle'));
+      final style = IconButtonTheme.of(tester.element(rectangle)).style!;
+      final scheme = Theme.of(tester.element(rectangle)).colorScheme;
+      expect(style.backgroundColor!.resolve({WidgetState.selected}),
+          scheme.primary.withValues(alpha: 0.15));
+      expect(style.backgroundColor!.resolve({}), isNull);
+      await tapMouse(tester, rectangle);
+      expect(tester.widget<IconButton>(rectangle).isSelected, isTrue);
+    });
+
+    testWidgets('the empty properties bar reads on one line', (tester) async {
+      await pumpEditor(tester);
+      final empty =
+          inBar(properties, find.byKey(const ValueKey('pdf-properties-empty')));
+      expect(empty, findsOneWidget);
+      final title = tester.getRect(find.descendant(
+          of: empty, matching: find.text('Properties'.toUpperCase())));
+      final hint = find.descendant(
+          of: empty,
+          matching: find
+              .text('Pick a tool or select a markup to see its properties'));
+      expect(tester.getRect(hint).center.dy, closeTo(title.center.dy, 1));
+      expect(
+          tester.widget<Text>(hint).style!.fontSize, greaterThanOrEqualTo(12));
+    });
+
     testWidgets('a narrow window wraps the toolbars and never overflows',
         (tester) async {
       tester.view.physicalSize = const Size(800, 700);

@@ -48,6 +48,30 @@ was checked again in a fresh set.
   "PROPERTIES" and the hint on one line, with the hint at 12px. Side rails
   keep the `_StripLabel` info icon.
 
+## Gotcha: the dense theme must be memoized by equality
+
+The first cut failed `app_prefs_rebuild_test` (2,423 element rebuilds per
+stroke-width tick, budget 1,100). The app hands down an *equal but new*
+`ThemeData` on every tick. `_denseTheme`'s memo was identity-only, so it
+remade the dense theme each tick. Before this change that was harmless: the
+remade copy compared equal, and `Theme` didn't notify. The selected-tile
+style is a `WidgetStateProperty.resolveWith` closure, though, so each remade
+copy compared *unequal*, and every themed control in every docked bar
+rebuilt. The memo now also accepts an `==` source, and the test passes
+again. Anything else that puts a closure into a dense/derived theme needs
+the same care.
+
+Tests: `toolbar_layout_test` gains three cases. Each fails on the pre-change
+toolbar and passes now:
+- Edit's tools and Flatten are bare icon buttons, and the Edit bar is
+  < 500px;
+- the selected-tile fill;
+- the one-line Properties hint at >= 12px.
+
+The editor suite passes (3,731). The app suite passes, except
+`paced_read_test`, which flaked once under `-j 8` and passes 3/3 alone. It
+is a file-read timing test, unrelated to the toolbar.
+
 ## Result
 
 | width | rows before | rows after | chrome above the page |
