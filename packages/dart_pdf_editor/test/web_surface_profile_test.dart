@@ -537,8 +537,11 @@ void main() {
     expect(pdfCanvas2dStrokeWidth(0.99, 1), 1);
     expect(pdfCanvas2dStrokeWidth(1, 1), 1);
     expect(pdfCanvas2dStrokeWidth(2, 1), 2);
-    expect(pdfCanvas2dStrokeWidth(0.2, 0.1), 0.1,
-        reason: 'Skia hairlines stay one device pixel at every zoom');
+    expect(pdfCanvas2dStrokeWidth(0, 0.1), 0.1,
+        reason: 'a zero-width hairline stays one device pixel at every zoom');
+    expect(pdfCanvas2dStrokeWidth(0.05, 0.1), 0.1);
+    expect(pdfCanvas2dStrokeWidth(0.72, 0.25), 0.72,
+        reason: 'a 0.72 pt line is ~3 px at 4x, not a hairline');
   });
 
   test('focused worker surface tracks zoom while neighbours retain', () {
