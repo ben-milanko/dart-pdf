@@ -8890,8 +8890,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (editing == null) return false;
     final keyboard = HardwareKeyboard.instance;
     if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return false;
-    return editing.tool == PdfEditTool.select ||
-        (editing.tool == null && editing.hasAnnotationSelection);
+    return editing.selectsAnnotations;
   }
 
   /// Finishes a marquee drag: selects the annotations the box covers on
@@ -11941,24 +11940,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                     ListenableBuilder(
                       key: const ValueKey('pdf-editing-layer'),
                       listenable: editing,
-                      // mounted for an armed tool, the eyedropper, a
-                      // default-mode (mouse click) annotation selection, or
-                      // a pending attention flash (the sidebar's zoom-to -
-                      // links and form fields flash without a selection). Cursor
-                      // cursor guides and rulers mount the same passive,
-                      // low-latency hover layer even in ordinary reader/hand
-                      // mode.
+                      // mounted while the session wants page overlays
+                      // ([PdfEditingController.wantsPageOverlays] - cursor
+                      // guides and rulers mount the same passive hover layer
+                      // even in reader/hand mode) or the page currency still
+                      // holds a committed edit's result
                       builder: (context, _) {
                         final rasterCurrent = _pageCurrent;
-                        final idle = editing.tool == null &&
-                            !editing.isPickingColor &&
-                            editing.activeSavedAnnotation == null &&
-                            !editing.hasAnnotationSelection &&
-                            editing.pendingFlash == null &&
-                            !editing.preferences.showVerticalCursorGuide &&
-                            !editing.preferences.showHorizontalCursorGuide &&
-                            !editing.preferences.showPageRulers &&
-                            !editing.preferences.showSnapGrid;
+                        final idle = !editing.wantsPageOverlays;
                         // a mounted overlay outlives its reason until the
                         // page is current: it may be standing in for the
                         // last edit, which the annotation layer has not

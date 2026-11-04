@@ -17,6 +17,7 @@ import '../text_selection_geometry.dart';
 import 'digital_signature.dart';
 import 'editing_annotation_clipboard.dart';
 import 'editing_page_clipboard.dart';
+import 'editing_mode.dart';
 import 'editing_preferences.dart';
 import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
@@ -2344,10 +2345,99 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // tool state
 
-  PdfEditTool? _tool;
-  PdfMarkupKind? _markupTool;
-  bool _handMode = false;
+  /// The one interaction mode; [_enterMode] is its only writer.
+  PdfEditingMode _mode = const PdfReaderMode();
+
+  PdfEditTool? get _tool => _mode.tool;
+  PdfMarkupKind? get _markupTool => _mode.markup;
+  bool get _handMode => _mode is PdfHandMode;
+  String? get _activeSavedAnnotationId => switch (_mode) {
+        PdfSavedAnnotationMode(:final id) => id,
+        _ => null,
+      };
+
   bool _colorLocked = false;
+
+  /// What pointer input does now: reader, hand, a tool, a text markup, or
+  /// placing a saved annotation - exactly one at a time.
+  PdfEditingMode get mode => _mode;
+
+  /// Changes [mode] - the single transition point. Leaving a mode commits
+  /// what it buffered (ink; switching straight to the eraser defers that
+  /// commit a turn so the eraser arms at once), the outgoing style scope is
+  /// saved and the incoming one restored, and a selection the new mode
+  /// can't act on is dropped. A no-op when [next] is already the mode.
+  void _enterMode(PdfEditingMode next) {
+    final previous = _mode;
+    if (next == previous) return;
+    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+    // leaving an ink-like tool commits the drawing, like lifting the pen.
+    //
+    // Switching directly from ink to the eraser is the latency-sensitive
+    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
+    // the PDF and trigger a raster refresh, which made the eraser button feel
+    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
+    // the commit run in the next event-loop turn; the stroke is still committed
+    // before any subsequent pointer event can erase it.
+    final leavingInkTool =
+        _buffersInk(previous.tool) && next.tool != previous.tool;
+    final deferInkCommit =
+        leavingInkTool && next.tool == PdfEditTool.eraser && hasPendingInk;
+    if (leavingInkTool && !deferInkCommit) {
+      finishInk();
+    }
+    // arming anything but the eraser by other means breaks the pencil
+    // double-tap pairing (see [togglePencilEraser]) - the remembered tool
+    // is only valid while the eraser stays the toggled-on partner
+    if (next.tool != PdfEditTool.eraser) _eraserToggledOn = false;
+    _rememberToolLeft(next.tool);
+    _mode = next;
+    if (next.tool != PdfEditTool.select) _selected.clear();
+    if (next.tool != PdfEditTool.content) _selectedElement = null;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    if (next is PdfMarkupMode) {
+      useMarkupStyleScope();
+    } else {
+      // each annotation tool remembers its own colour, stroke, opacity, … -
+      // arming one restores its saved style and routes further style changes
+      // back into its slot (see [PdfEditingPreferences.beginStyleScope])
+      preferences.beginStyleScope(
+        _styleScopeKey(next.tool),
+        _styleScopeFields(next.tool),
+        defaults: _styleScopeDefaults(next.tool),
+        lockedFields: _lockedStyleFields,
+      );
+    }
+    notifyListeners();
+    if (deferInkCommit) Timer.run(finishInk);
+  }
+
+  /// Whether a press on an annotation selects it: the Select tool, or a
+  /// default-mode annotation selection already in play.
+  bool get selectsAnnotations =>
+      _tool == PdfEditTool.select || (_tool == null && hasAnnotationSelection);
+
+  /// Whether page presses belong to the editing overlay's gestures rather
+  /// than the viewer's reader gestures (scrolling, text selection, links).
+  bool get acceptsEditingGestures =>
+      _tool != null || selectsAnnotations || activeSavedAnnotation != null;
+
+  /// Whether pages need their editing overlay mounted for the session's own
+  /// state: an armed tool, the eyedropper, a saved-annotation placement, an
+  /// annotation selection, a pending attention flash, or the cursor guides,
+  /// rulers and snap grid. (Results still painting after a commit are
+  /// [pageCurrency]'s answer.)
+  bool get wantsPageOverlays =>
+      _tool != null ||
+      isPickingColor ||
+      activeSavedAnnotation != null ||
+      hasAnnotationSelection ||
+      pendingFlash != null ||
+      preferences.showVerticalCursorGuide ||
+      preferences.showHorizontalCursorGuide ||
+      preferences.showPageRulers ||
+      preferences.showSnapGrid;
 
   static const Set<String> _colorLockedFields = {'color'};
 
@@ -2378,55 +2468,8 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  set tool(PdfEditTool? value) {
-    // Assigning null while a markup tool is armed is an intentional clear
-    // (Escape and the mobile tool switcher's Clear both use this path).
-    if (value == _tool &&
-        _markupTool == null &&
-        !_handMode &&
-        _activeSavedAnnotationId == null) {
-      return;
-    }
-    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-    // leaving an ink-like tool commits the drawing, like lifting the pen.
-    //
-    // Switching directly from ink to the eraser is the latency-sensitive
-    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
-    // the PDF and trigger a raster refresh, which made the eraser button feel
-    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
-    // the commit run in the next event-loop turn; the stroke is still committed
-    // before any subsequent pointer event can erase it.
-    final leavingInkTool = _buffersInk(_tool) && value != _tool;
-    final deferInkCommit =
-        leavingInkTool && value == PdfEditTool.eraser && hasPendingInk;
-    if (leavingInkTool && !deferInkCommit) {
-      finishInk();
-    }
-    // arming anything but the eraser by other means breaks the pencil
-    // double-tap pairing (see [togglePencilEraser]) - the remembered tool
-    // is only valid while the eraser stays the toggled-on partner
-    if (value != PdfEditTool.eraser) _eraserToggledOn = false;
-    _rememberToolLeft(value);
-    _tool = value;
-    _markupTool = null;
-    _handMode = false;
-    _activeSavedAnnotationId = null;
-    if (value != PdfEditTool.select) _selected.clear();
-    if (value != PdfEditTool.content) _selectedElement = null;
-    _cropModeArmed = false;
-    _cropDraft = null;
-    // each annotation tool remembers its own colour, stroke, opacity, … -
-    // arming one restores its saved style and routes further style changes
-    // back into its slot (see [PdfEditingPreferences.beginStyleScope])
-    preferences.beginStyleScope(
-      _styleScopeKey(value),
-      _styleScopeFields(value),
-      defaults: _styleScopeDefaults(value),
-      lockedFields: _lockedStyleFields,
-    );
-    notifyListeners();
-    if (deferInkCommit) Timer.run(finishInk);
-  }
+  set tool(PdfEditTool? value) =>
+      _enterMode(value == null ? const PdfReaderMode() : PdfToolMode(value));
 
   /// Whether the viewer is in explicit Hand mode.
   ///
@@ -2437,12 +2480,7 @@ class PdfEditingController extends ChangeNotifier {
   bool get isHandMode => _handMode;
 
   /// Disarms editing and markup tools and enters explicit Hand mode.
-  void activateHandMode() {
-    if (_handMode && _tool == null && _markupTool == null) return;
-    tool = null;
-    _handMode = true;
-    notifyListeners();
-  }
+  void activateHandMode() => _enterMode(const PdfHandMode());
 
   /// The armed text-markup tool, or null when text selections should remain
   /// ordinary selections.
@@ -2454,32 +2492,9 @@ class PdfEditingController extends ChangeNotifier {
   PdfMarkupKind? get markupTool => _markupTool;
 
   set markupTool(PdfMarkupKind? value) {
-    if (value == _markupTool) return;
-    if (value == null) {
-      preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-      _markupTool = null;
-      preferences.beginStyleScope(
-        _styleScopeKey(_tool),
-        _styleScopeFields(_tool),
-        defaults: _styleScopeDefaults(_tool),
-        lockedFields: _lockedStyleFields,
-      );
-      notifyListeners();
-      return;
-    }
-
-    // Text markup needs reader-mode selection gestures. Going through the
-    // normal setter also commits a pending ink stroke before switching.
-    if (_tool != null || _handMode) tool = null;
-    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-    _markupTool = value;
-    _activeSavedAnnotationId = null;
-    _selected.clear();
-    _selectedElement = null;
-    _cropModeArmed = false;
-    _cropDraft = null;
-    useMarkupStyleScope();
-    notifyListeners();
+    // clearing the markup tool leaves the other modes alone
+    if (value == null && _markupTool == null) return;
+    _enterMode(value == null ? const PdfReaderMode() : PdfMarkupMode(value));
   }
 
   Set<String> get _lockedStyleFields =>
@@ -7093,8 +7108,6 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // clipboard
 
-  String? _activeSavedAnnotationId;
-
   /// The persisted reusable-annotation library shared through
   /// [preferences].
   List<PdfSavedAnnotation> get savedAnnotations => preferences.savedAnnotations;
@@ -7224,7 +7237,7 @@ class PdfEditingController extends ChangeNotifier {
   /// document.
   void removeSavedAnnotation(PdfSavedAnnotation annotation) {
     if (_activeSavedAnnotationId == annotation.id) {
-      _activeSavedAnnotationId = null;
+      _enterMode(const PdfReaderMode());
     }
     preferences.savedAnnotations = [
       for (final entry in savedAnnotations)
@@ -7240,13 +7253,12 @@ class PdfEditingController extends ChangeNotifier {
         .where((entry) => entry.id == annotation.id)
         .firstOrNull;
     if (current == null) return false;
-    // A library placement is its own mutually-exclusive interaction mode.
-    // Going through the normal setter commits pending ink and clears markup,
-    // hand mode, selections, and any previously active library item.
-    tool = null;
+    // A library placement is its own mutually-exclusive interaction mode:
+    // entering it commits pending ink and clears markup, hand mode,
+    // selections, and any previously active library item.
     clearAnnotationSelection();
     clearElementSelection();
-    _activeSavedAnnotationId = current.id;
+    _enterMode(PdfSavedAnnotationMode(current.id));
     annotationClipboard.set(
       [current.snapshot],
       owner: current,
@@ -7260,8 +7272,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Cancels the pointer-following library placement mode.
   void cancelSavedAnnotationPlacement() {
     if (_activeSavedAnnotationId == null) return;
-    _activeSavedAnnotationId = null;
-    notifyListeners();
+    _enterMode(const PdfReaderMode());
   }
 
   /// Drops the active library item centered on ([x], [y]) and keeps it armed
