@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Correction de la caviardisation des images, champs de formulaire et textes masqués couverts. Son application supprime par défaut les métadonnées et pièces jointes ; un contenu partagé peut aussi être supprimé ailleurs. Les modifications restent non enregistrées si l’enregistrement est annulé ou si vous modifiez le document pendant celui-ci. Amélioration du collage, du zoom et des mesures.

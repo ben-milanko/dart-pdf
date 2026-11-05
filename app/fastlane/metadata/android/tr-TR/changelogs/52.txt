@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Kapatılan resimlerin, form alanlarının ve gizli metnin karartılması düzeltildi. Uygulama artık varsayılan olarak meta verileri ve ekleri kaldırır; paylaşılan içerik başka yerlerden de kaldırılabilir. Kaydetme iptal edildiğinde veya kaydetme sırasında yeni düzenlemeler yapıldığında kaydedilmemiş değişiklikler korunur. Yapıştırma, yakınlaştırma ve ölçüm iyileştirildi.

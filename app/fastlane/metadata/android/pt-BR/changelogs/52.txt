@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Corrigida a ocultação de imagens, campos de formulário e texto oculto cobertos. A aplicação remove metadados e anexos por predefinição; conteúdos partilhados podem ser removidos noutros locais. As alterações não guardadas são mantidas se cancelar a gravação ou editar durante a mesma. Melhorias ao colar, ampliar e medir.

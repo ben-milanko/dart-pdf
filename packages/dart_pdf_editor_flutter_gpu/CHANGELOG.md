@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.0
+
+- No additional public API changes.
+
 ## 0.12.1
 
 - No additional public API changes.

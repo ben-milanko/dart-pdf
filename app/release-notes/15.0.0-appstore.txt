@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Fix redaction of covered images, form fields and hidden text. Applying redactions now removes metadata and attachments by default; shared content may also be removed elsewhere. Preserve unsaved edits when saving is cancelled or more changes arrive during a save. Improve paste, zoom and measurement controls.

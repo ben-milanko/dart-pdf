@@ -1,5 +1,13 @@
 # Changelog
 
+## 15.0.0+52
+
+- Fix #1255: applying redactions removes covered image pixels, nested form content, form fields and hidden text copies. Metadata and attachments are removed by default; shared content may also be removed elsewhere.
+- Preserve unsaved edits when sharing is dismissed or when further edits arrive during a save; prevent competing saves for one tab.
+- Restore browser screenshot pasting and keep masked PDF content visible while zooming.
+- Improve command discovery, accessible menu controls, the drawing-scale dialog and automatic OCR recovery.
+- Keep the phone toolbar stable during scroll spring-back.
+
 ## 14.0.0+51
 
 - Read consecutive pages in continuous two-page spreads, with an optional separate cover and matching thumbnails.
