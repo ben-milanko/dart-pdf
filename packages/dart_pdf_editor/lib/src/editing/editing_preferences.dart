@@ -250,12 +250,19 @@ class PdfEditingPreferences extends ChangeNotifier
   // The docked main toolbar (undo/redo, Hand/Select) in the header's free
   // space instead of the toolbar area, while it is docked on top.
   bool _toolbarMainInHeader = false;
-  // Tool bars pinned to an edge of their own, by group. A group absent here
-  // rides with the main toolbar and shows only while its group is open.
+  // Tool bars pinned to an edge of their own, by group, and the style /
+  // properties bar's edge - kept per layout mode, because the two modes read
+  // them differently: docked, a group's edge is where its always-shown
+  // toolbar sits; floating, it pins the group as a palette over the page
+  // beside the group switcher. One shared map turned a docked arrangement
+  // into duplicate floating palettes. A group absent here rides with the
+  // main toolbar.
   final Map<PdfEditToolGroup, PdfPanelDock> _toolStripDocks = {};
-  // The separate style bar's edge; null keeps the style controls inside the
-  // tool bars.
+  final Map<PdfEditToolGroup, PdfPanelDock> _floatingToolStripDocks = {};
+  // The style bar's edge; null keeps the style controls in their default
+  // place (beside the main toolbar docked, inside the strips floating).
   PdfPanelDock? _styleBarDock;
+  PdfPanelDock? _floatingStyleBarDock;
   // Tab-group membership: panels sharing the same dock AND the same group id
   // render as one tabbed panel; a panel alone in its group is a standalone
   // side-by-side panel. The default id is each panel's own enum index, so
@@ -530,14 +537,20 @@ class PdfEditingPreferences extends ChangeNotifier
           store.getBool('${_prefix}toolbarPackTightly') ?? _toolbarPackTightly;
       _toolbarMainInHeader = store.getBool('${_prefix}toolbarMainInHeader') ??
           _toolbarMainInHeader;
+      final docks = PdfPanelDock.values.asNameMap();
       for (final group in PdfEditToolGroup.values) {
-        final dock = PdfPanelDock.values.asNameMap()[
-            store.getString('${_prefix}toolStripDock.${group.name}')];
+        final dock =
+            docks[store.getString('${_prefix}toolStripDock.${group.name}')];
         if (dock != null) _toolStripDocks[group] = dock;
+        final floating = docks[
+            store.getString('${_prefix}floatingToolStripDock.${group.name}')];
+        if (floating != null) _floatingToolStripDocks[group] = floating;
       }
-      _styleBarDock = PdfPanelDock.values
-              .asNameMap()[store.getString('${_prefix}styleBarDock')] ??
-          _styleBarDock;
+      _styleBarDock =
+          docks[store.getString('${_prefix}styleBarDock')] ?? _styleBarDock;
+      _floatingStyleBarDock =
+          docks[store.getString('${_prefix}floatingStyleBarDock')] ??
+              _floatingStyleBarDock;
       for (final p in PdfDockablePanel.values) {
         _panelGroups[p] =
             store.getInt('${_prefix}panelGroup.${p.name}') ?? _panelGroups[p]!;
@@ -1907,44 +1920,63 @@ class PdfEditingPreferences extends ChangeNotifier
     _setDock('toolbarDock', value);
   }
 
-  /// Tool bars docked to an edge of their own, by group. A group absent from
-  /// the map rides with the main toolbar: its bar shows next to it while the
-  /// group is open. A docked bar stays on its edge whether or not its group is
-  /// open, like a docked palette in a desktop editor. Persisted.
+  Map<PdfEditToolGroup, PdfPanelDock> get _strips =>
+      _toolbarFloating ? _floatingToolStripDocks : _toolStripDocks;
+
+  String _stripKey(PdfEditToolGroup group) => _toolbarFloating
+      ? '${_prefix}floatingToolStripDock.${group.name}'
+      : '${_prefix}toolStripDock.${group.name}';
+
+  /// Tool bars docked to an edge of their own, by group, **for the current
+  /// layout mode** ([toolbarFloating]): docked and floating each keep their
+  /// own arrangement, so switching modes never carries one into the other.
+  /// A group absent from the map rides with the main toolbar: docked, its
+  /// toolbar sits in the main toolbar's area; floating, its bar shows next to
+  /// the switcher while the group is open. A floating bar given an edge stays
+  /// there as a palette whether or not its group is open. Persisted.
   Map<PdfEditToolGroup, PdfPanelDock> get toolStripDocks =>
-      Map.unmodifiable(_toolStripDocks);
+      Map.unmodifiable(_strips);
 
-  /// The edge [group]'s tool bar is docked to, or null when it rides with the
-  /// main toolbar.
-  PdfPanelDock? toolStripDock(PdfEditToolGroup group) => _toolStripDocks[group];
+  /// The edge [group]'s tool bar is docked to in the current layout mode, or
+  /// null when it rides with the main toolbar.
+  PdfPanelDock? toolStripDock(PdfEditToolGroup group) => _strips[group];
 
-  /// Docks [group]'s tool bar to [dock], or returns it to the main toolbar
-  /// when [dock] is null.
+  /// Docks [group]'s tool bar to [dock] in the current layout mode, or
+  /// returns it to the main toolbar when [dock] is null.
   void setToolStripDock(PdfEditToolGroup group, PdfPanelDock? dock) {
-    if (_toolStripDocks[group] == dock) return;
-    final key = '${_prefix}toolStripDock.${group.name}';
+    final strips = _strips;
+    if (strips[group] == dock) return;
+    final key = _stripKey(group);
     if (dock == null) {
-      _toolStripDocks.remove(group);
+      strips.remove(group);
       _write((s) => s.remove(key));
     } else {
-      _toolStripDocks[group] = dock;
+      strips[group] = dock;
       _write((s) => s.setString(key, dock.name));
     }
     notifyListeners();
   }
 
-  /// The edge of the separate style bar - one bar holding the colour, stroke,
-  /// opacity and font controls for the selection or the armed tool, always in
-  /// the same place. Null (the default) keeps those controls inside each tool
-  /// bar instead. Persisted.
-  PdfPanelDock? get styleBarDock => _styleBarDock;
+  /// The edge of the style bar - one bar holding the colour, stroke, opacity
+  /// and font controls for the selection or the armed tool, always in the
+  /// same place - **for the current layout mode** ([toolbarFloating]): the
+  /// docked properties bar and the floating style bar each keep their own.
+  /// Null (the default) puts them in their mode's default place: beside the
+  /// main toolbar docked, inside each tool bar floating. Persisted.
+  PdfPanelDock? get styleBarDock =>
+      _toolbarFloating ? _floatingStyleBarDock : _styleBarDock;
 
   set styleBarDock(PdfPanelDock? value) {
-    if (value == _styleBarDock) return;
-    _styleBarDock = value;
+    if (value == styleBarDock) return;
+    final key = _toolbarFloating ? 'floatingStyleBarDock' : 'styleBarDock';
+    if (_toolbarFloating) {
+      _floatingStyleBarDock = value;
+    } else {
+      _styleBarDock = value;
+    }
     _write((s) => value == null
-        ? s.remove('${_prefix}styleBarDock')
-        : s.setString('${_prefix}styleBarDock', value.name));
+        ? s.remove('$_prefix$key')
+        : s.setString('$_prefix$key', value.name));
     notifyListeners();
   }
 
@@ -1999,10 +2031,22 @@ class PdfEditingPreferences extends ChangeNotifier
     toolbarPackTightly = false;
     toolbarMainInHeader = false;
     toolbarDock = PdfPanelDock.top;
-    styleBarDock = null;
-    for (final group in _toolStripDocks.keys.toList()) {
-      setToolStripDock(group, null);
-    }
+    // both modes' arrangements: reset means the stock layout either way
+    _styleBarDock = null;
+    _floatingStyleBarDock = null;
+    final strips = {..._toolStripDocks.keys, ..._floatingToolStripDocks.keys};
+    _toolStripDocks.clear();
+    _floatingToolStripDocks.clear();
+    _write((s) async {
+      await s.remove('${_prefix}styleBarDock');
+      await s.remove('${_prefix}floatingStyleBarDock');
+      for (final group in strips) {
+        await s.remove('${_prefix}toolStripDock.${group.name}');
+        await s.remove('${_prefix}floatingToolStripDock.${group.name}');
+      }
+      return true;
+    });
+    notifyListeners();
   }
 
   /// The dock a specific [panel] is attached to, keyed by identity - the

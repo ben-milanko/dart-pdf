@@ -70,13 +70,16 @@ void main() {
 
       final b = PdfEditingPreferences();
       await b.ready;
+      // the arrangement was made docked; b opens floating, which has its own
+      expect(b.toolbarFloating, isTrue);
+      expect(b.toolStripDocks, isEmpty);
+      b.toolbarFloating = false;
       expect(b.toolStripDocks, {
         PdfEditToolGroup.shapes: PdfPanelDock.right,
         PdfEditToolGroup.markup: PdfPanelDock.top,
       });
       expect(b.toolStripDock(PdfEditToolGroup.draw), isNull);
       expect(b.styleBarDock, PdfPanelDock.left);
-      expect(b.toolbarFloating, isTrue);
       expect(b.toolbarPackTightly, isTrue);
       expect(b.toolbarMainInHeader, isTrue);
 
@@ -99,6 +102,58 @@ void main() {
       b.dispose();
       c.dispose();
     });
+  });
+
+  test('docked and floating keep their own tool bar arrangements', () async {
+    final a = PdfEditingPreferences();
+    await a.ready;
+    a.setToolStripDock(PdfEditToolGroup.shapes, PdfPanelDock.right);
+    a.styleBarDock = PdfPanelDock.left;
+    // floating starts from its own (stock) arrangement: no stray palettes
+    a.toolbarFloating = true;
+    expect(a.toolStripDocks, isEmpty);
+    expect(a.styleBarDock, isNull);
+    a.setToolStripDock(PdfEditToolGroup.markup, PdfPanelDock.left);
+    a.styleBarDock = PdfPanelDock.bottom;
+    // and docked gets its own back
+    a.toolbarFloating = false;
+    expect(a.toolStripDocks, {PdfEditToolGroup.shapes: PdfPanelDock.right});
+    expect(a.styleBarDock, PdfPanelDock.left);
+    await pumpEventQueue();
+
+    final b = PdfEditingPreferences();
+    await b.ready;
+    expect(b.toolStripDocks, {PdfEditToolGroup.shapes: PdfPanelDock.right});
+    b.toolbarFloating = true;
+    expect(b.toolStripDocks, {PdfEditToolGroup.markup: PdfPanelDock.left});
+    expect(b.styleBarDock, PdfPanelDock.bottom);
+    // reset clears both
+    b.resetToolbarLayout();
+    expect(b.toolStripDocks, isEmpty);
+    b.toolbarFloating = true;
+    expect(b.toolStripDocks, isEmpty);
+    expect(b.styleBarDock, isNull);
+    a.dispose();
+    b.dispose();
+  });
+
+  testWidgets('switching to floating leaves no docked rails behind',
+      (tester) async {
+    final prefs = await pumpEditor(tester, configure: (p) {
+      p.setToolStripDock(PdfEditToolGroup.shapes, PdfPanelDock.right);
+      p.setToolStripDock(PdfEditToolGroup.measure, PdfPanelDock.right);
+    });
+    expect(find.byKey(const ValueKey('pdf-tool-bar-shapes')), findsOneWidget);
+    prefs.toolbarFloating = true;
+    await tester.pumpAndSettle();
+    // the floating switcher, and no pinned Shapes/Measure palettes
+    expect(find.byKey(const ValueKey('pdf-group-shapes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-tool-bar-shapes')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-tool-bar-measure')), findsNothing);
+    prefs.toolbarFloating = false;
+    await tester.pumpAndSettle();
+    final rail = rectOf(tester, const ValueKey('pdf-tool-bar-shapes'));
+    expect(rail.right, closeTo(1280, 0.5), reason: 'docked rail restored');
   });
 
   group('docked', () {
