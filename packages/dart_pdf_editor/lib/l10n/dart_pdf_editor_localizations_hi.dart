@@ -2498,6 +2498,26 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'जब टूलबार ऊपर डॉक हों, तब पूर्ववत करें, फिर से करें, हैंड और चयन को खोज के पास दिखाएँ।';
 
   @override
+  String get tbShowToolbarNames => 'टूलबार के नाम दिखाएँ';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'हर डॉक किए गए टूलबार (मार्कअप, ड्रॉ…) के औज़ारों के पास उसका नाम दिखाएँ। बंद करने से जगह बचती है; नाम टूलटिप में बने रहते हैं।';
+
+  @override
+  String get tbCustomizeToolbars => 'टूलबार अनुकूलित करें';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'टूलबार को दूसरे किनारे पर खींचने या उनका क्रम बदलने के लिए हैंडल दिखाएँ। पूरा होने पर हो गया पर क्लिक करें।';
+
+  @override
+  String get tbMoveEarlier => 'पहले ले जाएँ';
+
+  @override
+  String get tbMoveLater => 'बाद में ले जाएँ';
+
+  @override
   String get insertPagesTitle => 'पेज डालें';
 
   @override

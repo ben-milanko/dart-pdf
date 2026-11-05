@@ -2542,6 +2542,26 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'اعرض التراجع والإعادة واليد والتحديد بجانب البحث عندما تكون أشرطة الأدوات مثبتة في الأعلى.';
 
   @override
+  String get tbShowToolbarNames => 'إظهار أسماء أشرطة الأدوات';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'تسمية كل شريط أدوات مثبت (ترميز، رسم…) بجانب أدواته. إيقافها يوفر المساحة؛ تبقى الأسماء في التلميحات.';
+
+  @override
+  String get tbCustomizeToolbars => 'تخصيص أشرطة الأدوات';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'إظهار المقابض لسحب أشرطة الأدوات إلى حافة أخرى أو إعادة ترتيبها. انقر تم عند الانتهاء.';
+
+  @override
+  String get tbMoveEarlier => 'نقل إلى الأمام';
+
+  @override
+  String get tbMoveLater => 'نقل إلى الخلف';
+
+  @override
   String get insertPagesTitle => 'إدراج صفحات';
 
   @override

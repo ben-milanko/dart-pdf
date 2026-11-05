@@ -2455,6 +2455,25 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbMainInHeaderHint => '工具栏停靠在顶部时，在搜索旁显示撤销、重做、抓手和选择。';
 
   @override
+  String get tbShowToolbarNames => '显示工具栏名称';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      '在每个停靠工具栏（标记、绘图…）的工具旁显示名称。关闭可节省空间；名称仍显示在工具提示中。';
+
+  @override
+  String get tbCustomizeToolbars => '自定义工具栏';
+
+  @override
+  String get tbCustomizeToolbarsHint => '显示手柄，可将工具栏拖到其他边缘或重新排序。完成后点击“完成”。';
+
+  @override
+  String get tbMoveEarlier => '前移';
+
+  @override
+  String get tbMoveLater => '后移';
+
+  @override
   String get insertPagesTitle => '插入页面';
 
   @override
@@ -5095,6 +5114,25 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbMainInHeaderHint => '工具列停駐在頂端時，在搜尋旁顯示復原、重做、手形與選取。';
+
+  @override
+  String get tbShowToolbarNames => '顯示工具列名稱';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      '在每個停駐工具列（標記、繪圖…）的工具旁顯示名稱。關閉可節省空間；名稱仍會顯示在工具提示中。';
+
+  @override
+  String get tbCustomizeToolbars => '自訂工具列';
+
+  @override
+  String get tbCustomizeToolbarsHint => '顯示控點，可將工具列拖到其他邊緣或重新排序。完成後按一下「完成」。';
+
+  @override
+  String get tbMoveEarlier => '前移';
+
+  @override
+  String get tbMoveLater => '後移';
 
   @override
   String get insertPagesTitle => '插入頁面';

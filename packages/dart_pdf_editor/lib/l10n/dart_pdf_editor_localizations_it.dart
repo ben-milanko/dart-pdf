@@ -2508,6 +2508,26 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Mostra Annulla, Ripeti, Mano e Selezione accanto alla ricerca quando le barre sono ancorate in alto.';
 
   @override
+  String get tbShowToolbarNames => 'Mostra i nomi delle barre';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Etichetta ogni barra ancorata (Markup, Disegno…) accanto ai suoi strumenti. Disattivato risparmia spazio; i nomi restano nei suggerimenti.';
+
+  @override
+  String get tbCustomizeToolbars => 'Personalizza barre degli strumenti';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Mostra le maniglie per trascinare le barre su un altro bordo o riordinarle. Fai clic su Fine al termine.';
+
+  @override
+  String get tbMoveEarlier => 'Sposta prima';
+
+  @override
+  String get tbMoveLater => 'Sposta dopo';
+
+  @override
   String get insertPagesTitle => 'Inserisci pagine';
 
   @override

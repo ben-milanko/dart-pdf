@@ -2468,6 +2468,26 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       'ツールバーを上部にドッキングしているとき、元に戻す・やり直し・手のひら・選択を検索の横に表示します。';
 
   @override
+  String get tbShowToolbarNames => 'ツールバー名を表示';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'ドッキングした各ツールバー（マークアップ、描画…）のツールの横に名前を表示します。オフにすると領域を節約でき、名前はツールチップに残ります。';
+
+  @override
+  String get tbCustomizeToolbars => 'ツールバーをカスタマイズ';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'ツールバーを別の端へドラッグしたり並べ替えたりするためのグリップを表示します。終わったら［完了］をクリックします。';
+
+  @override
+  String get tbMoveEarlier => '前へ移動';
+
+  @override
+  String get tbMoveLater => '後ろへ移動';
+
+  @override
   String get insertPagesTitle => 'ページを挿入';
 
   @override

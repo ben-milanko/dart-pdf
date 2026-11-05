@@ -14,12 +14,15 @@ import 'package:dart_pdf_editor/src/editing/first_fit_wrap.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  // most of these tests arrange the bars, so they start in the customize
+  // mode that shows the grips; pass customizing: false for the stock look
   Future<PdfEditingPreferences> pumpEditor(WidgetTester tester,
-      {void Function(PdfEditingPreferences prefs)? configure}) async {
+      {void Function(PdfEditingPreferences prefs)? configure,
+      bool customizing = true}) async {
     tester.view.physicalSize = const Size(1280, 860);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final prefs = PdfEditingPreferences();
+    final prefs = PdfEditingPreferences()..toolbarCustomizing = customizing;
     addTearDown(prefs.dispose);
     configure?.call(prefs);
     await tester.pumpWidget(MaterialApp(
@@ -418,6 +421,95 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-header-tools')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-undo')), findsOneWidget);
+    });
+
+    testWidgets('the stock bars are just their tools: no grips, no names',
+        (tester) async {
+      final prefs = await pumpEditor(tester, customizing: false);
+      expect(
+          find.byKey(const ValueKey('pdf-tool-bar-move-shapes')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-toolbar-move')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-style-bar-move')), findsNothing);
+      expect(inBar('pdf-tool-bar-shapes', find.text('SHAPES')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-toolbar-customize-done')),
+          findsNothing);
+
+      // View options -> Customize toolbars brings the grips and a Done button
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-view-options')));
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-shell-customize-toolbars')));
+      expect(prefs.toolbarCustomizing, isTrue);
+      expect(find.byKey(const ValueKey('pdf-tool-bar-move-shapes')),
+          findsOneWidget);
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-toolbar-customize-done')));
+      expect(prefs.toolbarCustomizing, isFalse);
+      expect(
+          find.byKey(const ValueKey('pdf-tool-bar-move-shapes')), findsNothing);
+
+      // names are a preference
+      prefs.toolbarShowNames = true;
+      await tester.pumpAndSettle();
+      expect(inBar('pdf-tool-bar-shapes', find.text('SHAPES')), findsOneWidget);
+    });
+
+    testWidgets('dropping a toolbar on another reorders them', (tester) async {
+      final prefs = await pumpEditor(tester);
+      double leftOf(String bar) =>
+          rectOf(tester, ValueKey('pdf-tool-bar-$bar')).left;
+      expect(leftOf('markup'), lessThan(leftOf('draw')));
+
+      // drag Draw's grip onto Markup's leading half: Draw goes first
+      final grip = find.byKey(const ValueKey('pdf-tool-bar-move-draw'));
+      final markup = rectOf(tester, const ValueKey('pdf-tool-bar-markup'));
+      final gesture = await tester.startGesture(tester.getCenter(grip),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(-10, 0));
+      await tester.pump();
+      await gesture.moveTo(markup.centerLeft + const Offset(12, 0));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-tool-bar-drop-marker')),
+          findsOneWidget);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(prefs.toolStripOrder.take(2),
+          [PdfEditToolGroup.draw, PdfEditToolGroup.markup]);
+      expect(leftOf('draw'), lessThan(leftOf('markup')));
+
+      // the grip menu moves one place at a time, for keyboard and touch
+      await tapMouse(
+          tester, find.byKey(const ValueKey('pdf-tool-bar-move-draw')));
+      expect(find.text('Move earlier'), findsNothing, reason: 'already first');
+      await tapMouse(tester, find.text('Move later'));
+      expect(prefs.toolStripOrder.take(2),
+          [PdfEditToolGroup.markup, PdfEditToolGroup.draw]);
+    });
+
+    testWidgets('dropping on a toolbar on another edge moves it there',
+        (tester) async {
+      final prefs = await pumpEditor(tester,
+          configure: (p) =>
+              p.setToolStripDock(PdfEditToolGroup.shapes, PdfPanelDock.right));
+      final grip = find.byKey(const ValueKey('pdf-tool-bar-move-measure'));
+      final shapes = rectOf(tester, const ValueKey('pdf-tool-bar-shapes'));
+      final gesture = await tester.startGesture(tester.getCenter(grip),
+          kind: PointerDeviceKind.mouse);
+      await gesture.moveBy(const Offset(0, 10));
+      await tester.pump();
+      await gesture.moveTo(shapes.bottomCenter - const Offset(0, 12));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(prefs.toolStripDock(PdfEditToolGroup.measure), PdfPanelDock.right);
+      final measure = rectOf(tester, const ValueKey('pdf-tool-bar-measure'));
+      expect(measure.right, closeTo(1280, 0.5));
+      expect(
+          measure.top,
+          greaterThanOrEqualTo(
+              rectOf(tester, const ValueKey('pdf-tool-bar-shapes')).bottom -
+                  0.5),
+          reason: 'after Shapes on the rail');
     });
 
     testWidgets('a narrow window wraps the toolbars and never overflows',

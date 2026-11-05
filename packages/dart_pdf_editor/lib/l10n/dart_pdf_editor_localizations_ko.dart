@@ -2469,6 +2469,26 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       '도구 모음이 위쪽에 고정되어 있을 때 실행 취소, 다시 실행, 손, 선택을 검색 옆에 표시합니다.';
 
   @override
+  String get tbShowToolbarNames => '도구 모음 이름 표시';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      '고정된 각 도구 모음(마크업, 그리기…)의 도구 옆에 이름을 표시합니다. 끄면 공간이 절약되며 이름은 도구 설명에 남습니다.';
+
+  @override
+  String get tbCustomizeToolbars => '도구 모음 사용자 지정';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      '도구 모음을 다른 가장자리로 끌거나 순서를 바꿀 수 있는 핸들을 표시합니다. 마치면 완료를 클릭하세요.';
+
+  @override
+  String get tbMoveEarlier => '앞으로 이동';
+
+  @override
+  String get tbMoveLater => '뒤로 이동';
+
+  @override
   String get insertPagesTitle => '페이지 삽입';
 
   @override

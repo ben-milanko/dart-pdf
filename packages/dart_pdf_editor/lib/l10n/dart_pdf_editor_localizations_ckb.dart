@@ -2504,6 +2504,26 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       'گەڕانەوە، دووبارەکردنەوە، دەست و هەڵبژاردن لە تەنیشت گەڕان پیشان بدە کاتێک تووڵبارەکان لە سەرەوە جێگیرکراون.';
 
   @override
+  String get tbShowToolbarNames => 'پیشاندانی ناوی تووڵبارەکان';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'هەر تووڵبارێکی جێگیرکراو (نیشانەکردن، کێشان…) لە تەنیشت ئامرازەکانی ناو بنێ. کوژاندنەوەی شوێن پاشەکەوت دەکات؛ ناوەکان لە ئامۆژگارییەکاندا دەمێننەوە.';
+
+  @override
+  String get tbCustomizeToolbars => 'ڕێکخستنی تووڵبارەکان';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'دەسکەکان پیشان بدە بۆ ڕاکێشانی تووڵبارەکان بۆ لێوارێکی تر یان ڕیزکردنەوەیان. کاتێک تەواو بوو کرتە لە تەواو بکە.';
+
+  @override
+  String get tbMoveEarlier => 'بیبە بۆ پێشتر';
+
+  @override
+  String get tbMoveLater => 'بیبە بۆ دواتر';
+
+  @override
   String get insertPagesTitle => 'خستنەناوی پەڕەکان';
 
   @override

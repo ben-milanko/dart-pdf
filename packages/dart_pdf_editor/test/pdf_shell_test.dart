@@ -1746,7 +1746,9 @@ void main() {
       addTearDown(tester.view.reset);
       final prefs = PdfEditingPreferences()
         ..toolbarFloating = true
-        ..toolbarDock = PdfPanelDock.bottom;
+        ..toolbarDock = PdfPanelDock.bottom
+        // the grips show while customizing the toolbars
+        ..toolbarCustomizing = true;
       addTearDown(prefs.dispose);
       await pump(
         tester,

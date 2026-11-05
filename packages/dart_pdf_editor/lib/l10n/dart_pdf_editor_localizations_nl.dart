@@ -2504,6 +2504,26 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Toon ongedaan maken, opnieuw, Hand en Selecteren naast zoeken als de werkbalken bovenaan vastzitten.';
 
   @override
+  String get tbShowToolbarNames => 'Werkbalknamen tonen';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label elke vastgezette werkbalk (Markeren, Tekenen…) naast zijn gereedschappen. Uit bespaart ruimte; de namen blijven in de knopinfo.';
+
+  @override
+  String get tbCustomizeToolbars => 'Werkbalken aanpassen';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Toon grepen om werkbalken naar een andere rand te slepen of opnieuw te ordenen. Klik op Gereed als je klaar bent.';
+
+  @override
+  String get tbMoveEarlier => 'Naar voren';
+
+  @override
+  String get tbMoveLater => 'Naar achteren';
+
+  @override
   String get insertPagesTitle => 'Pagina\'s invoegen';
 
   @override

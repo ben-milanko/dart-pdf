@@ -2504,6 +2504,26 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       'Tampilkan urungkan, ulangi, Tangan, dan Pilih di samping pencarian saat bilah alat tertambat di atas.';
 
   @override
+  String get tbShowToolbarNames => 'Tampilkan nama bilah alat';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Beri label tiap bilah alat tertambat (Markah, Gambar…) di samping alatnya. Nonaktif menghemat ruang; nama tetap ada di tooltip.';
+
+  @override
+  String get tbCustomizeToolbars => 'Sesuaikan bilah alat';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Tampilkan pegangan untuk menyeret bilah alat ke tepi lain atau mengurutkannya ulang. Klik Selesai bila sudah.';
+
+  @override
+  String get tbMoveEarlier => 'Pindah lebih awal';
+
+  @override
+  String get tbMoveLater => 'Pindah lebih akhir';
+
+  @override
   String get insertPagesTitle => 'Sisipkan halaman';
 
   @override

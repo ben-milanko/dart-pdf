@@ -2544,6 +2544,26 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
       'Показывать отмену, повтор, «Руку» и «Выделение» рядом с поиском, когда панели закреплены сверху.';
 
   @override
+  String get tbShowToolbarNames => 'Показывать названия панелей';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Подписывать каждую закреплённую панель («Пометки», «Рисование»…) рядом с её инструментами. Без подписей экономится место; названия остаются в подсказках.';
+
+  @override
+  String get tbCustomizeToolbars => 'Настроить панели инструментов';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Показать маркеры, чтобы перетаскивать панели к другому краю или менять их порядок. По окончании нажмите «Готово».';
+
+  @override
+  String get tbMoveEarlier => 'Переместить раньше';
+
+  @override
+  String get tbMoveLater => 'Переместить позже';
+
+  @override
   String get insertPagesTitle => 'Вставить страницы';
 
   @override

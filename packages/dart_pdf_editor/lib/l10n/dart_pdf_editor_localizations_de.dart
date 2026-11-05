@@ -2509,6 +2509,26 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Rückgängig, Wiederholen, Hand und Auswahl neben der Suche zeigen, solange die Symbolleisten oben angedockt sind.';
 
   @override
+  String get tbShowToolbarNames => 'Symbolleistennamen anzeigen';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Jede angedockte Symbolleiste (Markieren, Zeichnen…) neben ihren Werkzeugen beschriften. Aus spart Platz; die Namen bleiben in den Tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Symbolleisten anpassen';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Griffe einblenden, um Symbolleisten an einen anderen Rand zu ziehen oder neu anzuordnen. Zum Abschluss auf Fertig klicken.';
+
+  @override
+  String get tbMoveEarlier => 'Nach vorne';
+
+  @override
+  String get tbMoveLater => 'Nach hinten';
+
+  @override
   String get insertPagesTitle => 'Seiten einfügen';
 
   @override

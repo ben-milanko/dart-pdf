@@ -2500,6 +2500,26 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Araç çubukları üste yerleştirildiğinde geri al, yinele, El ve Seç\'i aramanın yanında göster.';
 
   @override
+  String get tbShowToolbarNames => 'Araç çubuğu adlarını göster';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Yerleştirilmiş her araç çubuğunu (İşaretleme, Çizim…) araçlarının yanında etiketle. Kapalıyken yer kazanılır; adlar ipuçlarında kalır.';
+
+  @override
+  String get tbCustomizeToolbars => 'Araç çubuklarını özelleştir';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Araç çubuklarını başka bir kenara sürüklemek veya yeniden sıralamak için tutamaçları göster. Bitince Bitti\'ye tıklayın.';
+
+  @override
+  String get tbMoveEarlier => 'Öne taşı';
+
+  @override
+  String get tbMoveLater => 'Arkaya taşı';
+
+  @override
   String get insertPagesTitle => 'Sayfa ekle';
 
   @override

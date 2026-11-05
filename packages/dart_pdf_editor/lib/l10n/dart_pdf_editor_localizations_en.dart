@@ -2492,6 +2492,26 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
 
   @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customize toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -5185,6 +5205,26 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
 
   @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customise toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -7876,6 +7916,26 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbMainInHeaderHint =>
       'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customise toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
 
   @override
   String get insertPagesTitle => 'Insert pages';

@@ -429,10 +429,15 @@ class _DropTarget extends StatelessWidget {
 /// [onDock], so the same edge drop zones place it without the shell knowing
 /// which bar it is.
 class PdfToolbarDragData {
-  const PdfToolbarDragData({this.onDock});
+  const PdfToolbarDragData({this.onDock, this.id});
 
   /// Docks the dragged bar to the dropped-on edge. Null defers to the shell.
   final ValueChanged<PdfPanelDock>? onDock;
+
+  /// Which bar is being dragged - a group toolbar's `PdfEditToolGroup` - so a
+  /// drop on another toolbar can reorder it. Null for bars that don't
+  /// reorder (the main toolbar, the style bar).
+  final Object? id;
 }
 
 /// Ambient wiring used by [PdfToolbarMoveHandle] to reveal the shell's edge
@@ -1623,6 +1628,7 @@ enum _ViewOption {
   bakePageColor,
   editingGuides,
   floatingToolbars,
+  customizeToolbars,
   toolbarLayout,
   author,
   shortcuts
@@ -1676,6 +1682,8 @@ Future<void> _selectViewOption(
       );
     case _ViewOption.floatingToolbars:
       preferences.toolbarFloating = !preferences.toolbarFloating;
+    case _ViewOption.customizeToolbars:
+      preferences.toolbarCustomizing = !preferences.toolbarCustomizing;
     case _ViewOption.toolbarLayout:
       await showPdfToolbarLayoutDialog(
         context,
@@ -2516,6 +2524,13 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             value: _ViewOption.floatingToolbars,
             checked: preferences.toolbarFloating,
             child: Text(pdfL10n(context).tbFloatingToolbars),
+          ),
+        if (toolbarLayout)
+          CheckedPopupMenuItem(
+            key: const ValueKey('pdf-shell-customize-toolbars'),
+            value: _ViewOption.customizeToolbars,
+            checked: preferences.toolbarCustomizing,
+            child: Text(pdfL10n(context).tbCustomizeToolbars),
           ),
         if (toolbarLayout)
           PopupMenuItem(

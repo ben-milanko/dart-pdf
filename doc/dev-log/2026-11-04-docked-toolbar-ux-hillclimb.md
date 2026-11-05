@@ -150,9 +150,64 @@ rather than height: undo/redo + Hand/Select, Acrobat-style quick tools.
 **Switches:** `settings-main-toolbar-in-header` and
 `pdf-layout-main-in-header`.
 
+## Third round: floating leak, reorder, names, customize mode
+
+### Floating showed the docked layout's rails
+
+The bug: switching to floating left Measure/Shapes/Draw as stray rails beside
+the group switcher.
+- Both modes read one `toolStripDocks` map (and one `styleBarDock`).
+- Docked, a group's edge means "my toolbar lives there".
+- Floating, the same entry means "pin me as a palette over the page".
+
+The fix: each mode keeps its own arrangement.
+- `toolStripDocks` / `setToolStripDock` / `styleBarDock` / `toolStripOrder`
+  read and write the current mode's.
+- Floating persists under `floatingToolStripDock.*`,
+  `floatingStyleBarDock` and `floatingToolStripOrder`.
+- Reset clears both modes.
+- Callers (toolbar, layout dialog, grips) needed no changes.
+
+### Toolbar names off by default (`toolbarShowNames`)
+
+- The group names cost ~350px.
+- They are now off; the name is in each grip's tooltip and menu.
+- Switches: Settings (`settings-toolbar-names`) and the layout dialog
+  (`pdf-layout-show-names`).
+- Result: 800px goes from 5 rows to 3.
+
+### Customize mode (`toolbarCustomizing`, not persisted)
+
+- Grips now show only while customizing (`PdfEditingToolbar.showGrips`).
+  Outside the mode, `_barGrip` returns an empty box and `_toolBarGrip`
+  returns null.
+- The main toolbar ends with a Done button (`onDoneCustomizing`,
+  `pdf-toolbar-customize-done`).
+- Ways in:
+  - View options → "Customize toolbars" (`pdf-shell-customize-toolbars`);
+  - the layout dialog's `pdf-layout-customize`.
+- The phone bar never shows grips.
+
+### Reorder (`toolStripOrder`, per mode)
+
+- **The data.** `PdfToolbarDragData` gained `id`, the dragged group.
+  `PdfEditingToolbar.onToolStripOrder` receives the whole new order.
+- **Dropping.** Each docked group toolbar is a `_ToolStripReorderTarget`
+  while customizing.
+  - It lands before or after the target, by which half the pointer is over.
+  - A 3px primary bar marks the spot.
+  - Dropping on a toolbar elsewhere also takes that toolbar's placement:
+    an edge, or "with the main toolbar".
+- **Keyboard and touch.** The grip's menu has "Move earlier" / "Move later"
+  (`_shiftToolStrip`).
+- **Rules.** `_visibleGroups` sorts by the order; unlisted groups keep stock
+  order after the listed ones. Select stays out of the order, because it
+  lives in the main toolbar.
+- **Gotcha.** `PdfPanelDock.isHorizontal` means a *left/right* edge, which
+  stacks vertically. `_stripAxis` already maps it that way; the drop target
+  must too.
+
 ## Not done (considered)
 
-- **Dropping the group names** (`MARKUP`, `DRAW`, …) would save ~350px. They
-  are the docked mode's only orientation aid, so they stay.
 - **The properties bar in the header's gap** would save its 48px row, but
   only on windows of about 1700px or wider. Its content is up to ~900px.

@@ -4530,6 +4530,42 @@ abstract class DartPdfEditorLocalizations {
   /// **'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.'**
   String get tbMainInHeaderHint;
 
+  /// Setting: show each docked toolbar's group name (Markup, Draw…) beside its tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Show toolbar names'**
+  String get tbShowToolbarNames;
+
+  /// Subtitle explaining the Show toolbar names setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.'**
+  String get tbShowToolbarNamesHint;
+
+  /// Menu item / action: enter the mode where toolbars show grips to move and reorder them.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize toolbars'**
+  String get tbCustomizeToolbars;
+
+  /// Subtitle/tooltip explaining the Customize toolbars mode and how to finish it.
+  ///
+  /// In en, this message translates to:
+  /// **'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.'**
+  String get tbCustomizeToolbarsHint;
+
+  /// Toolbar placement menu: move this toolbar one place earlier in the order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move earlier'**
+  String get tbMoveEarlier;
+
+  /// Toolbar placement menu: move this toolbar one place later in the order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move later'**
+  String get tbMoveLater;
+
   /// Title of the multi-document insert-pages dialog.
   ///
   /// In en, this message translates to:

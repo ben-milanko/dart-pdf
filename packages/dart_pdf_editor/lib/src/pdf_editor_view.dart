@@ -1937,6 +1937,15 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 packToolbars: prefs.toolbarPackTightly,
                 mainInHeader: mainInHeader,
                 mainToolbarOnly: mainToolbarOnly,
+                showNames: prefs.toolbarShowNames,
+                // the grips (move to an edge, reorder) show only while the
+                // user customizes the toolbars; the phone bar has none
+                showGrips: prefs.toolbarCustomizing,
+                onDoneCustomizing: () => prefs.toolbarCustomizing = false,
+                toolStripOrder: prefs.toolStripOrder,
+                onToolStripOrder: dockToolbar
+                    ? null
+                    : (order) => prefs.toolStripOrder = order,
                 onStyleBarDock:
                     dockToolbar ? null : (dock) => prefs.styleBarDock = dock,
                 compact: dockToolbar,

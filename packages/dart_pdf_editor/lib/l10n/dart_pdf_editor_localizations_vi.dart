@@ -2493,6 +2493,26 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Hiện Hoàn tác, Làm lại, Bàn tay và Chọn cạnh ô tìm kiếm khi thanh công cụ được neo ở trên.';
 
   @override
+  String get tbShowToolbarNames => 'Hiện tên thanh công cụ';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Ghi nhãn từng thanh công cụ được neo (Đánh dấu, Vẽ…) cạnh công cụ của nó. Tắt sẽ tiết kiệm chỗ; tên vẫn có trong chú giải.';
+
+  @override
+  String get tbCustomizeToolbars => 'Tùy chỉnh thanh công cụ';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Hiện tay nắm để kéo thanh công cụ sang cạnh khác hoặc sắp xếp lại. Nhấp Xong khi hoàn tất.';
+
+  @override
+  String get tbMoveEarlier => 'Chuyển lên trước';
+
+  @override
+  String get tbMoveLater => 'Chuyển ra sau';
+
+  @override
   String get insertPagesTitle => 'Chèn trang';
 
   @override

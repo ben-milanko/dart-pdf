@@ -3197,6 +3197,30 @@
   "@tbMainInHeaderHint": {
     "description": "Subtitle explaining the Main toolbar in the header setting."
   },
+  "tbShowToolbarNames": "Show toolbar names",
+  "@tbShowToolbarNames": {
+    "description": "Setting: show each docked toolbar's group name (Markup, Draw…) beside its tools."
+  },
+  "tbShowToolbarNamesHint": "Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.",
+  "@tbShowToolbarNamesHint": {
+    "description": "Subtitle explaining the Show toolbar names setting."
+  },
+  "tbCustomizeToolbars": "Customize toolbars",
+  "@tbCustomizeToolbars": {
+    "description": "Menu item / action: enter the mode where toolbars show grips to move and reorder them."
+  },
+  "tbCustomizeToolbarsHint": "Show grips to drag toolbars to another edge or reorder them. Click Done when finished.",
+  "@tbCustomizeToolbarsHint": {
+    "description": "Subtitle/tooltip explaining the Customize toolbars mode and how to finish it."
+  },
+  "tbMoveEarlier": "Move earlier",
+  "@tbMoveEarlier": {
+    "description": "Toolbar placement menu: move this toolbar one place earlier in the order."
+  },
+  "tbMoveLater": "Move later",
+  "@tbMoveLater": {
+    "description": "Toolbar placement menu: move this toolbar one place later in the order."
+  },
   "insertPagesTitle": "Insert pages",
   "@insertPagesTitle": {
     "description": "Title of the multi-document insert-pages dialog."

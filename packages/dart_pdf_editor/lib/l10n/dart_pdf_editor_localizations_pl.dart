@@ -2545,6 +2545,26 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Pokazuj Cofnij, Ponów, Rączkę i Zaznaczanie obok wyszukiwania, gdy paski są zadokowane u góry.';
 
   @override
+  String get tbShowToolbarNames => 'Pokazuj nazwy pasków narzędzi';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Podpisuj każdy zadokowany pasek (Adnotacje, Rysowanie…) obok jego narzędzi. Wyłączenie oszczędza miejsce; nazwy zostają w podpowiedziach.';
+
+  @override
+  String get tbCustomizeToolbars => 'Dostosuj paski narzędzi';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Pokaż uchwyty do przeciągania pasków na inną krawędź lub zmiany ich kolejności. Po zakończeniu kliknij Gotowe.';
+
+  @override
+  String get tbMoveEarlier => 'Przesuń wcześniej';
+
+  @override
+  String get tbMoveLater => 'Przesuń później';
+
+  @override
   String get insertPagesTitle => 'Wstaw strony';
 
   @override

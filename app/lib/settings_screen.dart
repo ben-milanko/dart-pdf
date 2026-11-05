@@ -279,6 +279,17 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       ? null
                       : (value) => widget.prefs.toolbarMainInHeader = value,
                 ),
+                SwitchListTile(
+                  key: const ValueKey('settings-toolbar-names'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbShowToolbarNames),
+                  subtitle: Text(pdfL10n(context).tbShowToolbarNamesHint),
+                  value: widget.prefs.toolbarShowNames,
+                  // only the docked toolbars label their groups
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarShowNames = value,
+                ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
                     style: theme.textTheme.titleSmall),

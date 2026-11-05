@@ -2486,6 +2486,26 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'แสดงเลิกทำ ทำซ้ำ มือ และเลือก ข้างช่องค้นหาเมื่อแถบเครื่องมือยึดไว้ด้านบน';
 
   @override
+  String get tbShowToolbarNames => 'แสดงชื่อแถบเครื่องมือ';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'ติดป้ายชื่อแถบเครื่องมือที่ยึดไว้แต่ละแถบ (มาร์กอัป วาด…) ข้างเครื่องมือ ปิดไว้จะประหยัดพื้นที่ ชื่อยังอยู่ในคำแนะนำเครื่องมือ';
+
+  @override
+  String get tbCustomizeToolbars => 'ปรับแต่งแถบเครื่องมือ';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'แสดงที่จับเพื่อลากแถบเครื่องมือไปยังขอบอื่นหรือจัดลำดับใหม่ คลิกเสร็จสิ้นเมื่อทำเสร็จ';
+
+  @override
+  String get tbMoveEarlier => 'ย้ายไปก่อน';
+
+  @override
+  String get tbMoveLater => 'ย้ายไปหลัง';
+
+  @override
   String get insertPagesTitle => 'แทรกหน้า';
 
   @override

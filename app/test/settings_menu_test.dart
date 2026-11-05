@@ -95,6 +95,17 @@ void main() {
     prefs.toolbarFloating = true;
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(pack).onChanged, isNull);
+
+    // toolbar names are off by default and a switch away
+    prefs.toolbarFloating = false;
+    await tester.pumpAndSettle();
+    final names = find.byKey(const ValueKey('settings-toolbar-names'));
+    await tester.ensureVisible(names);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarShowNames, isFalse);
+    await tester.tap(names);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarShowNames, isTrue);
   });
 
   testWidgets('settings move the main toolbar into the app header and back',
