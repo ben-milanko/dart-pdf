@@ -29,7 +29,6 @@ void main() {
     addTearDown(() => PdfRetainedScene.spatialRegionReplay = previous);
     await tester.runAsync(() async {
       var selective = 0;
-      var fallback = 0;
       for (final name in _fixtures) {
         final bytes = File('../../test_corpora/pdfjs/$name').readAsBytesSync();
         final document = PdfDocument.open(Uint8List.fromList(bytes));
@@ -74,17 +73,15 @@ void main() {
             }
             if (scene.debugLastRegionReplayWasSelective) {
               selective++;
-            } else {
-              fallback++;
             }
           }
         } finally {
           scene.dispose();
         }
       }
-      expect(selective, greaterThanOrEqualTo(3));
-      expect(fallback, greaterThanOrEqualTo(1),
-          reason: 'unsafe state retains conservative full replay');
+      expect(selective, _fixtures.length * 2,
+          reason: 'these fixtures only reset inactive overprint; active '
+              'overprint fallback is covered in atomic_region_replay_test');
     });
   });
 }

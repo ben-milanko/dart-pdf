@@ -389,5 +389,8 @@
   "editorImportedFormData": "फ़ॉर्म डेटा आयात किया गया - फ़ील्ड: {fields}, टिप्पणियाँ: {comments}",
   "editorImportFormDataNothing": "उस फ़ाइल में कुछ भी इस दस्तावेज़ से मेल नहीं खाया",
   "editorCouldNotImportFormData": "{name} आयात नहीं किया जा सका: {error}",
-  "editorMenuFormData": "फ़ॉर्म डेटा और टिप्पणियाँ"
+  "editorMenuFormData": "फ़ॉर्म डेटा और टिप्पणियाँ",
+  "paletteTermsReduceFileSize": "संपीड़ित करें;छोटा करें;आकार कम करें;PDF संपीड़ित करें",
+  "paletteTermsAddText": "टेक्स्ट जोड़ें;पाठ जोड़ें;टेक्स्ट लिखें;टेक्स्ट बॉक्स",
+  "paletteTermsSignature": "हस्ताक्षर करें;हस्ताक्षर बनाएँ;हस्तलिखित हस्ताक्षर"
 }

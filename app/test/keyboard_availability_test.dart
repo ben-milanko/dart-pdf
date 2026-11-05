@@ -146,7 +146,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byTooltip('Undo'), findsOneWidget);
     await notify(tester, true);
-    expect(find.byTooltip('Undo (⌘Z)'), findsOneWidget);
+    expect(find.byTooltip('Undo (Ctrl+Z)'), findsOneWidget);
     await notify(tester, false);
     await tester.tap(find.byKey(const ValueKey('pdf-shell-controls')));
     await tester.pumpAndSettle();

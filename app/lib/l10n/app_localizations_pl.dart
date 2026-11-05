@@ -1554,4 +1554,14 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Dane formularza i komentarze';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'kompresuj;zmniejsz;zmniejsz rozmiar;kompresuj PDF';
+
+  @override
+  String get paletteTermsAddText => 'dodaj tekst;wpisz tekst;pole tekstowe';
+
+  @override
+  String get paletteTermsSignature => 'podpisz;narysuj podpis;podpis odręczny';
 }

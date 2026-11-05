@@ -389,5 +389,8 @@
   "editorImportedFormData": "Zaimportowano dane formularza – pola: {fields}, komentarze: {comments}",
   "editorImportFormDataNothing": "Nic w tym pliku nie pasuje do tego dokumentu",
   "editorCouldNotImportFormData": "Nie udało się zaimportować {name}: {error}",
-  "editorMenuFormData": "Dane formularza i komentarze"
+  "editorMenuFormData": "Dane formularza i komentarze",
+  "paletteTermsReduceFileSize": "kompresuj;zmniejsz;zmniejsz rozmiar;kompresuj PDF",
+  "paletteTermsAddText": "dodaj tekst;wpisz tekst;pole tekstowe",
+  "paletteTermsSignature": "podpisz;narysuj podpis;podpis odręczny"
 }

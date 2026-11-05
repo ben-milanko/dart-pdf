@@ -1461,6 +1461,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get editorMenuFormData => '表单数据和注释';
+
+  @override
+  String get paletteTermsReduceFileSize => '压缩;缩小;减小大小;压缩PDF';
+
+  @override
+  String get paletteTermsAddText => '添加文本;输入文字;文本框';
+
+  @override
+  String get paletteTermsSignature => '签名;绘制签名;手写签名';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2921,4 +2930,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorMenuFormData => '表單資料和註解';
+
+  @override
+  String get paletteTermsReduceFileSize => '壓縮;縮小;減小大小;壓縮PDF';
+
+  @override
+  String get paletteTermsAddText => '新增文字;輸入文字;文字方塊';
+
+  @override
+  String get paletteTermsSignature => '簽名;繪製簽名;手寫簽名';
 }

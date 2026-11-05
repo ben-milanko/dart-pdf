@@ -1,3 +1,4 @@
+import 'background_work.dart' show PdfBackgroundScheduler;
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -93,7 +94,7 @@ enum PdfRenderMotionClass {
   free,
 }
 
-class PdfPageRenderScheduler {
+class PdfPageRenderScheduler implements PdfBackgroundScheduler {
   PdfPageRenderScheduler();
 
   /// Motion-safe first renders started in a single frame while the viewer is
@@ -201,6 +202,7 @@ class PdfPageRenderScheduler {
   /// by another view and will not render any of it, so it is not competing for
   /// anything. Without that the full-area page grid - which parks the viewer
   /// it covers - would gate its own thumbnails behind a hold that never lifts.
+  @override
   bool get busy =>
       !_parked && (_holding || _pending.isNotEmpty || _inFlight.isNotEmpty);
 
@@ -210,6 +212,7 @@ class PdfPageRenderScheduler {
   /// that conservative hold raised even after every visible page is sharp;
   /// accelerated look-ahead may use a spare worker/GPU lane in that state,
   /// but must still stand down the instant real foreground work appears.
+  @override
   bool get hasForegroundWork =>
       !_parked &&
       (_pending.isNotEmpty || _inFlight.isNotEmpty || _uiPending.isNotEmpty);
@@ -219,7 +222,9 @@ class PdfPageRenderScheduler {
   /// True while the viewer is overlaid by another view and renders nothing
   /// (`PdfViewer.active` false). Distinct from [holding], which is a *live*
   /// viewer deferring work it still intends to do.
+  @override
   bool get parked => _parked;
+  @override
   set parked(bool value) {
     if (_parked == value || _disposed) return;
     _parked = value;
@@ -236,7 +241,9 @@ class PdfPageRenderScheduler {
   /// a 12 ms walk wait it out is the half-second a reader feels after they
   /// stop scrolling. Worker-backed pages ignore this - their walk costs this
   /// thread nothing either way.
+  @override
   bool get activeGesture => _activeGesture;
+  @override
   set activeGesture(bool value) {
     if (_activeGesture == value || _disposed) return;
     _activeGesture = value;
@@ -254,7 +261,9 @@ class PdfPageRenderScheduler {
   /// through the conservative hold. The setter wakes both queues when the
   /// velocity crosses into that lane; changing back to fast motion closes the
   /// gate before the next scheduled grant.
+  @override
   bool get slowMotion => _slowMotion;
+  @override
   set slowMotion(bool value) {
     if (_slowMotion == value || _disposed) return;
     _slowMotion = value;
@@ -267,7 +276,9 @@ class PdfPageRenderScheduler {
   /// True through the conservative scroll-settle window. Held-class work does
   /// not run until it lowers; the motion-safe classes above can pass according
   /// to the current live-input and velocity state.
+  @override
   bool get holding => _holding;
+  @override
   set holding(bool value) {
     if (_holding == value || _disposed) return;
     _holding = value;
@@ -287,6 +298,7 @@ class PdfPageRenderScheduler {
   /// The page index nearest the viewport. Pending requests closest to it
   /// drain first, so what the user is looking at sharpens before
   /// off-screen neighbours.
+  @override
   set focus(int index) {
     if (_focus == index || _disposed) return;
     _focus = index;

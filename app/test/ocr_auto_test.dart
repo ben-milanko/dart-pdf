@@ -22,6 +22,17 @@ final _word = PdfOcrSpan(text: 'Invoice', bounds: PdfRect(72, 700, 160, 716));
 /// Records each start() and answers with [_word] on page 0.
 class _FakeOcr extends OnDeviceOcr {
   final calls = <({bool automatic, int length})>[];
+  final recoveryChoices = <bool>[];
+
+  @override
+  Future<void> recover(
+    BuildContext context, {
+    required void Function(String) onToast,
+    required void Function(Uint8List, String) onComplete,
+    bool Function()? automaticEnabled,
+  }) async {
+    recoveryChoices.add(automaticEnabled?.call() ?? true);
+  }
 
   @override
   Future<void> start(
@@ -231,6 +242,25 @@ void main() {
       final ocr = await open(tester, buildScannedPdf(), enabled: false);
       expect(ocr.calls, isEmpty);
       expect(session(tester).isModified, isFalse);
+    });
+
+    testWidgets('a fresh editor honors saved off for new scans and recovery',
+        (tester) async {
+      await AutoOcrSetting().save(false);
+      final reloaded = AutoOcrSetting();
+      final ocr = await open(tester, buildScannedPdf(), autoOcr: reloaded);
+      await tester.pumpAndSettle();
+      expect(reloaded.value, isFalse);
+      expect(ocr.calls, isEmpty);
+      expect(session(tester).isModified, isFalse);
+
+      // Returning from a file picker or another app must use the current
+      // setting too, not restart saved automatic work unconditionally.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(ocr.recoveryChoices, isNotEmpty);
+      expect(ocr.recoveryChoices, everyElement(isFalse));
     });
 
     testWidgets('Settings has the switch, on by default', (tester) async {

@@ -1531,4 +1531,13 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'بيانات النموذج والتعليقات';
+
+  @override
+  String get paletteTermsReduceFileSize => 'ضغط;تصغير;تقليل الحجم;ضغط PDF';
+
+  @override
+  String get paletteTermsAddText => 'إضافة نص;كتابة نص;مربع نص';
+
+  @override
+  String get paletteTermsSignature => 'توقيع;رسم توقيع;توقيع بخط اليد';
 }

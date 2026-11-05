@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Redactie van bedekte afbeeldingen, formuliervelden en verborgen tekst hersteld. Toepassen verwijdert standaard metadata en bijlagen; gedeelde inhoud kan ook elders worden verwijderd. Niet-opgeslagen wijzigingen blijven behouden als opslaan wordt geannuleerd of er tijdens het opslaan nieuwe wijzigingen komen. Plakken, zoomen en meten verbeterd.

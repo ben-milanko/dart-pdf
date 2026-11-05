@@ -28,11 +28,11 @@ jobs:
           flutter-version: 3.47.8
           channel: stable
           cache: true
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
       - run: flutter pub get
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
       - name: Prepare Android SDK

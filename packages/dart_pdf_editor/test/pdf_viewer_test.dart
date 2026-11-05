@@ -1925,7 +1925,6 @@ void main() {
       final cleanPage = controller.debugPageIdentity(0);
       final dirtyPage = controller.debugPageIdentity(7);
       final presentationEpoch = controller.pagePresentationEpoch;
-      expect(controller.debugIncrementalPageReconciliations, 0);
 
       final logs = <String>[];
       addTearDown(() {
@@ -1940,7 +1939,6 @@ void main() {
       PdfPerfLog.enabled = false;
       await tester.pump();
 
-      expect(controller.debugIncrementalPageReconciliations, 1);
       final diagnostics = controller.debugPageReconciliationDiagnostics!;
       expect(diagnostics.mode, PdfPageReconciliationMode.incremental);
       expect(diagnostics.pageCount, 12);
@@ -1961,7 +1959,6 @@ void main() {
         0,
         reason: 'a dirty-page reconcile must not walk the whole page tree',
       );
-      expect(controller.debugLastIncrementallyReconciledPages, {7});
       expect(controller.debugPageIdentity(0), same(cleanPage),
           reason: 'a clean keyed page must bail out');
       expect(controller.debugPageIdentity(7), isNot(same(dirtyPage)),
@@ -1973,8 +1970,10 @@ void main() {
       editing.addRectangle(7, const PdfRect(220, 220, 280, 280));
       await tester.pump();
 
-      expect(controller.debugIncrementalPageReconciliations, 2);
-      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      final second = controller.debugPageReconciliationDiagnostics!;
+      expect(second, isNot(same(diagnostics)));
+      expect(second.mode, PdfPageReconciliationMode.incremental);
+      expect(second.dirtyPages, 1);
       expect(controller.debugPageIdentity(0), same(cleanPage));
       expect(controller.debugPageIdentity(7), isNot(same(firstDirtyRevision)));
       expect(editing.document.page(7).annotations, hasLength(2),
@@ -2007,8 +2006,10 @@ void main() {
       editing.rotatePages([1], 90);
       await tester.pump();
 
-      expect(controller.debugIncrementalPageReconciliations, 1);
-      expect(controller.debugLastIncrementallyReconciledPages, {1});
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.incremental);
+      expect(diagnostics.dirtyPages, 1);
+      expect(diagnostics.geometryPages, 1);
       expect(controller.debugPageIdentity(0), same(cleanPage));
       expect(controller.debugPageIdentity(1), isNot(same(dirtyPage)));
       expect(controller.pagePresentationEpoch, epoch,
@@ -2041,17 +2042,18 @@ void main() {
         (widget) => widget is PdfPageView && identical(widget.page, movedPage),
       ));
       final epoch = controller.pagePresentationEpoch;
-      final namespace = controller.debugTileCacheNamespace;
+      final namespace = controller.tileCacheNamespaceIdentity;
 
       editing.movePage(0, 1);
       await tester.pump();
 
-      expect(controller.debugKeyedPageReconciliations, 1);
+      expect(controller.debugPageReconciliationDiagnostics!.mode,
+          PdfPageReconciliationMode.keyedStructure);
       final reorderedPage = controller.debugPageIdentity(1);
       expect(reorderedPage, isNot(same(movedPage)),
           reason: 'the page wrapper belongs to the current revision');
       expect(controller.pagePresentationEpoch, epoch);
-      expect(controller.debugTileCacheNamespace, same(namespace));
+      expect(controller.tileCacheNamespaceIdentity, namespace);
       expect(
         tester.state(find.byWidgetPredicate(
           (widget) =>
@@ -2068,7 +2070,9 @@ void main() {
 
       editing.undo();
       await tester.pump();
-      expect(controller.debugKeyedPageReconciliations, 2);
+      final undone = controller.debugPageReconciliationDiagnostics!;
+      expect(undone, isNot(same(diagnostics)));
+      expect(undone.mode, PdfPageReconciliationMode.keyedStructure);
       final restoredPage = controller.debugPageIdentity(0);
       expect(
         tester.state(find.byWidgetPredicate(
@@ -2128,7 +2132,7 @@ void main() {
         ),
       ));
       await tester.pump();
-      final oldNamespace = controller.debugTileCacheNamespace;
+      final oldNamespace = controller.tileCacheNamespaceIdentity;
       final oldEpoch = controller.pagePresentationEpoch;
       final oldPageState = tester.state(find.byType(PdfPageView).first);
 
@@ -2137,7 +2141,7 @@ void main() {
 
       expect(controller.pageCount, 2);
       expect(controller.pagePresentationEpoch, oldEpoch! + 1);
-      expect(controller.debugTileCacheNamespace, isNot(same(oldNamespace)),
+      expect(controller.tileCacheNamespaceIdentity, isNot(oldNamespace),
           reason: 'pre-delete tile completions must be unreachable');
       expect(tester.state(find.byType(PdfPageView).first),
           isNot(same(oldPageState)),

@@ -1534,4 +1534,16 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Данные формы и комментарии';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'сжать;уменьшить;уменьшить размер;сжать PDF';
+
+  @override
+  String get paletteTermsAddText =>
+      'добавить текст;ввести текст;текстовое поле';
+
+  @override
+  String get paletteTermsSignature =>
+      'подписать;нарисовать подпись;рукописная подпись';
 }

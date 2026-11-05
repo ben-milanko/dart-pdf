@@ -26,6 +26,7 @@
   "featAnnotate_d": "Podświetlaj tekst, rysuj tuszem, dodawaj kształty, notatki i pieczątki.",
   "featForms_t": "Formularze",
   "featForms_d": "Wypełniaj istniejące pola lub dodawaj nowe pola tekstowe, pola wyboru i przyciski.",
+  "featForms_guide": "Wypełnianie formularza PDF (po angielsku)",
   "featSign_t": "Podpisywanie",
   "featSign_d": "Umieść podpis odręczny lub dodaj podpis cyfrowy oparty na certyfikacie.",
   "featRedact_t": "Redagowanie",

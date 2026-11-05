@@ -314,19 +314,21 @@ void main() {
       var notifications = 0;
       editing.addListener(() => notifications++);
 
-      editing.setEditingText(true);
+      final session = editing.beginTextEdit(const PdfNewTextBox(0),
+          rect: const PdfRect(100, 600, 360, 660));
+      session.buffer.text = 'Hello world';
+      notifications = 0;
+
+      session.buffer.selection =
+          const TextSelection(baseOffset: 0, extentOffset: 3);
       expect(notifications, 1);
 
-      editing.setEditingTextSelection(
-          const TextSelection(baseOffset: 0, extentOffset: 3));
-      expect(notifications, 2);
+      session.buffer.selection =
+          const TextSelection(baseOffset: 0, extentOffset: 5);
+      expect(notifications, 1);
 
-      editing.setEditingTextSelection(
-          const TextSelection(baseOffset: 0, extentOffset: 5));
+      session.buffer.selection = const TextSelection.collapsed(offset: 5);
       expect(notifications, 2);
-
-      editing.setEditingTextSelection(const TextSelection.collapsed(offset: 5));
-      expect(notifications, 3);
     });
 
     test('text fill and border persist as preferences', () async {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 15.0.0
+
+- Preserve content while zooming masked images and avoid full-sheet replay when overprint is inactive.
+
 ## 14.0.0
 
 - Correct rotated image orientation and preserve dashed strokes in Windows vector printing.

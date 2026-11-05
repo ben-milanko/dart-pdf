@@ -26,6 +26,7 @@
   "featAnnotate_d": "텍스트를 강조하고, 잉크로 그리고, 도형·메모·스탬프를 추가하세요.",
   "featForms_t": "양식",
   "featForms_d": "기존 필드를 채우거나 새 텍스트 필드, 체크박스, 버튼을 추가하세요.",
+  "featForms_guide": "PDF 양식 작성하기(영어)",
   "featSign_t": "서명",
   "featSign_d": "손글씨 서명을 넣거나 인증서 기반 디지털 서명을 추가하세요.",
   "featRedact_t": "편집(Redact)",

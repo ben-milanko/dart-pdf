@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Poprawiono redakcję zakrytych obrazów, pól formularzy i ukrytego tekstu. Jej zastosowanie domyślnie usuwa metadane i załączniki; współdzielona treść może zostać usunięta również w innych miejscach. Niezapisane zmiany pozostają po anulowaniu zapisu lub dalszej edycji podczas zapisywania. Ulepszono wklejanie, powiększanie i pomiary.

@@ -54,6 +54,14 @@ class SessionDocument {
       );
 }
 
+/// Where the open documents are remembered for the next launch
+/// (this is [SessionStore]; tests pass a fake).
+abstract interface class SessionPersistence {
+  Future<List<SessionDocument>> load();
+
+  Future<void> save(List<SessionDocument> documents);
+}
+
 /// Persists the ordered list of file-backed documents currently open so the
 /// editor can re-open them the next time it launches ("restore last session").
 ///
@@ -64,7 +72,7 @@ class SessionDocument {
 /// when storage is unavailable (widget tests) it degrades to the in-memory
 /// list, mirroring how [RecentsStore] and [PdfEditingPreferences] handle the
 /// same case.
-class SessionStore {
+class SessionStore implements SessionPersistence {
   SessionStore({CachedPdfKeyResolver? resolveCacheKey})
       : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
 
@@ -79,6 +87,7 @@ class SessionStore {
 
   /// Reads the persisted open-document list. Returns the (possibly empty) list
   /// and also caches it in [documents].
+  @override
   Future<List<SessionDocument>> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -113,6 +122,7 @@ class SessionStore {
   }
 
   /// Replaces the persisted open-document list with [documents] (tab order).
+  @override
   Future<void> save(List<SessionDocument> documents) async {
     _documents = List.unmodifiable(documents);
     try {

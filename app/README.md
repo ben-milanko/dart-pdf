@@ -231,6 +231,21 @@ native OS-integration paths still want on-device confirmation:
 \* In-place save is desktop-only today; mobile/web fall back to share/download
 (see RELEASING.md and the save notes in the source).
 
+## Saving and keeping your changes
+
+On desktop, **Save** writes to the open document's writable location; use
+**Save as…** to keep the original and make a separate copy. In a browser, saving
+hands a PDF copy to the browser's download flow. On a phone or tablet, **Share**
+opens the system's destination sheet. Complete the chosen app's save/send steps
+and check the resulting file before closing your document.
+
+Dismissing the share sheet or receiving no confirmed destination leaves the
+PDF unsaved, with its recovery copy intact. A selected share action acknowledges
+the handoff; it cannot prove that another app durably stored the file. If you
+make more edits while a save is pending, those edits stay unsaved and protected
+by recovery until you save again. Repeated Save actions for one pending document
+use the existing operation instead of opening competing destinations.
+
 ## Snapshot clipboard
 
 Drag with Snapshot to copy a region. Desktop clipboard items contain a

@@ -1503,6 +1503,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Form data and comments';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'compress;shrink;make smaller;smaller PDF;compress PDF';
+
+  @override
+  String get paletteTermsAddText => 'add text;type text;text box;write text';
+
+  @override
+  String get paletteTermsSignature =>
+      'sign;draw signature;handwritten signature';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -3004,6 +3015,17 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
 
   @override
   String get editorMenuFormData => 'Form data and comments';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'compress;shrink;make smaller;smaller PDF;compress PDF';
+
+  @override
+  String get paletteTermsAddText => 'add text;type text;text box;write text';
+
+  @override
+  String get paletteTermsSignature =>
+      'sign;draw signature;handwritten signature';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -4505,4 +4527,15 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get editorMenuFormData => 'Form data and comments';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'compress;shrink;make smaller;smaller PDF;compress PDF';
+
+  @override
+  String get paletteTermsAddText => 'add text;type text;text box;write text';
+
+  @override
+  String get paletteTermsSignature =>
+      'sign;draw signature;handwritten signature';
 }

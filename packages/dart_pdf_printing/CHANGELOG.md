@@ -1,3 +1,7 @@
+## 0.12.0
+
+See the [migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-15.0.0.md) for SDK compatibility details.
+
 ## 0.11.0
 
 - Return `PrintDialogResult` from the print entrypoints so callers can distinguish cancellation from hand-off to the system. Web browsers cannot report cancellation.

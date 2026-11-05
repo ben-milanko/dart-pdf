@@ -33,6 +33,7 @@ class AppCommand {
     this.enabled = true,
     this.disabledReason,
     this.selected = false,
+    this.searchTerms = const [],
   });
 
   /// Stable identity - also the widget key suffix, so tests can find a row.
@@ -40,6 +41,9 @@ class AppCommand {
 
   /// The localized name, exactly as the surface it comes from shows it.
   final String label;
+
+  /// Localized task words that can find this command without renaming it.
+  final List<String> searchTerms;
 
   final IconData icon;
 
@@ -107,6 +111,22 @@ int? scoreCommand(String label, String query) {
   return 400 - gaps.clamp(0, 300);
 }
 
+/// Label matches lead; task words can outrank weak fuzzy matches, while the
+/// source remains a last resort. A command still appears only once.
+@visibleForTesting
+int? scoreAppCommand(AppCommand command, String query) {
+  final q = query.trim();
+  var best = scoreCommand(command.label, q);
+  for (final term in command.searchTerms) {
+    final score = scoreCommand(term, q);
+    if (score != null && (best == null || score - 150 > best)) {
+      best = score - 150;
+    }
+  }
+  final source = scoreCommand(command.source, q);
+  return best ?? (source == null ? null : source ~/ 4);
+}
+
 class _CommandPalette extends StatefulWidget {
   const _CommandPalette({required this.commands});
 
@@ -147,11 +167,7 @@ class _CommandPaletteState extends State<_CommandPalette> {
     final scored = <({AppCommand command, int score, int index})>[];
     for (var i = 0; i < widget.commands.length; i++) {
       final c = widget.commands[i];
-      final label = scoreCommand(c.label, _query.trim());
-      // A source match ("panel") is a weaker signal than a name match, so it
-      // ranks below every name hit rather than interleaving with them.
-      final source = scoreCommand(c.source, _query.trim());
-      final score = label ?? (source == null ? null : source ~/ 4);
+      final score = scoreAppCommand(c, _query);
       if (score != null) {
         scored.add((command: c, score: score, index: i));
       }
@@ -260,8 +276,11 @@ class _CommandPaletteState extends State<_CommandPalette> {
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 9, 18, 9),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 4,
                 children: [
                   Text(
                     _query.trim().isEmpty

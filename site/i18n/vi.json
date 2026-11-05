@@ -26,6 +26,7 @@
   "featAnnotate_d": "Tô sáng văn bản, vẽ bằng bút mực, thêm hình dạng, ghi chú và tem.",
   "featForms_t": "Biểu mẫu",
   "featForms_d": "Điền vào các trường có sẵn hoặc thêm trường văn bản, hộp kiểm và nút mới.",
+  "featForms_guide": "Điền biểu mẫu PDF (tiếng Anh)",
   "featSign_t": "Ký",
   "featSign_d": "Đặt chữ ký vẽ tay, hoặc thêm chữ ký số được chứng thực bằng chứng chỉ.",
   "featRedact_t": "Biên tập ẩn",

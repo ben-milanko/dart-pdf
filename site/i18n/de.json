@@ -26,6 +26,7 @@
   "featAnnotate_d": "Text hervorheben, mit Tinte zeichnen, Formen, Notizen und Stempel hinzufügen.",
   "featForms_t": "Formulare",
   "featForms_d": "Bestehende Felder ausfüllen oder neue Textfelder, Kontrollkästchen und Schaltflächen hinzufügen.",
+  "featForms_guide": "PDF-Formular ausfüllen (Englisch)",
   "featSign_t": "Signieren",
   "featSign_d": "Setzen Sie eine gezeichnete Signatur ein oder fügen Sie eine zertifikatsgestützte digitale Signatur hinzu.",
   "featRedact_t": "Schwärzen",

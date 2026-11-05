@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/command_palette.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
+import 'package:dart_pdf_editor_app/l10n/app_delegates.dart';
+import 'package:dart_pdf_editor_app/l10n/app_localizations.dart';
 
 void main() {
   group('ranking', () {
@@ -26,6 +28,24 @@ void main() {
     test('letters found in order still reach a command', () {
       expect(scoreCommand('Cloud polygon', 'cpg'), isNotNull);
       expect(scoreCommand('Cloud polygon', 'zzz'), isNull);
+    });
+
+    test('an exact label beats a task-word alias and unmatched words stay out',
+        () {
+      final command = AppCommand(
+        id: 'test',
+        label: 'Reduce file size…',
+        source: 'Menu',
+        icon: Icons.compress,
+        searchTerms: const ['shrink', 'compress'],
+        run: () {},
+      );
+      expect(scoreAppCommand(command, 'shrink'), isNotNull);
+      expect(scoreAppCommand(command, 'SHRINK'),
+          scoreAppCommand(command, 'shrink'));
+      expect(scoreCommand('Shrink', 'shrink'),
+          greaterThan(scoreAppCommand(command, 'shrink')!));
+      expect(scoreAppCommand(command, 'zebra'), isNull);
     });
   });
 
@@ -56,6 +76,87 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
     }
+
+    for (final (locale, compression, text, signature) in [
+      ('fr', 'compresser', 'ajouter du texte', 'signer'),
+      ('ja', '圧縮', 'テキストを追加', '手書き署名'),
+      ('ar', 'ضغط', 'إضافة نص', 'توقيع'),
+    ]) {
+      testWidgets('$locale task words reach the existing command index',
+          (tester) async {
+        await tester.pumpWidget(MaterialApp(
+          locale: Locale(locale),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: appLocalizationsDelegates,
+          home: EditorScreen(
+            prefs: prefs,
+            initialDocument: (bytes: buildClassicPdf(), title: 'Report.pdf'),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        await openWithKeyboard(tester);
+        for (final (query, id) in [
+          (compression, 'menu-reduce-file-size'),
+          (text, 'tool-freeText'),
+          (signature, 'tool-signature'),
+        ]) {
+          await tester.enterText(
+              find.byKey(const ValueKey('command-palette-field')), query);
+          await tester.pumpAndSettle();
+          expect(find.byKey(ValueKey('palette-result-$id')), findsOneWidget,
+              reason: '$locale: $query');
+        }
+      });
+    }
+
+    testWidgets('task words find existing commands and keep document gates',
+        (tester) async {
+      await pump(tester);
+      await openWithKeyboard(tester);
+      for (final (query, id) in [
+        ('compress', 'menu-reduce-file-size'),
+        ('shrink', 'menu-reduce-file-size'),
+        ('make smaller', 'menu-reduce-file-size'),
+        ('add text', 'tool-freeText'),
+        ('sign', 'tool-signature'),
+      ]) {
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), query);
+        await tester.pumpAndSettle();
+        expect(find.byKey(ValueKey('palette-result-$id')), findsOneWidget,
+            reason: query);
+      }
+      // Activating an alias invokes the same editor command, not another
+      // tool registration or a detached action.
+      await tester.enterText(
+          find.byKey(const ValueKey('command-palette-field')), 'add text');
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!.tool,
+          PdfEditTool.freeText);
+    });
+
+    testWidgets('aliases never enable a command without a document',
+        (tester) async {
+      await pump(tester, withDoc: false);
+      await openWithKeyboard(tester);
+      for (final (query, id) in [
+        ('shrink', 'menu-reduce-file-size'),
+        ('add text', 'tool-freeText'),
+      ]) {
+        await tester.enterText(
+            find.byKey(const ValueKey('command-palette-field')), query);
+        await tester.pumpAndSettle();
+        final row =
+            tester.widget<InkWell>(find.byKey(ValueKey('palette-result-$id')));
+        expect(row.onTap, isNull);
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('command-palette')), findsOneWidget);
+      expect(find.byType(PdfViewer), findsNothing);
+    });
 
     testWidgets('Ctrl+K opens it, and it indexes menu actions and tools alike',
         (tester) async {

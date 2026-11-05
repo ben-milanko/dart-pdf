@@ -15,19 +15,26 @@ import '../page_geometry.dart';
 import '../renderer.dart';
 import '../text_selection_geometry.dart';
 import 'digital_signature.dart';
+import 'edit_history.dart';
 import 'editing_annotation_clipboard.dart';
 import 'editing_page_clipboard.dart';
+import 'editing_mode.dart';
 import 'editing_preferences.dart';
 import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'form_secret_store.dart';
+import 'ink_draft.dart';
 import 'line_style.dart';
 import 'models/custom_stamp.dart';
 import 'models/ink_signature.dart';
 import 'models/measurement_scale.dart';
 import 'models/prompts.dart';
+import 'page_currency.dart';
+import 'paste_routing.dart';
 import 'saved_annotation.dart';
+import 'selection_manipulation.dart';
 import 'signature_validation_worker.dart';
+import 'text_edit_session.dart';
 import 'thumbnail_cache.dart';
 
 PdfEmbeddableImage _decodeEmbeddableImage(Uint8List bytes) =>
@@ -524,7 +531,7 @@ class PdfEditingController extends ChangeNotifier {
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
-        _revisions = [bytes.length],
+        _history = PdfEditHistory(bytes.length),
         _document = PdfDocument.open(bytes, password: password),
         _trustStore = trustStore,
         _revocationClient = revocationClient,
@@ -533,7 +540,10 @@ class PdfEditingController extends ChangeNotifier {
         snapshotClipboard = snapshotClipboard ?? PdfSnapshotClipboard.instance,
         annotationClipboard =
             annotationClipboard ?? PdfAnnotationSnapshotClipboard.instance {
+    _history.pushDraft(_inkDraft, _inkDraft);
     this.preferences.addListener(notifyListeners);
+    // an open inline text editor previews the panel's live edits
+    addListener(_followTextEditSession);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
     this.pageClipboard.addListener(notifyListeners);
@@ -668,7 +678,8 @@ class PdfEditingController extends ChangeNotifier {
       };
 
   /// Revision 0's bytes: the file as opened, or as a redaction burn left it.
-  Uint8List get _openedBytes => Uint8List.sublistView(_bytes, 0, _revisions[0]);
+  Uint8List get _openedBytes =>
+      Uint8List.sublistView(_bytes, 0, _history.opened.length);
 
   /// Settles a pending no-/ID decision now: reads the current revision's
   /// form fields, which runs [_decideFormSecretsOn]. For a caller that needs
@@ -719,12 +730,6 @@ class PdfEditingController extends ChangeNotifier {
     return _formSecretsRead.future;
   }
 
-  /// Parallels [_revisions]: the withheld password values (field name ->
-  /// value, `''` for an explicit clear) in effect at each revision. Maps are
-  /// never mutated after they are recorded - a fill records a fresh copy -
-  /// except that [_loadFormSecrets] fills in names no revision has set.
-  final List<Map<String, String>> _revisionSecrets = [{}];
-
   /// The map the next committed revision records, set around a password
   /// fill so [_finishRevision] picks it up.
   Map<String, String>? _pendingSecrets;
@@ -754,9 +759,8 @@ class PdfEditingController extends ChangeNotifier {
       if (field != null && _holdsWithheldValue(field)) usable[name] = value;
     });
     if (usable.isEmpty) return;
-    for (final secrets in _revisionSecrets) {
-      usable.forEach((name, value) => secrets.putIfAbsent(name, () => value));
-    }
+    // names no revision has set; a revision's own value wins
+    _history.updateSecrets((secrets) => {...usable, ...secrets});
     notifyListeners();
   }
 
@@ -767,7 +771,7 @@ class PdfEditingController extends ChangeNotifier {
     if (formSecretStore != null && field.isPassword) {
       // a field read off another PdfAcroForm than [acroForm]
       _settleFormSecretsNow();
-      final secret = _revisionSecrets[_cursor][field.name];
+      final secret = _history.current.secrets[field.name];
       if (secret != null) return secret;
     }
     return field.value;
@@ -790,9 +794,7 @@ class PdfEditingController extends ChangeNotifier {
     if (store == null) return;
     // nothing left to read back
     if (_formSecretsPending) _settleFormSecrets(load: false);
-    for (var i = 0; i < _revisionSecrets.length; i++) {
-      _revisionSecrets[i] = {};
-    }
+    _history.updateSecrets((_) => const {});
     _queueSecretWrite(() => store.clearDocument(formSecretDocumentId!));
     notifyListeners();
     await _secretWrites;
@@ -855,6 +857,17 @@ class PdfEditingController extends ChangeNotifier {
   /// [pasteAnnotations].
   final PdfAnnotationSnapshotClipboard annotationClipboard;
 
+  /// [snapshotClipboard] and [annotationClipboard] as one exclusive pair:
+  /// every copy goes through it so the most recent one wins Paste.
+  late final PdfInAppClipboard _clipboard =
+      PdfInAppClipboard(snapshotClipboard, annotationClipboard);
+
+  /// What an in-app Paste would place - [PdfPasteSource.snapshot] or
+  /// [PdfPasteSource.annotations] - or null when neither clipboard holds
+  /// anything. [PdfPasteRouter] owns the full order, system clipboard
+  /// included.
+  PdfPasteSource? get inAppPasteSource => _clipboard.next;
+
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
   /// full-area page grid - draws from this one cache, so a page rendered for
@@ -902,6 +915,7 @@ class PdfEditingController extends ChangeNotifier {
     _settlePick(null);
     _inkTimer?.cancel();
     _flashTimer?.cancel();
+    pageCurrency.clear();
     _changeFeed?.close();
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
@@ -921,21 +935,10 @@ class PdfEditingController extends ChangeNotifier {
   /// is capacity, not content.
   int _used;
 
-  /// Byte length of each revision, oldest first. `_revisions[_cursor]`
-  /// is the current one; entries past the cursor are redoable.
-  final List<int> _revisions;
-  int _cursor = 0;
-
-  /// The oldest revision this session may reach with [undo]. A successful
-  /// remote replay advances the floor to its newly committed revision, so a
-  /// local undo can never remove collaboration state received from another
-  /// session. Local revisions committed after the floor remain undoable.
-  int _undoFloor = 0;
-
-  /// Parallels [_revisions]: the consequences reported by the document
-  /// mutation that produced each revision. Entry 0 is the original document
-  /// and is never replayed.
-  final List<PdfEditImpact> _revisionImpacts = [PdfEditImpact.none];
+  /// One record per revision (byte length, impact, form secrets), the undo
+  /// floor a remote replay raises, and the draft layers - buffered ink, a
+  /// placement in progress - that undo consumes before the byte history.
+  final PdfEditHistory _history;
 
   /// Render stamps: how many times each page's rendering has changed.
   /// [_renderStampEpoch] counts the all-pages bumps (structural edits,
@@ -961,7 +964,38 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Advances the render stamps for a revision with [impact] landing or
   /// being reverted.
+  /// Pending visual results of committed revisions - the editing overlay's
+  /// afterimages and the committed-ink run - and when each retires. The
+  /// viewer reports page readiness to it and asks it whether a page still
+  /// needs its overlay mounted.
+  final PdfPageCurrency pageCurrency = PdfPageCurrency();
+
+  /// The pages the revision being committed changes on screen (null: all),
+  /// handed to [pageCurrency] once it lands.
+  Set<int>? _currencyChanged = {};
+
+  /// Set while [finishInk] commits, so the ink run survives the move.
+  bool _committingInk = false;
+
+  void _noteCurrencyChange(Set<int>? pages) {
+    final changed = _currencyChanged;
+    if (changed == null) return;
+    if (pages == null) {
+      _currencyChanged = null;
+    } else {
+      changed.addAll(pages);
+    }
+  }
+
+  void _reportDocumentMove() {
+    pageCurrency.documentAt(_revisionId,
+        changedPages: _currencyChanged, extendsRun: _committingInk);
+    _currencyChanged = {};
+  }
+
   void _bumpStampsFor(PdfEditImpact impact) {
+    _noteCurrencyChange(impact.visualPages);
+    _noteCurrencyChange(impact.annotationPages);
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     if (impact.pageStructureChanged) _pageStructureEpoch++;
@@ -1072,24 +1106,24 @@ class PdfEditingController extends ChangeNotifier {
   PdfEditImpact? get lastRevisionImpact => _lastRevisionImpact;
 
   /// The current revision's bytes - what "save to disk" should write.
-  Uint8List get bytes => Uint8List.sublistView(_bytes, 0, _revisions[_cursor]);
+  Uint8List get bytes =>
+      Uint8List.sublistView(_bytes, 0, _history.current.length);
 
   /// Set once a redaction burn replaces the byte buffer: the undo history
-  /// is reset to a single revision, so [_cursor] no longer reflects that
+  /// is reset to a single revision, so the cursor no longer reflects that
   /// the document differs from the original.
   bool _hardModified = false;
 
   /// Whether the document or its visible draft ink differs from the opened one.
-  bool get isModified => hasPendingInk || _cursor > 0 || _hardModified;
+  bool get isModified => hasPendingInk || _history.cursor > 0 || _hardModified;
 
-  bool get canUndo =>
-      hasPlacementDraft || hasPendingInk || _cursor > _undoFloor;
-  bool get canRedo => _undoneInk.isNotEmpty || _cursor < _revisions.length - 1;
+  bool get canUndo => hasPlacementDraft || _history.canUndo;
+  bool get canRedo => _history.canRedo;
 
   /// Diagnostics: how many revisions the session buffer retains (every one is
   /// a byte prefix of the same grow-only buffer, so this is the undo/redo
   /// history length, not extra copies).
-  int get revisionCount => _revisions.length;
+  int get revisionCount => _history.length;
 
   /// Diagnostics: total bytes retained by the session's grow-only buffer -
   /// the whole edit history, of which [bytes] is the current revision's
@@ -1103,89 +1137,83 @@ class PdfEditingController extends ChangeNotifier {
   /// of reverting a document revision the user isn't looking at. The page
   /// overlay that owns the draft registers it ([setPlacementDraftUndo]) and
   /// clears it once the draft commits or is dropped.
-  bool Function()? _placementDraftUndo;
   Object? _placementDraftOwner;
 
   /// Whether a multi-click placement draft is in progress ([undo] steps it
   /// back before the document history).
-  bool get hasPlacementDraft => _placementDraftUndo != null;
+  bool get hasPlacementDraft =>
+      _placementDraftOwner != null && _history.hasDraft(_placementDraftOwner!);
 
   /// Registers [undo] as [owner]'s in-progress placement draft, or - with a
   /// null [undo] - clears it if [owner] still holds it. [undo] returns
   /// whether it stepped anything back.
   void setPlacementDraftUndo(Object owner, bool Function()? undo) {
     if (undo != null) {
+      final previous = _placementDraftOwner;
+      if (previous != null) _history.removeDraft(previous);
       _placementDraftOwner = owner;
-      _placementDraftUndo = undo;
+      _history.pushDraft(owner, _PlacementDraft(undo));
     } else if (identical(_placementDraftOwner, owner)) {
       _placementDraftOwner = null;
-      _placementDraftUndo = null;
+      _history.removeDraft(owner);
     }
   }
 
   void undo() {
-    if (_placementDraftUndo?.call() ?? false) return;
-    if (hasPendingInk) {
-      _inkTimer?.cancel();
-      _inkTimer = null;
-      final page = _pendingInkOrder.removeLast();
-      final stroke = _ink[page]!.removeLast();
-      final pressure = _inkPressures[page]!.removeLast();
-      _undoneInk.add((page: page, stroke: stroke, pressures: pressure));
-      notifyListeners();
-      return;
+    final step = _history.undo();
+    switch (step) {
+      case null:
+        return;
+      case PdfDraftStep(:final draft):
+        if (identical(draft, _inkDraft)) {
+          _inkTimer?.cancel();
+          _inkTimer = null;
+          notifyListeners();
+        }
+      case PdfRevisionStep():
+        _applyRevisionStep(step);
     }
-    if (!canUndo) return;
-    final impact = _revisionImpacts[_cursor];
-    // reverting revision N un-renders exactly the pages N touched
-    _bumpStampsFor(impact);
-    _cursor--;
-    _syncFormSecrets(_revisionSecrets[_cursor + 1], _revisionSecrets[_cursor]);
-    _lastRevisionImpact = impact;
-    // The worker keeps the shared prefix and re-reads it - no bytes to append.
-    _lastRevisionDelta = impact.pageStructureChanged
-        ? null
-        : PdfWorkerRevisionDelta(
-            baseLength: _revisions[_cursor],
-            newLength: _revisions[_cursor],
-            changedPages: impact.visualPages,
-            impact: impact,
-          );
-    _reopen();
-    _emitAnnotationChanges(impact.annotationPages);
   }
 
   void redo() {
-    if (!canRedo) return;
-    if (_cursor == _revisions.length - 1 && _undoneInk.isNotEmpty) {
-      final ink = _undoneInk.removeLast();
-      _ink.putIfAbsent(ink.page, () => []).add(ink.stroke);
-      _inkPressures.putIfAbsent(ink.page, () => []).add(ink.pressures);
-      _pendingInkOrder.add(ink.page);
-      // Keep a partial redo reversible. Once all strokes are back, restore
-      // the normal auto-commit so visible ink does not stay a draft forever.
-      if (_undoneInk.isEmpty) cancelInkStroke();
-      notifyListeners();
-      return;
+    final step = _history.redo();
+    switch (step) {
+      case null:
+        return;
+      case PdfDraftStep(:final draft):
+        if (identical(draft, _inkDraft)) {
+          // Keep a partial redo reversible. Once all strokes are back,
+          // restore the normal auto-commit so visible ink does not stay a
+          // draft forever.
+          if (!_inkDraft.hasUndone) cancelInkStroke();
+          notifyListeners();
+        }
+      case PdfRevisionStep():
+        _applyRevisionStep(step);
     }
-    final beforeLength = _revisions[_cursor];
-    _cursor++;
-    _syncFormSecrets(_revisionSecrets[_cursor - 1], _revisionSecrets[_cursor]);
-    final impact = _revisionImpacts[_cursor];
-    _lastRevisionImpact = impact;
+  }
+
+  /// Moves the open document to [step]'s revision and fans out its impact.
+  void _applyRevisionStep(PdfRevisionStep step) {
+    final impact = step.impact;
+    // reverting revision N un-renders exactly the pages N touched, and
+    // replaying it re-renders them
     _bumpStampsFor(impact);
-    // Re-extend to the redone revision - its bytes already sit in the buffer as
+    _syncFormSecrets(step.from.secrets, step.to.secrets);
+    _lastRevisionImpact = impact;
+    // Undo: the worker keeps the shared prefix and re-reads it - no bytes to
+    // append. Redo: the redone revision's bytes already sit in the buffer as
     // a prefix, so the worker re-appends bytes it may already hold.
     _lastRevisionDelta = impact.pageStructureChanged
         ? null
         : PdfWorkerRevisionDelta(
-            baseLength: beforeLength,
-            newLength: _revisions[_cursor],
+            baseLength: step.forward ? step.from.length : step.to.length,
+            newLength: step.to.length,
             changedPages: impact.visualPages,
             impact: impact,
           );
     // redo re-extends to a revision already in the buffer: an append
-    _reopen(grew: true);
+    _reopen(grew: step.forward);
     _emitAnnotationChanges(impact.annotationPages);
   }
 
@@ -1224,6 +1252,7 @@ class PdfEditingController extends ChangeNotifier {
     _dropSignatureCores(beyond: revision.length);
     _document = _openRevision(revision);
     _revisionId++;
+    _reportDocumentMove();
   }
 
   /// Opens [bytes] - another revision of this session's file - with the
@@ -1292,6 +1321,7 @@ class PdfEditingController extends ChangeNotifier {
       // signal, so the wrapper identity no longer has to change (#414).
       _document = _document.withIncrementalUpdate(bytes);
       _revisionId++;
+      _reportDocumentMove();
       return true;
     } on CosParseException {
       return false;
@@ -1316,11 +1346,10 @@ class PdfEditingController extends ChangeNotifier {
     final editor = PdfEditor(_document);
     edit(editor);
     if (!editor.hasChanges) return false;
-    _undoneInk.clear();
     final impact = pages != null || contentPages != null
         ? PdfEditImpact.legacy(pages: pages, contentPages: contentPages)
         : editor.impact;
-    final beforeLength = _revisions[_cursor];
+    final beforeLength = _history.current.length;
     // Append-only: the editor hands back just the incremental update and it
     // lands in the session buffer we already own. `save()` would rebuild the
     // whole file here, so a long session re-copied O(file x revisions) bytes
@@ -1382,21 +1411,17 @@ class PdfEditingController extends ChangeNotifier {
     required int beforeLength,
     required PdfEditImpact impact,
   }) {
-    _revisions.removeRange(_cursor + 1, _revisions.length);
-    _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
     // Everything past [beforeLength] was just written - after an undo, over
     // bytes a signature further along the old history may have covered.
     _dropSignatureCores(beyond: beforeLength);
-    final secrets = _pendingSecrets ?? _revisionSecrets[_cursor];
+    final secrets = _pendingSecrets ?? _history.current.secrets;
     _pendingSecrets = null;
-    _revisionSecrets
-      ..removeRange(_cursor + 1, _revisionSecrets.length)
-      ..add(secrets);
-    _revisions.add(newLength);
-    _revisionImpacts.add(impact);
+    _history.commit(
+      PdfRevisionRecord(length: newLength, impact: impact, secrets: secrets),
+      remote: _committingRemoteRevision,
+    );
     _bumpStampsFor(impact);
     if (impact.destructive) _destructiveStampEpoch++;
-    _cursor++;
     _lastRevisionImpact = impact;
     // The incremental save appended to the previous revision, so its bytes are
     // that revision's prefix plus the new tail: the worker keeps the first
@@ -1410,7 +1435,6 @@ class PdfEditingController extends ChangeNotifier {
             changedPages: impact.visualPages,
             impact: impact,
           );
-    if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
     // the incremental save appended to the previous revision
     _reloadDocument(grew: true);
@@ -2309,10 +2333,99 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // tool state
 
-  PdfEditTool? _tool;
-  PdfMarkupKind? _markupTool;
-  bool _handMode = false;
+  /// The one interaction mode; [_enterMode] is its only writer.
+  PdfEditingMode _mode = const PdfReaderMode();
+
+  PdfEditTool? get _tool => _mode.tool;
+  PdfMarkupKind? get _markupTool => _mode.markup;
+  bool get _handMode => _mode is PdfHandMode;
+  String? get _activeSavedAnnotationId => switch (_mode) {
+        PdfSavedAnnotationMode(:final id) => id,
+        _ => null,
+      };
+
   bool _colorLocked = false;
+
+  /// What pointer input does now: reader, hand, a tool, a text markup, or
+  /// placing a saved annotation - exactly one at a time.
+  PdfEditingMode get mode => _mode;
+
+  /// Changes [mode] - the single transition point. Leaving a mode commits
+  /// what it buffered (ink; switching straight to the eraser defers that
+  /// commit a turn so the eraser arms at once), the outgoing style scope is
+  /// saved and the incoming one restored, and a selection the new mode
+  /// can't act on is dropped. A no-op when [next] is already the mode.
+  void _enterMode(PdfEditingMode next) {
+    final previous = _mode;
+    if (next == previous) return;
+    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+    // leaving an ink-like tool commits the drawing, like lifting the pen.
+    //
+    // Switching directly from ink to the eraser is the latency-sensitive
+    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
+    // the PDF and trigger a raster refresh, which made the eraser button feel
+    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
+    // the commit run in the next event-loop turn; the stroke is still committed
+    // before any subsequent pointer event can erase it.
+    final leavingInkTool =
+        _buffersInk(previous.tool) && next.tool != previous.tool;
+    final deferInkCommit =
+        leavingInkTool && next.tool == PdfEditTool.eraser && hasPendingInk;
+    if (leavingInkTool && !deferInkCommit) {
+      finishInk();
+    }
+    // arming anything but the eraser by other means breaks the pencil
+    // double-tap pairing (see [togglePencilEraser]) - the remembered tool
+    // is only valid while the eraser stays the toggled-on partner
+    if (next.tool != PdfEditTool.eraser) _eraserToggledOn = false;
+    _rememberToolLeft(next.tool);
+    _mode = next;
+    if (next.tool != PdfEditTool.select) _selected.clear();
+    if (next.tool != PdfEditTool.content) _selectedElement = null;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    if (next is PdfMarkupMode) {
+      useMarkupStyleScope();
+    } else {
+      // each annotation tool remembers its own colour, stroke, opacity, … -
+      // arming one restores its saved style and routes further style changes
+      // back into its slot (see [PdfEditingPreferences.beginStyleScope])
+      preferences.beginStyleScope(
+        _styleScopeKey(next.tool),
+        _styleScopeFields(next.tool),
+        defaults: _styleScopeDefaults(next.tool),
+        lockedFields: _lockedStyleFields,
+      );
+    }
+    notifyListeners();
+    if (deferInkCommit) Timer.run(finishInk);
+  }
+
+  /// Whether a press on an annotation selects it: the Select tool, or a
+  /// default-mode annotation selection already in play.
+  bool get selectsAnnotations =>
+      _tool == PdfEditTool.select || (_tool == null && hasAnnotationSelection);
+
+  /// Whether page presses belong to the editing overlay's gestures rather
+  /// than the viewer's reader gestures (scrolling, text selection, links).
+  bool get acceptsEditingGestures =>
+      _tool != null || selectsAnnotations || activeSavedAnnotation != null;
+
+  /// Whether pages need their editing overlay mounted for the session's own
+  /// state: an armed tool, the eyedropper, a saved-annotation placement, an
+  /// annotation selection, a pending attention flash, or the cursor guides,
+  /// rulers and snap grid. (Results still painting after a commit are
+  /// [pageCurrency]'s answer.)
+  bool get wantsPageOverlays =>
+      _tool != null ||
+      isPickingColor ||
+      activeSavedAnnotation != null ||
+      hasAnnotationSelection ||
+      pendingFlash != null ||
+      preferences.showVerticalCursorGuide ||
+      preferences.showHorizontalCursorGuide ||
+      preferences.showPageRulers ||
+      preferences.showSnapGrid;
 
   static const Set<String> _colorLockedFields = {'color'};
 
@@ -2343,55 +2456,8 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  set tool(PdfEditTool? value) {
-    // Assigning null while a markup tool is armed is an intentional clear
-    // (Escape and the mobile tool switcher's Clear both use this path).
-    if (value == _tool &&
-        _markupTool == null &&
-        !_handMode &&
-        _activeSavedAnnotationId == null) {
-      return;
-    }
-    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-    // leaving an ink-like tool commits the drawing, like lifting the pen.
-    //
-    // Switching directly from ink to the eraser is the latency-sensitive
-    // path used by Apple Pencil double-tap.  A pending ink commit can rewrite
-    // the PDF and trigger a raster refresh, which made the eraser button feel
-    // sticky.  Arm the eraser and repaint the toolbar/cursor first, then let
-    // the commit run in the next event-loop turn; the stroke is still committed
-    // before any subsequent pointer event can erase it.
-    final leavingInkTool = _buffersInk(_tool) && value != _tool;
-    final deferInkCommit =
-        leavingInkTool && value == PdfEditTool.eraser && hasPendingInk;
-    if (leavingInkTool && !deferInkCommit) {
-      finishInk();
-    }
-    // arming anything but the eraser by other means breaks the pencil
-    // double-tap pairing (see [togglePencilEraser]) - the remembered tool
-    // is only valid while the eraser stays the toggled-on partner
-    if (value != PdfEditTool.eraser) _eraserToggledOn = false;
-    _rememberToolLeft(value);
-    _tool = value;
-    _markupTool = null;
-    _handMode = false;
-    _activeSavedAnnotationId = null;
-    if (value != PdfEditTool.select) _selected.clear();
-    if (value != PdfEditTool.content) _selectedElement = null;
-    _cropModeArmed = false;
-    _cropDraft = null;
-    // each annotation tool remembers its own colour, stroke, opacity, … -
-    // arming one restores its saved style and routes further style changes
-    // back into its slot (see [PdfEditingPreferences.beginStyleScope])
-    preferences.beginStyleScope(
-      _styleScopeKey(value),
-      _styleScopeFields(value),
-      defaults: _styleScopeDefaults(value),
-      lockedFields: _lockedStyleFields,
-    );
-    notifyListeners();
-    if (deferInkCommit) Timer.run(finishInk);
-  }
+  set tool(PdfEditTool? value) =>
+      _enterMode(value == null ? const PdfReaderMode() : PdfToolMode(value));
 
   /// Whether the viewer is in explicit Hand mode.
   ///
@@ -2402,12 +2468,7 @@ class PdfEditingController extends ChangeNotifier {
   bool get isHandMode => _handMode;
 
   /// Disarms editing and markup tools and enters explicit Hand mode.
-  void activateHandMode() {
-    if (_handMode && _tool == null && _markupTool == null) return;
-    tool = null;
-    _handMode = true;
-    notifyListeners();
-  }
+  void activateHandMode() => _enterMode(const PdfHandMode());
 
   /// The armed text-markup tool, or null when text selections should remain
   /// ordinary selections.
@@ -2419,32 +2480,9 @@ class PdfEditingController extends ChangeNotifier {
   PdfMarkupKind? get markupTool => _markupTool;
 
   set markupTool(PdfMarkupKind? value) {
-    if (value == _markupTool) return;
-    if (value == null) {
-      preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-      _markupTool = null;
-      preferences.beginStyleScope(
-        _styleScopeKey(_tool),
-        _styleScopeFields(_tool),
-        defaults: _styleScopeDefaults(_tool),
-        lockedFields: _lockedStyleFields,
-      );
-      notifyListeners();
-      return;
-    }
-
-    // Text markup needs reader-mode selection gestures. Going through the
-    // normal setter also commits a pending ink stroke before switching.
-    if (_tool != null || _handMode) tool = null;
-    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
-    _markupTool = value;
-    _activeSavedAnnotationId = null;
-    _selected.clear();
-    _selectedElement = null;
-    _cropModeArmed = false;
-    _cropDraft = null;
-    useMarkupStyleScope();
-    notifyListeners();
+    // clearing the markup tool leaves the other modes alone
+    if (value == null && _markupTool == null) return;
+    _enterMode(value == null ? const PdfReaderMode() : PdfMarkupMode(value));
   }
 
   Set<String> get _lockedStyleFields =>
@@ -2763,83 +2801,177 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // in-place text editing
 
-  bool _editingText = false;
-  TextSelection? _editingTextSelection;
-  int _editingTextStyleRevision = 0;
-  ({
-    PdfTextFont? font,
-    double? size,
-    int? color,
-    bool? underline
-  })? _editingTextStyleRequest;
-  int _editSelectedTextRevision = 0;
-  int _editingTextFocusHoldCount = 0;
-  int _editingTextFocusHoldRevision = 0;
-  int _keepEditingTextFocusedCount = 0;
+  PdfTextEditSession? _textEditSession;
+  final Map<int, void Function()> _inlineTextEditOpeners = {};
+
+  /// The open inline text editor (free text, callout or cloud-callout note),
+  /// or null. The toolbar and properties panel restyle it directly; the page
+  /// overlay hosts its field.
+  PdfTextEditSession? get textEditSession => _textEditSession;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts -
   /// backspace must delete characters, not the annotation.
-  bool get isEditingText => _editingText;
+  bool get isEditingText => _textEditSession != null || _editingFieldText;
 
-  bool get hasEditingTextSelection =>
-      _editingText &&
-      _editingTextSelection != null &&
-      _editingTextSelection!.isValid &&
-      !_editingTextSelection!.isCollapsed;
+  bool _editingFieldText = false;
 
-  int get editingTextStyleRevision => _editingTextStyleRevision;
-
-  ({PdfTextFont? font, double? size, int? color, bool? underline})?
-      get editingTextStyleRequest => _editingTextStyleRequest;
-
-  int get editSelectedTextRevision => _editSelectedTextRevision;
-
-  bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
-
-  int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
-
-  /// Whether an open in-place text editor should hold on to keyboard focus.
-  /// Set while the tune popup is open over a text-editing session: a
-  /// `TextField` only paints its selection highlight while focused, so the
-  /// popup's controls (which steal focus on tap on some platforms) would
-  /// otherwise hide the very selection they restyle. The overlay reclaims
-  /// focus for the field while this is true. Only meaningful while editing.
-  bool get shouldKeepEditingTextFocused =>
-      _editingText && _keepEditingTextFocusedCount > 0;
-
-  /// Begins a keep-focused window (see [shouldKeepEditingTextFocused]).
-  /// Balanced by [endKeepEditingTextFocused]; reference-counted so nested
-  /// popups don't drop the guard early.
-  void beginKeepEditingTextFocused() {
-    _keepEditingTextFocusedCount++;
-    notifyListeners();
-  }
-
-  void endKeepEditingTextFocused() {
-    if (_keepEditingTextFocusedCount == 0) return;
-    _keepEditingTextFocusedCount--;
-    notifyListeners();
-  }
-
-  /// Marks an in-place text editor open/closed. Called by the page
-  /// overlay that owns the editor.
+  /// Marks another in-place text field (a form field's fill editor) open or
+  /// closed, for [isEditingText]. The annotation text editor is a
+  /// [PdfTextEditSession] instead ([beginTextEdit]).
   void setEditingText(bool value) {
-    if (value == _editingText) return;
-    _editingText = value;
-    if (!value) {
-      _editingTextSelection = null;
-      _editingTextStyleRequest = null;
-    }
+    if (value == _editingFieldText) return;
+    _editingFieldText = value;
     notifyListeners();
   }
 
-  void setEditingTextSelection(TextSelection selection) {
-    if (!_editingText) return;
-    if (_editingTextSelection == selection) return;
-    final hadSelection = hasEditingTextSelection;
-    _editingTextSelection = selection;
-    if (hadSelection != hasEditingTextSelection) notifyListeners();
+  bool get hasEditingTextSelection => _textEditSession?.hasSelection ?? false;
+
+  /// Opens an inline text editor for [target] over [rect] (page space),
+  /// seeded from the selected annotation when the target is existing and
+  /// from the creation defaults otherwise. [rotation] is the box's resting
+  /// view-space rotation. [buffer] lets the host keep one text controller
+  /// across sessions; [holdsFrom] carries an editor's focus holds into the
+  /// one reopened from it.
+  PdfTextEditSession beginTextEdit(
+    PdfTextEditTarget target, {
+    required PdfRect rect,
+    double rotation = 0,
+    PdfTextEditBuffer? buffer,
+    PdfTextEditSession? holdsFrom,
+  }) {
+    final existing = target.isExisting;
+    final style = existing ? selectedTextStyle : null;
+    // /DA carries the text color; /C is the box background for free text
+    final annotation = existing ? selectedAnnotation : null;
+    final parsed = annotation?.behavior.style.freeText;
+    final annotationColor = annotation?.behavior.style.color;
+    // an existing box's real face: its embedded font recovered from the
+    // appearance when it has one, else the base-14 face its /DA names
+    final font = existing
+        ? (selectedTextFont ?? style?.font ?? fontFamily)
+        : (activeFont ?? fontFamily);
+    final typing = PdfTextEditStyle(
+      font: font,
+      size: style?.size ?? preferences.fontSize,
+      color: annotationColor != null
+          ? ui.Color(0xFF000000 | annotationColor)
+          : color,
+      underline: existing ? (parsed?.underline ?? false) : textUnderline,
+    );
+    final layout = existing
+        ? PdfTextEditLayout(
+            align: parsed?.alignment,
+            verticalAlign:
+                parsed?.verticalAlignment ?? PdfTextVerticalAlign.top,
+            lineSpacing: parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing,
+            charSpacing: parsed?.charSpacing ?? 0,
+            fill: parsed?.fillColor != null
+                ? ui.Color(0xFF000000 | parsed!.fillColor!)
+                : null,
+            opacity: annotation?.appearanceOpacity ?? 1,
+            rotation: rotation,
+          )
+        : PdfTextEditLayout(
+            align: preferences.textAlign,
+            verticalAlign: preferences.textVerticalAlign,
+            lineSpacing: lineSpacing,
+            charSpacing: charSpacing,
+            fill: preferences.textFillColor,
+            opacity: preferences.opacity,
+            rotation: rotation,
+          );
+    final session = PdfTextEditSession(
+      target: target,
+      rect: rect,
+      style: typing,
+      layout: layout,
+      text: existing ? (selectedText ?? '') : '',
+      runs: existing ? selectedRichRuns : null,
+      standardFace: font is PdfStandardFont ? font : fontFamily,
+      tool: tool,
+      buffer: buffer,
+      holdsFrom: holdsFrom,
+    )..onSelectionPresenceChanged = notifyListeners;
+    _textEditSession?.close();
+    _textEditSession = session;
+    notifyListeners();
+    return session;
+  }
+
+  /// Closes [session] without writing anything.
+  void endTextEdit(PdfTextEditSession session) {
+    session.close();
+    if (!identical(_textEditSession, session)) return;
+    _textEditSession = null;
+    notifyListeners();
+  }
+
+  /// Writes what [PdfTextEditSession.decide] decided.
+  void applyTextEditCommit(PdfTextEditCommit commit) {
+    switch (commit) {
+      case PdfTextEditNoChange():
+        break;
+      case PdfTextEditSetRichText(:final runs):
+        setSelectedRichText(runs);
+      case PdfTextEditRestyle(
+          :final text,
+          :final font,
+          :final size,
+          :final color,
+          :final underline
+        ):
+        setSelectedText(text,
+            font: font, size: size, color: color, underline: underline);
+      case PdfTextEditSetText(:final text):
+        setSelectedText(text);
+      case PdfTextEditAdd(:final target, :final rect, :final text, :final runs):
+        switch (target) {
+          case PdfNewCloudCallout(:final page, :final region):
+            addCloudCallout(page, region, rect, text);
+          case PdfNewCallout(:final page, :final terminus):
+            addCallout(page, rect, text, terminus);
+          case PdfNewTextBox(:final page):
+            if (runs != null) {
+              addFreeTextRich(page, rect, runs);
+            } else {
+              addFreeText(page, rect, text);
+            }
+          case PdfExistingTextBox():
+            break; // decide() never adds over an existing box
+        }
+    }
+  }
+
+  /// Keeps the open editor's preview on the defaults and appearance the
+  /// panel edits while it is open.
+  void _followTextEditSession() {
+    final session = _textEditSession;
+    if (session == null) return;
+    final target = session.target;
+    if (target is PdfExistingTextBox) {
+      // The opacity control restyles the selected annotation in place while
+      // its inline editor stays open. Follow the new appearance alpha so the
+      // live glyphs do not remain opaque and make the control look inert.
+      session.followAppearance(
+        opacity: selectedAnnotationSlot == target.slot
+            ? selectedAnnotation?.appearanceOpacity
+            : null,
+        verticalAlign: selectedTextVerticalAlign,
+      );
+    } else {
+      // a new box in flight follows the tune popup's box-level defaults live
+      // (alignment, spacing, underline) instead of only picking them up on
+      // open
+      session.adoptBoxDefaults(
+        align: preferences.textAlign,
+        verticalAlign: preferences.textVerticalAlign,
+        lineSpacing: lineSpacing,
+        charSpacing: charSpacing,
+        opacity: preferences.opacity,
+        underline: textUnderline,
+      );
+    }
   }
 
   /// Restyles the open in-place text editor: the selected run when text is
@@ -2852,36 +2984,34 @@ class PdfEditingController extends ChangeNotifier {
     int? color,
     bool? underline,
   }) {
-    if (!_editingText) return false;
-    _editingTextStyleRequest =
-        (font: font, size: size, color: color, underline: underline);
-    _editingTextStyleRevision++;
-    notifyListeners();
+    final session = _textEditSession;
+    if (session == null) return false;
+    session.restyle(font: font, size: size, color: color, underline: underline);
     return true;
   }
 
+  /// Registers how page [page]'s overlay opens its inline editor on the
+  /// selected free text ([requestEditSelectedTextInline]). Returns a
+  /// callback that unregisters it.
+  VoidCallback registerInlineTextEditOpener(int page, void Function() open) {
+    _inlineTextEditOpeners[page] = open;
+    return () {
+      if (identical(_inlineTextEditOpeners[page], open)) {
+        _inlineTextEditOpeners.remove(page);
+      }
+    };
+  }
+
+  /// Opens the selected free-text box in its page's inline editor.
   bool requestEditSelectedTextInline() {
     if (_selected.length != 1 ||
         selectedAnnotation?.subtype != 'FreeText' ||
         selectedAnnotation?.isLockedContents == true) {
       return false;
     }
-    _editSelectedTextRevision++;
-    notifyListeners();
+    final page = selectedAnnotationSlot?.$1;
+    if (page != null) _inlineTextEditOpeners[page]?.call();
     return true;
-  }
-
-  void beginEditingTextFocusHold() {
-    _editingTextFocusHoldCount++;
-    _editingTextFocusHoldRevision++;
-    notifyListeners();
-  }
-
-  void endEditingTextFocusHold() {
-    if (_editingTextFocusHoldCount == 0) return;
-    _editingTextFocusHoldCount--;
-    _editingTextFocusHoldRevision++;
-    notifyListeners();
   }
 
   // ---------------------------------------------------------------------
@@ -2954,12 +3084,9 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // ink
 
-  final Map<int, List<List<(double, double)>>> _ink = {};
-  final Map<int, List<List<double>?>> _inkPressures = {};
-  final List<int> _pendingInkOrder = [];
-  final List<
-          ({int page, List<(double, double)> stroke, List<double>? pressures})>
-      _undoneInk = [];
+  /// The buffered strokes: a draft layer of [_history], so undo takes them
+  /// back one at a time before any revision.
+  late final PdfInkDraft _inkDraft = PdfInkDraft();
   Timer? _inkTimer;
 
   /// How long after the last stroke the buffer auto-commits as one Ink
@@ -2986,7 +3113,7 @@ class PdfEditingController extends ChangeNotifier {
   /// auto-commit timer back; without this they'd sit uncommitted until
   /// the next stroke or tool switch.
   void cancelInkStroke() {
-    if (_inkTimer != null || !hasPendingInk || _undoneInk.isNotEmpty) return;
+    if (_inkTimer != null || !hasPendingInk || _inkDraft.hasUndone) return;
     final delay = inkCommitDelay;
     if (delay != null) _inkTimer = Timer(delay, finishInk);
   }
@@ -2999,46 +3126,18 @@ class PdfEditingController extends ChangeNotifier {
   /// Back-to-back commits accumulate: the next stroke can commit before the
   /// previous one has rendered (a slow or held render, quick handwriting), and
   /// the new revision restarts that render. Keeping only the latest commit
-  /// made every earlier stroke vanish until the page caught up. The viewer
-  /// drops a page's entries once that page is current again
-  /// ([retireCommittedInk]); any other revision (an undo, another edit) ends
-  /// the run.
-  final List<
-      ({
-        int revisionId,
-        Map<int, List<List<(double, double)>>> strokes,
-        Map<int, List<List<double>?>> pressures,
-        Color color,
-        double strokeWidth,
-      })> _committedInks = [];
-
-  /// The just-committed ink on [pageIndex], each commit that has not reached
-  /// the page's raster yet, oldest first (see [_committedInks]). Empty once
-  /// the document has moved past the committing revision.
+  /// made every earlier stroke vanish until the page caught up. Held as a run
+  /// in [pageCurrency], which retires a page's entries once that page is
+  /// current again; any other revision (an undo, another edit) ends the run.
   List<
       ({
         List<List<(double, double)>> strokes,
         List<List<double>?> pressures,
         Color color,
         double strokeWidth,
-      })> committedInksOn(int pageIndex) {
-    if (_committedInks.isEmpty ||
-        _committedInks.last.revisionId != _revisionId) {
-      return const [];
-    }
-    return [
-      for (final committed in _committedInks)
-        if (committed.strokes[pageIndex] case final strokes?
-            when strokes.isNotEmpty)
-          (
-            strokes: strokes,
-            pressures: committed.pressures[pageIndex] ??
-                List<List<double>?>.filled(strokes.length, null),
-            color: committed.color,
-            strokeWidth: committed.strokeWidth,
-          ),
-    ];
-  }
+      })> committedInksOn(
+          int pageIndex) =>
+      pageCurrency.allHeldOn<_CommittedInk>(pageIndex, _committedInkSlot);
 
   /// The most recent ink commit on [pageIndex] (the last of
   /// [committedInksOn]), or null once the document has moved past the
@@ -3054,18 +3153,14 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Forgets the committed ink on [pageIndex] from revisions up to
-  /// [throughRevision] ([revisionId] values): the viewer calls this once that
-  /// page shows a revision at least that new, so the overlay stops carrying
-  /// strokes the page now draws itself. Does not notify - the overlay only
-  /// paints this ink while the page is behind.
-  void retireCommittedInk(int pageIndex, {required int throughRevision}) {
-    for (final committed in _committedInks) {
-      if (committed.revisionId > throughRevision) break;
-      committed.strokes.remove(pageIndex);
-      committed.pressures.remove(pageIndex);
-    }
-    _committedInks.removeWhere((committed) => committed.strokes.isEmpty);
-  }
+  /// [throughRevision] ([revisionId] values): the page now shows a revision
+  /// at least that new, so the overlay stops carrying strokes the page now
+  /// draws itself. Does not notify - the overlay only paints this ink while
+  /// the page is behind. The viewer reports page readiness to
+  /// [pageCurrency] instead, which retires this ink with everything else.
+  void retireCommittedInk(int pageIndex, {required int throughRevision}) =>
+      pageCurrency.retireThrough(pageIndex, throughRevision,
+          slot: _committedInkSlot);
 
   /// Whether touch input is in play this session: always true on
   /// touch-first platforms (iOS/Android/Fuchsia), and flipped on by the
@@ -3096,14 +3191,14 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Drawn-but-uncommitted ink strokes on [pageIndex], in page space.
   List<List<(double, double)>> strokesOn(int pageIndex) =>
-      List.unmodifiable(_ink[pageIndex] ?? const []);
+      _inkDraft.strokesOn(pageIndex);
 
   /// Per-point normalized pressures paralleling [strokesOn] - null for
   /// strokes drawn without pressure (finger, mouse).
   List<List<double>?> strokePressuresOn(int pageIndex) =>
-      List.unmodifiable(_inkPressures[pageIndex] ?? const []);
+      _inkDraft.pressuresOn(pageIndex);
 
-  bool get hasPendingInk => _ink.values.any((s) => s.isNotEmpty);
+  bool get hasPendingInk => _inkDraft.isNotEmpty;
 
   /// Buffers one drawn stroke; the buffer commits on its own after
   /// [inkCommitDelay], or through [finishInk].
@@ -3117,15 +3212,8 @@ class PdfEditingController extends ChangeNotifier {
     assert(pressures == null || pressures.length == stroke.length);
     // Drawing is a fresh edit, even before its delayed PDF commit. Otherwise
     // redo can resurrect the abandoned document branch ahead of this stroke.
-    _revisions.removeRange(_cursor + 1, _revisions.length);
-    _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
-    _revisionSecrets.removeRange(_cursor + 1, _revisionSecrets.length);
-    _undoneInk.clear();
-    _pendingInkOrder.add(pageIndex);
-    _ink.putIfAbsent(pageIndex, () => []).add(List.of(stroke));
-    _inkPressures
-        .putIfAbsent(pageIndex, () => [])
-        .add(pressures == null ? null : List.of(pressures));
+    _history.dropRedo();
+    _inkDraft.add(pageIndex, stroke, pressures: pressures);
     _inkTimer?.cancel();
     final delay = inkCommitDelay;
     _inkTimer = delay == null ? null : Timer(delay, finishInk);
@@ -3137,59 +3225,53 @@ class PdfEditingController extends ChangeNotifier {
     _inkTimer?.cancel();
     _inkTimer = null;
     if (!hasPendingInk) return;
-    final strokes = Map.of(_ink);
-    final pressures = Map.of(_inkPressures);
-    _ink.clear();
-    _inkPressures.clear();
-    _pendingInkOrder.clear();
-    _undoneInk.clear();
-    final before = _revisionId;
-    final committed = apply(
-      (editor) {
-        strokes.forEach((page, pageStrokes) {
-          if (pageStrokes.isNotEmpty) {
-            editor.addInk(
-              page,
-              pageStrokes,
-              color: _colorValue,
-              strokeWidth: preferences.strokeWidth,
-              opacity: preferences.opacity,
-              pressures: pressures[page],
-              author: preferences.author,
-            );
-          }
-        });
-      },
-    );
-    if (committed) {
-      // A run of commits the page has not caught up with keeps growing; any
-      // revision in between (undo, another edit) starts a fresh one.
-      if (_committedInks.isNotEmpty &&
-          _committedInks.last.revisionId != before) {
-        _committedInks.clear();
-      }
-      _committedInks.add((
-        revisionId: _revisionId,
-        strokes: strokes,
-        pressures: pressures,
-        color: preferences.color.withValues(
-          alpha: preferences.opacity.clamp(0.0, 1.0),
-        ),
-        strokeWidth: preferences.strokeWidth,
-      ));
+    final (:strokes, :pressures) = _inkDraft.take();
+    final bool committed;
+    _committingInk = true;
+    try {
+      committed = apply(
+        (editor) {
+          strokes.forEach((page, pageStrokes) {
+            if (pageStrokes.isNotEmpty) {
+              editor.addInk(
+                page,
+                pageStrokes,
+                color: _colorValue,
+                strokeWidth: preferences.strokeWidth,
+                opacity: preferences.opacity,
+                pressures: pressures[page],
+                author: preferences.author,
+              );
+            }
+          });
+        },
+      );
+    } finally {
+      _committingInk = false;
     }
+    if (!committed) return;
+    final color = preferences.color.withValues(
+      alpha: preferences.opacity.clamp(0.0, 1.0),
+    );
+    strokes.forEach((page, pageStrokes) {
+      if (pageStrokes.isEmpty) return;
+      final _CommittedInk ink = (
+        strokes: pageStrokes,
+        pressures: pressures[page] ??
+            List<List<double>?>.filled(pageStrokes.length, null),
+        color: color,
+        strokeWidth: preferences.strokeWidth,
+      );
+      pageCurrency.hold(page, _committedInkSlot, ink,
+          revision: _revisionId, run: true);
+    });
   }
 
   /// Throws away the buffered strokes.
   void discardInk() {
     _inkTimer?.cancel();
     _inkTimer = null;
-    if (_ink.isEmpty && _undoneInk.isEmpty) return;
-    _ink.clear();
-    _inkPressures.clear();
-    _pendingInkOrder.clear();
-    _undoneInk.clear();
-    notifyListeners();
+    if (_inkDraft.discard()) notifyListeners();
   }
 
   // ---------------------------------------------------------------------
@@ -3560,22 +3642,12 @@ class PdfEditingController extends ChangeNotifier {
     // a file without /ID keeps filing its secrets under the hash of the bytes
     // as opened - take it before they are replaced (the burn is O(file) too)
     _resolveFormSecretId();
-    final secrets = _revisionSecrets[_cursor];
-    _revisionSecrets
-      ..clear()
-      ..add(secrets);
+    final secrets = _history.current.secrets;
     _bytes = bytes;
     _used = bytes.length;
     // a burn rewrites the whole file, signed bytes included
     _dropSignatureCores();
-    _revisions
-      ..clear()
-      ..add(bytes.length);
-    _revisionImpacts
-      ..clear()
-      ..add(PdfEditImpact.none);
-    _cursor = 0;
-    _undoFloor = 0;
+    _history.resetTo(PdfRevisionRecord(length: bytes.length, secrets: secrets));
     _hardModified = true;
     // A burn recompacts the whole file: the new buffer is not a prefix-append
     // of the prior one, so the worker cannot update in place and must restart.
@@ -4136,8 +4208,7 @@ class PdfEditingController extends ChangeNotifier {
   /// over this newer text copy when Paste returns to a PDF page.
   Future<void> copyTableCellsText(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
-    annotationClipboard.clear();
-    snapshotClipboard.clear();
+    _clipboard.clear();
     pageClipboard.clear();
   }
 
@@ -5775,8 +5846,8 @@ class PdfEditingController extends ChangeNotifier {
         : <(int, int)>[];
     final beforeRevision = _revisionId;
     final beforePredicate = _canEditAnnotation;
-    final beforeCursor = _cursor;
-    final beforeLength = _revisions[_cursor];
+    final beforeCursor = _history.cursor;
+    final beforeLength = _history.current.length;
     final result = await compute<Map<String, Object?>, Map<String, Object?>>(
       _replaceDocumentColorsOnWorker,
       {
@@ -5803,8 +5874,8 @@ class PdfEditingController extends ChangeNotifier {
         _revisionId != beforeRevision ||
         _colorProcessingSlots(targets, slots).length != slots.length ||
         !identical(_canEditAnnotation, beforePredicate) ||
-        _cursor != beforeCursor ||
-        _revisions[_cursor] != beforeLength) {
+        _history.cursor != beforeCursor ||
+        _history.current.length != beforeLength) {
       return 0;
     }
 
@@ -7086,8 +7157,6 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // clipboard
 
-  String? _activeSavedAnnotationId;
-
   /// The persisted reusable-annotation library shared through
   /// [preferences].
   List<PdfSavedAnnotation> get savedAnnotations => preferences.savedAnnotations;
@@ -7217,7 +7286,7 @@ class PdfEditingController extends ChangeNotifier {
   /// document.
   void removeSavedAnnotation(PdfSavedAnnotation annotation) {
     if (_activeSavedAnnotationId == annotation.id) {
-      _activeSavedAnnotationId = null;
+      _enterMode(const PdfReaderMode());
     }
     preferences.savedAnnotations = [
       for (final entry in savedAnnotations)
@@ -7233,19 +7302,17 @@ class PdfEditingController extends ChangeNotifier {
         .where((entry) => entry.id == annotation.id)
         .firstOrNull;
     if (current == null) return false;
-    // A library placement is its own mutually-exclusive interaction mode.
-    // Going through the normal setter commits pending ink and clears markup,
-    // hand mode, selections, and any previously active library item.
-    tool = null;
+    // A library placement is its own mutually-exclusive interaction mode:
+    // entering it commits pending ink and clears markup, hand mode,
+    // selections, and any previously active library item.
     clearAnnotationSelection();
     clearElementSelection();
-    _activeSavedAnnotationId = current.id;
-    annotationClipboard.set(
+    _enterMode(PdfSavedAnnotationMode(current.id));
+    _clipboard.holdAnnotations(
       [current.snapshot],
       owner: current,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     notifyListeners();
     return true;
   }
@@ -7253,8 +7320,7 @@ class PdfEditingController extends ChangeNotifier {
   /// Cancels the pointer-following library placement mode.
   void cancelSavedAnnotationPlacement() {
     if (_activeSavedAnnotationId == null) return;
-    _activeSavedAnnotationId = null;
-    notifyListeners();
+    _enterMode(const PdfReaderMode());
   }
 
   /// Drops the active library item centered on ([x], [y]) and keeps it armed
@@ -7267,12 +7333,11 @@ class PdfEditingController extends ChangeNotifier {
     }
     // Refill defensively: another tab may have replaced the shared clipboard
     // since this item was armed.
-    annotationClipboard.set(
+    _clipboard.holdAnnotations(
       [annotation.snapshot],
       owner: annotation,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     return pasteAnnotations(pageIndex, at: (x, y), selectPasted: false);
   }
 
@@ -7282,12 +7347,11 @@ class PdfEditingController extends ChangeNotifier {
     if (!savedAnnotations.any((entry) => entry.id == annotation.id)) {
       return false;
     }
-    annotationClipboard.set(
+    _clipboard.holdAnnotations(
       [annotation.snapshot],
       owner: annotation,
       sourcePage: -1,
     );
-    snapshotClipboard.clear();
     notifyListeners();
     return true;
   }
@@ -7327,12 +7391,11 @@ class PdfEditingController extends ChangeNotifier {
       }
     }
     if (snapshots.isEmpty) return 0;
-    annotationClipboard.set(snapshots,
+    // the most recent copy wins ⌘V (see [copyVectorSnapshot])
+    _clipboard.holdAnnotations(snapshots,
         owner: this,
         sourcePage: _selected.last.$1,
         groups: _snapshotGroups(sourceSlots));
-    // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    snapshotClipboard.clear();
     notifyListeners();
     return snapshots.length;
   }
@@ -7642,8 +7705,7 @@ class PdfEditingController extends ChangeNotifier {
     }
     _importedSnapshotBytes = Uint8List.fromList(pdfBytes);
     _importedSnapshot = snapshot;
-    snapshotClipboard.set(snapshot);
-    annotationClipboard.clear();
+    _clipboard.holdSnapshot(snapshot);
     return pasteSnapshot(pageIndex, at: at);
   }
 
@@ -7672,8 +7734,7 @@ class PdfEditingController extends ChangeNotifier {
     // publish to the shared clipboard; paste resets its per-document
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).
-    snapshotClipboard.set(snapshot);
-    annotationClipboard.clear();
+    _clipboard.holdSnapshot(snapshot);
     notifyListeners();
     return snapshot;
   }
@@ -7765,19 +7826,15 @@ class PdfEditingController extends ChangeNotifier {
   /// user-chosen point justifies the position (the paste cascade): it
   /// keeps a strip this wide on the paper so repeats can never march the
   /// copies out of sight.
-  static const double pageTether = 24.0;
+  static const double pageTether = pdfPageTether;
 
   /// How far to move the interval [lo, hi] so at least [pageTether] of it
   /// stays inside [min, max] - the whole interval when it is shorter than
   /// the tether, and the whole of [min, max] when the page is shorter
   /// still. Already-tethered intervals do not move, so an interval that
   /// hangs off the edge keeps hanging off it.
-  static double _tetherShift(double lo, double hi, double min, double max) {
-    final keep = math.min(pageTether, math.min(hi - lo, max - min));
-    if (hi < min + keep) return min + keep - hi;
-    if (lo > max - keep) return max - keep - lo;
-    return 0;
-  }
+  static double _tetherShift(double lo, double hi, double min, double max) =>
+      pdfTetherShift(lo, hi, min, max);
 
   // ---------------------------------------------------------------------
   // restyle
@@ -8332,14 +8389,10 @@ class PdfEditingController extends ChangeNotifier {
     final annotationPage = selectedPage;
     final page = annotationPage ?? selectedElementPage;
     if (page == null) return;
-    // Mirror of PdfPageGeometry.toPagePoint: view y is down and /Rotate turns
-    // the page clockwise, so recover the page-space (y-up) delta per rotation.
-    final (dx, dy) = switch (_page(page).rotation % 360) {
-      90 => (screenDy, screenDx),
-      180 => (-screenDx, screenDy),
-      270 => (-screenDy, -screenDx),
-      _ => (screenDx, -screenDy),
-    };
+    // view y is down and /Rotate turns the page clockwise: the same
+    // mapping the drag preview and commit use
+    final (dx, dy) =
+        pdfViewDeltaToPage(_page(page).rotation, screenDx, screenDy);
     if (annotationPage != null) {
       moveSelected(dx, dy);
     } else {
@@ -8995,6 +9048,50 @@ class PdfEditingController extends ChangeNotifier {
         pageRotation: _page(_selected.last.$1).rotation,
       ),
     );
+  }
+
+  /// Commits a selection drag ([PdfSelectionDrag]'s commit): the one place
+  /// a drag's page-space result becomes an edit.
+  void applySelectionEdit(PdfSelectionEdit edit) {
+    switch (edit) {
+      case PdfMoveEdit(:final dx, :final dy, :final wholeCallout):
+        moveSelected(dx, dy, wholeCallout: wholeCallout);
+      case PdfRehomeEdit(:final page, :final dx, :final dy):
+        moveSelectedToPage(page, dx, dy);
+      case PdfElementMoveEdit(:final dx, :final dy):
+        moveSelectedElement(dx, dy);
+      case PdfElementRehomeEdit(
+          :final page,
+          :final sourceX,
+          :final sourceY,
+          :final targetX,
+          :final targetY
+        ):
+        moveSelectedElementToPage(page,
+            sourceX: sourceX,
+            sourceY: sourceY,
+            targetX: targetX,
+            targetY: targetY);
+      case PdfResizeEdit(:final rect, :final local, :final flipX, :final flipY):
+        if (local) {
+          resizeSelectedLocal(rect, flipX: flipX, flipY: flipY);
+        } else {
+          resizeSelected(rect, flipX: flipX, flipY: flipY);
+        }
+      case PdfRotateEdit(:final degrees):
+        rotateSelected(degrees);
+      case PdfReshapeEdit(:final handle, :final points):
+        switch (handle) {
+          case PdfCloudRegionHandle():
+            reshapeSelectedCalloutRegion(points);
+          case PdfCalloutTerminusHandle(:final leader):
+            reshapeSelectedCalloutTarget(edit.moved, leader: leader);
+          case PdfCalloutBaseHandle(:final leader):
+            reshapeSelectedCalloutBase(edit.moved, leader: leader);
+          case PdfLineVertexHandle():
+            reshapeSelectedLine(points);
+        }
+    }
   }
 
   /// Replaces the defining vertices of the selected Line, PolyLine, or
@@ -11049,11 +11146,7 @@ class PdfEditingController extends ChangeNotifier {
     // takes the dedicated [moveSelectedElementToPage] path instead.
     final bounds = element.bounds;
     if (bounds != null) {
-      final box = _page(selected.$1).cropBox;
-      dx += _tetherShift(
-          bounds.left + dx, bounds.right + dx, box.left, box.right);
-      dy += _tetherShift(
-          bounds.bottom + dy, bounds.top + dy, box.bottom, box.top);
+      (dx, dy) = pdfTetheredDelta(bounds, dx, dy, _page(selected.$1).cropBox);
       if (dx == 0 && dy == 0) return false;
     }
     var moved = 0;
@@ -11523,7 +11616,7 @@ class PdfEditingController extends ChangeNotifier {
     if (!_formResolved) {
       _form = PdfAcroForm.of(_document,
           onFields: _formSecretsPending
-              ? _decideFormSecretsOn(opened: _cursor == 0)
+              ? _decideFormSecretsOn(opened: _history.cursor == 0)
               : null);
       _formResolved = true;
     }
@@ -11593,7 +11686,7 @@ class PdfEditingController extends ChangeNotifier {
   bool _setWithheldPassword(PdfFormField field, String value) {
     final name = field.name;
     value = PdfFormFilling.truncateToMaxLength(value, field.maxLength);
-    final current = _revisionSecrets[_cursor];
+    final current = _history.current.secrets;
     // unchanged - unless the file still carries a /V (a legacy fill) that
     // committing should move out of it
     if ((current[name] ?? '') == value && field.value == null) return false;
@@ -12433,3 +12526,35 @@ bool _textJoins(PdfContentElement a, PdfContentElement b) {
   final gap = bb.left - ab.right;
   return bb.left > ab.left && gap > -height * 0.3 && gap < height * 0.15;
 }
+
+/// A multi-click placement's step-back, as a draft layer of the history.
+class _PlacementDraft implements PdfHistoryDraft {
+  _PlacementDraft(this._undo);
+
+  final bool Function() _undo;
+
+  @override
+  bool get canUndo => true;
+
+  @override
+  bool get canRedo => false;
+
+  @override
+  bool undo() => _undo();
+
+  @override
+  bool redo() => false;
+
+  @override
+  void dropRedo() {}
+}
+
+/// [PdfPageCurrency]'s slot for the committed-ink run.
+const _committedInkSlot = #pdfCommittedInk;
+
+typedef _CommittedInk = ({
+  List<List<(double, double)>> strokes,
+  List<List<double>?> pressures,
+  Color color,
+  double strokeWidth,
+});

@@ -5,10 +5,18 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/editing/models/measurement_scale.dart'
+    show debugPdfTimeZoneOffset;
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  // The test device locale is en_US, and an imperial device locale is
+  // cross-checked against the clock (the VM runs in UTC), so pin the clock
+  // to a US zone (New York, standard time) unless a test says otherwise.
+  setUp(() => debugPdfTimeZoneOffset = () => const Duration(hours: -5));
+  tearDown(() => debugPdfTimeZoneOffset = null);
+
   const readoutKey = ValueKey('pdf-measure-readout');
 
   group('calibration and the controller scale', () {
@@ -263,6 +271,73 @@ void main() {
       expect(await shownPageUnit(tester, const Locale('en', 'US')), 'in');
       expect(await shownPageUnit(tester, const Locale('en', 'AU')), 'cm');
       expect(await shownPageUnit(tester, const Locale('fr', 'FR')), 'cm');
+    });
+
+    testWidgets('a US browser language outside US time zones is metric',
+        (tester) async {
+      // Brave (and many non-US users' systems) report en-US everywhere; a
+      // device clock at UTC+10 (Sydney) says it is not in the US.
+      debugPdfTimeZoneOffset = () => const Duration(hours: 10);
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'm');
+      expect(await shownPageUnit(tester, const Locale('en', 'US')), 'cm');
+      // Hawaii and Eastern daylight time are the ends of the US range.
+      debugPdfTimeZoneOffset = () => const Duration(hours: -10);
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'ft');
+      debugPdfTimeZoneOffset = () => const Duration(hours: -4);
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'ft');
+      // London in summer.
+      debugPdfTimeZoneOffset = () => const Duration(hours: 1);
+      expect(await shownUnit(tester, const Locale('en', 'US')), 'm');
+    });
+
+    testWidgets('Liberia and Myanmar locales are checked against their zones',
+        (tester) async {
+      debugPdfTimeZoneOffset = () => Duration.zero; // Monrovia
+      expect(await shownUnit(tester, const Locale('en', 'LR')), 'ft');
+      expect(await shownUnit(tester, const Locale('my', 'MM')), 'm');
+      debugPdfTimeZoneOffset = () => const Duration(hours: 6, minutes: 30);
+      expect(await shownUnit(tester, const Locale('my', 'MM')), 'ft');
+      expect(await shownUnit(tester, const Locale('en', 'LR')), 'm');
+    });
+
+    testWidgets('without the seam the real device clock decides',
+        (tester) async {
+      debugPdfTimeZoneOffset = null;
+      final minutes = DateTime.now().timeZoneOffset.inMinutes;
+      final inUs = minutes >= -10 * 60 && minutes <= -4 * 60;
+      expect(
+          await shownUnit(tester, const Locale('en', 'US')), inUs ? 'ft' : 'm');
+    });
+
+    test('an explicit locale is not second-guessed by the clock', () {
+      debugPdfTimeZoneOffset = () => const Duration(hours: 10);
+      expect(pdfDefaultMeasurementUnit(const Locale('en', 'US')), 'ft');
+    });
+
+    testWidgets('the scale dialog fits its ratio row', (tester) async {
+      // PdfDropdown's option box used an unfactored Align, which grew to the
+      // dialog's max height inside the ratio Row: a screen-tall dialog with
+      // the pickers' underlines at its foot.
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showPdfScaleDialog(context, onCalibrate: () {}),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      for (final key in ['pdf-scale-unit', 'pdf-scale-page-unit']) {
+        expect(tester.getSize(find.byKey(ValueKey(key))).height,
+            lessThanOrEqualTo(kMinInteractiveDimension));
+      }
+      final dialog = tester.getSize(find
+          .descendant(of: find.byType(Dialog), matching: find.byType(Material))
+          .first);
+      expect(dialog.height, lessThan(300));
     });
 
     testWidgets('a metric page unit produces the right per-point scale',

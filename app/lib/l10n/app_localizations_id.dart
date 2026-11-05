@@ -1515,4 +1515,15 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Data formulir dan komentar';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'kompres;perkecil;kurangi ukuran;kompres PDF';
+
+  @override
+  String get paletteTermsAddText => 'tambah teks;ketik teks;kotak teks';
+
+  @override
+  String get paletteTermsSignature =>
+      'tanda tangan;gambar tanda tangan;tanda tangan tulisan tangan';
 }

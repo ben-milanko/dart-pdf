@@ -180,7 +180,8 @@ void main() {
       expect(findMiddleEllipsisText('Original.pdf'), findsNothing);
       final continued =
           tester.widget<PdfEditorView>(find.byType(PdfEditorView));
-      expect(continued.documentId, 'Renamed.pdf');
+      // the remembered viewport follows the file the tab now saves to
+      expect(continued.documentId, '/tmp/Renamed.pdf');
       expect(identical(continued.controller, before), isTrue);
 
       // Keep editing in that same session, then plain Save must target the

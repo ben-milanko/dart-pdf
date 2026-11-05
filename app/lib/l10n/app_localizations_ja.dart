@@ -1473,4 +1473,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'フォームデータと注釈';
+
+  @override
+  String get paletteTermsReduceFileSize => '圧縮;縮小;サイズを小さくする;PDFを圧縮';
+
+  @override
+  String get paletteTermsAddText => 'テキストを追加;文字を入力;テキストボックス';
+
+  @override
+  String get paletteTermsSignature => '署名;署名を描く;手書き署名';
 }

@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fill a PDF form and save a copy, without uploads | DartPDF</title>
+  <meta name="description" content="Fill in PDF form fields on your device, save a separate copy, and reopen it to check your answers. Free in the browser and on desktop, iPhone, iPad and Android." />
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+  <link rel="canonical" href="https://dart-pdf.com/guides/fill-pdf-forms" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:title" content="Fill a PDF form and save a copy, without uploads | DartPDF" />
+  <meta property="og:description" content="Fill in PDF form fields on your device, save a separate copy, and reopen it to check your answers. Free in the browser and on desktop, iPhone, iPad and Android." />
+  <meta property="og:url" content="https://dart-pdf.com/guides/fill-pdf-forms" />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Fill a PDF form and save a copy, without uploads | DartPDF" />
+  <meta name="twitter:description" content="Fill in PDF form fields on your device, save a separate copy, and reopen it to check your answers. Free in the browser and on desktop, iPhone, iPad and Android." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0169b4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #ffffff;
+      --bg: #fbfcfd;
+      --ink: #202124;
+      --ink-soft: #3c4043;
+      --grey: #6b7177;
+      --line: #e7ebee;
+      --line-soft: #eef2f5;
+      --tint: #c6e3f8;
+      --tint-soft: #eaf5fe;
+      --blue: #0169b4;
+      --blue-bright: #16bafd;
+      --amber: #ffc93c;
+      --dark: #1a1b1d;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --maxw: 1180px;
+      --article: 760px;
+      --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+      --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
+      --shadow-md: 0 12px 36px rgba(32, 33, 36, .09), 0 3px 10px rgba(32, 33, 36, .05);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 94px;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      line-height: 1.65;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -.025em;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 66px);
+      max-width: 900px;
+    }
+
+    h2 {
+      margin-top: 64px;
+      font-size: clamp(27px, 3.4vw, 38px);
+    }
+
+    h3 {
+      margin-top: 34px;
+      font-size: 21px;
+    }
+
+    p {
+      margin: 18px 0 0;
+      text-wrap: pretty;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      text-decoration-thickness: 2px;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    :not(pre)>code {
+      padding: .14em .38em;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: .88em;
+    }
+
+    ::selection {
+      background: rgba(255, 201, 60, .55);
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 252, 253, .88);
+      backdrop-filter: saturate(180%) blur(14px);
+    }
+
+    .nav {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-size: 19px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .brand img {
+      width: 31px;
+      height: 31px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .nav-links a {
+      color: var(--ink-soft);
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--blue);
+    }
+
+    .nav-cta {
+      padding: 9px 14px;
+      border-radius: 9px;
+      background: var(--grad);
+      color: #fff !important;
+      box-shadow: 0 6px 16px -7px rgba(1, 105, 180, .7);
+    }
+
+    .hero {
+      padding: 74px 0 56px;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 78% 6%, rgba(22, 186, 253, .13), transparent 30%),
+        linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+    }
+
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .crumbs a {
+      color: var(--grey);
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .dek {
+      max-width: 820px;
+      margin-top: 24px;
+      color: var(--ink-soft);
+      font-size: clamp(18px, 2.2vw, 23px);
+      line-height: 1.55;
+    }
+
+    .answer {
+      max-width: 860px;
+      margin-top: 32px;
+      padding: 22px 24px;
+      border: 1px solid var(--tint);
+      border-left: 5px solid var(--blue-bright);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+      font-size: 17px;
+    }
+
+    .answer p {
+      margin: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 16px;
+      margin-top: 24px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .meta a {
+      font-weight: 700;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: var(--shadow-sm);
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+      color: #fff;
+    }
+
+    .article-grid {
+      display: grid;
+      grid-template-columns: minmax(0, var(--article)) 250px;
+      gap: 70px;
+      align-items: start;
+      padding-top: 52px;
+      padding-bottom: 90px;
+    }
+
+    article {
+      min-width: 0;
+    }
+
+    article>p,
+    article>ul,
+    article>ol {
+      color: var(--ink-soft);
+      font-size: 16px;
+    }
+
+    article ul,
+    article ol {
+      margin: 18px 0 0;
+      padding-left: 24px;
+    }
+
+    article li+li {
+      margin-top: 8px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 98px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 0;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--blue);
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step span {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--grad);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .step h2 {
+      margin-top: 0;
+    }
+
+    pre {
+      position: relative;
+      margin: 22px 0 0;
+      padding: 20px 22px;
+      overflow-x: auto;
+      border: 1px solid #30333a;
+      border-radius: var(--radius);
+      background: var(--dark);
+      color: #e8eaed;
+      font-size: 13.5px;
+      line-height: 1.65;
+      tab-size: 2;
+    }
+
+    .comment {
+      color: #9aa0a6;
+    }
+
+    .keyword {
+      color: #6fd0ff;
+    }
+
+    .string {
+      color: #a5d6a7;
+    }
+
+    .callout {
+      margin-top: 24px;
+      padding: 19px 21px;
+      border: 1px solid var(--tint);
+      border-radius: var(--radius);
+      background: var(--tint-soft);
+      color: var(--ink-soft);
+      font-size: 15px;
+    }
+
+    .callout strong {
+      color: var(--ink);
+    }
+
+    .shot {
+      margin: 30px 0 0;
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .shot figcaption {
+      margin-top: 10px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      margin-top: 24px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f9fb;
+      color: var(--ink);
+      font-size: 12px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .choice {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    .choice strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .choice p {
+      margin: 0;
+      color: var(--grey);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .faq {
+      margin-top: 20px;
+      padding-top: 4px;
+      border-top: 1px solid var(--line);
+    }
+
+    .faq h3 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+
+    .faq p {
+      color: var(--ink-soft);
+    }
+
+    .next {
+      margin-top: 64px;
+      padding: 30px;
+      border-radius: var(--radius-lg);
+      background: var(--dark);
+      color: #fff;
+    }
+
+    .next h2 {
+      margin-top: 0;
+      color: #fff;
+    }
+
+    .next p {
+      color: #c9cdd2;
+    }
+
+    .next .btn {
+      margin-top: 20px;
+      border-color: rgba(255, 255, 255, .18);
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+    }
+
+    .next .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      background: #f3f5f7;
+    }
+
+    .foot {
+      display: flex;
+      min-height: 88px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .foot a {
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .article-grid {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .toc {
+        display: none;
+      }
+
+      .choice-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .wrap {
+        padding: 0 20px;
+      }
+
+      .nav-links a:not(.nav-cta) {
+        display: none;
+      }
+
+      .hero {
+        padding: 48px 0 42px;
+      }
+
+      h1 {
+        font-size: clamp(35px, 12vw, 50px);
+      }
+
+      h2 {
+        margin-top: 52px;
+      }
+
+      .answer,
+      pre {
+        margin-right: -4px;
+        margin-left: -4px;
+      }
+
+      .answer {
+        padding: 18px;
+      }
+
+      pre {
+        padding: 18px;
+        font-size: 12.5px;
+      }
+
+      th,
+      td {
+        padding: 12px;
+      }
+
+      .foot {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+    }
+  </style>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "mainEntityOfPage": "https://dart-pdf.com/guides/fill-pdf-forms",
+  "headline": "Fill a PDF form and save a copy",
+  "description": "Fill in PDF form fields on your device, save a separate copy, and reopen it to check your answers. Free in the browser and on desktop, iPhone, iPad and Android.",
+  "datePublished": "2026-11-05",
+  "dateModified": "2026-11-05",
+  "author": {
+    "@type": "Organization",
+    "name": "DartPDF",
+    "url": "https://dart-pdf.com/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "DartPDF",
+    "url": "https://dart-pdf.com/"
+  }
+}
+  </script>
+</head>
+
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="/" aria-label="DartPDF home"><img src="/assets/favicon.svg" alt="" aria-hidden="true" />DartPDF</a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/#features">Features</a>
+        <a href="/support">Support</a>
+        <a class="nav-cta" href="https://app.dart-pdf.com">Open the editor</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <nav class="crumbs" aria-label="Breadcrumb"><a href="/">DartPDF</a><span aria-hidden="true">/</span><span>Fill a PDF form</span></nav>
+        <p class="eyebrow">PDF form filling guide</p>
+        <h1>Fill a PDF form and save a copy.</h1>
+        <p class="dek">Open your form, enter your answers, and keep a completed PDF. The browser editor works on your device: you do not need an account or upload the form.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://app.dart-pdf.com">Fill a PDF in your browser</a>
+          <a class="btn" href="/#download">Get the desktop or mobile app</a>
+        </div>
+        <div class="answer"><p><strong>The short version:</strong> open a PDF, click a fillable field, enter your answer, then save a copy. Reopen that copy to check that the answers are there. Saving works differently on desktop, in a browser, and on a phone; the steps below cover each.</p></div>
+      </div>
+    </section>
+    <div class="wrap article-grid">
+      <article>
+        <section id="fill">
+          <h2>Fill in the form</h2>
+          <ol>
+            <li><strong>Open the editor.</strong> Use the browser link above, or open the DartPDF app on your device.</li>
+            <li><strong>Choose your PDF.</strong> Select <strong>Open</strong> and pick the form. On desktop, you can also drop the file into the window. Keep the blank original if you will need it again.</li>
+            <li><strong>Enter your answers.</strong> Click or tap a fillable text field, type your answer, and select the checkboxes or choices you need. Click outside the last text field when you finish.</li>
+            <li><strong>Save a copy.</strong> Follow the instructions for your platform below. Closing the editor is not a substitute for saving the completed PDF.</li>
+            <li><strong>Reopen the saved file.</strong> Find the copy in your chosen folder or Downloads, open it, and check the last answer and any checkboxes before sending it.</li>
+          </ol>
+          <p>These steps fill existing PDF form fields. A scanned paper form may have no fields to click; see <a href="#no-fields">what to do when a form is not fillable</a>.</p>
+        </section>
+        <section id="save">
+          <h2>Save on your device</h2>
+          <h3 id="browser">In a browser</h3>
+          <p>Choose <strong>Save</strong> in the editor. Your browser downloads a PDF copy or asks where to put it, depending on its download settings. Look in the browser's download list if you cannot find the file.</p>
+          <p>The file you originally opened is unchanged. If you save several times, check the newest download: the browser may add a number to the filename rather than overwrite an earlier copy.</p>
+          <h3 id="desktop">On Mac, Windows or Linux</h3>
+          <p>To preserve the blank form, open the DartPDF menu and choose <strong>Save as…</strong>. Give the completed copy a distinct name and choose a folder. On desktop, <strong>Save</strong> writes back to the open file when it has a writable location.</p>
+          <p>If the original file cannot be written, DartPDF offers a new save location. Choose a folder you can write to, then reopen that saved copy.</p>
+          <h3 id="mobile">On iPhone, iPad or Android</h3>
+          <p>Use the editor's <strong>Share</strong> action to open your device's destination sheet. On iPhone and iPad, choose <strong>Save to Files</strong> to keep a PDF copy. On Android, choose an available file-storage destination or the app you want to send the PDF to.</p>
+          <p>Finish the destination app's steps. Opening or dismissing the share sheet does not by itself confirm that a copy was saved. Check the destination before closing your edited document.</p>
+        </section>
+        <section id="no-fields">
+          <h2>What if there are no fields to click?</h2>
+          <p>A PDF can look like a form without containing interactive fields. If yours is a flat page or scan, use the editor's text annotation tool to place answers on the page. OCR can make scanned text searchable, but it does not turn the printed boxes into fillable fields.</p>
+          <p>Dynamic XFA-only forms are a separate format that DartPDF cannot fill. If the editor identifies one, ask the sender for a standard fillable PDF or another accepted format.</p>
+        </section>
+        <section id="check">
+          <h2>Check the copy before you send it</h2>
+          <ul>
+            <li>Open the file you saved or downloaded, rather than the untouched original.</li>
+            <li>Check that the last text entry and checkbox choices survived reopening.</li>
+            <li>Keep fields editable unless the recipient specifically asks for a flattened copy.</li>
+            <li>If the form was already digitally signed or certified, check its permitted changes before editing it.</li>
+          </ul>
+          <p>Document editing happens locally. Choose a sharing destination only when you are ready to send the file. The <a href="/privacy">privacy policy</a> explains the app's optional network features.</p>
+        </section>
+        <section class="next" aria-labelledby="next-title">
+          <h2 id="next-title">Start with the form you need to finish.</h2>
+          <p>No account and no document upload. Open the editor, choose your PDF, and save the completed copy on your device.</p>
+          <div class="hero-actions"><a class="btn btn-primary" href="https://app.dart-pdf.com">Open the PDF editor</a><a class="btn" href="/#download">Download DartPDF</a></div>
+        </section>
+      </article>
+      <aside class="toc" aria-label="On this page"><strong>On this page</strong><a href="#fill">Fill in the form</a><a href="#save">Save on your device</a><a href="#browser">Browser downloads</a><a href="#desktop">Desktop save</a><a href="#mobile">Phone and tablet sharing</a><a href="#no-fields">Forms without fields</a><a href="#check">Check the saved copy</a></aside>
+    </div>
+  </main>
+  <footer><div class="wrap foot"><span>© Ben Milanko · <a href="/">DartPDF app</a> · <a href="/support">Support</a></span><span>Free and open source under Apache-2.0.</span></div></footer>
+</body>
+</html>

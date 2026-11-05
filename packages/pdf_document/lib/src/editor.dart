@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:image/image.dart' as imaging;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 
@@ -59,6 +60,7 @@ part 'page_labels_editor.dart';
 part 'page_annotation_list.dart';
 part 'page_background.dart';
 part 'redaction.dart';
+part 'redaction_burn.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
 part 'form_scripts_editor.dart';

@@ -389,5 +389,8 @@
   "editorImportedFormData": "تم استيراد بيانات النموذج - الحقول: {fields}، التعليقات: {comments}",
   "editorImportFormDataNothing": "لا شيء في هذا الملف يطابق هذا المستند",
   "editorCouldNotImportFormData": "تعذّر استيراد {name}: {error}",
-  "editorMenuFormData": "بيانات النموذج والتعليقات"
+  "editorMenuFormData": "بيانات النموذج والتعليقات",
+  "paletteTermsReduceFileSize": "ضغط;تصغير;تقليل الحجم;ضغط PDF",
+  "paletteTermsAddText": "إضافة نص;كتابة نص;مربع نص",
+  "paletteTermsSignature": "توقيع;رسم توقيع;توقيع بخط اليد"
 }

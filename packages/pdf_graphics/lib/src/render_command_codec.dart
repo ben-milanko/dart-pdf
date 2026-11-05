@@ -1213,7 +1213,19 @@ _ImageRegionPlan? _imageRegionPlan(
   double? ratio,
   double budgetScale,
 ) {
-  final size = _declaredImageSize(document, request.stream);
+  // Region coordinates address the decoded pixel plane, not necessarily the
+  // colour XObject's /Width and /Height. Word/MRC exports can use a 2x2 solid
+  // colour plane with a high-resolution text mask; the decoder promotes the
+  // composite to that mask's size. Cropping it in 2x2 coordinates selects only
+  // a blank corner and makes the text disappear when detail tiles replace
+  // the fitted page. Already-decoded requests use their actual (possibly
+  // display-capped) dimensions; luminosity decoding ignores separate masks.
+  final decoded = request.decoded;
+  final size = decoded != null
+      ? (decoded.width, decoded.height)
+      : request.isLuminosityMask
+          ? _declaredImageSize(document, request.stream)
+          : _declaredCompositeImageSize(document, request.stream);
   if (size == null) return null;
   final imageWidth = size.$1;
   final imageHeight = size.$2;
