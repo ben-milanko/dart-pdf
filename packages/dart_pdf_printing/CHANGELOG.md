@@ -1,7 +1,3 @@
-## 0.12.0
-
-- No additional public API changes.
-
 ## 0.11.0
 
 - Return `PrintDialogResult` from the print entrypoints so callers can distinguish cancellation from hand-off to the system. Web browsers cannot report cancellation.

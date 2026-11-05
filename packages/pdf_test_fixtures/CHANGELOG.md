@@ -1,9 +1,5 @@
 # Changelog
 
-## 15.0.0
-
-- No additional public API changes.
-
 ## 14.0.0
 
 - No additional public API changes.
