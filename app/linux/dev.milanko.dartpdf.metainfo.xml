@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="15.0.0" date="2026-11-05">
+      <description><p>Fix redaction of covered images, form fields and hidden text. Preserve unsaved changes during saving. Improve paste, zoom and measurement controls.</p></description>
+    </release>
     <release version="14.0.0" date="2026-11-01">
       <description><p>Read consecutive pages in two-page view with an optional separate cover. Export selected pages with a keyboard shortcut. Improve printing, report cancelled print dialogs and delay recent-file tooltips.</p></description>
     </release>

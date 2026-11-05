@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Corretta l’oscurazione di immagini, campi modulo e testo nascosto coperti. L’applicazione rimuove metadati e allegati per impostazione predefinita; i contenuti condivisi possono essere rimossi anche altrove. Le modifiche non salvate restano disponibili se si annulla il salvataggio o si modifica durante il salvataggio. Migliorati incolla, zoom e misurazione.

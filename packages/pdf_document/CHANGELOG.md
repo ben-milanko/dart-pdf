@@ -1,5 +1,11 @@
 # Changelog
 
+## 15.0.0
+
+- Fix #1255: burn covered image pixels, nested forms, form fields, annotations and hidden text copies, and remove metadata and attachments by default.
+- Apply redacted replacements to shared resources wherever reused; conservative removal can also remove surrounding or shared content.
+- Retain documented font-program and hidden-text matching limitations; see `doc/dev-log/2026-11-05-redaction-hidden-content.md`.
+
 ## 14.0.0
 
 - No additional public API changes.
