@@ -92,4 +92,59 @@ void main() {
     expect(rect(tester, 3).topLeft, const Offset(0, 400));
     expect(tester.getSize(find.byType(FirstFitWrap)).width, 88);
   });
+
+  testWidgets('dry layout and intrinsics agree with the packing',
+      (tester) async {
+    await pump(tester, Axis.horizontal, [
+      box(0, 300),
+      box(1, 300),
+      box(2, 500),
+      box(3, 150),
+    ]);
+    final wrap =
+        tester.renderObject<RenderFirstFitWrap>(find.byType(FirstFitWrap));
+    // laid out: two 40px runs, the widest 750 (300 + 300 + 150)
+    expect(wrap.getDryLayout(const BoxConstraints(maxWidth: 800)),
+        const Size(750, 80));
+    expect(wrap.getMaxIntrinsicWidth(double.infinity), 1250);
+    expect(wrap.getMinIntrinsicWidth(double.infinity), 500);
+    expect(wrap.getMinIntrinsicHeight(800), 80);
+    expect(wrap.getMaxIntrinsicHeight(800), 80);
+    // narrower: one child a run
+    expect(wrap.getMinIntrinsicHeight(500), 120);
+  });
+
+  testWidgets('vertical intrinsics mirror the horizontal ones', (tester) async {
+    Widget tall(int i, double main) =>
+        SizedBox(key: ValueKey(i), width: 40, height: main);
+    await pump(
+        tester, Axis.vertical, [tall(0, 200), tall(1, 200), tall(2, 400)],
+        extent: 600);
+    final wrap =
+        tester.renderObject<RenderFirstFitWrap>(find.byType(FirstFitWrap));
+    expect(wrap.getMaxIntrinsicHeight(double.infinity), 800);
+    expect(wrap.getMinIntrinsicHeight(double.infinity), 400);
+    expect(wrap.getMinIntrinsicWidth(600), 80);
+    expect(wrap.getMaxIntrinsicWidth(600), 80);
+    expect(wrap.getDryLayout(const BoxConstraints(maxHeight: 600)),
+        const Size(80, 400));
+  });
+
+  testWidgets('a direction change relays out', (tester) async {
+    await pump(tester, Axis.horizontal, [box(0, 300), box(1, 300)]);
+    expect(rect(tester, 1).topLeft, const Offset(300, 0));
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          height: 600,
+          child: FirstFitWrap(
+              direction: Axis.vertical,
+              children: [box(0, 40, cross: 200), box(1, 40, cross: 200)]),
+        ),
+      ),
+    ));
+    expect(rect(tester, 1).topLeft, const Offset(0, 200));
+  });
 }
