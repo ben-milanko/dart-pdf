@@ -276,8 +276,9 @@ extension PdfRedactionApply on PdfEditor {
     }
     // the original content streams go unless another page shows them
     final contents = page.dict['Contents'];
-    if (contents is CosReference)
+    if (contents is CosReference) {
       session.oldContents.add(contents.objectNumber);
+    }
     final contentArray = cos.resolve(contents);
     if (contentArray is CosArray) {
       for (final item in contentArray.items) {
