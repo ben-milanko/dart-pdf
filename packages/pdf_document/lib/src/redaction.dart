@@ -92,9 +92,14 @@ extension PdfRedactionApply on PdfEditor {
     // No marks anywhere: keep any other staged edits as an incremental save.
     if (session.burnedPages.isEmpty) return save();
     _scrubHiddenCopies(session, removeHiddenInformation);
-    _purgeUnused(session);
+    final substitutes = _retireOriginals(session);
     _markDestructive(pages);
-    return _compactedSave(session.purged);
+    return _compactedSave(
+      session.purged,
+      substitutes: substitutes,
+      stripHidden: removeHiddenInformation,
+      scrubber: _RedactionScrubber.of(session.texts),
+    );
   }
 
   bool _hasRedactionMarks(PdfPage page) {
@@ -123,7 +128,22 @@ extension PdfRedactionApply on PdfEditor {
   /// tree /OBJR pointing at one goes with it). That is how a removed
   /// annotation's other referrers - the /AcroForm field tree, a popup's
   /// /Parent, a reply's /IRT, the structure tree - stop carrying it.
-  Uint8List _compactedSave(Set<int> purged) {
+  /// References to a [substitutes] key point at its value instead: every
+  /// remaining use of a redacted original - another page, an invisible
+  /// draw, a pattern - gets the redacted copy.
+  ///
+  /// With [stripHidden], hidden information goes wherever it sits: every
+  /// /AF, /Metadata, /PieceInfo and /Thumb entry, every embedded file
+  /// (/EF, /RF) and every JavaScript action. With a [scrubber], every
+  /// string left in the file has the redacted text replaced - document
+  /// info, bookmarks, comments, field values, page labels, name-tree keys,
+  /// structure text, wherever a copy sits.
+  Uint8List _compactedSave(
+    Set<int> purged, {
+    Map<int, CosReference> substitutes = const {},
+    bool stripHidden = false,
+    _RedactionScrubber? scrubber,
+  }) {
     final cos = document.cos;
     if (cos.encryption != null) {
       throw UnsupportedError(
@@ -142,33 +162,53 @@ extension PdfRedactionApply on PdfEditor {
     final generation = <int, int>{};
     final queue = <int>[];
 
+    /// Where a reference really points after substitution, or null when
+    /// the object is purged.
+    CosReference? target(CosReference ref) {
+      var current = ref;
+      var guard = 0;
+      while (substitutes.containsKey(current.objectNumber) && guard++ < 64) {
+        current = substitutes[current.objectNumber]!;
+      }
+      return purged.contains(current.objectNumber) ? null : current;
+    }
+
     bool deadObjr(CosDictionary d) {
       final type = d['Type'];
       final obj = d['Obj'];
       return type is CosName &&
           type.value == 'OBJR' &&
           obj is CosReference &&
-          purged.contains(obj.objectNumber);
+          target(obj) == null;
+    }
+
+    bool hiddenAction(CosDictionary d) {
+      if (!stripHidden) return false;
+      final s = d['S'];
+      return d.containsKey('JS') || (s is CosName && s.value == 'JavaScript');
     }
 
     bool dead(CosObject value) {
-      if (purged.isEmpty) return false;
       if (value is CosReference) {
-        if (purged.contains(value.objectNumber)) return true;
-        final resolved = cos.resolve(value);
-        return resolved is CosDictionary && deadObjr(resolved);
+        if (target(value) == null) return true;
+        final resolved = cos.resolve(target(value));
+        return resolved is CosDictionary &&
+            (deadObjr(resolved) || hiddenAction(resolved));
       }
-      return value is CosDictionary && deadObjr(value);
+      return value is CosDictionary && (deadObjr(value) || hiddenAction(value));
     }
+
+    const hiddenKeys = {'AF', 'Metadata', 'PieceInfo', 'Thumb', 'EF', 'RF'};
+    bool keep(String key) => !stripHidden || !hiddenKeys.contains(key);
 
     void discover(CosObject node) {
       if (node is! CosReference) return;
-      if (newNumber.containsKey(node.objectNumber)) return;
-      if (purged.contains(node.objectNumber)) return;
-      newNumber[node.objectNumber] = order.length + 1;
-      generation[node.objectNumber] = node.generation;
-      order.add(node.objectNumber);
-      queue.add(node.objectNumber);
+      final t = target(node);
+      if (t == null || newNumber.containsKey(t.objectNumber)) return;
+      newNumber[t.objectNumber] = order.length + 1;
+      generation[t.objectNumber] = t.generation;
+      order.add(t.objectNumber);
+      queue.add(t.objectNumber);
     }
 
     void scan(CosObject node) {
@@ -179,8 +219,8 @@ extension PdfRedactionApply on PdfEditor {
             item is CosReference ? discover(item) : scan(item);
           }
         case CosDictionary():
-          node.entries.forEach((_, value) {
-            if (dead(value)) return;
+          node.entries.forEach((key, value) {
+            if (!keep(key) || dead(value)) return;
             value is CosReference ? discover(value) : scan(value);
           });
         case CosStream():
@@ -201,7 +241,8 @@ extension PdfRedactionApply on PdfEditor {
     CosObject remap(CosObject node) {
       switch (node) {
         case CosReference():
-          final n = newNumber[node.objectNumber];
+          final t = target(node);
+          final n = t == null ? null : newNumber[t.objectNumber];
           return n != null ? CosReference(n, 0) : CosNull.instance;
         case CosArray():
           return CosArray([
@@ -211,13 +252,17 @@ extension PdfRedactionApply on PdfEditor {
         case CosDictionary():
           final out = CosDictionary();
           node.entries.forEach((key, value) {
-            if (!dead(value)) out[key] = remap(value);
+            if (keep(key) && !dead(value)) out[key] = remap(value);
           });
           return out;
         case CosStream():
           final dict = remap(node.dictionary) as CosDictionary
             ..['Length'] = CosInteger(node.rawBytes.length);
           return CosStream(dict, node.rawBytes);
+        case CosString():
+          if (scrubber == null) return node;
+          final scrubbed = scrubber.scrub(_redactionTextOf(node));
+          return scrubbed == null ? node : CosString.fromText(scrubbed);
         default:
           return node;
       }
@@ -229,10 +274,11 @@ extension PdfRedactionApply on PdfEditor {
         remap(cos.resolve(CosReference(number, generation[number]!))),
       );
     }
+    final info = infoRef is CosReference ? target(infoRef) : null;
     return builder.build(
       root: CosReference(newNumber[rootRef.objectNumber]!, 0),
-      info: infoRef is CosReference
-          ? CosReference(newNumber[infoRef.objectNumber]!, 0)
+      info: info != null && newNumber.containsKey(info.objectNumber)
+          ? CosReference(newNumber[info.objectNumber]!, 0)
           : null,
     );
   }
@@ -428,7 +474,9 @@ extension PdfRedactionApply on PdfEditor {
     if (flags is CosInteger && flags.value & (2 | 32) != 0) return false;
     final r = pdfRectFrom(cos, node['Rect']);
     if (r == null || r.width <= 0 || r.height <= 0) return false;
-    return session.listedAnnotations(document).contains(node);
+    // a widget off its page's crop box is nowhere a reader sees it
+    final pageBox = session.listedAnnotations(document)[node];
+    return pageBox != null && _rectTouchesAny(r, [pageBox]);
   }
 
   /// Purges [node] and every field and widget under it, recording values.
@@ -516,6 +564,13 @@ extension PdfRedactionApply on PdfEditor {
     }
 
     _stripStructTextOfRemoved(catalog, session);
+    // named destinations spelled with the redacted text
+    final dests = cos.resolve(catalog['Dests']);
+    if (scrubber != null && dests is CosDictionary) {
+      final before = dests.entries.length;
+      dests.entries.removeWhere((key, _) => scrubber.matches(key));
+      if (dests.entries.length != before) _touch(dests);
+    }
     if (scrubber != null) {
       _scrubOutlines(catalog, scrubber);
       _scrubStructTree(catalog, scrubber);
@@ -755,18 +810,23 @@ extension PdfRedactionApply on PdfEditor {
 
   static const _structTextKeys = ['ActualText', 'Alt', 'E', 'T'];
 
-  /// Purges the resources a burn stopped using (XObjects, patterns,
-  /// shadings, graphics states, soft-mask groups) when nothing else in the
-  /// document uses them either - a resource dictionary that merely still
-  /// names one (an inherited /Resources, a sibling page sharing the
-  /// dictionary) would otherwise keep it in the saved file - and the
-  /// replaced content streams no page shows any more.
-  void _purgeUnused(_RedactionSession session) {
+  /// Decides the fate of every resource a burn retired (XObjects,
+  /// patterns, shadings, graphics states, property lists, soft-mask
+  /// groups): one redacted copy replaces the original *everywhere* in the
+  /// file; with none, or several differing copies, the original is purged.
+  /// Any other use - a sibling page, an off-page or clipped draw, a hidden
+  /// annotation's appearance - would otherwise keep the original's covered
+  /// content in the file. Replaced content streams are purged unless a page
+  /// still shows them.
+  Map<int, CosReference> _retireOriginals(_RedactionSession session) {
     final cos = document.cos;
-    if (session.retired.isNotEmpty) {
-      final used = _usedResourceNumbers();
-      for (final number in session.retired) {
-        if (!used.contains(number)) session.purged.add(number);
+    final substitutes = <int, CosReference>{};
+    for (final number in session.retired) {
+      final copies = session.replacements[number];
+      if (copies != null && copies.length == 1) {
+        substitutes[number] = copies.single;
+      } else {
+        session.purged.add(number);
       }
     }
     if (session.oldContents.isNotEmpty) {
@@ -785,148 +845,7 @@ extension PdfRedactionApply on PdfEditor {
         if (!shown.contains(number)) session.purged.add(number);
       }
     }
-  }
-
-  /// Object numbers of every resource the document's pages and annotation
-  /// appearances actually use, following what they draw: forms, tiling
-  /// patterns, soft-mask groups and Type 3 glyphs, with names resolved as a
-  /// viewer resolves them (a form's own resources, then its invoker's).
-  Set<int> _usedResourceNumbers() {
-    final cos = document.cos;
-    final used = <int>{};
-    final walked = Set<CosObject>.identity();
-
-    void mark(CosObject? entry) {
-      if (entry is CosReference) used.add(entry.objectNumber);
-    }
-
-    CosObject? lookup(List<CosDictionary> chain, String category, String n) {
-      for (var i = chain.length - 1; i >= 0; i--) {
-        final d = cos.resolve(chain[i][category]);
-        if (d is CosDictionary && d.containsKey(n)) return d[n];
-      }
-      return null;
-    }
-
-    late final void Function(Uint8List, List<CosDictionary>, int) walk;
-
-    void walkStream(CosStream stream, List<CosDictionary> chain, int depth) {
-      if (depth > 32 || !walked.add(stream)) return;
-      final res = cos.resolve(stream.dictionary['Resources']);
-      final Uint8List data;
-      try {
-        data = cos.decodeStreamData(stream);
-      } on Object {
-        return; // no viewer can draw it either
-      }
-      walk(data, res is CosDictionary ? [...chain, res] : chain, depth);
-    }
-
-    void walkFont(CosObject? entry, List<CosDictionary> chain, int depth) {
-      mark(entry);
-      final font = cos.resolve(entry);
-      if (font is! CosDictionary ||
-          !_isSubtype(cos, font, 'Type3') ||
-          !walked.add(font)) {
-        return;
-      }
-      final res = cos.resolve(font['Resources']);
-      final procs = cos.resolve(font['CharProcs']);
-      if (procs is! CosDictionary) return;
-      for (final proc in procs.entries.values) {
-        final glyph = cos.resolve(proc);
-        if (glyph is CosStream) {
-          walkStream(
-              glyph, res is CosDictionary ? [...chain, res] : chain, depth + 1);
-        }
-      }
-    }
-
-    walk = (content, chain, depth) {
-      if (depth > 32) return;
-      final List<ContentOperation> ops;
-      try {
-        ops = ContentStreamParser.parse(content);
-      } on Object {
-        return;
-      }
-      for (final op in ops) {
-        final o = op.operands;
-        final name = o.isEmpty
-            ? null
-            : op.operator == 'scn' || op.operator == 'SCN'
-                ? o.last
-                : op.operator == 'BDC' || op.operator == 'DP'
-                    ? (o.length > 1 ? o[1] : null)
-                    : o.first;
-        if (name is! CosName) continue;
-        switch (op.operator) {
-          case 'Do':
-            final entry = lookup(chain, 'XObject', name.value);
-            mark(entry);
-            final x = cos.resolve(entry);
-            if (x is CosStream && _isSubtype(cos, x.dictionary, 'Form')) {
-              walkStream(x, chain, depth + 1);
-            }
-          case 'scn' || 'SCN':
-            final entry = lookup(chain, 'Pattern', name.value);
-            mark(entry);
-            final p = cos.resolve(entry);
-            if (p is CosStream) {
-              walkStream(p, chain, depth + 1);
-              mark(p.dictionary['Shading']);
-            } else if (p is CosDictionary) {
-              mark(p['Shading']);
-            }
-          case 'sh':
-            mark(lookup(chain, 'Shading', name.value));
-          case 'gs':
-            final entry = lookup(chain, 'ExtGState', name.value);
-            mark(entry);
-            final state = cos.resolve(entry);
-            if (state is! CosDictionary) continue;
-            final mask = cos.resolve(state['SMask']);
-            if (mask is CosDictionary) {
-              mark(mask['G']);
-              final g = cos.resolve(mask['G']);
-              if (g is CosStream) walkStream(g, chain, depth + 1);
-            }
-            final font = cos.resolve(state['Font']);
-            if (font is CosArray && font.length > 0) {
-              walkFont(font[0], chain, depth);
-            }
-          case 'Tf':
-            walkFont(lookup(chain, 'Font', name.value), chain, depth);
-          case 'BDC' || 'DP':
-            mark(lookup(chain, 'Properties', name.value));
-        }
-      }
-    };
-
-    for (var i = 0; i < document.pageCount; i++) {
-      final page = document.page(i);
-      walk(page.contentBytes(), [page.resources], 0);
-      final annots = cos.resolve(page.dict['Annots']);
-      if (annots is! CosArray) continue;
-      for (final item in annots.items) {
-        final annot = cos.resolve(item);
-        if (annot is! CosDictionary) continue;
-        final ap = cos.resolve(annot['AP']);
-        if (ap is! CosDictionary) continue;
-        for (final value in ap.entries.values) {
-          final appearance = cos.resolve(value);
-          if (appearance is CosStream) {
-            walkStream(appearance, const [], 1);
-          } else if (appearance is CosDictionary) {
-            for (final state in appearance.entries.values) {
-              final s = cos.resolve(state);
-              if (s is CosStream) walkStream(s, const [], 1);
-            }
-          }
-        }
-      }
-    }
-    return used;
+    return substitutes;
   }
 
   /// Reads the redaction regions of one `/Redact` dictionary: one rect per
@@ -1150,20 +1069,25 @@ class _RedactionSession {
   int formBurns = 0;
   static const maxFormBurns = 20000;
 
-  Set<CosDictionary>? _listed;
+  /// Redacted copies made of each retired resource, by object number.
+  final Map<int, List<CosReference>> replacements = {};
 
-  /// Every annotation dictionary listed in some page's /Annots.
-  Set<CosDictionary> listedAnnotations(PdfDocument document) {
+  Map<CosDictionary, PdfRect>? _listed;
+
+  /// Every annotation dictionary listed in some page's /Annots, with that
+  /// page's crop box.
+  Map<CosDictionary, PdfRect> listedAnnotations(PdfDocument document) {
     final listed = _listed;
     if (listed != null) return listed;
     final cos = document.cos;
-    final out = Set<CosDictionary>.identity();
+    final out = Map<CosDictionary, PdfRect>.identity();
     for (var i = 0; i < document.pageCount; i++) {
-      final annots = cos.resolve(document.page(i).dict['Annots']);
+      final page = document.page(i);
+      final annots = cos.resolve(page.dict['Annots']);
       if (annots is! CosArray) continue;
       for (final item in annots.items) {
         final d = cos.resolve(item);
-        if (d is CosDictionary) out.add(d);
+        if (d is CosDictionary) out[d] = page.cropBox;
       }
     }
     return _listed = out;

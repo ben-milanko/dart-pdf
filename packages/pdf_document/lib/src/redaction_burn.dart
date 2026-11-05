@@ -59,6 +59,7 @@ class _RedactionBurn {
     _RedactionBurn? parent,
     int? structParents,
   })  : _ctm = ctm,
+        _baseCtm = ctm,
         _parent = parent,
         _structParents = structParents,
         _depth = parent == null ? 0 : parent._depth + 1 {
@@ -124,6 +125,19 @@ class _RedactionBurn {
   String? _strokePattern;
   bool _fillPatternSpace = false;
   bool _strokePatternSpace = false;
+  double _lineWidth = 1;
+  double _miterLimit = 10;
+  bool _dashed = false;
+  int? _dashPart;
+  final List<int> _dashParts = [];
+  final Set<int> _usedDashParts = {};
+
+  /// Bounds (default user space) of the current clip; null when unbounded.
+  PdfRect? _clipBounds;
+
+  /// The matrix pattern space is relative to: this stream's starting CTM.
+  final _RedMatrix _baseCtm;
+  bool _inText = false;
 
   // text state (the q/Q-saved parameters live in _RedGraphicsState)
   _RedMatrix _tm = _redIdentity;
@@ -168,6 +182,11 @@ class _RedactionBurn {
         }
       }
     }
+    for (final index in _dashParts) {
+      if (!_usedDashParts.contains(index)) {
+        _parts[index] = latin1.encode('[] 0 d\n');
+      }
+    }
     final all = BytesBuilder(copy: false);
     for (final part in _parts) {
       all.add(part);
@@ -201,6 +220,26 @@ class _RedactionBurn {
   void _retire(String category, String name, CosObject? entry) {
     (_retired[category] ??= {})[name] = entry ?? CosNull.instance;
     if (entry is CosReference) _session.retired.add(entry.objectNumber);
+    // an XObject that is its own structure item loses its alternate text
+    final resolved = _cos.resolve(entry);
+    final dict = resolved is CosStream
+        ? resolved.dictionary
+        : resolved is CosDictionary
+            ? resolved
+            : null;
+    final sp = dict == null ? null : _cos.resolve(dict['StructParent']);
+    if (sp is CosInteger) _session.removedStructParents.add(sp.value);
+  }
+
+  /// Adds [replacement] for the retired resource [entry] under a fresh
+  /// name, recording it so other uses of the original can be pointed at it.
+  String _replace(String category, CosObject? entry, CosObject replacement) {
+    final name = _addResource(category, replacement);
+    if (entry is CosReference) {
+      (_session.replacements[entry.objectNumber] ??= [])
+          .add(_added[category]![name] as CosReference);
+    }
+    return name;
   }
 
   /// Adds [object] as a new resource and returns its name.
@@ -238,7 +277,82 @@ class _RedactionBurn {
     'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'n', //
   };
 
-  void _handle(ContentOperation op) {
+  /// Operand shapes of the operators the burn interprets: `n` a number,
+  /// `s` a string, `a` an array, `N` a name, `p` a property list (a name or
+  /// a dictionary).
+  static const _arity = {
+    'cm': 'nnnnnn', 'Tm': 'nnnnnn', 'Td': 'nn', 'TD': 'nn', 'Tc': 'n',
+    'Tw': 'n', 'Tz': 'n', 'TL': 'n', 'Ts': 'n', 'Tr': 'n', 'Tf': 'Nn',
+    'Tj': 's', "'": 's', '"': 'nns', 'TJ': 'a', 'Do': 'N', 'sh': 'N',
+    'gs': 'N', 'BMC': 'N', 'MP': 'N', 'BDC': 'Np', 'DP': 'Np', 'cs': 'N',
+    'CS': 'N', 'm': 'nn', 'l': 'nn', 'c': 'nnnnnn', 'v': 'nnnn',
+    'y': 'nnnn', 're': 'nnnn', 'w': 'n', 'M': 'n', 'J': 'n', 'j': 'n',
+    'd': 'an', 'g': 'n', 'G': 'n', 'rg': 'nnn', 'RG': 'nnn', 'k': 'nnnn',
+    'K': 'nnnn', 'd0': 'nn', 'd1': 'nnnnnn', 'q': '', 'Q': '', 'BT': '',
+    'ET': '', 'T*': '', 'h': '', 'S': '', 's': '', 'f': '', 'F': '',
+    'f*': '', 'B': '', 'B*': '', 'b': '', 'b*': '', 'n': '', 'W': '',
+    'W*': '', 'EMC': '', //
+  };
+
+  static bool _isNumber(CosObject o) =>
+      (o is CosInteger) || (o is CosReal && o.value.isFinite);
+
+  /// [op] in the one form every viewer reads the same way, or null to drop
+  /// it. Viewers disagree with a naive reading of a malformed operator -
+  /// poppler and pdf.js keep the *last* operands of an over-long list and
+  /// skip an operator whose operands have the wrong type - so the burn
+  /// interprets exactly what it then writes: the last operands, of the
+  /// right types, and nothing else. Too few or mistyped operands drop the
+  /// operator, as a viewer does.
+  ContentOperation? _canonical(ContentOperation op) {
+    final operator = op.operator;
+    final operands = op.operands;
+    if (operator == 'sc' ||
+        operator == 'SC' ||
+        operator == 'scn' ||
+        operator == 'SCN') {
+      for (var i = 0; i < operands.length; i++) {
+        final o = operands[i];
+        final trailingName = i == operands.length - 1 &&
+            o is CosName &&
+            (operator == 'scn' || operator == 'SCN');
+        if (!_isNumber(o) && !trailingName) return null;
+      }
+      return op;
+    }
+    final shape = _arity[operator];
+    if (shape == null) return op; // not interpreted: passes through
+    if (operands.length < shape.length) return null;
+    final args = operands.sublist(operands.length - shape.length);
+    for (var i = 0; i < shape.length; i++) {
+      final a = args[i];
+      final ok = switch (shape[i]) {
+        'n' => _isNumber(a),
+        's' => a is CosString,
+        'a' => a is CosArray,
+        'N' => a is CosName,
+        _ => a is CosName || a is CosDictionary,
+      };
+      if (!ok) return null;
+    }
+    if (operator == 'TJ') {
+      // only strings and numbers draw; anything else is dropped
+      final items = (args.first as CosArray).items;
+      final clean = [
+        for (final item in items)
+          if (item is CosString || _isNumber(item)) item,
+      ];
+      if (clean.length != items.length) {
+        return ContentOperation('TJ', [CosArray(clean)]);
+      }
+    }
+    if (args.length == operands.length) return op;
+    return ContentOperation(operator, args);
+  }
+
+  void _handle(ContentOperation raw) {
+    final op = _canonical(raw);
+    if (op == null) return; // a viewer skips it too
     final operator = op.operator;
     if (_pathConstruction.contains(operator)) {
       _buildPath(op);
@@ -272,6 +386,11 @@ class _RedactionBurn {
           strokePattern: _strokePattern,
           fillPatternSpace: _fillPatternSpace,
           strokePatternSpace: _strokePatternSpace,
+          lineWidth: _lineWidth,
+          miterLimit: _miterLimit,
+          dashed: _dashed,
+          dashPart: _dashPart,
+          clipBounds: _clipBounds,
         ));
       case 'Q':
         if (_gsStack.isNotEmpty) {
@@ -289,7 +408,30 @@ class _RedactionBurn {
           _strokePattern = s.strokePattern;
           _fillPatternSpace = s.fillPatternSpace;
           _strokePatternSpace = s.strokePatternSpace;
+          _lineWidth = s.lineWidth;
+          _miterLimit = s.miterLimit;
+          _dashed = s.dashed;
+          _dashPart = s.dashPart;
+          _clipBounds = s.clipBounds;
         }
+      case 'w':
+        _lineWidth = _n(operands[0]);
+      case 'M':
+        _miterLimit = _n(operands[0]);
+      case 'd':
+        _dashed = (operands[0] as CosArray).length > 0;
+        if (_dashed) {
+          // its own piece: blanked at the end unless a kept stroke uses it
+          // (a dash array can itself encode marks)
+          _parts.add(_out.takeBytes());
+          _dashPart = _parts.length;
+          final piece = BytesBuilder();
+          ContentStreamSerializer.writeOperation(op, piece);
+          _parts.add(piece.takeBytes());
+          _dashParts.add(_dashPart!);
+          return;
+        }
+        _dashPart = null;
       case 'cm':
         if (operands.length >= 6) {
           _ctm = _redMul((
@@ -346,11 +488,13 @@ class _RedactionBurn {
       case 'sh':
         if (_handleShading(op)) return;
       case 'BT':
+        _inText = true;
         _flushSpan();
         _tm = _redIdentity;
         _tlm = _redIdentity;
         _slack = 0;
       case 'ET':
+        _inText = false;
         _flushSpan();
       case 'Tf':
         if (operands.length >= 2) {
@@ -439,6 +583,13 @@ class _RedactionBurn {
           _removed();
           return;
         }
+        final image = _canonicalInlineImage(op);
+        if (image == null) {
+          changed = true; // ambiguous data: dropped
+          return;
+        }
+        _writeOp(image);
+        return;
       case 'BMC':
         _marked.add(_RedMarkedContent(op));
       case 'BDC':
@@ -448,6 +599,59 @@ class _RedactionBurn {
         if (_marked.isNotEmpty) _marked.removeLast();
     }
     _writeOp(op);
+  }
+
+  /// An inline image whose data every viewer delimits the same way, or
+  /// null. Viewers find the end of the data differently - by its computed
+  /// length, or by scanning for `EI` - so data that could end early can
+  /// smuggle operators (#1255 review). Unfiltered data is cut to its exact
+  /// length; any data still holding an `EI` is refused.
+  ContentOperation? _canonicalInlineImage(ContentOperation op) {
+    if (op.operands.length < 2) return null;
+    final dict = op.operands[0];
+    final data = op.operands[1];
+    if (dict is! CosDictionary || data is! CosString) return null;
+    CosObject? get(String short, String long) => dict[short] ?? dict[long];
+    var bytes = data.bytes;
+    final filter = get('F', 'Filter');
+    final unfiltered =
+        filter == null || (filter is CosArray && filter.length == 0);
+    if (unfiltered) {
+      final width = _int(get('W', 'Width'));
+      final height = _int(get('H', 'Height'));
+      final mask = get('IM', 'ImageMask');
+      final isMask = mask is CosBoolean && mask.value;
+      final bits = isMask ? 1 : _int(get('BPC', 'BitsPerComponent'));
+      final components =
+          isMask ? 1 : _inlineComponents(get('CS', 'ColorSpace'));
+      if (width <= 0 || height <= 0 || bits <= 0 || components == null) {
+        return null;
+      }
+      final length = ((width * components * bits + 7) >> 3) * height;
+      if (bytes.length < length) return null;
+      bytes = Uint8List.sublistView(bytes, 0, length);
+    }
+    for (var i = 0; i + 1 < bytes.length; i++) {
+      if (bytes[i] == 0x45 && bytes[i + 1] == 0x49) return null; // "EI"
+    }
+    return ContentOperation('BI', [dict, CosString(bytes)]);
+  }
+
+  int? _inlineComponents(CosObject? colorSpace) {
+    final cs = _cos.resolve(colorSpace);
+    if (cs is CosName) {
+      switch (cs.value) {
+        case 'G' || 'DeviceGray' || 'I' || 'Indexed':
+          return 1;
+        case 'RGB' || 'DeviceRGB':
+          return 3;
+        case 'CMYK' || 'DeviceCMYK':
+          return 4;
+      }
+      final named = _lookup('ColorSpace', cs.value);
+      return named == null ? null : _componentCount(named);
+    }
+    return _componentCount(cs);
   }
 
   // ---------------------------------------------------------------- marked
@@ -507,8 +711,9 @@ class _RedactionBurn {
       final raw = frame.op.operands[1];
       if (raw is CosName) {
         // a named list: the stream gets its own stripped copy
-        _retire(_resProperties, raw.value, _lookup(_resProperties, raw.value));
-        final fresh = _addResource(_resProperties, stripped);
+        final entry = _lookup(_resProperties, raw.value);
+        _retire(_resProperties, raw.value, entry);
+        final fresh = _replace(_resProperties, entry, stripped);
         replacement =
             ContentOperation('BDC', [frame.op.operands[0], CosName(fresh)]);
       } else {
@@ -631,41 +836,69 @@ class _RedactionBurn {
   ///
   /// A subpath goes when any point it names, or any point along its
   /// curves, lies inside a region: outlined text, a vector signature or a
-  /// barcode bar under the box. One that only crosses a region with
-  /// straight edges (a table rule, a background box) stays - what it
-  /// draws inside is fixed by its points outside. Painted with a pattern
-  /// that can carry a picture (a tiling pattern, a sampled shading) a
-  /// subpath goes as soon as its bounds touch a region, since the picture
-  /// is the content. A clip is always kept, as clipping alone shows nothing.
+  /// barcode bar under the box. For a stroke the regions are first grown
+  /// by the ink a vertex can throw (half the line width, times the miter
+  /// limit), and a dashed stroke goes as soon as its inked hull touches a
+  /// region - a dash pattern can place marks anywhere along an edge whose
+  /// ends are outside. A straight edge merely crossing a region (a table
+  /// rule, a background box) stays - what it draws inside is fixed by its
+  /// points outside. Painted with a pattern or shading that can carry a
+  /// picture a subpath goes as soon as its bounds touch a region.
+  ///
+  /// A clip is judged like a fill: a clip outline under a box (a glyph, a
+  /// signature) would print its shape through whatever is painted next. A
+  /// clip left with no subpath clips everything away.
   void _paintPath(ContentOperation? paint) {
     final subpaths = List.of(_path);
     final clip = _clip;
     _path.clear();
     _clip = null;
+    if (paint == null) {
+      // a path broken off by another operator: some viewers drop it, some
+      // keep it for the next painting operator - so it goes
+      if (subpaths.isNotEmpty || clip != null) changed = true;
+      return;
+    }
 
-    final operator = paint?.operator;
+    final operator = paint.operator;
     final fills =
         const {'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'}.contains(operator);
     final strokes = const {'S', 's', 'B', 'B*', 'b', 'b*'}.contains(operator);
     final patterns = <String>[
-      if (fills &&
-          _fillPattern != null &&
-          _patternCarriesPicture(_fillPattern!))
+      if (fills && _fillPattern != null && _patternIsStrict(_fillPattern!))
         _fillPattern!,
       if (strokes &&
           _strokePattern != null &&
-          _patternCarriesPicture(_strokePattern!))
+          _patternIsStrict(_strokePattern!))
         _strokePattern!,
     ];
+    final inflate = strokes ? _strokeReach() : 0.0;
 
-    final kept = <_RedSubpath>[];
-    for (final s in subpaths) {
-      final drop = operator != 'n' &&
-          (patterns.isNotEmpty
-              ? _boundsTouchAny(_hullBounds(s.points))
-              : _anyInside(s.points) || _anyInside(s.samples));
-      if (!drop) kept.add(s);
+    bool dropForPaint(_RedSubpath s) {
+      if (operator == 'n') return false;
+      final hull = _hullBounds([...s.points, ...s.samples]);
+      if (patterns.isNotEmpty && _boundsTouchAny(_inflate(hull, inflate))) {
+        return true;
+      }
+      if (strokes && _dashed && _boundsTouchAny(_inflate(hull, inflate))) {
+        return true;
+      }
+      return _anyInside(s.points, inflate) || _anyInside(s.samples, inflate);
     }
+
+    bool dropForClip(_RedSubpath s) =>
+        _anyInside(s.points, 0) || _anyInside(s.samples, 0);
+
+    final kept = [
+      for (final s in subpaths)
+        if (!dropForPaint(s)) s,
+    ];
+    final clipKept = clip == null
+        ? subpaths
+        : [
+            for (final s in subpaths)
+              if (!dropForClip(s)) s,
+          ];
 
     void emit(Iterable<_RedSubpath> parts) {
       for (final s in parts) {
@@ -675,40 +908,91 @@ class _RedactionBurn {
       }
     }
 
-    if (kept.length == subpaths.length) {
+    if (kept.length == subpaths.length && clipKept.length == subpaths.length) {
       emit(subpaths);
-      if (clip != null) _writeOp(clip);
-      if (paint != null) _writeOp(paint);
-      _usePaintPatterns(fills, strokes, paint != null && subpaths.isNotEmpty);
+      if (clip != null) {
+        _writeOp(clip);
+        _narrowClip(subpaths);
+      }
+      _writeOp(paint);
+      _usePaintPatterns(fills, strokes, subpaths.isNotEmpty);
       return;
     }
     _removed();
-    for (final p in patterns) {
-      _retire(_resPattern, p, _lookup(_resPattern, p));
+    if (kept.length != subpaths.length) {
+      for (final p in patterns) {
+        _retire(_resPattern, p, _lookup(_resPattern, p));
+      }
     }
     if (clip != null) {
-      // keep the clip exactly as it was, without painting
-      emit(subpaths);
+      if (clipKept.isEmpty) {
+        _writeOp(ContentOperation('re', [
+          CosInteger(0),
+          CosInteger(0),
+          CosInteger(0),
+          CosInteger(0),
+        ]));
+      } else {
+        emit(clipKept);
+      }
       _writeOp(clip);
       _writeOp(ContentOperation('n', const []));
+      _narrowClip(clipKept);
     }
-    if (kept.isNotEmpty && paint != null) {
+    if (kept.isNotEmpty && operator != 'n') {
       emit(kept);
       _writeOp(paint);
       _usePaintPatterns(fills, strokes, true);
     }
   }
 
+  /// Intersects the tracked clip bounds with [subpaths]' hull.
+  void _narrowClip(List<_RedSubpath> subpaths) {
+    final hull = _hullBounds([
+      for (final s in subpaths) ...[...s.points, ...s.samples],
+    ]);
+    final bounds = hull ?? const PdfRect(0, 0, 0, 0);
+    final current = _clipBounds;
+    if (current == null) {
+      _clipBounds = bounds;
+      return;
+    }
+    final left = math.max(current.left, bounds.left);
+    final bottom = math.max(current.bottom, bounds.bottom);
+    final right = math.max(left, math.min(current.right, bounds.right));
+    final top = math.max(bottom, math.min(current.top, bounds.top));
+    _clipBounds = PdfRect(left, bottom, right, top);
+  }
+
+  /// How far (default user space) stroke ink can reach from a vertex: half
+  /// the line width (a zero width is a one-pixel hairline), scaled by the
+  /// CTM, times the miter limit for joins and at least sqrt 2 for caps.
+  double _strokeReach() {
+    final (a, b, c, d, _, _) = _ctm;
+    final scale = math.max(math.sqrt(a * a + b * b), math.sqrt(c * c + d * d));
+    final width = math.max(_lineWidth.abs() * scale, 1.0);
+    final miter = _miterLimit.isFinite ? _miterLimit.abs() : 10.0;
+    return width / 2 * math.max(math.sqrt2, math.min(miter, 100));
+  }
+
+  static PdfRect? _inflate(PdfRect? r, double by) => r == null
+      ? null
+      : PdfRect(r.left - by, r.bottom - by, r.right + by, r.top + by);
+
   void _usePaintPatterns(bool fills, bool strokes, bool painted) {
     if (!painted) return;
+    if (strokes && _dashPart != null) _usedDashParts.add(_dashPart!);
     if (fills && _fillPattern != null) _use(_resPattern, _fillPattern!);
     if (strokes && _strokePattern != null) _use(_resPattern, _strokePattern!);
   }
 
-  bool _anyInside(List<(double, double)> points) {
+  bool _anyInside(List<(double, double)> points, double inflate) {
     for (final (x, y) in points) {
       for (final r in _regions) {
-        if (x >= r.left && x <= r.right && y >= r.bottom && y <= r.top) {
+        if (x >= r.left - inflate &&
+            x <= r.right + inflate &&
+            y >= r.bottom - inflate &&
+            y <= r.top + inflate) {
           return true;
         }
       }
@@ -728,9 +1012,11 @@ class _RedactionBurn {
     return false;
   }
 
-  /// Whether the named pattern can paint a picture: a tiling pattern (its
-  /// cell is arbitrary content) or a shading pattern whose shading can.
-  bool _patternCarriesPicture(String name) {
+  /// Whether painting with the named pattern must drop any subpath whose
+  /// bounds touch a region: a tiling pattern (its cell is arbitrary
+  /// content), or a shading pattern whose shading can carry a picture or
+  /// puts its gradient's geometry under a box.
+  bool _patternIsStrict(String name) {
     final pattern = _cos.resolve(_lookup(_resPattern, name));
     final dict = pattern is CosStream
         ? pattern.dictionary
@@ -740,14 +1026,25 @@ class _RedactionBurn {
     if (dict == null) return true;
     final type = _cos.resolve(dict['PatternType']);
     if (type is CosInteger && type.value == 2) {
-      return _shadingCarriesPicture(_cos.resolve(dict['Shading']));
+      final shading = _cos.resolve(dict['Shading']);
+      if (_shadingCarriesPicture(shading)) return true;
+      // pattern space is this stream's own starting space (§8.7.2)
+      final matrix = _matrixOf(dict['Matrix']);
+      return _gradientUnderBox(shading, _redMul(matrix, _baseCtm));
     }
     return true;
   }
 
-  /// Whether a shading can encode a picture: a function-based or mesh
-  /// shading, or an axial/radial one driven by a sampled or PostScript
-  /// function. Plain exponential gradients can't.
+  _RedMatrix _matrixOf(CosObject? value) {
+    final m = _cos.resolve(value);
+    if (m is! CosArray || m.length < 6) return _redIdentity;
+    double at(int i) => _n(_cos.resolve(m[i]));
+    return (at(0), at(1), at(2), at(3), at(4), at(5));
+  }
+
+  /// Whether a shading can encode a picture: anything but an axial or
+  /// radial shading driven by plain exponential (type 2) functions. A
+  /// stitching function's bounds are a 1-D raster, so it counts too.
   bool _shadingCarriesPicture(CosObject shading) {
     final dict = shading is CosStream
         ? shading.dictionary
@@ -759,59 +1056,100 @@ class _RedactionBurn {
     if (type is! CosInteger || (type.value != 2 && type.value != 3)) {
       return true;
     }
-    return _functionCarriesPicture(dict['Function'], 0);
+    final f = _cos.resolve(dict['Function']);
+    if (f is CosArray) {
+      return f.items.isEmpty || f.items.any((g) => !_isExponential(g));
+    }
+    return !_isExponential(f);
   }
 
-  bool _functionCarriesPicture(CosObject? function, int depth) {
-    if (depth > 8) return true;
+  bool _isExponential(CosObject? function) {
     final f = _cos.resolve(function);
-    if (f is CosNull) return false;
-    if (f is CosArray) {
-      return f.items.any((g) => _functionCarriesPicture(g, depth + 1));
-    }
-    final dict = f is CosStream
-        ? f.dictionary
-        : f is CosDictionary
-            ? f
+    final dict = f is CosDictionary ? f : null; // a stream is sampled/PS
+    if (dict == null) return false;
+    final type = _cos.resolve(dict['FunctionType']);
+    return type is CosInteger && type.value == 2;
+  }
+
+  /// Whether a plain gradient's defining geometry - an axial shading's end
+  /// points, a radial shading's circles - lies under a region: a step
+  /// placed there would encode a position the box hides.
+  bool _gradientUnderBox(CosObject shading, _RedMatrix matrix) {
+    final dict = shading is CosStream
+        ? shading.dictionary
+        : shading is CosDictionary
+            ? shading
             : null;
     if (dict == null) return true;
-    final type = _cos.resolve(dict['FunctionType']);
-    if (type is! CosInteger) return true;
-    if (type.value == 2) return false;
-    if (type.value == 3) {
-      return _functionCarriesPicture(dict['Functions'], depth + 1);
+    final coords = _cos.resolve(dict['Coords']);
+    if (coords is! CosArray) return true;
+    final c = [for (final v in coords.items) _n(_cos.resolve(v))];
+    final points = <(double, double)>[];
+    if (c.length == 4) {
+      points
+        ..add(_redApply(matrix, c[0], c[1]))
+        ..add(_redApply(matrix, c[2], c[3]));
+    } else if (c.length == 6) {
+      for (final (x, y, r) in [(c[0], c[1], c[2]), (c[3], c[4], c[5])]) {
+        final rr = r.abs();
+        points.addAll([
+          _redApply(matrix, x - rr, y - rr),
+          _redApply(matrix, x + rr, y - rr),
+          _redApply(matrix, x - rr, y + rr),
+          _redApply(matrix, x + rr, y + rr),
+        ]);
+      }
+      return _boundsTouchAny(_hullBounds(points.sublist(0, 4))) ||
+          _boundsTouchAny(_hullBounds(points.sublist(4)));
+    } else {
+      return true;
     }
-    return true; // sampled (0) or PostScript (4)
+    return _anyInside(points, 0);
   }
 
   bool _handleShading(ContentOperation op) {
-    final name = op.operands.isNotEmpty && op.operands.first is CosName
-        ? (op.operands.first as CosName).value
-        : null;
-    if (name == null) return false;
+    final name = (op.operands.first as CosName).value;
     final entry = _lookup(_resShading, name);
     final shading = _cos.resolve(entry);
-    if (_shadingCarriesPicture(shading)) {
-      final dict = shading is CosStream
-          ? shading.dictionary
-          : shading is CosDictionary
-              ? shading
-              : null;
-      final bbox = dict == null ? null : pdfRectFrom(_cos, dict['BBox']);
-      // without a /BBox `sh` paints the whole clip: assume it reaches
-      final bounds = bbox == null
-          ? null
-          : _hullBounds([
-              _redApply(_ctm, bbox.left, bbox.bottom),
-              _redApply(_ctm, bbox.right, bbox.bottom),
-              _redApply(_ctm, bbox.left, bbox.top),
-              _redApply(_ctm, bbox.right, bbox.top),
-            ]);
-      if (bounds == null || _rectIntersectsAny(bounds)) {
-        _retire(_resShading, name, entry);
-        _removed();
-        return true;
-      }
+    final dict = shading is CosStream
+        ? shading.dictionary
+        : shading is CosDictionary
+            ? shading
+            : null;
+    final bbox = dict == null ? null : pdfRectFrom(_cos, dict['BBox']);
+    // `sh` paints the whole clip (cut to its /BBox when it has one)
+    PdfRect? area = bbox == null
+        ? null
+        : _hullBounds([
+            _redApply(_ctm, bbox.left, bbox.bottom),
+            _redApply(_ctm, bbox.right, bbox.bottom),
+            _redApply(_ctm, bbox.left, bbox.top),
+            _redApply(_ctm, bbox.right, bbox.top),
+          ]);
+    final clip = _clipBounds;
+    if (clip != null) {
+      area = area == null
+          ? clip
+          : PdfRect(
+              math.max(area.left, clip.left),
+              math.max(area.bottom, clip.bottom),
+              math.max(math.max(area.left, clip.left),
+                  math.min(area.right, clip.right)),
+              math.max(math.max(area.bottom, clip.bottom),
+                  math.min(area.top, clip.top)));
+    }
+    // a shading clipped to nothing draws nothing: it goes, data and all
+    if (area != null && (area.width <= 0 || area.height <= 0)) {
+      _retire(_resShading, name, entry);
+      changed = true;
+      return true;
+    }
+    final reaches = area == null || _boundsTouchAny(area);
+    if (reaches &&
+        (_shadingCarriesPicture(shading) || _gradientUnderBox(shading, _ctm))) {
+      _retire(_resShading, name, entry);
+      _removed();
+      return true;
     }
     _use(_resShading, name);
     return false;
@@ -823,10 +1161,7 @@ class _RedactionBurn {
   /// is burned like a form - its content can be extracted like any other.
   /// Returns true when the operator was rewritten (already emitted).
   bool _handleExtGState(ContentOperation op) {
-    final name = op.operands.isNotEmpty && op.operands.first is CosName
-        ? (op.operands.first as CosName).value
-        : null;
-    if (name == null) return false;
+    final name = (op.operands.first as CosName).value;
     final entry = _lookup(_resExtGState, name);
     final state = _cos.resolve(entry);
     if (state is! CosDictionary) {
@@ -840,32 +1175,54 @@ class _RedactionBurn {
       _fontKnown = true;
       _tfs = _n(_cos.resolve(font[1]));
     }
+    final width = _cos.resolve(state['LW']);
+    if (_isNumber(width)) _lineWidth = _n(width);
+    final miter = _cos.resolve(state['ML']);
+    if (_isNumber(miter)) _miterLimit = _n(miter);
+
+    final changes = <String, CosObject?>{};
+    final dash = _cos.resolve(state['D']);
+    if (dash is CosArray) {
+      // a dash pattern held in a resource can't be blanked per use: the
+      // stream gets a solid copy (a dash array can itself encode marks)
+      final pattern = dash.length > 0 ? _cos.resolve(dash[0]) : null;
+      if (pattern is CosArray && pattern.length > 0) changes['D'] = null;
+      _dashed = false;
+      _dashPart = null;
+    }
     final mask = _cos.resolve(state['SMask']);
     final group = mask is CosDictionary ? _cos.resolve(mask['G']) : null;
-    if (mask is! CosDictionary || group is! CosStream) {
+    if (mask is CosDictionary && group is CosStream) {
+      final (groupChanged, burned) =
+          _burnForm(group, _redMul(_formMatrix(group), _ctm));
+      if (groupChanged) {
+        final newMask = CosDictionary({
+          for (final key in const ['Type', 'S', 'BC', 'TR'])
+            if (mask.containsKey(key)) key: mask[key]!,
+        });
+        if (burned != null) newMask['G'] = _addObject(burned);
+        changes['SMask'] = burned != null ? newMask : const CosName('None');
+        final maskRef = mask['G'];
+        if (maskRef is CosReference) {
+          _session.retired.add(maskRef.objectNumber);
+        }
+      }
+    }
+    if (changes.isEmpty) {
       _use(_resExtGState, name);
       return false;
     }
-    final (groupChanged, burned) =
-        _burnForm(group, _redMul(_formMatrix(group), _ctm));
-    if (!groupChanged) {
-      _use(_resExtGState, name);
-      return false;
-    }
-    final newMask = CosDictionary({
-      for (final key in const ['Type', 'S', 'BC', 'TR'])
-        if (mask.containsKey(key)) key: mask[key]!,
-    });
-    if (burned != null) newMask['G'] = _addObject(burned);
-    final newState = CosDictionary({
-      ...state.entries,
-      'SMask': burned != null ? newMask : const CosName('None'),
+    final newState = CosDictionary({...state.entries});
+    changes.forEach((key, value) {
+      if (value == null) {
+        newState.entries.remove(key);
+      } else {
+        newState[key] = value;
+      }
     });
     _retire(_resExtGState, name, entry);
-    final maskRef = mask['G'];
-    if (maskRef is CosReference) _session.retired.add(maskRef.objectNumber);
     _removed();
-    final fresh = _addResource(_resExtGState, newState);
+    final fresh = _replace(_resExtGState, entry, newState);
     _writeOp(ContentOperation('gs', [CosName(fresh)]));
     return true;
   }
@@ -930,7 +1287,7 @@ class _RedactionBurn {
     _retire(_resXObject, name, entry);
     _removed();
     if (replacement == null) return; // couldn't be rewritten: dropped whole
-    final fresh = _addResource(_resXObject, replacement);
+    final fresh = _replace(_resXObject, entry, replacement);
     _writeOp(ContentOperation('Do', [CosName(fresh)]));
   }
 
@@ -1012,8 +1369,14 @@ class _RedactionBurn {
       _addObject,
       ctm: drawCtm,
       parent: this,
-      structParents: sp is CosInteger ? sp.value : null,
+      // a form without its own key numbers its MCIDs as its invoker does
+      structParents: sp is CosInteger ? sp.value : _structParents,
     );
+    if (_inText) {
+      // a form drawn inside BT: viewers differ on the text matrix it
+      // starts with, so its text is judged generously until it positions
+      nested._slack = 1e6;
+    }
     final Uint8List burned;
     try {
       burned = nested.run(content);
@@ -1280,7 +1643,16 @@ class _RedactionBurn {
     }
 
     final font = _currentFont();
-    final exact = font != null && font.metricsKnown && _slack == 0;
+    // a composite string with a stray byte, or word spacing (which viewers
+    // apply differently to two-byte codes), can't be placed exactly
+    final exact = font != null &&
+        font.metricsKnown &&
+        _slack == 0 &&
+        (font.codeLength == 1 ||
+            (_tw == 0 &&
+                elements.every((e) =>
+                    e is! CosString ||
+                    e.bytes.length % font.codeLength! == 0)));
     if (!exact) {
       _showConservatively(op, elements, font, prefix);
       return;
@@ -1335,7 +1707,7 @@ class _RedactionBurn {
         final wordSpace = codeLength == 1 && code == 32 ? _tw : 0;
         final advance = (w0 / 1000 * _tfs + _tc + wordSpace) * _th;
 
-        if (_glyphCovered(font, glyphWidth)) {
+        if (_glyphCovered(font, code, glyphWidth)) {
           redactedAny = true;
           flushString();
           pendingGap += advance;
@@ -1455,17 +1827,19 @@ class _RedactionBurn {
   /// each line the glyph spans its advance clamped to a quarter..one em:
   /// the outline lives near the origin whatever /Widths claims. A Type 3
   /// glyph is tested over its procedures' real bounding box instead.
-  bool _glyphCovered(_RedFont font, double glyphWidth) {
+  bool _glyphCovered(_RedFont font, int code, double glyphWidth) {
     final m = _redMul(_tm, _ctm);
     final double x0, x1;
     final List<double> ys;
-    final box = font.glyphBox;
+    final box = font.glyphBoxOf(code);
     if (box != null) {
       x0 = box.left * _tfs * _th;
       x1 = box.right * _tfs * _th;
+      // lines at most a fifth of an em apart, however tall the box
+      final lines = (box.height / 0.2).ceil().clamp(4, 64);
       ys = [
-        for (var i = 0; i < 4; i++)
-          _trise + (box.bottom + box.height * (i + 0.5) / 4) * _tfs,
+        for (var i = 0; i < lines; i++)
+          _trise + (box.bottom + box.height * (i + 0.5) / lines) * _tfs,
       ];
     } else {
       final em = (_tfs * _th).abs();
@@ -1598,9 +1972,10 @@ class _RedFont {
     required String Function(int code) textOf,
     required this.maxWidth,
     this.isVertical = false,
-    this.glyphBox,
+    PdfRect? Function(int code)? glyphBox,
   })  : _widthOf = widthOf,
-        _textOf = textOf;
+        _textOf = textOf,
+        _glyphBox = glyphBox;
 
   final bool isComposite;
 
@@ -1618,9 +1993,11 @@ class _RedFont {
   /// The widest advance the font declares (thousandths of text space).
   final double maxWidth;
 
-  /// For a Type 3 font, the union of its glyphs' bounding boxes in text
-  /// space per unit font size (FontMatrix applied); null otherwise.
-  final PdfRect? glyphBox;
+  final PdfRect? Function(int code)? _glyphBox;
+
+  /// For a Type 3 font, where [code]'s glyph draws, in text space per unit
+  /// font size (FontMatrix applied); null for other fonts.
+  PdfRect? glyphBoxOf(int code) => _glyphBox?.call(code);
 
   final double Function(int code) _widthOf;
   final String Function(int code) _textOf;
@@ -1657,11 +2034,14 @@ class _RedFont {
     }
 
     var scale = 1.0;
-    PdfRect? glyphBox;
+    PdfRect? Function(int)? glyphBox;
+    var skewed = false;
     if (sub == 'Type3') {
       final matrix = _fontMatrix(cos, font);
       scale = matrix.$1 * 1000;
-      glyphBox = _type3GlyphBox(cos, font, matrix);
+      // advances along anything but the x axis aren't modelled
+      skewed = matrix.$2 != 0 || matrix.$3 != 0 || matrix.$1 == 0;
+      glyphBox = _type3GlyphBoxes(cos, font, matrix);
     }
 
     final widthsObj = cos.resolve(font['Widths']);
@@ -1677,7 +2057,7 @@ class _RedFont {
       return _RedFont._(
         isComposite: false,
         codeLength: 1,
-        metricsKnown: true,
+        metricsKnown: !skewed,
         widthOf: (code) {
           final i = code - firstChar;
           return (i >= 0 && i < table.length ? table[i] : missing) * scale;
@@ -1769,58 +2149,113 @@ class _RedFont {
     return (at(0), at(1), at(2), at(3), at(4), at(5));
   }
 
-  /// The union of a Type 3 font's glyph boxes (from each procedure's `d1`,
-  /// else /FontBBox), mapped through [matrix]; generous when unknown.
-  static PdfRect _type3GlyphBox(
+  /// Where each of a Type 3 font's glyphs draws, by code: the union of its
+  /// procedure's `d1` box and the ink it actually lays down (paths, images
+  /// - a `d1` box can lie), mapped through [matrix]. A glyph whose
+  /// procedure can't be bounded (d0 colour glyphs drawing text, shadings,
+  /// unparsable procedures) or whose name is unknown gets a generous box.
+  static PdfRect? Function(int) _type3GlyphBoxes(
       CosDocument cos, CosDictionary font, _RedMatrix matrix) {
-    double? x0, y0, x1, y1;
-    var unknown = false;
-    void include(double a, double b, double c, double d) {
-      x0 = math.min(x0 ?? a, math.min(a, c));
-      y0 = math.min(y0 ?? b, math.min(b, d));
-      x1 = math.max(x1 ?? c, math.max(a, c));
-      y1 = math.max(y1 ?? d, math.max(b, d));
-    }
-
-    final procs = cos.resolve(font['CharProcs']);
-    if (procs is CosDictionary) {
-      for (final p in procs.entries.values) {
-        final proc = cos.resolve(p);
-        if (proc is! CosStream) continue;
-        try {
-          final ops = ContentStreamParser.parse(cos.decodeStreamData(proc));
-          final first = ops.isEmpty ? null : ops.first;
-          if (first != null &&
-              first.operator == 'd1' &&
-              first.operands.length >= 6) {
-            final o = [for (final v in first.operands) _num(cos, v)];
-            include(o[2], o[3], o[4], o[5]);
-          } else {
-            unknown = true; // d0: draws wherever it likes
-          }
-        } on Object {
-          unknown = true;
+    final names = <int, String>{};
+    final encoding = cos.resolve(font['Encoding']);
+    final diffs =
+        encoding is CosDictionary ? cos.resolve(encoding['Differences']) : null;
+    if (diffs is CosArray) {
+      var code = 0;
+      for (final item in diffs.items) {
+        final v = cos.resolve(item);
+        if (v is CosInteger) {
+          code = v.value;
+        } else if (v is CosName) {
+          names[code++] = v.value;
         }
       }
     }
-    final bbox = pdfRectFrom(cos, font['FontBBox']);
-    if (bbox != null && bbox.width > 0 && bbox.height > 0) {
-      include(bbox.left, bbox.bottom, bbox.right, bbox.top);
-    } else if (unknown || x0 == null) {
-      // nothing says where the ink is: a generous few ems around the origin
-      final inverse = _redInvert(matrix);
-      if (inverse != null) {
-        final a = _redApply(inverse, -1, -1), b = _redApply(inverse, 2, 2);
-        include(a.$1, a.$2, b.$1, b.$2);
+    final procs = cos.resolve(font['CharProcs']);
+    final boxes = <String, PdfRect?>{};
+    PdfRect toText(PdfRect glyph) => _hullBounds([
+          _redApply(matrix, glyph.left, glyph.bottom),
+          _redApply(matrix, glyph.right, glyph.bottom),
+          _redApply(matrix, glyph.left, glyph.top),
+          _redApply(matrix, glyph.right, glyph.top),
+        ])!;
+    // nothing known: a generous few ems around the origin
+    const generous = PdfRect(-1, -1, 2, 2);
+    PdfRect boxOf(String? name) {
+      if (name == null || procs is! CosDictionary) return generous;
+      final glyph = boxes.putIfAbsent(name, () {
+        final proc = cos.resolve(procs[name]);
+        if (proc is! CosStream) return null;
+        try {
+          return _inkBounds(cos, proc);
+        } on Object {
+          return null;
+        }
+      });
+      if (glyph == null) return generous;
+      final text = toText(glyph);
+      return PdfRect(
+        math.min(text.left, 0),
+        math.min(text.bottom, 0),
+        math.max(text.right, 0),
+        math.max(text.top, 0),
+      );
+    }
+
+    return (code) => boxOf(names[code]);
+  }
+
+  /// The bounds (glyph space) of what a Type 3 procedure draws, with its
+  /// `d1` box; null when it can't be bounded.
+  static PdfRect? _inkBounds(CosDocument cos, CosStream proc) {
+    final ops = ContentStreamParser.parse(cos.decodeStreamData(proc));
+    var ctm = _redIdentity;
+    final stack = <_RedMatrix>[];
+    final points = <(double, double)>[];
+    double num(CosObject o) => _num(cos, o);
+    for (final op in ops) {
+      final o = op.operands;
+      List<double> nums() => [for (final v in o) num(v)];
+      switch (op.operator) {
+        case 'd1':
+          if (o.length < 6) return null;
+          final v = nums();
+          points.addAll([(v[2], v[3]), (v[4], v[5])]);
+        case 'q':
+          stack.add(ctm);
+        case 'Q':
+          if (stack.isNotEmpty) ctm = stack.removeLast();
+        case 'cm':
+          if (o.length != 6) return null;
+          final v = nums();
+          ctm = _redMul((v[0], v[1], v[2], v[3], v[4], v[5]), ctm);
+        case 'm' || 'l' || 'c' || 'v' || 'y':
+          final v = nums();
+          for (var i = 0; i + 1 < v.length; i += 2) {
+            points.add(_redApply(ctm, v[i], v[i + 1]));
+          }
+        case 're':
+          if (o.length != 4) return null;
+          final v = nums();
+          points.addAll([
+            _redApply(ctm, v[0], v[1]),
+            _redApply(ctm, v[0] + v[2], v[1] + v[3]),
+            _redApply(ctm, v[0], v[1] + v[3]),
+            _redApply(ctm, v[0] + v[2], v[1]),
+          ]);
+        case 'BI':
+          points.addAll([
+            _redApply(ctm, 0, 0),
+            _redApply(ctm, 1, 1),
+            _redApply(ctm, 0, 1),
+            _redApply(ctm, 1, 0),
+          ]);
+        case 'Do' || 'sh' || 'Tj' || 'TJ' || "'" || '"' || 'd0':
+          // a form, shading, text or colour glyph: unbounded here
+          return null;
       }
     }
-    if (x0 == null) return const PdfRect(-1, -1, 2, 2);
-    return _hullBounds([
-      _redApply(matrix, x0!, y0!),
-      _redApply(matrix, x1!, y0!),
-      _redApply(matrix, x0!, y1!),
-      _redApply(matrix, x1!, y1!),
-    ])!;
+    return _hullBounds(points);
   }
 }
 
@@ -1839,7 +2274,19 @@ class _RedGraphicsState {
     required this.strokePattern,
     required this.fillPatternSpace,
     required this.strokePatternSpace,
+    required this.lineWidth,
+    required this.miterLimit,
+    required this.dashed,
+    required this.dashPart,
+    required this.clipBounds,
   });
+
+  final int? dashPart;
+
+  final double lineWidth;
+  final double miterLimit;
+  final bool dashed;
+  final PdfRect? clipBounds;
 
   final _RedMatrix ctm;
   final double tfs;

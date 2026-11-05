@@ -247,7 +247,8 @@ void main() {
             '/Coords [0 0 1 0] /Function << /FunctionType 2 /Domain [0 1] '
             '/C0 [0] /C1 [1] /N 1 >> >> >>',
         content: 'q 100 700 100 20 re W n /Sh0 sh Q\n'
-            'q 100 600 100 20 re W n /Sh1 sh Q',
+            // a gradient band crossing the box, its geometry outside it
+            'q 50 600 400 20 re W n /Sh1 sh Q',
         extra: [
           _stream(
               '/FunctionType 0 /Domain [0 1 0 1] /Range [0 1] /Size [4 4] '
@@ -467,5 +468,296 @@ void main() {
     );
     _gone(all, 'SECRETTOP');
     expect(all, contains('CONTROLLOW'));
+  });
+
+  group('round 2', () {
+    const box = PdfRect(90, 690, 300, 730);
+    String text(String prefix) =>
+        '$prefix BT /F1 12 Tf 100 700 Td (SECRETOPS) Tj ET';
+
+    test('an over-long cm is read as viewers read it', () {
+      final all =
+          _burn(_onePage(content: text('0 0 0 0 0 0 1 0 0 1 0 0 cm')), box);
+      _gone(all, 'SECRETOPS');
+    });
+
+    test('a cm with mistyped operands is dropped, as viewers drop it', () {
+      final all = _burn(_onePage(content: text('/a /b /c /d /e /f cm')), box);
+      _gone(all, 'SECRETOPS');
+    });
+
+    test('an over-long Td moves where viewers move', () {
+      final all = _burn(
+        _onePage(content: 'BT /F1 12 Tf 400 100 700 Td (SECRETTD) Tj ET'),
+        box,
+      );
+      _gone(all, 'SECRETTD');
+    });
+
+    test('a Tj with two strings shows the last', () {
+      final all = _burn(
+        _onePage(content: 'BT /F1 12 Tf 100 700 Td (X) (XXSECRET) Tj ET'),
+        box,
+      );
+      _gone(all, 'XXSECRET');
+    });
+
+    test('a Do with two names draws the last', () {
+      final all = _burn(
+        _onePage(
+          resources: '/XObject << /Safe 5 0 R /Sec 6 0 R >>',
+          content: 'q 100 0 0 20 100 700 cm /Safe /Sec Do Q',
+          extra: [
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 1 1] '
+                    '/Matrix [1 0 0 1 5000 5000]',
+                ''),
+            _stream(
+                '/Type /XObject /Subtype /Image /Width 10 /Height 1 '
+                    '/ColorSpace /DeviceGray /BitsPerComponent 8',
+                'SECRETDOIM'),
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETDOIM');
+    });
+
+    test('inline image data is delimited the way every viewer agrees', () {
+      final all = _burn(
+        _onePage(
+          content: 'q BI /W 1 /H 1 /CS /G /BPC 8 ID XEI\n'
+              'BT /F1 12 Tf 100 700 Td (SECRETINLINE) Tj ET\nEI\nQ',
+        ),
+        box,
+      );
+      _gone(all, 'SECRETINLINE');
+    });
+
+    test('a clip outline under a box is not printed through a fill', () {
+      final all = _burn(
+        _onePage(
+          content: 'q 150 700 m 161.777 725 l 170 700 l h W n '
+              '0 0 612 792 re f Q',
+          extra: const [],
+        ),
+        const PdfRect(140, 690, 200, 730),
+      );
+      _gone(all, '161.777');
+      expect(all, contains('0 0 612 792 re'));
+    });
+
+    test('a dash pattern placing marks under a box goes, array and all', () {
+      final all = _burn(
+        _onePage(
+          content: '20 w [0 140 3.777 2 5 2 7 1000] 0 d '
+              '100 700 m 400 700 l S',
+          extra: const [],
+        ),
+        const PdfRect(230, 680, 300, 720),
+      );
+      _gone(all, '3.777');
+    });
+
+    test('a stitched gradient is a picture', () {
+      final all = _burn(
+        _onePage(
+          resources: '/Shading << /Sh0 << /ShadingType 2 '
+              '/ColorSpace /DeviceGray /Coords [0 0 612 0] /Function << '
+              '/FunctionType 3 /Domain [0 1] /Bounds [0.31337 0.5] '
+              '/Encode [0 1 0 1 0 1] /Functions [<< /FunctionType 2 '
+              '/Domain [0 1] /C0 [0] /C1 [0] /N 1 >> << /FunctionType 2 '
+              '/Domain [0 1] /C0 [1] /C1 [1] /N 1 >> << /FunctionType 2 '
+              '/Domain [0 1] /C0 [0] /C1 [0] /N 1 >>] >> >> >>',
+          content: 'q 50 700 400 1 re W n /Sh0 sh Q',
+          extra: const [],
+        ),
+        box,
+      );
+      _gone(all, '0.31337');
+    });
+
+    test('each Type 3 glyph is tested over its own box', () {
+      final widths = List.filled(26, '1000').join(' ');
+      final diffs = '65 ${List.filled(25, '/a').join(' ')} /z';
+      final all = _burn(
+        _onePage(
+          resources: '/Font << /T3 5 0 R >>',
+          content: 'BT /T3 20 Tf 100 600 Td (SECRETTALL) Tj ET',
+          extra: [
+            '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 0 0] '
+                '/FontMatrix [0.001 0 0 0.001 0 0] '
+                '/CharProcs << /a 6 0 R /z 7 0 R >> '
+                '/Encoding << /Differences [$diffs] >> /FirstChar 65 '
+                '/LastChar 90 /Widths [$widths] >>',
+            _stream('', '1000 0 0 0 900 1000 d1 0 0 900 1000 re f'),
+            _stream('', '1000 0 0 0 900 10000 d1 0 0 900 10000 re f'),
+          ],
+        ),
+        const PdfRect(90, 598, 340, 622),
+      );
+      _gone(all, 'SECRETTALL');
+    });
+
+    test('a composite string with a stray byte is judged generously', () {
+      final all = _burn(
+        _onePage(
+          resources: '/Font << /F2 5 0 R >>',
+          content: 'BT /F2 20 Tf 100 700 Td '
+              '${List.filled(10, '<41> Tj').join(' ')} '
+              '<00530045004300520045005400440044> Tj ET',
+          extra: [
+            '<< /Type /Font /Subtype /Type0 /BaseFont /X '
+                '/Encoding /Identity-H /DescendantFonts [6 0 R] >>',
+            '<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X '
+                '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) '
+                '/Supplement 0 >> /DW 1000 >>',
+          ],
+        ),
+        const PdfRect(290, 690, 500, 730),
+      );
+      _gone(all, '0053004500430052');
+    });
+
+    test('an image that is its own structure item loses its alt text', () {
+      final all = _burn(
+        _onePage(
+          resources: '/XObject << /Im 5 0 R >>',
+          content: 'q 100 0 0 10 100 700 cm /Im Do Q',
+          catalogExtra: '/StructTreeRoot 6 0 R',
+          extra: [
+            _stream(
+                '/Type /XObject /Subtype /Image /Width 1 /Height 1 '
+                    '/ColorSpace /DeviceGray /BitsPerComponent 8 '
+                    '/StructParent 3',
+                'x'),
+            '<< /Type /StructTreeRoot /K [7 0 R] /ParentTree 8 0 R >>',
+            '<< /Type /StructElem /S /Figure /P 6 0 R '
+                '/K << /Type /OBJR /Obj 5 0 R >> '
+                '/Alt (Photo of SECRETOBJRALT) >>',
+            '<< /Nums [3 7 0 R] >>',
+          ],
+        ),
+        const PdfRect(90, 690, 210, 730),
+      );
+      _gone(all, 'SECRETOBJRALT');
+    });
+
+    test('MCIDs in a form without /StructParents are the page\'s', () {
+      final all = _burn(
+        _onePage(
+          resources: '/XObject << /Fm 5 0 R >>',
+          content: '/Fm Do',
+          catalogExtra: '/StructTreeRoot 7 0 R',
+          pageExtra: '/StructParents 0',
+          extra: [
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 612 792] '
+                    '/Resources << /XObject << /Im 6 0 R >> >>',
+                '/Figure << /MCID 0 >> BDC '
+                    'q 100 0 0 10 100 700 cm /Im Do Q EMC'),
+            _stream(
+                '/Type /XObject /Subtype /Image /Width 1 /Height 1 '
+                    '/ColorSpace /DeviceGray /BitsPerComponent 8',
+                'x'),
+            '<< /Type /StructTreeRoot /K [8 0 R] /ParentTree 9 0 R >>',
+            '<< /Type /StructElem /S /Figure /P 7 0 R /K 0 '
+                '/Alt (Photo of SECRETFORMMCID) >>',
+            '<< /Nums [0 [8 0 R]] >>',
+          ],
+        ),
+        const PdfRect(90, 690, 210, 730),
+      );
+      _gone(all, 'SECRETFORMMCID');
+    });
+
+    test('hidden information goes wherever it sits', () {
+      final all = _burn(
+        _onePage(
+          content: text(''),
+          catalogExtra: '/AF [6 0 R] /Outlines 8 0 R',
+          pageExtra: '/Annots [10 0 R 11 0 R]',
+          extra: [
+            _helvetica,
+            '<< /Type /Filespec /F (a.txt) /EF << /F 7 0 R >> >>',
+            _stream('/Type /EmbeddedFile', 'SECRETAF'),
+            '<< /Type /Outlines /First 9 0 R /Last 9 0 R /Count 1 >>',
+            '<< /Title (Go) /Parent 8 0 R '
+                '/A << /S /JavaScript /JS (app.alert\\(1\\); //SECRETJSOUT) >> >>',
+            '<< /Type /Annot /Subtype /FileAttachment /Rect [500 100 520 120] '
+                '/FS << /Type /Filespec /F (b.txt) /EF << /F 12 0 R >> >> >>',
+            '<< /Type /Annot /Subtype /Link /Rect [500 200 520 220] '
+                '/A << /S /JavaScript /JS (//SECRETJSLINK) >> >>',
+            _stream('/Type /EmbeddedFile', 'SECRETFA'),
+          ],
+        ),
+        box,
+      );
+      for (final marker in [
+        'SECRETAF',
+        'SECRETFA',
+        'SECRETJSOUT',
+        'SECRETJSLINK',
+      ]) {
+        _gone(all, marker);
+      }
+    });
+
+    test('copies of the removed text are scrubbed from every string', () {
+      final all = _burn(
+        _onePage(
+          content: text(''),
+          catalogExtra: '/PageLabels << /Nums [0 << /P (SECRETOPS-) >>] >> '
+              '/Dests << /SECRETOPS [3 0 R /Fit] >>',
+          pageExtra: '/Annots [6 0 R]',
+          extra: [
+            _helvetica,
+            '<< /Type /Annot /Subtype /Text /Rect [500 100 520 120] '
+                '/Contents (note: SECRETOPS) >>',
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETOPS');
+    });
+
+    test('a sibling widget off the page does not keep the value', () {
+      final all = _burn(
+        _onePage(
+          content: '',
+          resources: '',
+          catalogExtra: '/AcroForm << /Fields [5 0 R] >>',
+          pageExtra: '/Annots [6 0 R 7 0 R]',
+          extra: const [
+            '<< /FT /Tx /T (f) /V (SECRETOFFPAGE) /Kids [6 0 R 7 0 R] >>',
+            '<< /Type /Annot /Subtype /Widget /Parent 5 0 R '
+                '/Rect [100 700 200 720] /P 3 0 R >>',
+            '<< /Type /Annot /Subtype /Widget /Parent 5 0 R '
+                '/Rect [5000 5000 5100 5020] /P 3 0 R >>',
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETOFFPAGE');
+    });
+
+    test('another draw of a redacted image gets the redacted copy', () {
+      final all = _burn(
+        _onePage(
+          resources: '/XObject << /Im 5 0 R >>',
+          content: 'q 100 0 0 10 100 700 cm /Im Do Q '
+              'q 100 0 0 10 5000 5000 cm /Im Do Q',
+          extra: [
+            _stream(
+                '/Type /XObject /Subtype /Image /Width 10 /Height 1 '
+                    '/ColorSpace /DeviceGray /BitsPerComponent 8',
+                'ABCDEFGHIJ'),
+          ],
+        ),
+        const PdfRect(90, 690, 150, 730),
+      );
+      _gone(all, 'ABCDE');
+      expect(all, contains('FGHIJ'));
+    });
   });
 }

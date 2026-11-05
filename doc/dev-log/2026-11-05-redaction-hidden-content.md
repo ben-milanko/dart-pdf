@@ -4,7 +4,7 @@ The report: a synthetic PDF with a fake SSN in a dozen places, every one
 boxed and burned. Page text went, but image, form-field, Form XObject,
 metadata, bookmark and attachment copies were still in the saved file. This
 session fixed those, then ran two adversarial review rounds against the
-burn. Every confirmed bypass has a regression test, and each one fails on
+burn (20, then 14 confirmed bypasses). Every confirmed bypass has a regression test, and each one fails on
 the code before its fix.
 
 Code: `packages/pdf_document/lib/src/redaction.dart` (document level:
@@ -89,9 +89,71 @@ default behind `applyRedactions`, also drops metadata (keeping Producer
 and the dates), embedded files, document JavaScript and page /AA. Page
 /Thumb and /PieceInfo always go on burned pages.
 
+## Round 2: making viewers and the burn agree
+
+The second review was about *disagreement*. The burn modelled a malformed
+operator one way while viewers read it another, so the burn kept what
+they show under the box.
+
+- **Canonical operators** (`_canonical`, `_arity`). Every interpreted
+  operator is rewritten with exactly the operands the burn read: the
+  *last* n, as poppler and pdf.js take them. An operator with too few or
+  mistyped operands is dropped, as viewers drop it. Over-long `cm`/`Td`,
+  two-string `Tj` and two-name `Do` can no longer be read two ways.
+- **Inline images** (`_canonicalInlineImage`). Unfiltered data is cut to
+  its computed length, and any data still containing `EI` is dropped,
+  because viewers find the end of inline data differently.
+- **Malformed paths** broken off by another operator are dropped. Some
+  viewers would paint them at the next paint operator.
+- **Clips** are judged like fills, so a glyph outline can't print through
+  a later full-page fill. A clip emptied this way clips everything away.
+  Clip bounds are tracked for `sh`.
+- **Strokes**: regions grow by the reach of the ink (half the width, times
+  the miter limit). A dashed stroke goes when its hull touches a box, and
+  a `d` no kept stroke uses is blanked. A dash carried in an ExtGState
+  `/D` gets a solid copy.
+- **Shadings**: stitching functions count as pictures, since their bounds
+  are a 1-D raster. A plain gradient also goes when its end points or
+  circles sit under a box, and a `sh` clipped to nothing goes.
+- **Type 3** glyphs are tested over their own box (`d1` plus the ink the
+  procedure actually lays down), with lines at most 0.2 em apart. A
+  skewed FontMatrix makes the font's metrics unknown.
+- **Composite strings** with a stray byte, or with word spacing set, go
+  through the generous path.
+- **One redacted copy replaces the original everywhere**
+  (`_retireOriginals`, compaction `substitutes`). Any other use (another
+  page, an off-page draw, a pattern) gets the copy. With several differing
+  copies the original is purged. This removes too much where a repeated
+  logo is half covered on one page, and that is deliberate.
+- **Structure**: an XObject's own `/StructParent` and MCIDs in forms
+  without `/StructParents` (numbered as their invoker's) strip their
+  elements' text.
+- **Compaction sweep**. With `removeHiddenInformation`, every `/AF`,
+  `/Metadata`, `/PieceInfo`, `/Thumb`, `/EF`, `/RF` and JavaScript action
+  goes, anywhere in the file. Every string left in the file is scrubbed
+  of the removed text (comments, page labels, name-tree keys, field
+  values, `/TU`...), and so are `/Dests` keys.
+- A sibling widget off its page's crop box no longer counts as shown.
+
+## Known limitations
+
+- Font programs are kept, as in other redaction tools. This includes Type
+  3 glyph procedures, whose glyphs may be in use elsewhere. A glyph whose
+  shape is itself the secret (a signature turned into a Type 3 glyph), or
+  a subset font's list of glyphs, can survive in the file.
+- The glyph-position model assumes outlines near the origin
+  (0.25..1 em × 0.1..0.7 em). A crafted embedded font with ink far from
+  its origin is not detected; the text its codes encode is still placed
+  correctly.
+- A ligature or a glyph without `/ToUnicode` gives an empty or wrong span,
+  so hidden copies of that text are not matched. Structure text tied to
+  the content by MCID is still stripped.
+
 ## Tests
 
 - `test/redaction_hidden_content_test.dart`: the issue's experiment, with
   13 markers in one file and controls that must survive.
-- `test/redaction_bypass_test.dart`: one test per review finding. Each
-  asserts its marker is in the fixture first, so none can pass vacuously.
+- `test/redaction_bypass_test.dart`: one test per review finding (the
+  `round 2` group is the second review). Each asserts its marker is in
+  the fixture first, so none can pass vacuously, and each failed on the
+  code before its fix.
