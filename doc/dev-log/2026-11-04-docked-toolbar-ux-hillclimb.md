@@ -84,10 +84,75 @@ is a file-read timing test, unrelated to the toolbar.
 The 1280 fit has about 12px to spare in English. A locale with longer group
 names wraps to a third row, as before.
 
+## Second round (follow-up requests)
+
+Rule for this round: new layouts are opt-in. Each one gets a Settings switch,
+so users can keep the current UI.
+
+### First-fit packing (`toolbarPackTightly`, off by default)
+
+- **`FirstFitWrap`** (`editing/first_fit_wrap.dart`) is a custom
+  `RenderBox`. Each docked toolbar goes into the first row (or rail column)
+  with room for it, so a shorter toolbar back-fills the gap a longer one
+  left when it wrapped.
+  - A child only moves *up* to an earlier run, never ahead of an earlier
+    child on its own run.
+  - Runs are as thick as their thickest child, and children are centred
+    across them.
+  - Dry layout and intrinsics are implemented.
+- **Result:** at 800px, Insert joins Shapes' row, and the area is four rows
+  instead of five.
+- **Wiring:** `PdfEditingToolbar.packToolbars` is the seam. The switches are
+  `settings-pack-toolbars` (app Settings, disabled while floating) and
+  `pdf-layout-pack` (the layout dialog, only when docked). Reset clears it.
+- **Tests:** `first_fit_wrap_test.dart` covers the packing with exact boxes:
+  back-fill, run thickness/centring, an oversize child, and rail columns.
+
+### More on the properties bar
+
+The bar is a full window width, so the tune popup's most-used rows now sit
+on it (`_inlineStyleControls` / `_inlineTextControls`):
+- shape fill (`_InlineFillButton`, a bucket over the current fill, opening
+  the swatch row);
+- line type;
+- line start/end (drawn, named in the menu);
+- for text, bold/italic + alignment after the font chip.
+
+They drive the same preferences and selection restyles as the popup, which
+keeps them too. They only appear when docked, in the horizontal bar
+(`_docked && _bareCards`); floating strips and rails keep the popup.
+`PdfDropdown` gained `selectedItemBuilder` (one closed widget per item, like
+`DropdownButton`'s) so an ending reads as its drawing alone. The menu rows
+need `Flexible` + ellipsis: long locale names overflowed them.
+
+### Main toolbar in the header (`toolbarMainInHeader`, off by default)
+
+**Why this option.** The header's editor row leaves ~540px empty between
+search and View options at 1280px. No arrangement saves a whole row there,
+because the toolbars need two rows either way. So the gap gets controls
+rather than height: undo/redo + Hand/Select, Acrobat-style quick tools.
+
+**How it works:**
+- A second `PdfEditingToolbar(mainToolbarOnly: true)` builds just `_dock`,
+  bare, at dense density, for the header. `_docked` is true for it, so it
+  shows no group switcher.
+- The docked toolbar gets `mainInHeader` and leaves `pdf-docked-main` out.
+- It applies only while docked, with the main toolbar on top, and at
+  `_mainInHeaderMinWidth` (1100px) or wider. At 800px the header scrolled
+  its panel switch off the edge.
+- `PdfHeaderParts.tools` hands it to host headers (the app places it after
+  search).
+- `_HeaderToolsSlot` reports when a host header has mounted it. Until then
+  the toolbar keeps the main toolbar, so a host that leaves the part out
+  never loses undo. The stock header counts as mounted.
+- Dragging the grip to another edge brings it back down.
+
+**Switches:** `settings-main-toolbar-in-header` and
+`pdf-layout-main-in-header`.
+
 ## Not done (considered)
 
-- **First-fit packing**, so a later group back-fills an earlier row (Edit
-  beside Shapes at 800px), would save a row at some widths. It needs a custom
-  wrap render object, and it moves groups out of their reading order.
 - **Dropping the group names** (`MARKUP`, `DRAW`, …) would save ~350px. They
   are the docked mode's only orientation aid, so they stay.
+- **The properties bar in the header's gap** would save its 48px row, but
+  only on windows of about 1700px or wider. Its content is up to ~900px.
