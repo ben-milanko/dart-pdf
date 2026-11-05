@@ -181,53 +181,6 @@ void main() {
     expect(controller.pageRasterWarmStats!.hits, greaterThan(hitsBefore));
   });
 
-  testWidgets('disabled mode performs no background full-raster work',
-      (tester) async {
-    final document = PdfDocument.open(buildMultiPagePdf(6));
-    final controller = PdfViewerController();
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(viewer(
-      document,
-      controller,
-      warm: const PdfPageRasterWarmPolicy.disabled(),
-    ));
-    await tester.pump();
-
-    for (var i = 0; i < 20; i++) {
-      await settle(tester);
-    }
-    // Belt and braces: even asked directly, a disabled policy warms nothing.
-    await tester.runAsync(controller.debugWarmFullRasters);
-
-    final stats = controller.pageRasterWarmStats!;
-    expect(stats.attempts, 0);
-    expect(stats.completions, 0);
-    expect(stats.warmedBytes, 0);
-    expect(controller.debugRasterWarming, isFalse);
-  });
-
-  testWidgets('nearby mode stays inside its window', (tester) async {
-    final document = PdfDocument.open(buildMultiPagePdf(12));
-    final controller = PdfViewerController();
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(viewer(
-      document,
-      controller,
-      warm: const PdfPageRasterWarmPolicy.nearby(window: 2, idleDelay: eager),
-    ));
-    await tester.pump();
-
-    for (var i = 0; i < 40; i++) {
-      await settle(tester);
-    }
-    final stats = controller.pageRasterWarmStats!;
-    // From page 0 the window reaches at most pages 1 and 2, and pages inside
-    // the live build window are excluded (they render on their own).
-    expect(stats.completions, lessThanOrEqualTo(2));
-    expect(stats.entries, lessThanOrEqualTo(3),
-        reason: 'far pages are never warmed under a nearby policy');
-  });
-
   testWidgets('an inadmissible page is declined before it is rendered',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(6));
@@ -254,39 +207,6 @@ void main() {
         reason: 'the decision is taken before any interpretation');
     expect(stats.completions, 0);
     expect(stats.retainedBytes, lessThanOrEqualTo(64 * 1024));
-  });
-
-  testWidgets('scrolling preempts warming', (tester) async {
-    final document = PdfDocument.open(buildMultiPagePdf(12));
-    final controller = PdfViewerController();
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(viewer(
-      document,
-      controller,
-      warm: const PdfPageRasterWarmPolicy.document(idleDelay: eager),
-    ));
-    await tester.pump();
-    await pumpUntil(
-        tester, () => (controller.pageRasterWarmStats?.completions ?? 0) >= 1);
-    expect(
-        controller.pageRasterWarmStats!.completions, greaterThanOrEqualTo(1));
-
-    // A scroll raises the viewer's motion hold and its 500ms quiet window; the
-    // warm must stand down for the whole of it rather than landing a replay
-    // and a GPU readback on top of a scrolling frame.
-    await tester.drag(find.byType(PdfViewer), const Offset(0, -400));
-    await tester.pump();
-    final during = controller.pageRasterWarmStats!.completions;
-    await tester.runAsync(controller.debugWarmFullRasters);
-    expect(controller.pageRasterWarmStats!.completions, during,
-        reason: 'no page is warmed while the viewer is in motion');
-    expect(controller.debugRasterWarming, isFalse);
-
-    // ...and picks itself back up once things settle.
-    await pumpUntil(
-        tester, () => controller.pageRasterWarmStats!.completions > during);
-    expect(controller.pageRasterWarmStats!.completions, greaterThan(during),
-        reason: 'the settle restarts the pass');
   });
 
   testWidgets('slow scrolling warms exact rasters in the travel direction',

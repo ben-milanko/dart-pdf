@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import 'viewport.dart';
@@ -70,6 +72,37 @@ class PdfViewportFrame {
       mainTranslate:
           (s * (scroll - listMain) + atMain).clamp(mainView * (1 - s), 0.0),
       crossTranslate: (atCross - s * listCross).clamp(crossView * (1 - s), 0.0),
+    );
+  }
+
+  /// Zoom about a focal point: the frame at [scale] that keeps list point
+  /// ([listMain], [listCross]) under view point ([atMain], [atCross]) while
+  /// the scroll stays at [scroll] - wheel, pinch and trackpad zoom hold the
+  /// content under the pointer. The translation is clamped so the content's
+  /// edge never comes inside a [mainView] x [crossView] viewport; with
+  /// [clampCross] false the cross axis is left free for a touch pan's
+  /// rubber band. Within 1% of fit the transform snaps to the identity.
+  factory PdfViewportFrame.zoomedAbout({
+    required double scroll,
+    required double listMain,
+    required double listCross,
+    required double scale,
+    required double atMain,
+    required double atCross,
+    required double mainView,
+    required double crossView,
+    bool clampCross = true,
+  }) {
+    if (scale <= 1.01) return PdfViewportFrame(scroll: scroll);
+    final mainTranslate = atMain - scale * (listMain - scroll);
+    final crossTranslate = atCross - scale * listCross;
+    return PdfViewportFrame(
+      scroll: scroll,
+      scale: scale,
+      mainTranslate: mainTranslate.clamp(mainView * (1 - scale), 0.0),
+      crossTranslate: clampCross
+          ? crossTranslate.clamp(crossView * (1 - scale), 0.0)
+          : crossTranslate,
     );
   }
 
@@ -152,3 +185,61 @@ PdfViewportFrame placePdfViewport(
       crossView: crossView,
       maxScroll: maxScroll,
     );
+
+/// The list's layout below fit, as far as a change of layout zoom needs it:
+/// each slot's main-axis extent at layout zoom 1, the fixed [spacing] between
+/// slots, and the [crossView] pages centre in.
+///
+/// Page sizes scale with the layout zoom but the spacing does not, so a plain
+/// ratio drifts by one gap per page ahead of the point - a whole page's worth
+/// deep into a long document. These remaps walk the slots instead.
+class PdfLayoutZoomAxis {
+  const PdfLayoutZoomAxis({
+    required this.slotCount,
+    required this.unitExtentOf,
+    required this.spacing,
+    required this.crossView,
+  });
+
+  final int slotCount;
+  final double Function(int slot) unitExtentOf;
+  final double spacing;
+  final double crossView;
+
+  /// Maps a main-axis list coordinate from layout zoom [from] to [to]. A
+  /// point keeps its fraction into its slot (or its distance into the gap
+  /// before it).
+  double remapMain(double main, double from, double to) {
+    if (from <= 0 || to == from) return main;
+    final ratio = to / from;
+    if (spacing == 0 || slotCount == 0) return main * ratio;
+    var oldStart = 0.0;
+    var newStart = 0.0;
+    for (var i = 0; i < slotCount; i++) {
+      final extent = unitExtentOf(i);
+      final oldMain = extent * from;
+      if (main < oldStart + oldMain || i == slotCount - 1) {
+        return newStart + (main - oldStart) * ratio;
+      }
+      oldStart += oldMain + spacing;
+      newStart += extent * to + spacing;
+    }
+    return main * ratio;
+  }
+
+  /// Maps a cross-axis list coordinate from layout zoom [from] to [to]:
+  /// every page is centred on the cross axis and scales about that centre.
+  double remapCross(double cross, double from, double to) {
+    if (from <= 0 || to == from) return cross;
+    final centre = crossView / 2;
+    return centre + (cross - centre) * (to / from);
+  }
+
+  /// The scroll offset that, after relaying out from layout zoom [from] to
+  /// [to], puts [content] (a main-axis list coordinate at [from]) at view
+  /// main [anchor] - never negative; the far end clamps once the new extents
+  /// exist.
+  double scrollKeeping(double content,
+          {required double from, required double to, required double anchor}) =>
+      math.max(0, remapMain(content, from, to) - anchor);
+}

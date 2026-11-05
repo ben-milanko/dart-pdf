@@ -171,6 +171,12 @@ void main() {
       expect(invalidation.textPages, isNull);
       expect(invalidation.viewport, PdfViewportCarry.remap);
       expect(invalidation.placeViewportNow, isTrue);
+      final viewport = change.remapViewport(
+          const PdfViewport(page: 0, top: 0.25, left: 0.1, zoom: 2));
+      expect(viewport.page, 1, reason: 'the reading position follows its page');
+      expect(viewport.top, 0.25);
+      expect(viewport.left, 0.1);
+      expect(viewport.zoom, 2);
 
       // undo opens a fresh COS graph and is still a keyed reorder back
       editing.undo();
