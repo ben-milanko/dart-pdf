@@ -101,6 +101,25 @@ void main() {
         reason: 'the tool switcher must not overflow a narrow dock');
   });
 
+  testWidgets('tools sheet has an explicit exit that keeps the selected tool',
+      (tester) async {
+    final editing = await pumpToolbar(tester);
+    await tester.tap(find.byKey(const ValueKey('pdf-tools-handle')));
+    await tester.pumpAndSettle();
+    final shapes = find.byKey(const ValueKey('pdf-group-tab-shapes'));
+    await tester.ensureVisible(shapes);
+    await tester.tap(shapes);
+    await tester.pumpAndSettle();
+    expect(editing.tool, PdfEditTool.rectangle);
+    final close = find.byKey(const ValueKey('pdf-tools-close'));
+    expect(tester.widget<IconButton>(close).tooltip, 'Close');
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(close, findsNothing);
+    expect(editing.tool, PdfEditTool.rectangle);
+    expect(find.byKey(const ValueKey('pdf-undo')), findsOneWidget);
+  });
+
   testWidgets('current tool popup recalls previous tools in MRU order',
       (tester) async {
     final editing = await pumpToolbar(tester, width: 500);

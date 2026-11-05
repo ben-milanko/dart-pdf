@@ -389,5 +389,8 @@
   "editorImportedFormData": "已导入表单数据 - 字段：{fields}，注释：{comments}",
   "editorImportFormDataNothing": "该文件中没有与此文档匹配的内容",
   "editorCouldNotImportFormData": "无法导入 {name}：{error}",
-  "editorMenuFormData": "表单数据和注释"
+  "editorMenuFormData": "表单数据和注释",
+  "paletteTermsReduceFileSize": "压缩;缩小;减小大小;压缩PDF",
+  "paletteTermsAddText": "添加文本;输入文字;文本框",
+  "paletteTermsSignature": "签名;绘制签名;手写签名"
 }

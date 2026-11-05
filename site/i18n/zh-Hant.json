@@ -26,6 +26,7 @@
   "featAnnotate_d": "醒目標示文字、以墨跡繪製、加入形狀、備註與圖章。",
   "featForms_t": "表單",
   "featForms_d": "填寫現有欄位，或新增文字欄位、核取方塊與按鈕。",
+  "featForms_guide": "填寫 PDF 表單（英語）",
   "featSign_t": "簽署",
   "featSign_d": "加上手繪簽名，或加入以憑證為後盾的數位簽章。",
   "featRedact_t": "遮蔽",

@@ -26,6 +26,7 @@
   "featAnnotate_d": "高亮文本、用墨迹绘制、添加形状、注释和图章。",
   "featForms_t": "表单",
   "featForms_d": "填写现有字段，或添加新的文本字段、复选框和按钮。",
+  "featForms_guide": "填写 PDF 表单（英语）",
   "featSign_t": "签名",
   "featSign_d": "放置手写签名，或添加基于证书的数字签名。",
   "featRedact_t": "密文遮盖",

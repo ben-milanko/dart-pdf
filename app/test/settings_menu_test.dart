@@ -2,6 +2,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
@@ -24,6 +25,37 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('leaving phone settings preserves the edited document and tool',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildClassicPdf(), title: 'working.pdf'),
+    )));
+    await tester.pumpAndSettle();
+    final editing = tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+    editing.addBookmark('Unsaved work');
+    editing.tool = PdfEditTool.rectangle;
+    final revision = editing.bytes;
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Settings'));
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    final restored = tester.widget<PdfViewer>(find.byType(PdfViewer)).editing!;
+    expect(restored, same(editing));
+    expect(restored.bytes, orderedEquals(revision));
+    expect(restored.tool, PdfEditTool.rectangle);
+    expect(restored.canUndo, isTrue);
+    expect(find.byKey(const ValueKey('pdf-tools-handle')), findsOneWidget);
+  });
 
   testWidgets('language picker writes the chosen locale to prefs',
       (tester) async {

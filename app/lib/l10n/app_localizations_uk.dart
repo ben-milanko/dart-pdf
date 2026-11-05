@@ -1537,4 +1537,15 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Дані форми та коментарі';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'стиснути;зменшити;зменшити розмір;стиснути PDF';
+
+  @override
+  String get paletteTermsAddText => 'додати текст;ввести текст;текстове поле';
+
+  @override
+  String get paletteTermsSignature =>
+      'підписати;намалювати підпис;рукописний підпис';
 }

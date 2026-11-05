@@ -2,6 +2,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
 import 'form_secrets.dart';
+import 'unsaved_changes.dart';
 import 'signature_trust.dart';
 
 /// A detached snapshot used to move a live document into another native
@@ -124,6 +125,62 @@ class DocumentTab {
         compareBefore = null,
         compareAfter = null,
         isLoading = false;
+
+  /// The editable document a placeholder, [deferred] or [preview] tab
+  /// becomes once its complete [bytes] are in hand, carrying its title and
+  /// save destination forward. A mobile reference token is not carried: it
+  /// only serves the progressive first paint, and the promoted tab is backed
+  /// by its snapshot ([cachePath]) instead.
+  DocumentTab.promoted(
+    DocumentTab from, {
+    required Uint8List bytes,
+    required PdfEditingPreferences preferences,
+  }) : this.document(
+          title: from.title,
+          bytes: bytes,
+          preferences: preferences,
+          originPath: from.originPath,
+          originBookmark: from.originBookmark,
+          cachePath: from.cachePath,
+        );
+
+  /// The editable document a [DocumentHandoff] from another window becomes:
+  /// every origin field and the saved baseline travel with it, so the tab
+  /// arrives exactly as dirty as it left.
+  DocumentTab.fromHandoff(
+    DocumentHandoff handoff, {
+    required PdfEditingPreferences preferences,
+  }) : this.document(
+          title: handoff.title,
+          bytes: handoff.bytes,
+          preferences: preferences,
+          originPath: handoff.originPath,
+          originBookmark: handoff.originBookmark,
+          originToken: handoff.originToken,
+          cachePath: handoff.cachePath,
+          savedLength: handoff.savedLength,
+        );
+
+  /// The document crash recovery reopens ([RecoveredDocument]) at the
+  /// revision that was in flight, still pointed at its save destination and
+  /// exactly as dirty as it was: the baseline is what had reached the real
+  /// destination, not the recovered revision. [cachePath] overrides the
+  /// record's snapshot key once it has been resolved to a live one.
+  DocumentTab.recovered(
+    RecoveredDocument recovered, {
+    required PdfEditingPreferences preferences,
+    String? cachePath,
+  }) : this.document(
+          title: recovered.record.title,
+          bytes: recovered.bytes,
+          preferences: preferences,
+          originPath: recovered.record.originPath.isEmpty
+              ? null
+              : recovered.record.originPath,
+          originBookmark: recovered.record.originBookmark,
+          cachePath: cachePath ?? recovered.record.cachePath,
+          savedLength: recovered.record.savedLength,
+        );
 
   /// A document whose bytes are already in hand but not yet parsed: the
   /// expensive [PdfEditingController] construction (a synchronous PDF open,
@@ -317,9 +374,10 @@ class DocumentTab {
   /// baseline and clears this.
   bool get isUnsaved => session != null && savedLength < 0;
 
-  /// Marks the current revision as the saved baseline (call after a save).
-  void markSaved() {
-    if (session != null) savedLength = session!.bytes.length;
+  /// Marks the revision written by a save as the baseline. An asynchronous
+  /// destination may finish after further edits, so it supplies [length].
+  void markSaved({int? length}) {
+    if (session != null) savedLength = length ?? session!.bytes.length;
   }
 
   /// Null for an error or comparison tab. Preferences are owned by the app,
@@ -346,8 +404,17 @@ class DocumentTab {
   }
 
   /// A stable identity per open document, used by the shells to remember the
-  /// scroll position and zoom across reopens.
-  String get documentId => title;
+  /// scroll position and zoom across reopens: the file it was opened from
+  /// (or its private snapshot), so two different files that share a name do
+  /// not share a remembered viewport. A document with neither falls back to
+  /// its title.
+  String get documentId {
+    final path = originPath;
+    if (path != null && path.isNotEmpty) return path;
+    final cache = cachePath;
+    if (cache != null && cache.isNotEmpty) return cache;
+    return title;
+  }
 
   void dispose() {
     // Closing a still-loading preview cancels its ranged fetch and background

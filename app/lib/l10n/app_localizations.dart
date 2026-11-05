@@ -2474,6 +2474,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Form data and comments'**
   String get editorMenuFormData;
+
+  /// Semicolon-separated command search aliases for reducing PDF file size. Translate task words; keep semicolons.
+  ///
+  /// In en, this message translates to:
+  /// **'compress;shrink;make smaller;smaller PDF;compress PDF'**
+  String get paletteTermsReduceFileSize;
+
+  /// Semicolon-separated command search aliases for the text-box annotation tool. Translate task words; keep semicolons.
+  ///
+  /// In en, this message translates to:
+  /// **'add text;type text;text box;write text'**
+  String get paletteTermsAddText;
+
+  /// Semicolon-separated command search aliases for placing a handwritten signature, distinct from certificate-based digital signing. Translate task words; keep semicolons.
+  ///
+  /// In en, this message translates to:
+  /// **'sign;draw signature;handwritten signature'**
+  String get paletteTermsSignature;
 }
 
 class _AppLocalizationsDelegate

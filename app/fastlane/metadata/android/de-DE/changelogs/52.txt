@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Schwärzung verdeckter Bilder, Formularfelder und verborgenen Texts korrigiert. Beim Anwenden werden Metadaten und Anhänge standardmäßig entfernt; gemeinsam genutzte Inhalte können auch an anderer Stelle entfallen. Ungespeicherte Änderungen bleiben bei abgebrochenem Speichern oder weiteren Änderungen währenddessen erhalten. Einfügen, Zoom und Messwerkzeuge verbessert.

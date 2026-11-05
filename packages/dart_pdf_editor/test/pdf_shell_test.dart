@@ -1366,6 +1366,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(editing.tool, PdfEditTool.ink);
 
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('pdf-group-tab-shapes')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('pdf-group-tab-shapes')),
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();

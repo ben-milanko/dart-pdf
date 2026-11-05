@@ -6,7 +6,7 @@
 import 'dart:convert';
 import 'dart:ui' show Locale;
 
-import 'package:flutter/foundation.dart' show immutable;
+import 'package:flutter/foundation.dart' show immutable, visibleForTesting;
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:pdf_document/pdf_document.dart' show PdfMeasure;
 
@@ -165,16 +165,45 @@ double pdfPointsPerPageUnit(String pageUnit) {
 /// default to imperial units: the United States, Liberia, and Myanmar.
 const _imperialCountries = {'US', 'LR', 'MM'};
 
+/// The device's current offset from UTC. Tests override it to stand in
+/// for a device in another time zone; null restores the real clock.
+@visibleForTesting
+Duration Function()? debugPdfTimeZoneOffset;
+
+/// Whether [offset] is a UTC offset found in imperial [country]'s own
+/// time zones (the US states span Hawaii at -10 to Eastern daylight at -4).
+bool _offsetFitsImperialCountry(String country, Duration offset) {
+  final minutes = offset.inMinutes;
+  return switch (country) {
+    'US' => minutes >= -10 * 60 && minutes <= -4 * 60,
+    'LR' => minutes == 0,
+    'MM' => minutes == 6 * 60 + 30,
+    _ => true,
+  };
+}
+
 /// Whether [locale]'s region uses the imperial measurement system. The
 /// measurement system is a regional preference, so the country comes from
 /// [locale] when it carries one, otherwise from the device locale
 /// (`platformDispatcher.locale` - the browser language on the web).
+///
+/// A device locale naming an imperial country is only believed when the
+/// device clock sits in one of that country's time zones. Browser language
+/// is a poor proxy for region: many browsers (Brave by default, to resist
+/// fingerprinting) report `en-US` everywhere, and plenty of people outside
+/// the US keep a US-English system language. An Australian device saying
+/// `en-US` at UTC+10 gets metric; one in New York keeps feet.
 bool _isImperialRegion([Locale? locale]) {
   final country = (locale?.countryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode)
       ?.toUpperCase();
-  return country != null && _imperialCountries.contains(country);
+  if (country == null || !_imperialCountries.contains(country)) return false;
+  if (locale?.countryCode != null) return true;
+  final offset = (debugPdfTimeZoneOffset ?? _deviceTimeZoneOffset)();
+  return _offsetFitsImperialCountry(country, offset);
 }
+
+Duration _deviceTimeZoneOffset() => DateTime.now().timeZoneOffset;
 
 /// The default real-world distance unit for [locale]: feet in the
 /// imperial-system regions (the US, Liberia, Myanmar), metres everywhere

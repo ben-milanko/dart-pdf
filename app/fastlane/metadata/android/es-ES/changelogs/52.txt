@@ -1,0 +1,3 @@
+DartPDF 15.0.0
+
+Corregida la censura de imágenes, campos de formulario y texto oculto cubiertos. Al aplicarla se eliminan metadatos y adjuntos de forma predeterminada; el contenido compartido puede eliminarse también en otros lugares. Se conservan los cambios sin guardar al cancelar el guardado o editar mientras se guarda. Mejoras al pegar, ampliar y medir.

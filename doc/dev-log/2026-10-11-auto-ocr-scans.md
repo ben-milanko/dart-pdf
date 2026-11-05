@@ -73,3 +73,25 @@ makes no edits.
 - `app/test/ocr_pages_test.dart`: `recognizeAllPages`.
 
 `pdf_graphics` moved from the app's dev_dependencies to its dependencies.
+
+## Saved-job recovery follows the setting (1 November 2026)
+
+The setting already persisted, and newly opened scans checked it. The later
+saved-job recovery path did not: reopening or foregrounding the app could
+resume an interrupted automatic OCR job even with the switch off.
+
+The editor now waits for the saved choice before recovery. Native and browser
+recovery consult a live `automaticEnabled` callback before each unfinished
+automatic job. Turning the switch off leaves its checkpoints paused; turning
+it back on allows recovery again. Manual jobs and already completed results
+remain recoverable. This does not cancel a recognition job already running
+when the switch changes.
+
+Regression coverage:
+
+- `app/test/ocr_auto_test.dart`: a fresh setting loads the saved off choice,
+  a new scan stays unmodified, and foreground recovery receives that choice.
+- `app/test/ocr_resume_test.dart`: paused automatic jobs retain their saved
+  pages, manual jobs still resume, re-enabling permits recovery, and the
+  setting is rechecked between jobs. Completed automatic results still deliver
+  without repeating recognition.

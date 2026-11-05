@@ -130,6 +130,106 @@ void main() {
     });
   });
 
+  testWidgets('disabled automatic OCR stays paused while manual OCR resumes',
+      (tester) async {
+    await mount(tester);
+    await tester.runAsync(() async {
+      final automatic =
+          await jobs.create(buildMultiPagePdf(2), 'automatic', automatic: true);
+      await jobs.savePage(automatic.id, 0, []);
+      automatic.nextPage = 1;
+      await jobs.save(automatic);
+      final manual =
+          await jobs.create(buildMultiPagePdf(1), 'manual', automatic: false);
+      final resumed = <String>[];
+      var enabled = false;
+      final ocr = OnDeviceOcr(
+          jobs: jobs,
+          runJob: (owner, job, {onProgress, shouldPause}) async {
+            resumed.add(job.id);
+          });
+      try {
+        await ocr.recover(context,
+            automaticEnabled: () => enabled,
+            onToast: (_) => fail('unexpected toast'),
+            onComplete: (_, __) => fail('must not deliver'));
+        expect(resumed, [manual.id]);
+        final retained = (await jobs.read(automatic.id))!;
+        expect(retained.state, OcrJobState.pending);
+        expect(retained.nextPage, 1);
+        expect(await jobs.page(automatic.id, 0), isEmpty);
+
+        enabled = true;
+        resumed.clear();
+        await ocr.recover(context,
+            automaticEnabled: () => enabled,
+            onToast: (_) {},
+            onComplete: (_, __) {});
+        expect(resumed, contains(automatic.id));
+      } finally {
+        ocr.dispose();
+      }
+    });
+  });
+
+  testWidgets('recovery rechecks the choice before each automatic job',
+      (tester) async {
+    await mount(tester);
+    await tester.runAsync(() async {
+      final manual =
+          await jobs.create(buildMultiPagePdf(1), 'manual', automatic: false);
+      final automatic =
+          await jobs.create(buildMultiPagePdf(2), 'automatic', automatic: true);
+      var enabled = true;
+      final resumed = <String>[];
+      final ocr = OnDeviceOcr(
+          jobs: jobs,
+          runJob: (_, job, {onProgress, shouldPause}) async {
+            resumed.add(job.id);
+            enabled = false;
+          });
+      try {
+        await ocr.recover(context,
+            automaticEnabled: () => enabled,
+            onToast: (_) {},
+            onComplete: (_, __) {});
+        expect(resumed, [manual.id]);
+        expect((await jobs.read(automatic.id))!.state, OcrJobState.pending);
+      } finally {
+        ocr.dispose();
+      }
+    });
+  });
+
+  testWidgets('completed automatic results remain recoverable while off',
+      (tester) async {
+    await mount(tester);
+    await tester.runAsync(() async {
+      final job =
+          await jobs.create(buildMultiPagePdf(1), 'finished', automatic: true);
+      await jobs.run(job,
+          recognize: (_) async => [],
+          finish: (spans) => assemble(jobs, job, spans));
+      expect((await jobs.read(job.id))!.state, OcrJobState.complete);
+      Uint8List? output;
+      final ocr = OnDeviceOcr(
+          jobs: jobs,
+          runJob: (_, __, {onProgress, shouldPause}) async =>
+              fail('completed recognition must not run again'));
+      try {
+        await ocr.recover(context,
+            automaticEnabled: () => false,
+            onToast: (_) {},
+            onComplete: (bytes, _) => output = bytes);
+        expect(output, isNotNull);
+        await ocr.acknowledgeResult(output!);
+        expect(await jobs.list(), isEmpty);
+      } finally {
+        ocr.dispose();
+      }
+    });
+  });
+
   testWidgets('cancelled jobs are discarded, failed jobs await explicit retry',
       (tester) async {
     await mount(tester);

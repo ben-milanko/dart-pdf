@@ -25,7 +25,9 @@ import 'devtools.dart';
 import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'doc_scan.dart';
+import 'document_library.dart';
 import 'document_tab.dart';
+import 'document_tabs.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
@@ -153,6 +155,8 @@ class EditorScreen extends StatefulWidget {
     this.imageClipboardReader,
     this.textClipboardReader,
     this.unsavedChangesStore,
+    this.sessionStore,
+    this.pdfSnapshots,
     this.documentScanner,
     this.onNewWindow,
     this.tabDragCoordinator,
@@ -266,6 +270,14 @@ class EditorScreen extends StatefulWidget {
   /// ([openUnsavedChangesStore]).
   final UnsavedChangesStore? unsavedChangesStore;
 
+  /// Overrides where the open documents are remembered for the next launch;
+  /// production leaves this null for [SessionStore].
+  final SessionPersistence? sessionStore;
+
+  /// Overrides the private snapshots that make a path-less pick reopenable;
+  /// production leaves this null for [PlatformPdfSnapshots].
+  final PdfSnapshotStore? pdfSnapshots;
+
   /// Overrides the device document scanner behind "Scan to new document" and
   /// "Insert scan". Tests inject a fake that returns a known PDF so the menu
   /// wiring can run without the native ML Kit / VisionKit channels. Production
@@ -320,6 +332,10 @@ class _EditorScreenState extends State<EditorScreen>
     implements TabDragWindow, PageDropWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  // A repeated shortcut must not open competing save dialogs/share sheets for
+  // one tab. Other documents can still save independently.
+  final Set<DocumentTab> _savingTabs = {};
+
   /// This window's view mode (pages / reflow / page grid).
   ///
   /// The preferences are process-wide - every window shares the one instance
@@ -342,7 +358,21 @@ class _EditorScreenState extends State<EditorScreen>
   final _recents = RecentsStore();
   late final _recentThumbnails =
       widget.recentThumbnails ?? RecentThumbnailCache();
-  final _session = SessionStore();
+
+  /// The session, Recent files and snapshot persistence of the open tabs.
+  late final DocumentLibrary _library;
+
+  DocumentLibrary _createLibrary() => DocumentLibrary(
+        tabs: _tabsModel,
+        session: widget.sessionStore ?? SessionStore(),
+        recents: _recents,
+        snapshots: widget.pdfSnapshots ?? const PlatformPdfSnapshots(),
+        persistsSession: widget.ownsApplicationSession,
+        // every tab-set change is also where the crash-recovery mirror learns
+        // which documents to watch; it runs ahead of the session-load gate, so a
+        // document opened before the last session is read back is still covered
+        onTabsChanged: _autosave.syncTracking,
+      )..onPruned = _retainRecentThumbnails;
 
   /// Mirrors dirty documents to durable storage (a private directory on
   /// native, IndexedDB on the web) so a crash never costs unsaved work, and
@@ -362,23 +392,44 @@ class _EditorScreenState extends State<EditorScreen>
   /// Gates session persistence until the previous session has been read back,
   /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
   /// before [_restoreSession] has had a chance to re-open it.
-  bool _sessionLoaded = false;
+  bool get _sessionLoaded => _library.sessionLoaded;
 
   /// True while [_restoreSession] is re-adding the last session's tabs, so a
   /// restored path-only tab that is briefly active mid-restore does not start
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
 
-  /// How many tabs at the head of [_tabs] were put there by startup restore
-  /// (recovered unsaved work, then the last session's documents).
-  ///
-  /// Restore races the OS file-open that launched the app: on macOS the file
-  /// arrives on the warm `openFile` stream whenever the runner finishes
-  /// building its payload, which can land before, during, or after the store
-  /// read. Restored tabs therefore slot in at this index rather than at the
-  /// end, so the document the user actually double-clicked stays last in the
-  /// strip - and keeps focus (see [_addTab]).
-  int _restoredTabs = 0;
+  /// The open tabs and which one is active. Every change notifies
+  /// [_onTabsChanged], which rebuilds and persists the session.
+  late final DocumentTabs _tabsModel = DocumentTabs()
+    ..addListener(_onTabsChanged);
+
+  List<DocumentTab> get _tabs => _tabsModel.tabs;
+  int get _activeIndex => _tabsModel.activeIndex;
+
+  void _onTabsChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _advanceActiveTab();
+  }
+
+  /// Starts what the tab now on screen still needs, once: parsing a deferred
+  /// tab, opening a restored path-only one, or the automatic OCR check of a
+  /// document. Both opens are held while the session is still restoring -
+  /// each restored tab is briefly the active one as it is added - so only the
+  /// tab left active when restore finishes opens.
+  void _advanceActiveTab() {
+    final tab = _active;
+    if (tab == null) return;
+    if (tab.isDeferredPath || tab.isDeferred) {
+      if (_restoringSession) return;
+      tab.isDeferredPath
+          ? _materializeDeferredPath(tab)
+          : _materializeDeferred(tab);
+    } else if (tab.session != null) {
+      _maybeAutoOcr(tab);
+    }
+  }
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
@@ -409,8 +460,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// insertion marker says everything, so the full-window hint steps aside.
   bool _draggingOverThumbnails = false;
 
-  final List<DocumentTab> _tabs = [];
-  int _activeIndex = 0;
   // The tab strip's context, for its on-screen geometry. Not a GlobalKey:
   // the strip lives in the app bar, which an editable document draws inside
   // the editor (one header) and any other tab in the Scaffold - switching
@@ -456,8 +505,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// True while the command palette is up, so ⌘K can't stack copies.
   bool _paletteOpen = false;
 
-  DocumentTab? get _active =>
-      _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
+  DocumentTab? get _active => _tabsModel.active;
 
   /// Whole-app read-only toggle: swaps [PdfEditorView] for [PdfReader].
   bool _readOnly = false;
@@ -472,13 +520,14 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void initState() {
     super.initState();
+    _library = _createLibrary();
     PdfAnnotationSnapshotClipboard.instance.addListener(_onLocalAnnotationCopy);
     WidgetsBinding.instance.addObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
     }
     _recents.load().then((_) {
-      if (mounted) _pruneRecentCache();
+      if (mounted) unawaited(_library.prune());
     });
     if (widget.ownsApplicationSession) {
       // One process-wide owner receives OS file-open events. Method channels
@@ -741,6 +790,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    _library.dispose();
     _devToolsOpen.dispose();
     PdfAnnotationSnapshotClipboard.instance
         .removeListener(_onLocalAnnotationCopy);
@@ -761,9 +811,9 @@ class _EditorScreenState extends State<EditorScreen>
     // Detaches only - the mirrored records stay, so an editor torn down with
     // dirty tabs (a crash, a forced quit) can still hand the work back.
     _autosave.dispose();
-    for (final tab in _tabs) {
-      tab.dispose();
-    }
+    _tabsModel
+      ..removeListener(_onTabsChanged)
+      ..dispose();
     _recents.dispose();
     if (widget.recentThumbnails == null) _recentThumbnails.dispose();
     _viewMode.dispose();
@@ -843,12 +893,12 @@ class _EditorScreenState extends State<EditorScreen>
     // paths already open).
     await _recoverUnsavedChanges();
     if (!mounted) return;
-    final documents = await _session.load();
+    final documents = await _library.session.load();
     if (mounted && !_hasExplicitLaunchTarget) {
       // Suppress lazy materialization while restoring: each tab is briefly the
       // active one as it is added, and we don't want every restored file to
       // start opening. Only the tab left active when restore finishes should
-      // materialize (see _buildBody / _materializeDeferredPath).
+      // materialize (see _advanceActiveTab).
       _restoringSession = true;
       final unavailable = <String>[];
       try {
@@ -867,14 +917,14 @@ class _EditorScreenState extends State<EditorScreen>
       }
       if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
       // Let the tab left active materialize now that restore is done.
-      if (mounted) setState(() {});
+      if (mounted) _advanceActiveTab();
     }
     if (mounted) {
-      setState(() => _sessionLoaded = true);
+      setState(() => _library.sessionLoaded = true);
     } else {
-      _sessionLoaded = true;
+      _library.sessionLoaded = true;
     }
-    unawaited(_persistSession());
+    unawaited(_library.persist());
   }
 
   /// Re-opens the documents that had unsaved edits when the app last went
@@ -900,17 +950,8 @@ class _EditorScreenState extends State<EditorScreen>
       final liveCachePath =
           cachePath == null ? null : await resolveCachedPdfKey(cachePath);
       if (!mounted) return;
-      final tab = DocumentTab.document(
-        title: record.title,
-        bytes: doc.bytes,
-        preferences: _prefs,
-        originPath: record.originPath.isEmpty ? null : record.originPath,
-        originBookmark: record.originBookmark,
-        cachePath: liveCachePath ?? cachePath,
-        // Comes back dirty exactly as it was: the baseline is what had been
-        // written to the real destination, not the revision we recovered.
-        savedLength: record.savedLength,
-      );
+      final tab = DocumentTab.recovered(doc,
+          preferences: _prefs, cachePath: liveCachePath);
       // Adopt the existing record *before* the tab is tracked by the usual
       // open path, so continued editing appends to it instead of mirroring the
       // whole document again under a fresh id.
@@ -1028,52 +1069,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// Persists the current open set (file-backed tabs, in order) so the next
   /// launch can restore it. A no-op until the previous session has been read
   /// back, so early opens can't clobber the stored set before [_restoreSession].
-  Future<void> _persistSession() async {
-    // Every tab-set mutation lands here, so this is also where the crash-
-    // recovery mirror learns which documents it should be watching. It runs
-    // ahead of the session-load gate below: a document opened before the last
-    // session has been read back still deserves its unsaved edits protected.
-    _autosave.syncTracking(_tabs);
-    if (!widget.ownsApplicationSession || !_sessionLoaded) return;
-    final documents = <SessionDocument>[];
-    final seen = <String>{};
-    for (final tab in _tabs) {
-      final path = tab.originPath;
-      final cachePath = tab.cachePath;
-      // Track by the writable origin (desktop) or the private snapshot
-      // (mobile file cache / web IndexedDB); tabs with neither (a derived or
-      // comparison tab, or a web pick whose snapshot failed) can't be read back
-      // and are skipped.
-      final key = (path != null && path.isNotEmpty) ? path : cachePath;
-      if (key == null || key.isEmpty || !seen.add(key)) continue;
-      documents.add(SessionDocument(
-          title: tab.title,
-          path: path ?? '',
-          cachePath: cachePath,
-          bookmark: tab.originBookmark));
-    }
-    await _session.save(documents);
-  }
-
-  /// Serializes snapshot writes plus their Recent updates against pruning.
-  Future<void> _recentCacheWork = Future<void>.value();
-
-  /// Prunes unreferenced snapshots/thumbnails and enforces the web byte budget.
-  void _pruneRecentCache() {
-    _recentCacheWork = _recentCacheWork.then((_) => _pruneRecentCacheNow());
-  }
-
-  Future<void> _pruneRecentCacheNow() async {
+  /// Keeps the thumbnails of Recent entries and open tabs after a prune.
+  void _retainRecentThumbnails() {
     if (!mounted) return;
-    final keep = {
-      for (final entry in _recents.items)
-        if (entry.cachePath != null) entry.cachePath!,
-    };
-    final available = await pruneCachedPdfs(keep);
-    if (!mounted) return;
-    if (available != null) {
-      await _recents.updateCachedAvailability(keep, available);
-    }
     unawaited(_recentThumbnails.retain([
       ..._recents.items,
       for (final tab in _tabs)
@@ -1117,35 +1115,19 @@ class _EditorScreenState extends State<EditorScreen>
     insertTab(handoff, _tabs.length);
   }
 
-  DocumentTab _tabFromHandoff(DocumentHandoff handoff) => DocumentTab.document(
-        title: handoff.title,
-        bytes: handoff.bytes,
-        preferences: _prefs,
-        originPath: handoff.originPath,
-        originBookmark: handoff.originBookmark,
-        originToken: handoff.originToken,
-        cachePath: handoff.cachePath,
-        savedLength: handoff.savedLength,
-      );
-
   @override
   bool insertTab(DocumentHandoff handoff, int insertionIndex) {
     if (!mounted) return false;
     try {
-      final tab = _tabFromHandoff(handoff);
-      final index = insertionIndex.clamp(0, _tabs.length).toInt();
-      setState(() {
-        _heldTabWidth = null;
-        _tabs.insert(index, tab);
-        _activeIndex = index;
-      });
+      final tab = DocumentTab.fromHandoff(handoff, preferences: _prefs);
+      _heldTabWidth = null;
+      _tabsModel.insert(insertionIndex, tab);
       _recents.add(
         title: handoff.title,
         path: handoff.originPath,
         cachePath: handoff.cachePath,
         bookmark: handoff.originBookmark,
       );
-      unawaited(_persistSession());
       return true;
     } catch (error) {
       AppDevTools.instance.addLog(
@@ -1280,32 +1262,12 @@ class _EditorScreenState extends State<EditorScreen>
     return 0;
   }
 
-  /// Adds [tab] to the strip and makes it active.
-  ///
-  /// A tab added by startup restore ([restored]) is the exception on both
-  /// counts: it joins the restored block at the head of the strip instead of
-  /// the end, and it takes focus only while nothing else is open. A document
-  /// the user asked for - the file the OS launched us with - keeps its place
-  /// at the end and stays the one on screen, whichever order the two
-  /// asynchronous sources happen to resolve in.
+  /// Adds [tab] to the strip and makes it active - or, from startup restore
+  /// ([restored]), to the restored block (see [DocumentTabs.add]).
   void _addTab(DocumentTab tab, {bool restored = false}) {
-    setState(() {
-      // A new tab shrinks the others to fit; drop any close-streak width hold.
-      _heldTabWidth = null;
-      if (!restored) {
-        _tabs.add(tab);
-        _activeIndex = _tabs.length - 1;
-        return;
-      }
-      final at = _restoredTabs.clamp(0, _tabs.length);
-      // Anything at or past the restored block was opened explicitly this
-      // launch; if one of those is active it stays active, just shifted along.
-      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
-      _tabs.insert(at, tab);
-      _restoredTabs = at + 1;
-      _activeIndex = userTabActive ? _activeIndex + 1 : at;
-    });
-    unawaited(_persistSession());
+    // A new tab shrinks the others to fit; drop any close-streak width hold.
+    _heldTabWidth = null;
+    _tabsModel.add(tab, restored: restored);
   }
 
   /// Releases the close-streak width hold, letting the tabs animate back out to
@@ -1331,21 +1293,12 @@ class _EditorScreenState extends State<EditorScreen>
     return tab;
   }
 
-  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
-    final index = _tabs.indexOf(loading);
-    if (index == -1) {
-      replacement.dispose();
-      return false;
-    }
-    // Swap in place, leaving the selection alone: the placeholder is normally
-    // the active tab already, and when it isn't - a session restore finishing
-    // behind the file the OS launched us with - stealing focus here would undo
-    // the ordering _addTab just got right.
-    setState(() => _tabs[index] = replacement);
-    loading.dispose();
-    unawaited(_persistSession());
-    return true;
-  }
+  // Swaps in place, leaving the selection alone: the placeholder is normally
+  // the active tab already, and when it isn't - a session restore finishing
+  // behind the file the OS launched us with - stealing focus here would undo
+  // the ordering _addTab just got right.
+  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) =>
+      _tabsModel.replace(loading, replacement);
 
   Future<void> _openLoadedBytes(
     Future<Uint8List> bytesFuture, {
@@ -1405,18 +1358,9 @@ class _EditorScreenState extends State<EditorScreen>
       final opened = _replaceLoadingTab(loading, tab);
       AppDevTools.instance.addLog(
           'open-trace: "$title" tab ${opened ? "shown" : "replace-skipped"}');
-      if (opened) {
-        // With a reusable file origin (desktop) or no writable store (web),
-        // record the recent right away. Without one (mobile), snapshot the
-        // bytes off the open hot path - awaiting the disk write here would hold
-        // the loading placeholder up - and record the recent once it lands.
-        if (originPath == null && canCacheRecentPdfs) {
-          unawaited(_snapshotOpenedDocument(tab, bytes));
-        } else {
-          _recents.add(
-              title: title, path: originPath, bookmark: originBookmark);
-        }
-      }
+      // Off the open hot path: a mobile snapshot's disk write must not hold
+      // the loading placeholder up.
+      if (opened) unawaited(_library.recordOpened(tab, bytes));
     } catch (e) {
       if (!mounted) return;
       _replaceLoadingTab(
@@ -1427,35 +1371,6 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       );
     }
-  }
-
-  /// Snapshots a just-opened mobile document's [bytes] into the app's private
-  /// store so it can reopen from Recent / restore next launch without a fresh
-  /// pick, then records the recent (and re-persists the session) once the
-  /// snapshot is on disk. Runs off the open hot path - the tab is already
-  /// visible - so a slow disk write never blocks the loading placeholder.
-  Future<void> _snapshotOpenedDocument(DocumentTab tab, Uint8List bytes) {
-    // A prune must not delete a snapshot between its write and its Recent add.
-    return _recentCacheWork = _recentCacheWork.then((_) async {
-      await _snapshotOpenedDocumentNow(tab, bytes);
-      await _pruneRecentCacheNow();
-    });
-  }
-
-  Future<void> _snapshotOpenedDocumentNow(
-      DocumentTab tab, Uint8List bytes) async {
-    if (!mounted || !_tabs.contains(tab)) return;
-    final cachePath = await cacheOpenedPdf(bytes);
-    if (!mounted || !_tabs.contains(tab)) return;
-    if (cachePath == null) {
-      // The snapshot failed: still record a (non-reopenable) recent.
-      await _recents.add(title: tab.title, bookmark: tab.originBookmark);
-      return;
-    }
-    tab.cachePath = cachePath;
-    await _recents.add(
-        title: tab.title, cachePath: cachePath, bookmark: tab.originBookmark);
-    unawaited(_persistSession());
   }
 
   /// Builds the edit session for a [DocumentTab.deferred] tab the first time
@@ -1469,25 +1384,15 @@ class _EditorScreenState extends State<EditorScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
-      if (index == -1 || bytes == null) return;
+      if (!_tabsModel.contains(tab) || bytes == null) return;
       AppDevTools.instance
           .addLog('open-trace: materializing deferred "${tab.title}" '
               '— building session over ${bytes.length} B');
-      final built = DocumentTab.document(
-        title: tab.title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: tab.originPath,
-        originBookmark: tab.originBookmark,
-        cachePath: tab.cachePath,
-      );
-      setState(() => _tabs[index] = built);
+      _tabsModel.replace(
+          tab, DocumentTab.promoted(tab, bytes: bytes, preferences: _prefs));
       AppDevTools.instance.addLog(
           'open-trace: materialized deferred "${tab.title}" — session ready');
-      tab.dispose();
-      unawaited(_persistSession());
     });
   }
 
@@ -1863,13 +1768,13 @@ class _EditorScreenState extends State<EditorScreen>
         _swapPreviewToDocument(preview, full);
       } catch (error2) {
         if (!mounted) return;
-        final index = _tabs.indexOf(preview);
-        if (index == -1) return;
-        setState(() => _tabs[index] = DocumentTab.error(
+        if (!_tabsModel.contains(preview)) return;
+        _tabsModel.replace(
+            preview,
+            DocumentTab.error(
               title: preview.title,
               error: _openFailureDetail(preview.title, error2),
             ));
-        preview.dispose();
       }
     }
   }
@@ -1878,33 +1783,19 @@ class _EditorScreenState extends State<EditorScreen>
   /// from the complete [bytes], in place (keeping the tab's position and, if it
   /// is active, focus). Returns false if the tab was closed meanwhile.
   bool _swapPreviewToDocument(DocumentTab preview, Uint8List bytes) {
-    final index = _tabs.indexOf(preview);
-    if (index == -1) return false;
-    final built = DocumentTab.document(
-      title: preview.title,
-      bytes: bytes,
-      preferences: _prefs,
-      originPath: preview.originPath,
-      originBookmark: preview.originBookmark,
-      cachePath: preview.cachePath,
-    );
-    setState(() => _tabs[index] = built);
+    if (!_tabsModel.contains(preview)) return false;
+    final built =
+        DocumentTab.promoted(preview, bytes: bytes, preferences: _prefs);
+    // The preview's live viewer is disposed only after this frame swaps the
+    // read-only PdfReader out of the tree - disposing its controller while the
+    // widget is still mounted would fault its in-flight render.
+    _tabsModel.replace(preview, built);
     // A mobile progressive open (#364) has no reopenable origin - the reference
     // token dies with the pick - so snapshot the now-complete bytes into the
     // app's private store, behind the first paint, so Recent/restore reopen
     // from the local copy instead of re-picking. Desktop keeps its path/bookmark
     // origin and needs no snapshot.
-    if (preview.originToken != null &&
-        preview.originPath == null &&
-        preview.cachePath == null &&
-        canCacheRecentPdfs) {
-      unawaited(_snapshotOpenedDocument(built, bytes));
-    }
-    // Dispose the preview's live viewer only after this frame swaps the
-    // read-only PdfReader out of the tree - disposing its controller while the
-    // widget is still mounted would fault its in-flight render.
-    WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
-    unawaited(_persistSession());
+    unawaited(_library.snapshotIfUnbacked(built, bytes));
     return true;
   }
 
@@ -1937,20 +1828,9 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: cachePath,
       );
       final opened = _replaceLoadingTab(loading, built);
-      if (opened) {
-        // With a reusable file origin (desktop) record the recent directly;
-        // a mobile pick (no path) snapshots the bytes so Recent/restore reopen
-        // from the local copy - the same reopen path a plain mobile open takes.
-        if (path != null || !canCacheRecentPdfs) {
-          _recents.add(
-              title: title,
-              path: path,
-              cachePath: cachePath,
-              bookmark: bookmark);
-        } else {
-          unawaited(_snapshotOpenedDocument(built, whole));
-        }
-      }
+      // a mobile pick (no path) snapshots the bytes so Recent/restore reopen
+      // from the local copy - the same reopen path a plain mobile open takes
+      if (opened) unawaited(_library.recordOpened(built, whole));
     } catch (error) {
       if (!mounted) return;
       final handled = onOpenFailed?.call(error) ?? false;
@@ -2307,20 +2187,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        final tab = _tabs[existing];
-        // Only a restored tab the user has never opened moves: it is still a
-        // placeholder, so re-slotting it is invisible. A document already on
-        // its feet keeps its place - the user put it there.
-        final move = existing < _restoredTabs &&
-            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
-        setState(() {
-          if (move) {
-            _restoredTabs--;
-            _tabs.add(_tabs.removeAt(existing));
-          }
-          _activeIndex = move ? _tabs.length - 1 : existing;
-        });
-        if (move) unawaited(_persistSession());
+        _tabsModel.focusOpened(_tabs[existing]);
         return;
       }
     }
@@ -2707,7 +2574,7 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: entry.cachePath,
         onOpenFailed: (_) {
           unawaited(_recents.remove(entry.id));
-          _pruneRecentCache();
+          unawaited(_library.prune());
           _toast(appL10n(context)
               .editorCouldNotReopen(pdfDisplayName(entry.title)));
           return true;
@@ -2749,7 +2616,7 @@ class _EditorScreenState extends State<EditorScreen>
       } else {
         await _recents.remove(entry.id);
       }
-      _pruneRecentCache();
+      unawaited(_library.prune());
       if (!mounted) return;
       AppDevTools.instance.addLog(
         'recent open failed: ${entry.title} - $e',
@@ -2791,7 +2658,7 @@ class _EditorScreenState extends State<EditorScreen>
       } else {
         await _recents.remove(entry.id);
       }
-      _pruneRecentCache();
+      unawaited(_library.prune());
       if (!mounted) return;
       _toast(
           appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
@@ -2878,14 +2745,11 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final other = await pickPdfBytes(l10n.fileTypePdf);
       if (other == null) return;
-      setState(() {
-        _tabs.add(DocumentTab.comparison(
-          title: l10n.editorCompareTitle(tab!.title),
-          before: current,
-          after: other,
-        ));
-        _activeIndex = _tabs.length - 1;
-      });
+      _tabsModel.add(DocumentTab.comparison(
+        title: l10n.editorCompareTitle(tab!.title),
+        before: current,
+        after: other,
+      ));
     } catch (e) {
       _openError(l10n.editorCompareFailedTitle,
           l10n.editorCouldNotOpenSecond(openErrorSummary(e)));
@@ -2897,20 +2761,25 @@ class _EditorScreenState extends State<EditorScreen>
   /// downloads once on first use; OCR runs in the open app (progress in
   /// the app bar, cancellable) so the user keeps interacting with the PDF.
   /// The result opens in a new tab; the original is left untouched.
-  void _recoverOcr() {
-    unawaited(_ocr.recover(context, onToast: (message) {
-      if (mounted) _toast(message);
-    }, onComplete: (result, title) {
-      if (mounted) unawaited(_openOcrResult(result, title));
-    }));
+  Future<void> _recoverOcr() async {
+    await _autoOcr.load();
+    if (!mounted) return;
+    await _ocr.recover(context,
+        automaticEnabled: () => _autoOcr.value,
+        onToast: (message) {
+          if (mounted) _toast(message);
+        },
+        onComplete: (result, title) {
+          if (mounted) unawaited(_openOcrResult(result, title));
+        });
   }
 
   Future<void> _openOcrResult(Uint8List result, String title) async {
     _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
-    await _snapshotOpenedDocument(tab, result);
-    await _persistSession();
+    await _library.snapshot(tab, result);
+    await _library.persist();
     // Never discard a completed job just because its tab was displayed. The
     // result stays recoverable until the replacement snapshot is saved.
     if (mounted && tab.cachePath != null) await _ocr.acknowledgeResult(result);
@@ -3064,7 +2933,6 @@ class _EditorScreenState extends State<EditorScreen>
   /// Removes tabs after their contents have either been discarded or handed
   /// safely to another window.
   void _removeTabs(List<DocumentTab> targets) {
-    final active = _active;
     // Chrome-style width hold: while the cursor is over the strip, keep the
     // surviving tabs at their current width so the next close button lands
     // under the cursor. `??=` preserves the width from the first close of a
@@ -3072,30 +2940,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (_tabStripHovered && _lastNaturalTabWidth > 0) {
       _heldTabWidth ??= _lastNaturalTabWidth;
     }
-    setState(() {
-      for (final tab in targets) {
-        final index = _tabs.indexOf(tab);
-        if (index == -1) continue;
-        // Keep the restored-block count honest: a session document whose file
-        // has vanished drops its placeholder mid-restore.
-        if (index < _restoredTabs) _restoredTabs--;
-        _tabs.removeAt(index);
-      }
-      // Keep the previously active document active when it survived.
-      final keep = active == null ? -1 : _tabs.indexOf(active);
-      if (keep >= 0) {
-        _activeIndex = keep;
-      } else {
-        if (_activeIndex >= _tabs.length) _activeIndex = _tabs.length - 1;
-        if (_activeIndex < 0) _activeIndex = 0;
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final tab in targets) {
-        tab.dispose();
-      }
-    });
-    unawaited(_persistSession());
+    _tabsModel.remove(targets);
   }
 
   void _moveTabToNewWindow(DocumentTab tab) {
@@ -3239,75 +3084,84 @@ class _EditorScreenState extends State<EditorScreen>
   /// prompts for a location (save dialog / browser download / share sheet).
   /// An in-place write that fails (e.g. permissions) falls back to save-as.
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    FocusManager.instance.applyFocusChangesIfNeeded();
-    tab.session?.finishInk();
-    final session = tab.session;
-    if (session == null) return;
-    // the file on disk may carry the page colour; the session never does,
-    // so the next save bakes over the same base again
-    final bytes = _withBakedPageColor(session.bytes, source: session.document);
-    final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
-    final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
-    var result = inPlace
-        ? await saveToPath(
-            bytes,
-            tab.originPath!,
-            bookmark: tab.originBookmark,
-          )
-        : await _saveAsDocument(context, bytes, tab.title);
-    if (!mounted) return;
-    if (inPlace && !result.succeeded) {
-      // The origin couldn't be written (moved, read-only) - say so, then offer
-      // save-as rather than stopping at the error. The edits stay in the tab
-      // either way.
-      AppDevTools.instance.addLog(
-          'in-place save failed: ${tab.title} - ${result.message}',
-          level: DevLogLevel.error);
-      _toast(
-        appL10n(context).editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
-        duration: const Duration(seconds: 5),
-      );
-      result = await _saveAsDocument(context, bytes, tab.title);
-      if (!mounted) return;
-    }
-    if (result.succeeded) {
-      final path = result.path;
-      final existingBookmark =
-          path != null && path == tab.originPath ? tab.originBookmark : null;
-      final bookmark = path == null
-          ? null
-          : (await securityBookmarkForPath(path)) ?? existingBookmark;
-      if (!mounted) return;
-      setState(() {
-        tab.markSaved();
-        if (path != null) {
-          tab.title = path.split(RegExp(r'[/\\]')).last;
-          tab.originPath = path;
-          tab.originBookmark = bookmark;
-          // A stable Save As destination supersedes a private mobile/open
-          // snapshot. Session restore and future Save now follow the new file.
-          tab.cachePath = null;
+    if (!_savingTabs.add(tab)) return;
+    try {
+      FocusManager.instance.primaryFocus?.unfocus();
+      FocusManager.instance.applyFocusChangesIfNeeded();
+      tab.session?.finishInk();
+      final session = tab.session;
+      if (session == null) return;
+      // the file on disk may carry the page colour; the session never does,
+      // so the next save bakes over the same base again
+      final savedLength = session.bytes.length;
+      final bytes =
+          _withBakedPageColor(session.bytes, source: session.document);
+      final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
+      final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
+      var result = inPlace
+          ? await saveToPath(
+              bytes,
+              tab.originPath!,
+              bookmark: tab.originBookmark,
+            )
+          : await _saveAsDocument(context, bytes, tab.title);
+      if (!mounted || !_tabs.contains(tab)) return;
+      if (inPlace && !result.succeeded) {
+        // The origin couldn't be written (moved, read-only) - say so, then offer
+        // save-as rather than stopping at the error. The edits stay in the tab
+        // either way.
+        AppDevTools.instance.addLog(
+            'in-place save failed: ${tab.title} - ${result.message}',
+            level: DevLogLevel.error);
+        _toast(
+          appL10n(context)
+              .editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
+          duration: const Duration(seconds: 5),
+        );
+        result = await _saveAsDocument(context, bytes, tab.title);
+        if (!mounted || !_tabs.contains(tab)) return;
+      }
+      if (result.succeeded) {
+        final path = result.path;
+        final existingBookmark =
+            path != null && path == tab.originPath ? tab.originBookmark : null;
+        final bookmark = path == null
+            ? null
+            : (await securityBookmarkForPath(path)) ?? existingBookmark;
+        if (!mounted || !_tabs.contains(tab)) return;
+        setState(() {
+          tab.markSaved(length: savedLength);
+          if (path != null) {
+            tab.title = path.split(RegExp(r'[/\\]')).last;
+            tab.originPath = path;
+            tab.originBookmark = bookmark;
+            // A stable Save As destination supersedes a private mobile/open
+            // snapshot. Session restore and future Save now follow the new file.
+            tab.cachePath = null;
+          }
+        });
+        // Saving does not notify the edit session. Reconcile the mirror with
+        // the acknowledged revision; edits made since it stay protected.
+        unawaited(_autosave.noteSaved(tab));
+        final thumbnailEntry = _tabThumbnailEntry(tab);
+        if (thumbnailEntry != null) {
+          // The stored thumbnail follows the file: a restored tab and the
+          // Recent files list re-render the saved revision next time.
+          unawaited(_recentThumbnails.invalidate(thumbnailEntry));
         }
-      });
-      // Saving never touches the edit session, so nothing notifies the mirror -
-      // tell it directly. The bytes are on the user's own disk now and the
-      // recovery copy has nothing left to protect.
-      unawaited(_autosave.noteSaved(tab));
-      final thumbnailEntry = _tabThumbnailEntry(tab);
-      if (thumbnailEntry != null) {
-        // The stored thumbnail follows the file: a restored tab and the
-        // Recent files list re-render the saved revision next time.
-        unawaited(_recentThumbnails.invalidate(thumbnailEntry));
+        if (path != null) {
+          _recents.add(
+              title: tab.title, path: path, bookmark: tab.originBookmark);
+          // A Save As gave the tab a reusable origin - remember it for next time.
+          unawaited(_library.persist());
+        }
       }
-      if (path != null) {
-        _recents.add(
-            title: tab.title, path: path, bookmark: tab.originBookmark);
-        // A Save As gave the tab a reusable origin - remember it for next time.
-        unawaited(_persistSession());
-      }
+      if (result.message != null) _toast(result.message!);
+    } catch (error) {
+      if (mounted) _toast(SaveResult.failed(error).message!);
+    } finally {
+      _savingTabs.remove(tab);
     }
-    if (result.message != null) _toast(result.message!);
   }
 
   /// [bytes] as they should reach a file: with the page colour painted
@@ -3431,16 +3285,17 @@ class _EditorScreenState extends State<EditorScreen>
     final oldTitle = tab.title;
     setState(() => tab.title = name);
     _autosave.noteMetadataChanged(tab);
-    unawaited(_persistSession());
+    unawaited(_library.persist());
     // Update existing metadata immediately. A pending initial snapshot reads
     // tab.title when it records its Recent entry, so it also gets the new name.
     unawaited(_recents.rename(
         tab.originPath ?? tab.cachePath ?? oldTitle, tab.title));
-    if (tab.originPath == null && tab.cachePath == null && canCacheRecentPdfs) {
-      // New scans have no source snapshot yet. Give the renamed copy a
-      // reusable source for Recent files and session restoration too.
-      await _snapshotOpenedDocument(tab, tab.session!.bytes);
-      if (mounted && _tabs.contains(tab)) _autosave.noteMetadataChanged(tab);
+    // New scans have no source snapshot yet. Give the renamed copy a
+    // reusable source for Recent files and session restoration too.
+    if (await _library.snapshotIfUnbacked(tab, tab.session!.bytes) &&
+        mounted &&
+        _tabs.contains(tab)) {
+      _autosave.noteMetadataChanged(tab);
     }
   }
 
@@ -4019,13 +3874,14 @@ class _EditorScreenState extends State<EditorScreen>
                 const Icon(Icons.arrow_right),
               ],
             ));
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
     return [
-      PopupMenuItem<VoidCallback>(
+      _SubmenuMenuItem(
+        key: const ValueKey('open-recent-submenu'),
         height: _appMenuItemHeight(),
-        value: () {},
-        padding: EdgeInsets.zero,
+        open: () => buttonKey.currentState?.showButtonMenu(),
         child: PopupMenuButton<VoidCallback>(
-          key: const ValueKey('open-recent-submenu'),
+          key: buttonKey,
           tooltip: appL10n(context).editorOpenRecent,
           onSelected: (action) {
             action();
@@ -4115,33 +3971,35 @@ class _EditorScreenState extends State<EditorScreen>
     required IconData icon,
     required String title,
     required List<PopupMenuEntry<VoidCallback>> items,
-  }) =>
-      PopupMenuItem<VoidCallback>(
-        height: _appMenuItemHeight(),
-        value: () {},
-        padding: EdgeInsets.zero,
-        child: PopupMenuButton<VoidCallback>(
-          key: ValueKey('menu-group-$id'),
-          tooltip: title,
-          onSelected: (action) {
-            if (Navigator.of(menuContext).canPop()) {
-              Navigator.of(menuContext).pop();
-            }
-            action();
-          },
-          itemBuilder: (_) => items,
-          // as Open Recent: no item padding so the button fills the row,
-          // the content inset to line up with the plain rows
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _appMenuTile(
-              icon: icon,
-              title: title,
-              trailing: const Icon(Icons.arrow_right),
-            ),
+  }) {
+    final buttonKey = GlobalKey<PopupMenuButtonState<VoidCallback>>();
+    return _SubmenuMenuItem(
+      key: ValueKey('menu-group-$id'),
+      height: _appMenuItemHeight(),
+      open: () => buttonKey.currentState?.showButtonMenu(),
+      child: PopupMenuButton<VoidCallback>(
+        key: buttonKey,
+        tooltip: title,
+        onSelected: (action) {
+          if (Navigator.of(menuContext).canPop()) {
+            Navigator.of(menuContext).pop();
+          }
+          action();
+        },
+        itemBuilder: (_) => items,
+        // as Open Recent: no item padding so the button fills the row,
+        // the content inset to line up with the plain rows
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: _appMenuTile(
+            icon: icon,
+            title: title,
+            trailing: const Icon(Icons.arrow_right),
           ),
         ),
-      );
+      ),
+    );
+  }
 
   /// The app menu's plain rows, grouped by the section they belong to.
   ///
@@ -4484,6 +4342,12 @@ class _EditorScreenState extends State<EditorScreen>
     final session = tab?.session;
     final hasDocument = session != null;
     final commands = <AppCommand>[];
+    List<String> searchTerms(String id) => switch (id) {
+          'menu-reduce-file-size' => l.paletteTermsReduceFileSize.split(';'),
+          'tool-freeText' => l.paletteTermsAddText.split(';'),
+          'tool-signature' => l.paletteTermsSignature.split(';'),
+          _ => const [],
+        };
 
     for (final action in [
       ..._fileActions(),
@@ -4494,6 +4358,7 @@ class _EditorScreenState extends State<EditorScreen>
       final blockedByReadOnly = action.hiddenWhenReadOnly && _readOnly;
       commands.add(AppCommand(
         id: 'menu-${action.id}',
+        searchTerms: searchTerms('menu-${action.id}'),
         label: action.title,
         icon: action.icon,
         source: l.paletteSourceMenu,
@@ -4550,6 +4415,7 @@ class _EditorScreenState extends State<EditorScreen>
         final blocked = tool && _readOnly;
         commands.add(AppCommand(
           id: command.id,
+          searchTerms: searchTerms(command.id),
           label: command.label(context),
           icon: command.icon,
           source: switch (command.category) {
@@ -4576,6 +4442,7 @@ class _EditorScreenState extends State<EditorScreen>
               ? 'tool-${tool.name}'
               : 'markup-${entry.markup!.name}',
           label: entry.label(context),
+          searchTerms: searchTerms('tool-${tool?.name}'),
           icon: entry.icon,
           source: l.paletteSourceTool(group.label(context)),
           shortcut: tool == null ? null : pdfEditToolShortcutLabel(tool),
@@ -4927,20 +4794,9 @@ class _EditorScreenState extends State<EditorScreen>
         thumbnails: _sessionLoaded ? _recentThumbnails : null,
       );
     }
-    if (tab.isDeferredPath) {
-      // First time we show a restored path-only tab: open it progressively
-      // (after this frame), showing the placeholder meanwhile. Held off while
-      // the session is still restoring, so only the finally-active tab opens.
-      if (!_restoringSession) _materializeDeferredPath(tab);
-      return _OpeningDocument(title: tab.title);
-    }
-    if (tab.isDeferred) {
-      // First time we show a deferred tab: parse it (after this frame) and
-      // show the same placeholder a fresh open uses meanwhile.
-      _materializeDeferred(tab);
-      return _OpeningDocument(title: tab.title);
-    }
-    if (tab.isLoading) {
+    // a deferred tab parses, and a restored path-only one opens, once it is
+    // active (_advanceActiveTab); the placeholder shows meanwhile
+    if (tab.isDeferredPath || tab.isDeferred || tab.isLoading) {
       return _OpeningDocument(title: tab.title);
     }
     if (tab.error != null) {
@@ -4973,7 +4829,6 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
-    _maybeAutoOcr(tab);
     // built once per EditorScreen build (see _buildAppBar)
     final appBar = _appBarContent(tab);
     // one header: the app bar, drawn by the shell with its own controls as
@@ -5415,7 +5270,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
 
     void activate(int index) {
-      setState(() => _activeIndex = index);
+      _tabsModel.activate(index);
       Navigator.of(overlayContext).pop();
     }
 
@@ -5470,15 +5325,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// Moves the tab at [oldIndex] to [newIndex] (drag-reorder), keeping the
   /// currently active document active wherever it lands. [newIndex] is already
   /// adjusted for the removed item (the `onReorderItem` convention).
-  void _reorderTabs(int oldIndex, int newIndex) {
-    setState(() {
-      final active = _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
-      final moved = _tabs.removeAt(oldIndex);
-      _tabs.insert(newIndex, moved);
-      _activeIndex = _tabs.indexOf(active);
-    });
-    unawaited(_persistSession());
-  }
+  void _reorderTabs(int oldIndex, int newIndex) =>
+      _tabsModel.reorder(oldIndex, newIndex);
 
   Widget _buildTabStrip() {
     final coordinator = _registeredTabDragCoordinator;
@@ -5716,7 +5564,7 @@ class _EditorScreenState extends State<EditorScreen>
             if (selected && _usesMobileShare && tab.session != null) {
               unawaited(_renameDocument(tab));
             } else {
-              setState(() => _activeIndex = index);
+              _tabsModel.activate(index);
             }
           },
           onSecondaryTapUp: (details) =>
@@ -7295,6 +7143,30 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       ),
     );
   }
+}
+
+/// Both the outer menu item's semantic action and its nested button must
+/// open the submenu. PopupMenuItem's default action pops the parent route;
+/// MergeSemantics otherwise makes assistive activation close the whole menu.
+class _SubmenuMenuItem extends PopupMenuItem<VoidCallback> {
+  const _SubmenuMenuItem({
+    super.key,
+    required super.height,
+    required super.child,
+    required this.open,
+  }) : super(padding: EdgeInsets.zero);
+
+  final VoidCallback open;
+
+  @override
+  PopupMenuItemState<VoidCallback, _SubmenuMenuItem> createState() =>
+      _SubmenuMenuItemState();
+}
+
+class _SubmenuMenuItemState
+    extends PopupMenuItemState<VoidCallback, _SubmenuMenuItem> {
+  @override
+  void handleTap() => widget.open();
 }
 
 /// One plain row of the app menu: what it says, what it runs, and the state

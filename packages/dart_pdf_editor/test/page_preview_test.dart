@@ -1645,13 +1645,13 @@ void main() {
       await settle(tester);
     }
     expect(cache.has(0), isTrue);
-    final firstNamespace = controller.debugTileCacheNamespace;
+    final firstNamespace = controller.tileCacheNamespaceIdentity;
 
     // Keep the replacement parked so it cannot refill the cache before the
     // assertion. The documents deliberately have identical page geometry:
     // geometry is not proof that their pixels share an identity.
     await tester.pumpWidget(viewer(second, active: false));
-    expect(controller.debugTileCacheNamespace, isNot(same(firstNamespace)));
+    expect(controller.tileCacheNamespaceIdentity, isNot(firstNamespace));
     expect(cache.has(0), isFalse,
         reason: 'the first document\'s preview must not survive the swap');
   });

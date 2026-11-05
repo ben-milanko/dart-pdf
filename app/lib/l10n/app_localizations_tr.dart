@@ -1507,4 +1507,14 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Form verileri ve yorumlar';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'sıkıştır;küçült;boyutu azalt;PDF sıkıştır';
+
+  @override
+  String get paletteTermsAddText => 'metin ekle;metin yaz;metin kutusu';
+
+  @override
+  String get paletteTermsSignature => 'imzala;imza çiz;el yazısı imza';
 }

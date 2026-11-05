@@ -26,6 +26,7 @@ class OnDeviceOcr {
     BuildContext context, {
     required void Function(String) onToast,
     required void Function(Uint8List, String) onComplete,
+    bool Function()? automaticEnabled,
   }) async {}
 
   void dispose() => status.dispose();

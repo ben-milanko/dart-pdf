@@ -25,6 +25,7 @@ import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_table.dart';
+import 'text_edit_session.dart';
 import 'editor_commands.dart';
 import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
@@ -1581,6 +1582,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     );
   }
 
+  String _historyTooltip(BuildContext context, {required bool redo}) {
+    final l = pdfL10n(context);
+    final label = redo ? l.redo : l.undo;
+    if (!PdfKeyboardAvailability.of(context)) return label;
+    final apple = switch (Theme.of(context).platform) {
+      TargetPlatform.macOS || TargetPlatform.iOS => true,
+      _ => false,
+    };
+    if (apple) return redo ? l.tbRedoShortcut : l.tbUndoShortcut;
+    return '$label (${redo ? 'Ctrl+Shift+Z' : 'Ctrl+Z'})';
+  }
+
   Widget _dock(BuildContext context) {
     final axis = widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
     final groups = _visibleGroups;
@@ -1598,17 +1611,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-undo'),
           icon: const Icon(Icons.undo),
-          tooltip: PdfKeyboardAvailability.of(context)
-              ? pdfL10n(context).tbUndoShortcut
-              : pdfL10n(context).undo,
+          tooltip: _historyTooltip(context, redo: false),
           onPressed: controller.canUndo ? controller.undo : null,
         ),
         IconButton(
           key: const ValueKey('pdf-redo'),
           icon: const Icon(Icons.redo),
-          tooltip: PdfKeyboardAvailability.of(context)
-              ? pdfL10n(context).tbRedoShortcut
-              : pdfL10n(context).redo,
+          tooltip: _historyTooltip(context, redo: true),
           onPressed: controller.canRedo ? controller.redo : null,
         ),
         _DockDivider(axis: axis),
@@ -2367,14 +2376,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 // the picker takes focus: hold the open text box's commit so
                 // the picked colour restyles it instead of landing after it
                 // closed
-                final hold = controller.isEditingText;
-                if (hold) controller.beginEditingTextFocusHold();
+                final hold = controller.textEditSession?.holdCommit();
                 try {
                   final picked = await pickEditingColor(context, controller,
                       initial: current);
                   if (picked != null) _applyColor(picked);
                 } finally {
-                  if (hold) controller.endEditingTextFocusHold();
+                  hold?.release();
                 }
               },
               child: SizedBox(
@@ -2701,18 +2709,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             IconButton(
               key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
-              tooltip: PdfKeyboardAvailability.of(context)
-                  ? pdfL10n(context).tbUndoShortcut
-                  : pdfL10n(context).undo,
+              tooltip: _historyTooltip(context, redo: false),
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
               key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
-              tooltip: PdfKeyboardAvailability.of(context)
-                  ? pdfL10n(context).tbRedoShortcut
-                  : pdfL10n(context).redo,
+              tooltip: _historyTooltip(context, redo: true),
               visualDensity: VisualDensity.compact,
               onPressed: controller.canRedo ? controller.redo : null,
             ),
@@ -3103,30 +3107,41 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(children: [
-                          for (final g in groups)
-                            Padding(
-                              padding: const EdgeInsetsDirectional.only(end: 7),
-                              child: _GroupChip(
-                                key: ValueKey('pdf-group-tab-${g.id}'),
-                                group: g,
-                                active: g.id == tabId,
-                                onTap: () {
-                                  if (g.kind == PdfEditToolGroup.select) {
-                                    Navigator.of(sheetContext).pop();
-                                    _toggleTool(PdfEditTool.select);
-                                    return;
-                                  }
-                                  if (g.id == tabId) return;
-                                  setSheetState(() => tabId = g.id);
-                                  _armSheetGroupDefault(g);
-                                },
+                      Row(children: [
+                        Expanded(
+                            child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(children: [
+                            for (final g in groups)
+                              Padding(
+                                padding:
+                                    const EdgeInsetsDirectional.only(end: 7),
+                                child: _GroupChip(
+                                  key: ValueKey('pdf-group-tab-${g.id}'),
+                                  group: g,
+                                  active: g.id == tabId,
+                                  onTap: () {
+                                    if (g.kind == PdfEditToolGroup.select) {
+                                      Navigator.of(sheetContext).pop();
+                                      _toggleTool(PdfEditTool.select);
+                                      return;
+                                    }
+                                    if (g.id == tabId) return;
+                                    setSheetState(() => tabId = g.id);
+                                    _armSheetGroupDefault(g);
+                                  },
+                                ),
                               ),
-                            ),
-                        ]),
-                      ),
+                          ]),
+                        )),
+                        IconButton(
+                          key: const ValueKey('pdf-tools-close'),
+                          tooltip: MaterialLocalizations.of(context)
+                              .closeButtonTooltip,
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                        ),
+                      ]),
                       const SizedBox(height: 14),
                       _SheetSectionLabel(
                         group.label(context),
@@ -4251,7 +4266,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   double? _draggingLineSpacing;
   double? _draggingCharSpacing;
   double? _draggingFontWidth;
-  bool _holdingTextEditFocus = false;
+  List<PdfTextEditFocusHold>? _textEditFocusHolds;
 
   @override
   void dispose() {
@@ -4260,20 +4275,24 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _beginTextEditFocusHold() {
-    if (_holdingTextEditFocus || !controller.isEditingText) return;
-    _holdingTextEditFocus = true;
-    controller.beginEditingTextFocusHold();
-    // keep the in-place editor focused for the whole popup session so its
-    // selection highlight stays on - both when the popup opens and after each
-    // control tap, so the user can see (and keep restyling) the same run
-    controller.beginKeepEditingTextFocused();
+    final session = controller.textEditSession;
+    if (_textEditFocusHolds != null || session == null) return;
+    _textEditFocusHolds = [
+      session.holdCommit(),
+      // keep the in-place editor focused for the whole popup session so its
+      // selection highlight stays on - both when the popup opens and after
+      // each control tap, so the user can see (and keep restyling) the run
+      session.keepFocused(),
+    ];
   }
 
   void _endTextEditFocusHold() {
-    if (!_holdingTextEditFocus) return;
-    _holdingTextEditFocus = false;
-    controller.endEditingTextFocusHold();
-    controller.endKeepEditingTextFocused();
+    final holds = _textEditFocusHolds;
+    if (holds == null) return;
+    _textEditFocusHolds = null;
+    for (final hold in holds) {
+      hold.release();
+    }
   }
 
   void _setFont(PdfStandardFont font) {

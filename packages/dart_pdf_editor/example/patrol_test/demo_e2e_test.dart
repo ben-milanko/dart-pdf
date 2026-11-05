@@ -370,6 +370,13 @@ class _DemoHarness {
     demo._restoreErrorHandler = reportFlexOverflowCulprits();
     await $.pumpWidget(const ViewerApp());
     await demo.waitForFinder(find.byType(PdfViewer), attempts: 80);
+    // The viewer mounts before asynchronous document loading finishes. Its
+    // page field contains no EditableText until a document is available.
+    // Wait for that real UI before a journey calls tester.enterText on it.
+    await demo.waitForFinder(
+      find.byKey(const ValueKey('pdf-page-number-field')),
+      attempts: 80,
+    );
     expect($(PdfViewer), findsOneWidget);
     expect($(PdfEditorView), findsOneWidget);
     return demo;

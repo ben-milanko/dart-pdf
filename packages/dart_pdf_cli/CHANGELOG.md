@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0
+
+See the [migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-15.0.0.md) for SDK compatibility details.
+
 ## 0.10.1
 
 - No additional public API changes.

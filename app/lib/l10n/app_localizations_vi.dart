@@ -1509,4 +1509,14 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get editorMenuFormData => 'Dữ liệu biểu mẫu và nhận xét';
+
+  @override
+  String get paletteTermsReduceFileSize =>
+      'nén;thu nhỏ;giảm kích thước;nén PDF';
+
+  @override
+  String get paletteTermsAddText => 'thêm văn bản;nhập văn bản;hộp văn bản';
+
+  @override
+  String get paletteTermsSignature => 'ký;vẽ chữ ký;chữ ký viết tay';
 }

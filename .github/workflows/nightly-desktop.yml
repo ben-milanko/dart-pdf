@@ -248,36 +248,34 @@ jobs:
             --dart-define="PDF_BUILD_COMMIT=$HEAD_SHA" \
             --dart-define="PDF_BUILD_CHANNEL=nightly"
 
-      - name: Name the bundle DartPDF Nightly
+      - name: Make the bundle its own app, DartPDF Nightly
         working-directory: app
-        # The menu bar, Dock and app switcher show the nightly as
-        # "DartPDF Nightly". The bundle stays DartPDF.app with the same bundle
-        # id, so settings, file associations and the in-app DMG hand-off carry
-        # over between channels. Runs before the ad-hoc re-sign below.
-        #
-        # Finder (the DMG window, /Applications, Spotlight) shows the file
-        # name, not CFBundleDisplayName, unless the bundle has a localized
-        # display name: LSHasLocalizedDisplayName plus an InfoPlist.strings
-        # entry, honoured only while the plain CFBundleDisplayName matches
-        # the file name ("DartPDF"). That is what makes the installer and
-        # the Applications folder read "DartPDF Nightly" without renaming
-        # the bundle.
+        # The nightly is a separate app from stable, the way Chrome Canary or
+        # VS Code Insiders are: its own file name (DartPDF Nightly.app) and
+        # its own bundle id (dev.milanko.dartpdf.nightly). Dragging it to
+        # /Applications replaces only an earlier nightly, and Finder's
+        # "already exists" prompt names "DartPDF Nightly". Sharing stable's
+        # DartPDF.app name (the 2026-10-24 localized-display-name approach)
+        # made Finder offer to overwrite "DartPDF", and "Keep Both" left a
+        # "DartPDF 2.app" that read as "DartPDF Nightly 2". A distinct id is
+        # what lets two bundles sit side by side without LaunchServices
+        # confusing them; the cost is that the nightly's sandbox container
+        # (settings, recents) is its own. Runs before the ad-hoc re-sign
+        # below so the seal covers the edits. CFBundleExecutable stays
+        # DartPDF - only the bundle directory is renamed.
         run: |
           set -euo pipefail
-          app=build/macos/Build/Products/Release/DartPDF.app
+          products=build/macos/Build/Products/Release
+          rm -rf "$products/DartPDF Nightly.app"
+          mv "$products/DartPDF.app" "$products/DartPDF Nightly.app"
+          app="$products/DartPDF Nightly.app"
           plist="$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier dev.milanko.dartpdf.nightly" "$plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName DartPDF Nightly" "$plist"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string DartPDF" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string DartPDF Nightly" "$plist"
           /usr/libexec/PlistBuddy -c "Delete :LSHasLocalizedDisplayName" "$plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :LSHasLocalizedDisplayName bool true" "$plist"
-          for lproj in en.lproj Base.lproj; do
-            mkdir -p "$app/Contents/Resources/$lproj"
-            printf '%s\n' \
-              '"CFBundleName" = "DartPDF Nightly";' \
-              '"CFBundleDisplayName" = "DartPDF Nightly";' \
-              > "$app/Contents/Resources/$lproj/InfoPlist.strings"
-          done
+          echo "MACOS_APP=$PWD/$app" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v8
         with:
@@ -289,7 +287,7 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          sidecar=build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          sidecar="$MACOS_APP/Contents/MacOS/dartpdf-cli"
           /usr/bin/lipo -create \
             build/dartpdf-cli-slices/dartpdf-arm64 \
             build/dartpdf-cli-slices/dartpdf-x64 \
@@ -302,7 +300,7 @@ jobs:
         working-directory: app
         env:
           CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
-        run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
+        run: bash macos/resign_embedded_code.sh "$MACOS_APP"
 
       - name: Smoke-test macOS app launch
         working-directory: app
@@ -310,7 +308,7 @@ jobs:
         # process immediately; require the app to survive the window.
         run: |
           set -euo pipefail
-          bin="build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/DartPDF"
+          bin="$MACOS_APP/Contents/MacOS/DartPDF"
           "$bin" >"$RUNNER_TEMP/dartpdf-macos-smoke.log" 2>&1 &
           pid=$!
           sleep 12
@@ -331,7 +329,7 @@ jobs:
           set -euo pipefail
           rm -rf build/dmg-root
           mkdir -p build/dmg-root
-          cp -R build/macos/Build/Products/Release/DartPDF.app build/dmg-root/
+          cp -R "$MACOS_APP" build/dmg-root/
           ln -s /Applications build/dmg-root/Applications
           hdiutil create -volname "DartPDF Nightly" \
             -srcfolder build/dmg-root \
@@ -403,10 +401,10 @@ jobs:
             echo "Rolling Windows + macOS test build from [\`$short_sha\`]($repo_url/commit/$HEAD_SHA), built $built_at."
             echo
             echo "- **Windows:** use \`dartpdf-nightly-windows-installer.exe\` to install/update DartPDF, or download the portable ZIP and run \`dart_pdf_editor_app.exe\` from the extracted folder."
-            echo "- **macOS:** open \`dartpdf-nightly-macos.dmg\` and drag DartPDF to Applications (universal: Apple silicon + Intel)."
+            echo "- **macOS:** open \`dartpdf-nightly-macos.dmg\` and drag DartPDF Nightly to Applications (universal: Apple silicon + Intel). It installs alongside a stable DartPDF, with its own settings."
             echo
             echo "> [!WARNING]"
-            echo "> These CI builds are not distribution-signed. Windows may show a SmartScreen warning; on macOS the app is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch - right-click DartPDF in Applications and choose **Open**, or run \`xattr -dr com.apple.quarantine /Applications/DartPDF.app\`. Neither is a store build."
+            echo "> These CI builds are not distribution-signed. Windows may show a SmartScreen warning; on macOS the app is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch - right-click DartPDF Nightly in Applications and choose **Open**, or run \`xattr -dr com.apple.quarantine \"/Applications/DartPDF Nightly.app\"\`. Neither is a store build."
             echo
             cat "$release_tickets"
             echo
