@@ -1866,6 +1866,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'هەڵبژاردنی ڕەنگ لە پەڕەکەوە';
 
   @override
+  String get tbRedactAsImages => 'لاپەڕە سانسۆرکراوەکان بە وێنە بگۆڕە';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'پارێزراوترین: تەنها وێنەیەکی هەر لاپەڕەیەکی سانسۆرکراو دەمێنێتەوە. دەقی ئەو لاپەڕانە چیتر هەڵنابژێردرێت و ناگەڕێنرێت، و قەبارەی فایلەکە گەورەتر دەبێت.';
+
+  @override
   String get tbRedactionsApplied => 'سانسۆرکردنەکان جێبەجێ کران';
 
   @override

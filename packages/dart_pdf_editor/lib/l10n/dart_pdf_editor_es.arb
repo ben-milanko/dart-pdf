@@ -553,6 +553,8 @@
   "tbOutline": "Contorno",
   "tbPatternScale": "Escala del patrón",
   "tbPickColorFromPage": "Elegir un color de la página",
+  "tbRedactAsImages": "Reemplazar las páginas censuradas por imágenes",
+  "tbRedactAsImagesDetail": "Lo más seguro: de cada página censurada solo se conserva una imagen. El texto de esas páginas ya no se podrá seleccionar ni buscar, y el archivo ocupará más.",
   "tbRedactionsApplied": "Censuras aplicadas",
   "tbRedoShortcut": "Rehacer (⇧⌘Z)",
   "tbReflowFailed": "No se pudo reajustar: este no es un párrafo de una sola columna que esta herramienta pueda reajustar. Prueba con Reemplazar texto.",

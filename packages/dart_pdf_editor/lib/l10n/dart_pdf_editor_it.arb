@@ -553,6 +553,8 @@
   "tbOutline": "Contorno",
   "tbPatternScale": "Scala motivo",
   "tbPickColorFromPage": "Scegli un colore dalla pagina",
+  "tbRedactAsImages": "Sostituisci le pagine oscurate con immagini",
+  "tbRedactAsImagesDetail": "La scelta più sicura: di ogni pagina oscurata resta solo un'immagine. Il testo di quelle pagine non potrà più essere selezionato né cercato e il file diventerà più grande.",
   "tbRedactionsApplied": "Oscuramenti applicati",
   "tbRedoShortcut": "Ripeti (⇧⌘Z)",
   "tbReflowFailed": "Impossibile ridisporre - non è un paragrafo a colonna singola che questo strumento può riformattare. Prova invece Sostituisci testo.",

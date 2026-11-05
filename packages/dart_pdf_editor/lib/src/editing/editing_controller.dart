@@ -3635,6 +3635,60 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
+  /// Applies the redactions and then replaces every page that had a mark
+  /// with a picture of itself, rendered at [dpi] - the strongest redaction:
+  /// those pages keep no text, fonts, positions or annotations, only the
+  /// pixels. Their text can no longer be selected or searched, and the file
+  /// grows. Returns false when there was nothing to apply. Irreversible,
+  /// like [applyRedactions].
+  ///
+  /// Pages are rendered as displayed (crop box and rotation applied,
+  /// annotations drawn) by [render], [PdfPageRenderer.renderImage] unless a
+  /// host or test supplies another.
+  Future<bool> applyRedactionsAsImages({
+    double dpi = 200,
+    Future<PdfPageRaster> Function(PdfPage page, double pixelRatio)? render,
+  }) async {
+    if (!hasRedactionMarks) return false;
+    final marked = [
+      for (var i = 0; i < _document.pageCount; i++)
+        if (_document.page(i).annotations.any((a) => a.subtype == 'Redact')) i,
+    ];
+    // burn a private copy: a burn edits the document it is given in place,
+    // and the open one must stay as it is while the pages render
+    final revision = _revisionId;
+    final editor = PdfEditor(PdfDocument.open(Uint8List.fromList(bytes)));
+    final burned = PdfDocument.open(editor.applyRedactions());
+    final rasters = <int, PdfPageRaster>{};
+    for (final i in marked) {
+      rasters[i] =
+          await (render ?? _renderPageRaster)(burned.page(i), dpi / 72);
+    }
+    // edited meanwhile: applying now would drop that edit - leave the
+    // marks for another try
+    if (_revisionId != revision) return false;
+    final flattened = PdfEditor(burned).replacePagesWithImages(rasters);
+    _resetTo(flattened, impact: editor.impact);
+    return true;
+  }
+
+  static Future<PdfPageRaster> _renderPageRaster(
+      PdfPage page, double pixelRatio) async {
+    final image =
+        await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) throw StateError('page could not be rendered');
+      return PdfPageRaster(
+        width: image.width,
+        height: image.height,
+        rgba: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      );
+    } finally {
+      image.dispose();
+    }
+  }
+
   /// Replaces the byte buffer with [bytes] as a fresh single revision,
   /// discarding undo history. Used by [applyRedactions] (the burned file
   /// is not a prefix of the prior buffer).

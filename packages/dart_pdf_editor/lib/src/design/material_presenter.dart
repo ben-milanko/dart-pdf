@@ -344,7 +344,30 @@ Future<bool> pdfStockConfirm(
     builder: (context) => AlertDialog(
       key: request.key,
       title: Text(request.title),
-      content: Text(request.message),
+      content: request.option == null
+          ? Text(request.message)
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(request.message),
+                const SizedBox(height: 12),
+                ValueListenableBuilder<bool>(
+                  valueListenable: request.option!.value,
+                  builder: (context, checked, _) => CheckboxListTile(
+                    key: request.option!.key,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: checked,
+                    onChanged: (v) => request.option!.value.value = v ?? false,
+                    title: Text(request.option!.label),
+                    subtitle: request.option!.detail == null
+                        ? null
+                        : Text(request.option!.detail!),
+                  ),
+                ),
+              ],
+            ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),

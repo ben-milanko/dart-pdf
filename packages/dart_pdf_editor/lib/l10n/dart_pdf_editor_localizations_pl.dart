@@ -1890,6 +1890,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Pobierz kolor ze strony';
 
   @override
+  String get tbRedactAsImages => 'Zastąp zaczernione strony obrazami';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Najbezpieczniej: z każdej zaczernionej strony zostaje tylko obraz. Tekstu na tych stronach nie będzie można zaznaczać ani wyszukiwać, a plik będzie większy.';
+
+  @override
   String get tbRedactionsApplied => 'Zastosowano wymazania';
 
   @override

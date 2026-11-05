@@ -553,6 +553,8 @@
   "tbOutline": "外框",
   "tbPatternScale": "圖樣縮放",
   "tbPickColorFromPage": "從頁面挑選顏色",
+  "tbRedactAsImages": "將已塗黑的頁面替換為影像",
+  "tbRedactAsImagesDetail": "最安全：每個已塗黑的頁面只保留一張影像。這些頁面上的文字將無法再選取或搜尋，檔案也會變大。",
   "tbRedactionsApplied": "已套用塗黑",
   "tbRedoShortcut": "重做 (⇧⌘Z)",
   "tbReflowFailed": "無法重排 - 這不是此工具可重新換行的單欄段落。請改用「取代文字」。",

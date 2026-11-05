@@ -553,6 +553,8 @@
   "tbOutline": "Contorno",
   "tbPatternScale": "Escala do padrão",
   "tbPickColorFromPage": "Selecionar uma cor da página",
+  "tbRedactAsImages": "Substituir as páginas ocultadas por imagens",
+  "tbRedactAsImagesDetail": "Mais seguro: de cada página ocultada só fica uma imagem. O texto dessas páginas deixa de poder ser selecionado ou pesquisado, e o ficheiro fica maior.",
   "tbRedactionsApplied": "Tarjas aplicadas",
   "tbRedoShortcut": "Refazer (⇧⌘Z)",
   "tbReflowFailed": "Não foi possível refluir - este não é um parágrafo de coluna única que esta ferramenta possa reajustar. Tente Substituir texto.",

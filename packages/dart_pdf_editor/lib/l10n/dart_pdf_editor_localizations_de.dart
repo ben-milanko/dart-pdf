@@ -1865,6 +1865,13 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Eine Farbe von der Seite aufnehmen';
 
   @override
+  String get tbRedactAsImages => 'Geschwärzte Seiten durch Bilder ersetzen';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Am sichersten: Von jeder geschwärzten Seite bleibt nur ein Bild erhalten. Text auf diesen Seiten lässt sich danach nicht mehr markieren oder durchsuchen, und die Datei wird größer.';
+
+  @override
   String get tbRedactionsApplied => 'Schwärzungen angewendet';
 
   @override
