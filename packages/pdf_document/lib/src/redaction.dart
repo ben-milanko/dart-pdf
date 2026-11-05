@@ -93,6 +93,7 @@ extension PdfRedactionApply on PdfEditor {
     if (session.burnedPages.isEmpty) return save();
     _scrubHiddenCopies(session, removeHiddenInformation);
     final substitutes = _retireOriginals(session);
+    _guardPageTree(session);
     _markDestructive(pages);
     return _compactedSave(
       session.purged,
@@ -252,7 +253,16 @@ extension PdfRedactionApply on PdfEditor {
         case CosDictionary():
           final out = CosDictionary();
           node.entries.forEach((key, value) {
-            if (keep(key) && !dead(value)) out[key] = remap(value);
+            if (!keep(key) || dead(value)) return;
+            // a named destination spelled with the redacted text: the link
+            // loses its target rather than keep the name
+            if (scrubber != null &&
+                (key == 'Dest' || key == 'D') &&
+                value is CosName &&
+                scrubber.matches(value.value)) {
+              return;
+            }
+            out[key] = remap(value);
           });
           return out;
         case CosStream():
@@ -261,8 +271,11 @@ extension PdfRedactionApply on PdfEditor {
           return CosStream(dict, node.rawBytes);
         case CosString():
           if (scrubber == null) return node;
-          final scrubbed = scrubber.scrub(_redactionTextOf(node));
-          return scrubbed == null ? node : CosString.fromText(scrubbed);
+          for (final reading in _redactionReadingsOf(node)) {
+            final scrubbed = scrubber.scrub(reading);
+            if (scrubbed != null) return CosString.fromText(scrubbed);
+          }
+          return node;
         default:
           return node;
       }
@@ -367,7 +380,27 @@ extension PdfRedactionApply on PdfEditor {
     final ref = item is CosReference ? item : cos.referenceTo(dict);
     if (ref != null) session.purged.add(ref.objectNumber);
     if (_isSubtype(cos, dict, 'Redact')) return;
-    session.addText(cos.resolve(dict['Contents']));
+    session.addText(cos.resolve(dict['Contents']), cos);
+    // its appearances (and icons) go too, even where something else shares
+    // them: they draw exactly what the box covered
+    void purgeStreams(CosObject? value, int depth) {
+      if (depth > 4 || value == null) return;
+      if (value is CosReference) session.purged.add(value.objectNumber);
+      final resolved = cos.resolve(value);
+      if (resolved is CosDictionary) {
+        for (final v in resolved.entries.values) {
+          purgeStreams(v, depth + 1);
+        }
+      }
+    }
+
+    purgeStreams(dict['AP'], 0);
+    final mk = cos.resolve(dict['MK']);
+    if (mk is CosDictionary) {
+      for (final key in const ['I', 'RI', 'IX']) {
+        purgeStreams(mk[key], 0);
+      }
+    }
     final sp = cos.resolve(dict['StructParent']);
     if (sp is CosInteger) session.removedStructParents.add(sp.value);
     if (_isSubtype(cos, dict, 'Widget')) _purgeWidgetField(dict, session);
@@ -429,24 +462,32 @@ extension PdfRedactionApply on PdfEditor {
     final cos = document.cos;
     session
       ..formFieldsRemoved = true
-      ..addText(cos.resolve(widget['V']));
+      ..addText(cos.resolve(widget['V']), cos);
     CosDictionary child = widget;
     var parent = cos.resolve(widget['Parent']);
     var guard = 0;
     while (parent is CosDictionary && guard++ < 64) {
       final kids = cos.resolve(parent['Kids']);
-      if (kids is CosArray) {
-        final others = kids.items.where((k) {
-          if (k is CosReference && session.purged.contains(k.objectNumber)) {
-            return false;
-          }
-          final kid = cos.resolve(k);
-          return !identical(kid, child) &&
-              kid is CosDictionary &&
-              _fieldShown(kid, session, 0);
-        });
-        if (others.isNotEmpty) return;
+      // only a field that lists this child is its parent: a /Parent naming
+      // a page, the page tree or anything else ends the climb
+      final type = parent.typeName;
+      if (kids is! CosArray ||
+          type == 'Page' ||
+          type == 'Pages' ||
+          type == 'Catalog' ||
+          !kids.items.any((k) => identical(cos.resolve(k), child))) {
+        return;
       }
+      final others = kids.items.where((k) {
+        if (k is CosReference && session.purged.contains(k.objectNumber)) {
+          return false;
+        }
+        final kid = cos.resolve(k);
+        return !identical(kid, child) &&
+            kid is CosDictionary &&
+            _fieldShown(kid, session, 0);
+      });
+      if (others.isNotEmpty) return;
       final ref = cos.referenceTo(parent);
       if (ref == null) return;
       _purgeFieldTree(parent, session, 0);
@@ -471,7 +512,14 @@ extension PdfRedactionApply on PdfEditor {
       });
     }
     final flags = cos.resolve(node['F']);
-    if (flags is CosInteger && flags.value & (2 | 32) != 0) return false;
+    final f = flags is CosInteger
+        ? flags.value
+        : flags is CosReal && flags.value.isFinite
+            ? flags.value.toInt()
+            : 0;
+    if (f & (2 | 32) != 0) return false;
+    // optional content can hide it from every reader: not counted as shown
+    if (node.containsKey('OC')) return false;
     final r = pdfRectFrom(cos, node['Rect']);
     if (r == null || r.width <= 0 || r.height <= 0) return false;
     // a widget off its page's crop box is nowhere a reader sees it
@@ -488,7 +536,7 @@ extension PdfRedactionApply on PdfEditor {
     if (ref != null && !session.purged.add(ref.objectNumber) && depth > 0) {
       return;
     }
-    session.addText(cos.resolve(node['V']));
+    session.addText(cos.resolve(node['V']), cos);
     final sp = cos.resolve(node['StructParent']);
     if (sp is CosInteger) session.removedStructParents.add(sp.value);
     final kids = cos.resolve(node['Kids']);
@@ -546,6 +594,39 @@ extension PdfRedactionApply on PdfEditor {
       _scrubXmp(catalog, scrubber);
       for (final i in session.burnedPages) {
         _scrubXmp(document.page(i).dict, scrubber);
+      }
+      // attachments outside the name tree: associated files and file
+      // attachment annotations
+      bool mentions(CosObject spec) => _attachmentMentions(spec, scrubber);
+      void filterAf(CosDictionary owner) {
+        final af = cos.resolve(owner['AF']);
+        if (af is! CosArray) return;
+        final kept = [
+          for (final spec in af.items)
+            if (!mentions(spec)) spec,
+        ];
+        if (kept.length != af.length) {
+          owner['AF'] = CosArray(kept);
+          _touch(owner);
+        }
+      }
+
+      filterAf(catalog);
+      for (var i = 0; i < document.pageCount; i++) {
+        final page = document.page(i);
+        filterAf(page.dict);
+        final annots = cos.resolve(page.dict['Annots']);
+        if (annots is! CosArray) continue;
+        for (final item in annots.items) {
+          final a = cos.resolve(item);
+          if (a is! CosDictionary || !_isSubtype(cos, a, 'FileAttachment')) {
+            continue;
+          }
+          if (mentions(a['FS'] ?? CosNull.instance)) {
+            final ref = item is CosReference ? item : cos.referenceTo(a);
+            if (ref != null) session.purged.add(ref.objectNumber);
+          }
+        }
       }
       if (names is CosDictionary) {
         _filterNameTree(
@@ -677,8 +758,15 @@ extension PdfRedactionApply on PdfEditor {
       _touch(owner);
       return;
     }
-    final scrubbed = scrubber.scrub(xml);
-    if (scrubbed == null) return;
+    if (!scrubber.matches(xml)) return;
+    final scrubbed = xml.replaceAll(scrubber._pattern, '[redacted]');
+    if (scrubber._pattern.hasMatch(scrubbed) || scrubbed == xml) {
+      // only matched once markup or references were decoded: no way to
+      // edit the XML in place, so the packet goes
+      owner.entries.remove('Metadata');
+      _touch(owner);
+      return;
+    }
     final bytes = Uint8List.fromList(utf8.encode(scrubbed));
     owner['Metadata'] = _updater.addObject(CosStream(
       CosDictionary({
@@ -708,8 +796,14 @@ extension PdfRedactionApply on PdfEditor {
         if (file is! CosStream) continue;
         try {
           final bytes = cos.decodeStreamData(file);
+          String utf16(int hi, int lo) => String.fromCharCodes([
+                for (var i = 0; i + 1 < bytes.length; i += 2)
+                  (bytes[i + hi] << 8) | bytes[i + lo],
+              ]);
           if (scrubber.matches(latin1.decode(bytes)) ||
-              scrubber.matches(utf8.decode(bytes, allowMalformed: true))) {
+              scrubber.matches(utf8.decode(bytes, allowMalformed: true)) ||
+              scrubber.matches(utf16(0, 1)) ||
+              scrubber.matches(utf16(1, 0))) {
             return true;
           }
         } on Object {
@@ -810,6 +904,36 @@ extension PdfRedactionApply on PdfEditor {
 
   static const _structTextKeys = ['ActualText', 'Alt', 'E', 'T'];
 
+  /// Refuses to save when a malformed input has led the burn to purge the
+  /// catalog or part of the page tree: better no file than a broken one.
+  void _guardPageTree(_RedactionSession session) {
+    final cos = document.cos;
+    final essential = <int>{};
+    void mark(CosObject? value) {
+      if (value is CosReference) essential.add(value.objectNumber);
+    }
+
+    mark(cos.trailer['Root']);
+    final catalog = cos.resolve(cos.trailer['Root']);
+    if (catalog is CosDictionary) mark(catalog['Pages']);
+    for (var i = 0; i < document.pageCount; i++) {
+      final page = document.page(i);
+      final ref = cos.referenceTo(page.dict);
+      if (ref != null) essential.add(ref.objectNumber);
+      var parent = page.dict['Parent'];
+      var guard = 0;
+      while (parent is CosReference && guard++ < 64) {
+        essential.add(parent.objectNumber);
+        final node = cos.resolve(parent);
+        parent = node is CosDictionary ? node['Parent'] : null;
+      }
+    }
+    if (essential.any(session.purged.contains)) {
+      throw StateError('redaction would remove part of the page tree; '
+          'the document is malformed');
+    }
+  }
+
   /// Decides the fate of every resource a burn retired (XObjects,
   /// patterns, shadings, graphics states, property lists, soft-mask
   /// groups): one redacted copy replaces the original *everywhere* in the
@@ -821,6 +945,17 @@ extension PdfRedactionApply on PdfEditor {
   Map<int, CosReference> _retireOriginals(_RedactionSession session) {
     final cos = document.cos;
     final substitutes = <int, CosReference>{};
+    // direct entries in shared resource dictionaries: fixed in place
+    session.directRetired.forEach((owner, names) {
+      names.forEach((name, copies) {
+        if (copies.length == 1) {
+          owner[name] = copies.single;
+        } else {
+          owner.entries.remove(name);
+        }
+      });
+      _touch(owner);
+    });
     for (final number in session.retired) {
       final copies = session.replacements[number];
       if (copies != null && copies.length == 1) {
@@ -1024,21 +1159,27 @@ extension PdfRedactionApply on PdfEditor {
   }
 }
 
-/// A PDF text string (UTF-16BE with BOM, UTF-8 with BOM, else
-/// PDFDocEncoding read as Latin-1) as Dart text.
+/// A PDF text string as Dart text: UTF-16BE, UTF-8 with their BOMs, a
+/// UTF-16LE BOM (not in the spec, but poppler reads it), else
+/// PDFDocEncoding.
 String _redactionTextOf(CosString s) {
   final b = s.bytes;
-  if (b.length >= 2 && b[0] == 0xFE && b[1] == 0xFF) {
+  if (b.length >= 2 && b[0] == 0xFF && b[1] == 0xFE) {
     final out = StringBuffer();
     for (var i = 2; i + 1 < b.length; i += 2) {
-      out.writeCharCode((b[i] << 8) | b[i + 1]);
+      out.writeCharCode(b[i] | (b[i + 1] << 8));
     }
     return out.toString();
   }
-  if (b.length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) {
-    return utf8.decode(b.sublist(3), allowMalformed: true);
-  }
-  return latin1.decode(b);
+  return s.text;
+}
+
+/// Every reading of a string a viewer or reader might make: as a text
+/// string, and as raw Latin-1 bytes.
+List<String> _redactionReadingsOf(CosString s) {
+  final text = _redactionTextOf(s);
+  final raw = latin1.decode(s.bytes);
+  return text == raw ? [text] : [text, raw];
 }
 
 /// State shared by every page (and nested form) of one burn.
@@ -1072,6 +1213,11 @@ class _RedactionSession {
   /// Redacted copies made of each retired resource, by object number.
   final Map<int, List<CosReference>> replacements = {};
 
+  /// Retired resources held directly in a resource dictionary (no object
+  /// number to substitute): dictionary -> name -> redacted copies.
+  final Map<CosDictionary, Map<String, List<CosReference>>> directRetired =
+      Map.identity();
+
   Map<CosDictionary, PdfRect>? _listed;
 
   /// Every annotation dictionary listed in some page's /Annots, with that
@@ -1093,8 +1239,23 @@ class _RedactionSession {
     return _listed = out;
   }
 
-  void addText(CosObject value) {
-    if (value is CosString) texts.add(_redactionTextOf(value));
+  /// Records the text of a removed value: a string, an array of strings
+  /// (a multiple-choice field), or a text stream (a long or rich value).
+  void addText(CosObject value, [CosDocument? cos]) {
+    if (value is CosString) {
+      texts.add(_redactionTextOf(value));
+    } else if (value is CosArray) {
+      for (final item in value.items) {
+        addText(cos?.resolve(item) ?? item, cos);
+      }
+    } else if (value is CosStream && cos != null) {
+      try {
+        texts.add(
+            utf8.decode(cos.decodeStreamData(value), allowMalformed: true));
+      } on Object {
+        // undecodable: nothing a reader could match against either
+      }
+    }
   }
 }
 
@@ -1155,12 +1316,66 @@ class _RedactionScrubber {
         caseSensitive: false, unicode: true));
   }
 
-  bool matches(String text) => _pattern.hasMatch(text);
+  /// Whether [text] holds redacted text, also once markup is stripped and
+  /// character references and percent escapes are decoded (rich text,
+  /// XMP, URIs can spell it that way).
+  bool matches(String text) =>
+      _variants(text).any((variant) => _pattern.hasMatch(variant));
 
   /// [text] with every redacted span replaced, or null when none occurs.
+  /// When the text only matches once decoded, the decoded form is returned
+  /// scrubbed - its markup or escapes are lost, which is the price of not
+  /// keeping the text.
   String? scrub(String text) {
-    if (!_pattern.hasMatch(text)) return null;
-    return text.replaceAll(_pattern, replacement);
+    for (final variant in _variants(text)) {
+      if (_pattern.hasMatch(variant)) {
+        return variant.replaceAll(_pattern, replacement);
+      }
+    }
+    return null;
+  }
+
+  static final _tag = RegExp(r'<[^>]*>');
+  static final _charRef = RegExp(r'&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);');
+  static final _percent = RegExp(r'%([0-9a-fA-F]{2})');
+
+  /// [text] as written, then with markup and character references decoded,
+  /// then with percent escapes decoded.
+  static List<String> _variants(String text) {
+    final out = [text];
+    if (text.contains('<') || text.contains('&')) {
+      final stripped =
+          text.replaceAll(_tag, '').replaceAllMapped(_charRef, (m) {
+        final ref = m.group(1)!;
+        if (ref.startsWith('#x') || ref.startsWith('#X')) {
+          final code = int.tryParse(ref.substring(2), radix: 16);
+          return code == null || code > 0x10FFFF
+              ? m.group(0)!
+              : String.fromCharCode(code);
+        }
+        if (ref.startsWith('#')) {
+          final code = int.tryParse(ref.substring(1));
+          return code == null || code > 0x10FFFF
+              ? m.group(0)!
+              : String.fromCharCode(code);
+        }
+        return switch (ref) {
+          'amp' => '&',
+          'lt' => '<',
+          'gt' => '>',
+          'quot' => '"',
+          'apos' => "'",
+          'nbsp' => ' ',
+          _ => m.group(0)!,
+        };
+      });
+      out.add(stripped);
+    }
+    if (text.contains('%')) {
+      out.add(text.replaceAllMapped(_percent,
+          (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16))));
+    }
+    return out;
   }
 }
 

@@ -4,7 +4,8 @@ The report: a synthetic PDF with a fake SSN in a dozen places, every one
 boxed and burned. Page text went, but image, form-field, Form XObject,
 metadata, bookmark and attachment copies were still in the saved file. This
 session fixed those, then ran two adversarial review rounds against the
-burn (20, then 14 confirmed bypasses). Every confirmed bypass has a regression test, and each one fails on
+burn (20, then 14 confirmed bypasses), then a third verification round
+(21 failures). Every confirmed bypass has a regression test, and each one fails on
 the code before its fix.
 
 Code: `packages/pdf_document/lib/src/redaction.dart` (document level:
@@ -135,6 +136,47 @@ they show under the box.
   values, `/TU`...), and so are `/Dests` keys.
 - A sibling widget off its page's crop box no longer counts as shown.
 
+## Round 3: fonts, shared resources, encodings
+
+A third round (21 confirmed failures, 17 regression tests in the `round 3`
+group) found these:
+
+- **Glyph metrics viewers disagree on are no longer treated as exact**
+  (`_RedFont.knowsCode`).
+  - A widthless base-14 font is indexed by WinAnsi code, while viewers
+    measure by glyph name. Only codes that name the same glyph either way
+    count as exact: all of WinAnsi for an explicit `/WinAnsiEncoding`,
+    otherwise printable ASCII except the two quote codes, and never a
+    `/Differences` code.
+  - `/Widths` with non-numeric entries, codes outside
+    FirstChar..min(LastChar, end of table), and Identity-H `/W` with
+    overlapping ranges all go through the generous path.
+- **Direct resources in shared dictionaries**. A retired entry that lives
+  directly in a resource dictionary another page or the page tree shares
+  is fixed in that dictionary at save time (`directRetired`). It points at
+  its one redacted copy, or else is dropped. Retirement and substitution
+  follow reference chains (`_chain`), since an object can hold nothing but
+  another reference.
+- **Forms**.
+  - A field climb only goes through a `/Parent` that is a field listing
+    the child.
+  - `_guardPageTree` refuses to save if the purge would touch the catalog
+    or page tree.
+  - A removed annotation's appearance streams and `/MK` icons are purged,
+    even where shared.
+  - Sibling widgets under `/OC`, or flagged hidden with a real-valued
+    `/F`, don't count as shown.
+  - Array and stream field values feed the scrubber.
+- **Scrubbing**.
+  - Strings are read as UTF-16LE (with BOM), PDFDocEncoding and raw
+    Latin-1.
+  - The scrubber also matches once markup is stripped, character
+    references are decoded and percent escapes are decoded (`/RC`, XMP,
+    URIs). An XMP packet that only matches decoded is dropped.
+  - Named `/Dest`/`/D` values spelled with the text are dropped.
+  - Without `removeHiddenInformation`, `/AF` arrays and FileAttachment
+    annotations that mention the text go too, matched in UTF-16 as well.
+
 ## Known limitations
 
 - Font programs are kept, as in other redaction tools. This includes Type
@@ -145,6 +187,9 @@ they show under the box.
   (0.25..1 em × 0.1..0.7 em). A crafted embedded font with ink far from
   its origin is not detected; the text its codes encode is still placed
   correctly.
+- With `removeHiddenInformation: false`, an attachment that holds the text
+  compressed (a zip, an Office file) is not detected; the default removes
+  every attachment.
 - A ligature or a glyph without `/ToUnicode` gives an empty or wrong span,
   so hidden copies of that text are not matched. Structure text tied to
   the content by MCID is still stripped.

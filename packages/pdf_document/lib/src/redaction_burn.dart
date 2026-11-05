@@ -203,8 +203,22 @@ class _RedactionBurn {
     for (final category in {..._retired.keys, ..._added.keys}) {
       final sub = _cos.resolve(_resources[category]);
       final copy = CosDictionary({if (sub is CosDictionary) ...sub.entries});
-      for (final name in _retired[category]?.keys ?? const <String>[]) {
-        if (!_isUsed(category, name)) copy.entries.remove(name);
+      for (final MapEntry(key: name, value: entry)
+          in (_retired[category] ?? const <String, CosObject>{}).entries) {
+        if (!_isUsed(category, name)) {
+          copy.entries.remove(name);
+        } else if (entry is! CosReference) {
+          // still used here, but a direct original can't be substituted at
+          // save time: point the name at its one redacted copy, or drop it
+          final owner = _ownerOf(category, name);
+          final copies =
+              owner == null ? null : _session.directRetired[owner]?[name];
+          if (copies != null && copies.length == 1) {
+            copy[name] = copies.single;
+          } else {
+            copy.entries.remove(name);
+          }
+        }
       }
       copy.entries.addAll(_added[category] ?? const {});
       out[category] = copy;
@@ -219,7 +233,16 @@ class _RedactionBurn {
 
   void _retire(String category, String name, CosObject? entry) {
     (_retired[category] ??= {})[name] = entry ?? CosNull.instance;
-    if (entry is CosReference) _session.retired.add(entry.objectNumber);
+    if (entry is CosReference) {
+      _session.retired.addAll(_chain(entry));
+    } else if (entry != null) {
+      // a direct entry lives inside a resource dictionary other pages (or
+      // the page tree) may share: that dictionary is fixed at save time
+      final owner = _ownerOf(category, name);
+      if (owner != null) {
+        (_session.directRetired[owner] ??= {})[name] ??= [];
+      }
+    }
     // an XObject that is its own structure item loses its alternate text
     final resolved = _cos.resolve(entry);
     final dict = resolved is CosStream
@@ -233,13 +256,42 @@ class _RedactionBurn {
 
   /// Adds [replacement] for the retired resource [entry] under a fresh
   /// name, recording it so other uses of the original can be pointed at it.
-  String _replace(String category, CosObject? entry, CosObject replacement) {
+  String _replace(String category, String original, CosObject? entry,
+      CosObject replacement) {
     final name = _addResource(category, replacement);
+    final ref = _added[category]![name] as CosReference;
     if (entry is CosReference) {
-      (_session.replacements[entry.objectNumber] ??= [])
-          .add(_added[category]![name] as CosReference);
+      for (final number in _chain(entry)) {
+        (_session.replacements[number] ??= []).add(ref);
+      }
+    } else {
+      final owner = _ownerOf(category, original);
+      if (owner != null) {
+        ((_session.directRetired[owner] ??= {})[original] ??= []).add(ref);
+      }
     }
     return name;
+  }
+
+  /// Every object number along a reference chain (an object may hold
+  /// nothing but another reference): each must give way to the copy.
+  List<int> _chain(CosReference ref) {
+    final out = <int>[];
+    CosObject current = ref;
+    while (current is CosReference && out.length < 64) {
+      if (out.contains(current.objectNumber)) break;
+      out.add(current.objectNumber);
+      current = _cos.getObject(current.objectNumber, current.generation);
+    }
+    return out;
+  }
+
+  /// The resource dictionary (of this stream, or of an invoker) that
+  /// defines [name] in [category].
+  CosDictionary? _ownerOf(String category, String name) {
+    final dict = _cos.resolve(_resources[category]);
+    if (dict is CosDictionary && dict.containsKey(name)) return dict;
+    return _parent?._ownerOf(category, name);
   }
 
   /// Adds [object] as a new resource and returns its name.
@@ -713,7 +765,7 @@ class _RedactionBurn {
         // a named list: the stream gets its own stripped copy
         final entry = _lookup(_resProperties, raw.value);
         _retire(_resProperties, raw.value, entry);
-        final fresh = _replace(_resProperties, entry, stripped);
+        final fresh = _replace(_resProperties, raw.value, entry, stripped);
         replacement =
             ContentOperation('BDC', [frame.op.operands[0], CosName(fresh)]);
       } else {
@@ -1224,7 +1276,7 @@ class _RedactionBurn {
     });
     _retire(_resExtGState, name, entry);
     _removed();
-    final fresh = _replace(_resExtGState, entry, newState);
+    final fresh = _replace(_resExtGState, name, entry, newState);
     _writeOp(ContentOperation('gs', [CosName(fresh)]));
     return true;
   }
@@ -1289,7 +1341,7 @@ class _RedactionBurn {
     _retire(_resXObject, name, entry);
     _removed();
     if (replacement == null) return; // couldn't be rewritten: dropped whole
-    final fresh = _replace(_resXObject, entry, replacement);
+    final fresh = _replace(_resXObject, name, entry, replacement);
     _writeOp(ContentOperation('Do', [CosName(fresh)]));
   }
 
@@ -1654,7 +1706,11 @@ class _RedactionBurn {
             (_tw == 0 &&
                 elements.every((e) =>
                     e is! CosString ||
-                    e.bytes.length % font.codeLength! == 0)));
+                    e.bytes.length % font.codeLength! == 0))) &&
+        elements.every((e) =>
+            e is! CosString ||
+            font.codeLength != 1 ||
+            e.bytes.every(font.knowsCode));
     if (!exact) {
       _showConservatively(op, elements, font, prefix);
       return;
@@ -1986,7 +2042,9 @@ class _RedFont {
     required this.maxWidth,
     this.isVertical = false,
     PdfRect? Function(int code)? glyphBox,
-  })  : _widthOf = widthOf,
+    bool Function(int code)? knowsCode,
+  })  : _knowsCode = knowsCode,
+        _widthOf = widthOf,
         _textOf = textOf,
         _glyphBox = glyphBox;
 
@@ -2007,6 +2065,10 @@ class _RedFont {
   final double maxWidth;
 
   final PdfRect? Function(int code)? _glyphBox;
+  final bool Function(int code)? _knowsCode;
+
+  /// Whether [code]'s advance is known the way every viewer knows it.
+  bool knowsCode(int code) => _knowsCode?.call(code) ?? true;
 
   /// For a Type 3 font, where [code]'s glyph draws, in text space per unit
   /// font size (FontMatrix applied); null for other fonts.
@@ -2067,10 +2129,22 @@ class _RedFont {
       final table = [for (final w in widthsObj.items) _num(cos, w)];
       final maxWidth =
           [missing, ...table].map((w) => (w * scale).abs()).fold(0.0, math.max);
+      // a non-numeric entry or a /LastChar disagreeing with the table is
+      // read differently by different viewers (MissingWidth, 0, the font
+      // program): codes it touches are placed generously
+      final wellFormed = widthsObj.items.every((w) {
+        final v = cos.resolve(w);
+        return v is CosInteger || (v is CosReal && v.value.isFinite);
+      });
+      final lastObj = cos.resolve(font['LastChar']);
+      final last =
+          lastObj is CosInteger ? lastObj.value : firstChar + table.length - 1;
+      final knownEnd = math.min(last, firstChar + table.length - 1);
       return _RedFont._(
         isComposite: false,
         codeLength: 1,
-        metricsKnown: !skewed,
+        metricsKnown: !skewed && wellFormed,
+        knowsCode: (code) => code >= firstChar && code <= knownEnd,
         widthOf: (code) {
           final i = code - firstChar;
           return (i >= 0 && i < table.length ? table[i] : missing) * scale;
@@ -2086,10 +2160,40 @@ class _RedFont {
     final standard = sub == 'Type3' || baseFont is! CosName
         ? null
         : _standardFont(baseFont.value);
+    // The base-14 tables are indexed by WinAnsi code, while viewers measure
+    // by glyph name through the font's own encoding. Only codes that name
+    // the same glyph either way are exact: all of WinAnsi for an explicit
+    // /WinAnsiEncoding, else printable ASCII bar the two quote codes
+    // (StandardEncoding's quoteright/quoteleft), and never a /Differences
+    // code.
+    final encoding = cos.resolve(font['Encoding']);
+    final winAnsi = encoding is CosName && encoding.value == 'WinAnsiEncoding';
+    final differed = <int>{};
+    if (encoding is CosDictionary) {
+      final diffs = cos.resolve(encoding['Differences']);
+      if (diffs is CosArray) {
+        var code = 0;
+        for (final item in diffs.items) {
+          final v = cos.resolve(item);
+          if (v is CosInteger) {
+            code = v.value;
+          } else if (v is CosName) {
+            differed.add(code++);
+          }
+        }
+      }
+    }
     return _RedFont._(
       isComposite: false,
       codeLength: 1,
       metricsKnown: standard != null,
+      knowsCode: (code) => winAnsi
+          ? code >= 32 && code <= 255
+          : code >= 32 &&
+              code <= 126 &&
+              code != 0x27 &&
+              code != 0x60 &&
+              !differed.contains(code),
       widthOf: (code) =>
           (standard ?? PdfStandardFont.helvetica).widthOf(code).toDouble(),
       textOf: text,
@@ -2137,7 +2241,7 @@ class _RedFont {
     } on Object {
       toUnicode = const {};
     }
-    final identityH = name == 'Identity-H';
+    final identityH = name == 'Identity-H' && !_overlappingWidths(cos, font);
     final vertical = encoding is! CosName || name.endsWith('-V');
     final maxWidth = [dw, ...widths.values].map((w) => w.abs()).fold(
           0.0,
@@ -2153,6 +2257,40 @@ class _RedFont {
       // an embedded CMap may be vertical (/WMode 1); treat it so
       isVertical: vertical,
     );
+  }
+
+  /// Whether a composite font's /W names a CID twice (viewers resolve
+  /// overlaps differently), or holds anything but numbers and arrays.
+  static bool _overlappingWidths(CosDocument cos, CosDictionary font) {
+    final descendants = cos.resolve(font['DescendantFonts']);
+    if (descendants is! CosArray || descendants.length == 0) return false;
+    final cid = cos.resolve(descendants[0]);
+    if (cid is! CosDictionary) return false;
+    final w = cos.resolve(cid['W']);
+    if (w is! CosArray) return false;
+    final ranges = <(int, int)>[];
+    final items = [for (final i in w.items) cos.resolve(i)];
+    var i = 0;
+    while (i < items.length) {
+      final first = items[i];
+      if (first is! CosInteger) return true;
+      if (i + 1 >= items.length) return true;
+      final next = items[i + 1];
+      if (next is CosArray) {
+        ranges.add((first.value, first.value + next.length - 1));
+        i += 2;
+      } else if (next is CosInteger && i + 2 < items.length) {
+        ranges.add((first.value, next.value));
+        i += 3;
+      } else {
+        return true;
+      }
+    }
+    ranges.sort((a, b) => a.$1.compareTo(b.$1));
+    for (var k = 1; k < ranges.length; k++) {
+      if (ranges[k].$1 <= ranges[k - 1].$2) return true;
+    }
+    return false;
   }
 
   static _RedMatrix _fontMatrix(CosDocument cos, CosDictionary font) {
