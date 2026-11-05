@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:test/test.dart';
 
@@ -270,6 +271,63 @@ void main() {
       final re = RegExp(r'\bre\b');
       expect(re.allMatches(_content(out, 0)).length, 2);
       expect(re.allMatches(_content(out, 1)).length, 1);
+    });
+
+    test('a top-level leading folds into a later T*', () {
+      final pdf = _page('20 TL BT /F1 12 Tf 72 700 Td (KEEPA) Tj T* (GONE) Tj '
+          'T* (KEEPB) Tj ET\n');
+      final out = _burn(pdf, [const PdfRect(60, 675, 200, 690)]);
+      expect(_content(out), isNot(contains('GONE')));
+      _unmoved(pdf, out, ['KEEPA', 'KEEPB']);
+    });
+
+    test('an emptied text object keeps the leading its TD and TL set', () {
+      for (final setter in ['0 -15 TD', '15 TL']) {
+        final pdf = _page('BT /F1 12 Tf 300 300 Td $setter (GONE) Tj ET\n'
+            'BT /F1 12 Tf 72 700 Td (KEEPA) Tj T* (KEEPB) Tj ET\n');
+        final out = _burn(pdf, [const PdfRect(290, 270, 400, 320)]);
+        final text = _content(out);
+        expect(text, isNot(contains('GONE')));
+        expect(text, isNot(contains('300')), reason: setter);
+        _unmoved(pdf, out, ['KEEPA', 'KEEPB']);
+      }
+    });
+
+    test('a folded TD still sets the leading', () {
+      final pdf = _page('BT /F1 12 Tf 72 700.5 Td (KEEPA) Tj 0 -20 TD '
+          '(GONE) Tj T* (KEEPB) Tj T* (KEEPC) Tj ET\n');
+      final out = _burn(pdf, [const PdfRect(60, 675, 200, 690)]);
+      expect(_content(out), isNot(contains('GONE')));
+      _unmoved(pdf, out, ['KEEPA', 'KEEPB', 'KEEPC']);
+    });
+
+    test('marked content an emptied object opens stays balanced', () {
+      final pdf = _page('BT /F1 12 Tf /Span <</MCID 0>> BDC 300 300 Td (GONE) '
+          'Tj ET EMC BT /F1 12 Tf 72 700 Td (KEEP) Tj ET\n');
+      final text = _content(_burn(pdf, [const PdfRect(290, 290, 400, 320)]));
+      expect(text, isNot(contains('GONE')));
+      final ops =
+          ContentStreamParser.parse(Uint8List.fromList(latin1.encode(text)))
+              .map((o) => o.operator)
+              .toList();
+      expect(ops.where((o) => o == 'BDC').length,
+          ops.where((o) => o == 'EMC').length);
+    });
+
+    test('a kept TJ loses only its trailing kern', () {
+      final pdf = _page('BT /F1 12 Tf 72 700 Td '
+          '[(KEEPA) -1000 (KEEPB) -1000 (SECRETX)] TJ ET\n');
+      final text = _content(_burn(pdf, [const PdfRect(186, 690, 300, 720)]));
+      // the kern between kept strings stays: KEEPB is where it was
+      expect(text, contains('[(KEEPA) -1000 (KEEPB)] TJ'));
+    });
+
+    test('unterminated groups and text objects are left as they are', () {
+      final pdf = _page('BT /F1 12 Tf 300 300 Td (GONE) Tj ET\n'
+          'q 0.5 g BT /F1 12 Tf 72 700 Td (KEEP) Tj');
+      final text = _content(_burn(pdf, [const PdfRect(290, 290, 400, 320)]));
+      expect(text, isNot(contains('GONE')));
+      expect(text, contains('(KEEP) Tj'));
     });
   });
 }

@@ -2728,7 +2728,7 @@ List<ContentOperation> _tidyTextObjects(List<ContentOperation> ops,
         final o = body[k];
         final name = o.operator;
         if (_positionOperators.contains(name) && name != 'TD') continue;
-        if (name == 'Tj' || name == 'TJ' || name == "'") continue;
+        if (_showOperators.contains(name)) continue; // all show nothing
         if (_markedPoint.contains(name)) continue;
         if ((_markedOpen.contains(name) || name == 'EMC') &&
             !unmatched.contains(k)) {
@@ -2739,15 +2739,6 @@ List<ContentOperation> _tidyTextObjects(List<ContentOperation> ops,
           final ty = o.operands.length == 2 ? _tidyNumber(o.operands[1]) : null;
           leading = ty == null ? null : -ty;
           if (ty != null) out.add(ContentOperation('TL', [_tidyOperand(-ty)]));
-          continue;
-        }
-        if (name == '"') {
-          // word and character spacing
-          if (o.operands.length >= 3) {
-            out
-              ..add(ContentOperation('Tw', [o.operands[0]]))
-              ..add(ContentOperation('Tc', [o.operands[1]]));
-          }
           continue;
         }
         if (name == 'TL') {
