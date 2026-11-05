@@ -206,7 +206,11 @@ class _RedactionBurn {
     for (final part in _parts) {
       all.add(part);
     }
-    return all.takeBytes();
+    final bytes = all.takeBytes();
+    // what's left of a redacted stream shouldn't trace what was there
+    return changed
+        ? _tidyRedactedContent(bytes, leadingKnown: _parent == null)
+        : bytes;
   }
 
   /// The resource dictionary the rewritten stream needs, or null when the
@@ -1759,16 +1763,17 @@ class _RedactionBurn {
       }
     }
 
+    // First pass: place every glyph and decide which are covered.
+    final glyphs = <_RedGlyph>[];
+    final kerns = <int, double>{}; // glyph index -> kern displacement before it
+    var word = 0;
+    final em = (_tfs * _th).abs();
     for (final element in elements) {
       if (element is double) {
-        // existing TJ adjustment: advances the cursor, carry it through
         final disp = -element / 1000 * _tfs * _th;
-        if (current.length > 0) {
-          flushString();
-        }
-        // fold into the gap stream so spacing survives either way; both are
-        // forward advances, so a kern keeps its direction when re-emitted
-        pendingGap += disp;
+        kerns[glyphs.length] = (kerns[glyphs.length] ?? 0) + disp;
+        // a kern of a fifth of an em or more separates words
+        if (disp.abs() >= 0.2 * em) word++;
         _tm = _redMul((1, 0, 0, 1, disp, 0), _tm);
         continue;
       }
@@ -1782,23 +1787,70 @@ class _RedactionBurn {
         // word spacing applies to the single-byte code 32 only (§9.3.3)
         final wordSpace = codeLength == 1 && code == 32 ? _tw : 0;
         final advance = (w0 / 1000 * _tfs + _tc + wordSpace) * _th;
-
-        if (_glyphCovered(font, code, glyphWidth)) {
-          redactedAny = true;
-          flushString();
-          pendingGap += advance;
-          _span.write(font.textOf(code));
-          removedText.write(font.textOf(code));
-        } else {
-          _flushSpan();
-          flushGap();
-          if (current.length > 0 && currentHex != string.isHex) {
-            flushString();
-          }
-          currentHex = string.isHex;
-          current.add(Uint8List.sublistView(bytes, i, i + codeLength));
-        }
+        final text = font.textOf(code);
+        final space = (codeLength == 1 && code == 32) || text.trim().isEmpty;
+        if (space) word++;
+        glyphs.add(_RedGlyph(
+          Uint8List.sublistView(bytes, i, i + codeLength),
+          string.isHex,
+          text,
+          advance,
+          glyphWidth,
+          _redMul(_tm, _ctm),
+          covered: _glyphCovered(font, code, glyphWidth),
+          word: space ? -1 : word,
+        ));
+        if (space) word++;
         _tm = _redMul((1, 0, 0, 1, advance, 0), _tm);
+      }
+    }
+
+    // A word that loses any letter loses them all: a fragment left standing
+    // ("rives") gives away what stood next to it. The fill grows over the
+    // letters taken this way.
+    if (_session.wholeWords) {
+      final hit = {
+        for (final g in glyphs)
+          if (g.covered && g.word >= 0) g.word,
+      };
+      for (final g in glyphs) {
+        if (g.covered || !hit.contains(g.word)) continue;
+        g.covered = true;
+        final lo = _trise - 0.25 * _tfs, hi = _trise + 0.95 * _tfs;
+        final box = _hullBounds([
+          _redApply(g.matrix, 0, lo),
+          _redApply(g.matrix, g.width, lo),
+          _redApply(g.matrix, 0, hi),
+          _redApply(g.matrix, g.width, hi),
+        ])!;
+        if (_finite(box)) _session.extraFills.add(box);
+      }
+    }
+
+    // Second pass: rebuild the show with the covered glyphs replaced by
+    // gaps.
+    for (var index = 0; index <= glyphs.length; index++) {
+      final kern = kerns[index];
+      if (kern != null) {
+        if (current.length > 0) flushString();
+        // fold into the gap stream so spacing survives either way; both are
+        // forward advances, so a kern keeps its direction when re-emitted
+        pendingGap += kern;
+      }
+      if (index == glyphs.length) break;
+      final g = glyphs[index];
+      if (g.covered) {
+        redactedAny = true;
+        flushString();
+        pendingGap += g.advance;
+        _span.write(g.text);
+        removedText.write(g.text);
+      } else {
+        _flushSpan();
+        flushGap();
+        if (current.length > 0 && currentHex != g.isHex) flushString();
+        currentHex = g.isHex;
+        current.add(g.bytes);
       }
     }
 
@@ -2465,6 +2517,27 @@ class _RedFont {
   }
 }
 
+/// One glyph of a show, placed: what [_RedactionBurn._showText] needs to
+/// decide its fate and rebuild the run.
+class _RedGlyph {
+  _RedGlyph(
+      this.bytes, this.isHex, this.text, this.advance, this.width, this.matrix,
+      {required this.covered, required this.word});
+
+  final Uint8List bytes;
+  final bool isHex;
+  final String text;
+  final double advance;
+  final double width;
+
+  /// Text space to default user space at the glyph's origin.
+  final _RedMatrix matrix;
+  bool covered;
+
+  /// Index of the word the glyph belongs to, or -1 for a space.
+  final int word;
+}
+
 class _RedGraphicsState {
   _RedGraphicsState({
     required this.ctm,
@@ -2544,3 +2617,229 @@ PdfRect? _hullBounds(List<(double, double)> points) {
   }
   return PdfRect(minX, minY, maxX, maxY);
 }
+
+/// Operators that put something on the page (or open structure that must
+/// stay balanced): a `q`...`Q` group holding none of them changes nothing.
+const _drawingOperators = {
+  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'Tj', 'TJ', "'", '"',
+  'Do', 'sh', 'BI', 'BMC', 'BDC', 'EMC', 'MP', 'DP', 'd0', 'd1', //
+};
+
+const _showOperators = {'Tj', 'TJ', "'", '"'};
+const _textStateOperators = {'Tc', 'Tw', 'Tz', 'TL', 'Tf', 'Tr', 'Ts'};
+const _positionOperators = {'Td', 'TD', 'Tm', 'T*'};
+
+/// Rewrites a burned content stream so what's left doesn't trace what was
+/// removed, without changing what it draws:
+///  * `q`...`Q` groups that draw nothing (the colour and line state of a
+///    removed shape) go;
+///  * text objects that show nothing keep only their lasting text state
+///    (font, spacing), not the positions of the text they held;
+///  * a run of positioning operators collapses into one `Tm`, so the
+///    stops along the way (where removed lines stood) don't survive, and
+///    positioning nothing follows goes.
+///
+/// [leadingKnown] says the leading (`TL`) is known at the start - true for
+/// a page; a form inherits it, so a `T*` there is never folded.
+Uint8List _tidyRedactedContent(Uint8List content,
+    {required bool leadingKnown}) {
+  final List<ContentOperation> ops;
+  try {
+    ops = ContentStreamParser.parse(content);
+  } on Object {
+    return content; // our own output; never expected, and safe as it is
+  }
+
+  // 1. groups that draw nothing
+  final stack = <List<ContentOperation>>[[]];
+  final drew = <bool>[false];
+  for (final op in ops) {
+    if (op.operator == 'q') {
+      stack.add([op]);
+      drew.add(false);
+    } else if (op.operator == 'Q' && stack.length > 1) {
+      final group = stack.removeLast()..add(op);
+      if (drew.removeLast()) {
+        stack.last.addAll(group);
+        drew[drew.length - 1] = true;
+      }
+    } else {
+      stack.last.add(op);
+      if (_drawingOperators.contains(op.operator)) {
+        drew[drew.length - 1] = true;
+      }
+    }
+  }
+  while (stack.length > 1) {
+    final group = stack.removeLast();
+    final d = drew.removeLast();
+    stack.last.addAll(group);
+    if (d) drew[drew.length - 1] = true;
+  }
+  final grouped = stack.single;
+
+  // 2. text objects: drop empty ones, fold positioning runs
+  final out = <ContentOperation>[];
+  double? leading = leadingKnown ? 0 : null;
+  var i = 0;
+  while (i < grouped.length) {
+    final op = grouped[i];
+    if (op.operator != 'BT') {
+      out.add(op);
+      i++;
+      continue;
+    }
+    var end = i + 1;
+    while (end < grouped.length && grouped[end].operator != 'ET') {
+      end++;
+    }
+    if (end >= grouped.length) {
+      out.addAll(grouped.sublist(i)); // unterminated: left alone
+      break;
+    }
+    final body = grouped.sublist(i + 1, end);
+    final shows = body.any((o) =>
+        (_showOperators.contains(o.operator) ||
+            _drawingOperators.contains(o.operator)) &&
+        !_isEmptyShow(o));
+    if (!shows) {
+      // nothing shown: keep only state that outlives the object
+      for (final o in body) {
+        if (_textStateOperators.contains(o.operator)) {
+          out.add(o);
+          if (o.operator == 'TL') leading = _tidyNumber(o.operands.last);
+        } else if (o.operator == 'TD' && o.operands.length == 2) {
+          final ty = _tidyNumber(o.operands[1]);
+          leading = ty == null ? null : -ty;
+          if (leading != null) {
+            out.add(ContentOperation('TL', [CosReal(leading)]));
+          }
+        }
+      }
+      i = end + 1;
+      continue;
+    }
+    out.add(op);
+    var tlm = _redIdentity;
+    // once a position can't be followed, no later run in this object folds
+    var tlmKnown = true;
+    var run = <ContentOperation>[];
+    var runFoldable = true;
+    void flushRun({required bool beforeShow}) {
+      if (run.isEmpty) return;
+      final tdLeading = run.lastWhere((o) => o.operator == 'TD',
+          orElse: () => ContentOperation('', const []));
+      if (!runFoldable || !tlmKnown) {
+        tlmKnown = false;
+        out.addAll(run);
+      } else {
+        if (tdLeading.operator == 'TD') {
+          out.add(ContentOperation('TL', [CosReal(leading!)]));
+        }
+        if (beforeShow) {
+          final (a, b, c, d, e, f) = tlm;
+          out.add(ContentOperation('Tm', [
+            for (final v in [a, b, c, d, e, f]) CosReal(v),
+          ]));
+        }
+      }
+      run = [];
+      runFoldable = true;
+    }
+
+    // A show that draws nothing - the kern a burn leaves for a removed
+    // run - only moves the pen. When the next thing is a new position (or
+    // the end of the object), that move is never used: it would only record
+    // the removed run's width.
+    bool isDead(int k) {
+      if (!_isEmptyShow(body[k])) return false;
+      for (var j = k + 1; j < body.length; j++) {
+        final next = body[j].operator;
+        if (_positionOperators.contains(next) || next == "'" || next == '"') {
+          return true;
+        }
+        if (_showOperators.contains(next) || _drawingOperators.contains(next)) {
+          return _isEmptyShow(body[j]) && isDead(j);
+        }
+      }
+      return true; // the object ends
+    }
+
+    for (var k = 0; k < body.length; k++) {
+      final o = body[k];
+      if (isDead(k)) continue;
+      if (_positionOperators.contains(o.operator)) {
+        final v = [for (final x in o.operands) _tidyNumber(x)];
+        switch (o.operator) {
+          case 'Td' || 'TD':
+            if (v.length == 2 && v[0] != null && v[1] != null) {
+              tlm = _redMul((1, 0, 0, 1, v[0]!, v[1]!), tlm);
+              if (o.operator == 'TD') leading = -v[1]!;
+            } else {
+              runFoldable = false;
+            }
+          case 'Tm':
+            if (v.length == 6 && v.every((x) => x != null)) {
+              tlm = (v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!);
+            } else {
+              runFoldable = false;
+            }
+          case 'T*':
+            if (leading == null) {
+              runFoldable = false;
+            } else {
+              tlm = _redMul((1, 0, 0, 1, 0, -leading), tlm);
+            }
+        }
+        run.add(o);
+        continue;
+      }
+      if (_showOperators.contains(o.operator)) {
+        flushRun(beforeShow: true);
+        if (o.operator == "'" || o.operator == '"') {
+          final l = leading;
+          if (l == null) {
+            tlmKnown = false;
+          } else {
+            tlm = _redMul((1, 0, 0, 1, 0, -l), tlm);
+          }
+        }
+        out.add(o);
+        continue;
+      }
+      if (o.operator == 'TL') leading = _tidyNumber(o.operands.last);
+      if (o.operator == 'BT' || o.operator == 'ET') tlmKnown = false;
+      // other operators (state, marked content) keep their place; a run
+      // in front of them is emitted as it was
+      if (run.isNotEmpty) {
+        out.addAll(run);
+        run = [];
+        runFoldable = true;
+      }
+      out.add(o);
+    }
+    // positioning nothing follows is dropped (bar the leading it sets)
+    flushRun(beforeShow: false);
+    out.add(grouped[end]);
+    i = end + 1;
+  }
+  return ContentStreamSerializer.serialize(out);
+}
+
+/// A `Tj`/`TJ` that shows no glyph: only kerns, or empty strings.
+bool _isEmptyShow(ContentOperation o) {
+  if (o.operator == 'Tj') {
+    final s = o.operands.isEmpty ? null : o.operands.last;
+    return s is CosString && s.bytes.isEmpty;
+  }
+  if (o.operator != 'TJ') return false;
+  final a = o.operands.isEmpty ? null : o.operands.last;
+  return a is CosArray &&
+      a.items.every((i) => i is! CosString || i.bytes.isEmpty);
+}
+
+double? _tidyNumber(CosObject o) => switch (o) {
+      CosInteger(:final value) => value.toDouble(),
+      CosReal(:final value) => value.isFinite ? value : null,
+      _ => null,
+    };
