@@ -141,4 +141,31 @@ void main() {
         .replacePagesWithImages({0: _raster(40, 60)});
     expect(_everything(out), isNot(contains('VISIBLETEXT')));
   });
+
+  test('structure text reached through a reference or a parent goes', () {
+    final pdf = _pdf([
+      '<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+          '/Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>',
+      _stream(
+          '', '/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Hello) Tj ET EMC'),
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      '<< /Type /StructTreeRoot /K [7 0 R 9 0 R] /ParentTree 8 0 R >>',
+      // the page only on the marked-content reference
+      '<< /Type /StructElem /S /P /P 6 0 R /ActualText (MCRTEXT) '
+          '/K << /Type /MCR /Pg 3 0 R /MCID 0 >> >>',
+      '<< /Nums [0 [7 0 R]] >>',
+      // the page only on the parent; the parent's summary goes too
+      '<< /Type /StructElem /S /Div /P 6 0 R /Pg 3 0 R /Alt (PARENTALT) '
+          '/K [10 0 R] >>',
+      '<< /Type /StructElem /S /Span /P 9 0 R /K 1 /Alt (CHILDALT) >>',
+    ]);
+    final out = PdfEditor(PdfDocument.open(pdf))
+        .replacePagesWithImages({0: _raster(2, 2)});
+    final all = _everything(out);
+    for (final gone in ['MCRTEXT', 'PARENTALT', 'CHILDALT']) {
+      expect(all, isNot(contains(gone)), reason: '$gone survived');
+    }
+  });
 }

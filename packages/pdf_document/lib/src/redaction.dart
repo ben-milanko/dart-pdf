@@ -323,6 +323,7 @@ extension PdfRedactionApply on PdfEditor {
     }
     if (redactions.isEmpty) return false;
     final regions = [for (final r in redactions) r.rect];
+    session.extraFills.clear();
 
     // 1. Surgically remove covered content from the page's streams (and
     //    from the form XObjects, images, patterns and soft masks it draws).
@@ -359,8 +360,26 @@ extension PdfRedactionApply on PdfEditor {
     page.dict.entries.remove('PieceInfo');
     _updater.markChanged(page.dict);
 
-    // 2. Paint the fill (and any overlay text) over each region, on top -
-    //    and over letters whole-word removal took beyond the boxes.
+    // 2. Drop the /Redact annotations and every annotation touching a
+    //    redaction region (it draws over the fill, and its /Contents or
+    //    field value is what the rect is meant to hide), with the popups,
+    //    popup owners and replies that belong to them.
+    final removed = _annotationsToRedact(annots, regions);
+    for (final item in annots.items) {
+      final d = cos.resolve(item);
+      if (d is! CosDictionary || removed.containsKey(d)) continue;
+      if (!_burnKeptAppearances(d, regions, session)) removed[d] = item;
+    }
+    final annotationsChanged = _PdfPageAnnotationList(this, pageIndex)
+        .removeWhere((_, resolved) => removed.containsKey(resolved));
+    for (final MapEntry(key: dict, value: item) in removed.entries) {
+      _purgeAnnotation(dict, item, session);
+    }
+
+    // 3. Paint the fill (and any overlay text) over each region, on top -
+    //    and over letters whole-word removal took beyond the boxes. This
+    //    comes after the kept appearances burn: they can take words beyond
+    //    the boxes too, and those fills belong on this page.
     final color = redactions.first.fillColor;
     final fill = _redactionFillContent(page, [
       ...redactions,
@@ -379,21 +398,6 @@ extension PdfRedactionApply on PdfEditor {
       session.contentReplacements[contents.objectNumber] = newContents;
     }
 
-    // 3. Drop the /Redact annotations and every annotation touching a
-    //    redaction region (it draws over the fill, and its /Contents or
-    //    field value is what the rect is meant to hide), with the popups,
-    //    popup owners and replies that belong to them.
-    final removed = _annotationsToRedact(annots, regions);
-    for (final item in annots.items) {
-      final d = cos.resolve(item);
-      if (d is! CosDictionary || removed.containsKey(d)) continue;
-      if (!_burnKeptAppearances(d, regions, session)) removed[d] = item;
-    }
-    final annotationsChanged = _PdfPageAnnotationList(this, pageIndex)
-        .removeWhere((_, resolved) => removed.containsKey(resolved));
-    for (final MapEntry(key: dict, value: item) in removed.entries) {
-      _purgeAnnotation(dict, item, session);
-    }
     if (annotationsChanged) _markAnnotations([pageIndex], visual: false);
     return true;
   }

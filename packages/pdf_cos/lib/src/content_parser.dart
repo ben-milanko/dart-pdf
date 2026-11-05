@@ -47,31 +47,38 @@ class ContentOperation {
 class ContentStreamSerializer {
   ContentStreamSerializer._();
 
-  /// Serializes [operations], one operation per line.
-  static Uint8List serialize(Iterable<ContentOperation> operations) {
+  /// Serializes [operations], one operation per line. With
+  /// [preserveRealPrecision], reals keep every digit they carry instead of
+  /// being rounded to six decimals (see [CosSerializer.serialize]).
+  static Uint8List serialize(Iterable<ContentOperation> operations,
+      {bool preserveRealPrecision = false}) {
     final out = BytesBuilder();
     for (final operation in operations) {
-      writeOperation(operation, out);
+      writeOperation(operation, out,
+          preserveRealPrecision: preserveRealPrecision);
     }
     return out.takeBytes();
   }
 
   /// Serializes one [operation] into [out].
-  static void writeOperation(ContentOperation operation, BytesBuilder out) {
+  static void writeOperation(ContentOperation operation, BytesBuilder out,
+      {bool preserveRealPrecision = false}) {
     if (operation.operator == 'BI') {
-      _writeInlineImage(operation, out);
+      _writeInlineImage(operation, out, preserveRealPrecision);
       return;
     }
 
     for (final operand in operation.operands) {
       out
-        ..add(CosSerializer.serialize(operand))
+        ..add(CosSerializer.serialize(operand,
+            preserveRealPrecision: preserveRealPrecision))
         ..addByte(0x20);
     }
     out.add(latin1.encode('${operation.operator}\n'));
   }
 
-  static void _writeInlineImage(ContentOperation operation, BytesBuilder out) {
+  static void _writeInlineImage(ContentOperation operation, BytesBuilder out,
+      bool preserveRealPrecision) {
     if (operation.operands.length < 2 ||
         operation.operands[0] is! CosDictionary ||
         operation.operands[1] is! CosString) {
@@ -82,9 +89,14 @@ class ContentStreamSerializer {
     out.add(latin1.encode('BI'));
     final dict = operation.operands[0] as CosDictionary;
     dict.entries.forEach((key, value) {
+      // the key escaped like any name: a raw delimiter or `#` in it would
+      // re-parse differently
       out
-        ..add(latin1.encode(' /$key '))
-        ..add(CosSerializer.serialize(value));
+        ..addByte(0x20)
+        ..add(CosSerializer.serialize(CosName(key)))
+        ..addByte(0x20)
+        ..add(CosSerializer.serialize(value,
+            preserveRealPrecision: preserveRealPrecision));
     });
     out.add(latin1.encode(' ID\n'));
     out.add((operation.operands[1] as CosString).bytes);

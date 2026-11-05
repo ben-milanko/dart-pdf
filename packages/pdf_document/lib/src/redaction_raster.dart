@@ -149,31 +149,52 @@ extension PdfRedactionRaster on PdfEditor {
     });
     if (rasters.isEmpty) return save();
 
-    // structure elements that described these pages' content
+    // Structure elements that described these pages' content lose their
+    // text: those on the page (their own /Pg, one inherited from a parent,
+    // or a marked-content or object reference's /Pg), and every element
+    // above them, whose /Alt or /ActualText can sum up what they held.
     final catalog = cos.resolve(cos.trailer['Root']);
     final root = catalog is CosDictionary
         ? cos.resolve(catalog['StructTreeRoot'])
         : null;
     if (root is CosDictionary) {
-      final visited = Set<CosDictionary>.identity();
-      final stack = <CosObject>[cos.resolve(root['K'])];
-      while (stack.isNotEmpty && visited.length < 500000) {
-        final node = stack.removeLast();
+      final parentOf = Map<CosDictionary, CosDictionary?>.identity();
+      final stripped = Set<CosDictionary>.identity();
+      void strip(CosDictionary? element) {
+        while (element != null && stripped.add(element)) {
+          for (final key in _PdfRedactionText.markedKeys) {
+            element.entries.remove(key);
+          }
+          _touch(element);
+          element = parentOf[element];
+        }
+      }
+
+      final stack = <(CosObject, CosDictionary?, CosDictionary?)>[
+        (cos.resolve(root['K']), null, null),
+      ];
+      while (stack.isNotEmpty && parentOf.length < 500000) {
+        final (node, parent, inheritedPage) = stack.removeLast();
         if (node is CosArray) {
           for (final kid in node.items) {
-            stack.add(cos.resolve(kid));
+            stack.add((cos.resolve(kid), parent, inheritedPage));
           }
           continue;
         }
-        if (node is! CosDictionary || !visited.add(node)) continue;
+        if (node is! CosDictionary) continue;
         final pg = cos.resolve(node['Pg']);
-        if (pg is CosDictionary && rasterized.contains(pg)) {
-          for (final key in _PdfRedactionText.markedKeys) {
-            node.entries.remove(key);
-          }
-          _touch(node);
+        final page = pg is CosDictionary ? pg : inheritedPage;
+        final type = cos.resolve(node['Type']);
+        final isReference =
+            type is CosName && (type.value == 'MCR' || type.value == 'OBJR');
+        if (isReference) {
+          if (page != null && rasterized.contains(page)) strip(parent);
+          continue;
         }
-        stack.add(cos.resolve(node['K']));
+        if (parentOf.containsKey(node)) continue;
+        parentOf[node] = parent;
+        if (page != null && rasterized.contains(page)) strip(node);
+        stack.add((cos.resolve(node['K']), node, page));
       }
     }
     _guardPageTree(session);

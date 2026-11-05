@@ -500,7 +500,7 @@ class _RedactionBurn {
           _parts.add(_out.takeBytes());
           _dashPart = _parts.length;
           final piece = BytesBuilder();
-          ContentStreamSerializer.writeOperation(op, piece);
+          _serializeOp(op, piece);
           _parts.add(piece.takeBytes());
           _dashParts.add(_dashPart!);
           return;
@@ -555,7 +555,7 @@ class _RedactionBurn {
           _parts.add(_out.takeBytes());
           _patternSelections.add((_parts.length, name));
           final piece = BytesBuilder();
-          ContentStreamSerializer.writeOperation(op, piece);
+          _serializeOp(op, piece);
           _parts.add(piece.takeBytes());
           return;
         }
@@ -751,7 +751,7 @@ class _RedactionBurn {
       _marked.add(frame);
       if (raw is CosName) _namedMarks.add(frame);
       final piece = BytesBuilder();
-      ContentStreamSerializer.writeOperation(op, piece);
+      _serializeOp(op, piece);
       _parts.add(piece.takeBytes());
       return;
     }
@@ -794,7 +794,7 @@ class _RedactionBurn {
         replacement = ContentOperation('BDC', [frame.op.operands[0], stripped]);
       }
       final piece = BytesBuilder();
-      ContentStreamSerializer.writeOperation(replacement, piece);
+      _serializeOp(replacement, piece);
       _parts[frame.part] = piece.takeBytes();
     }
     _parent?._removedInChild();
@@ -1788,7 +1788,10 @@ class _RedactionBurn {
         final wordSpace = codeLength == 1 && code == 32 ? _tw : 0;
         final advance = (w0 / 1000 * _tfs + _tc + wordSpace) * _th;
         final text = font.textOf(code);
-        final space = (codeLength == 1 && code == 32) || text.trim().isEmpty;
+        // a glyph with no Unicode is a letter as far as words go: treating
+        // it as a space would leave its neighbours standing
+        final space = (codeLength == 1 && code == 32) ||
+            (text.isNotEmpty && text.trim().isEmpty);
         if (space) word++;
         glyphs.add(_RedGlyph(
           Uint8List.sublistView(bytes, i, i + codeLength),
@@ -1813,16 +1816,25 @@ class _RedactionBurn {
         for (final g in glyphs)
           if (g.covered && g.word >= 0) g.word,
       };
+      // one fill per word, over the whole word: a box per letter would
+      // record each letter's width
+      final corners = <int, List<(double, double)>>{};
+      final grown = <int>{};
+      final lo = _trise - 0.25 * _tfs, hi = _trise + 0.95 * _tfs;
       for (final g in glyphs) {
-        if (g.covered || !hit.contains(g.word)) continue;
+        if (g.word < 0 || !hit.contains(g.word)) continue;
+        if (!g.covered) grown.add(g.word);
         g.covered = true;
-        final lo = _trise - 0.25 * _tfs, hi = _trise + 0.95 * _tfs;
-        final box = _hullBounds([
+        final points = corners.putIfAbsent(g.word, () => []);
+        points.addAll([
           _redApply(g.matrix, 0, lo),
           _redApply(g.matrix, g.width, lo),
           _redApply(g.matrix, 0, hi),
           _redApply(g.matrix, g.width, hi),
-        ])!;
+        ]);
+      }
+      for (final word in grown) {
+        final box = _hullBounds(corners[word]!)!;
         if (_finite(box)) _session.extraFills.add(box);
       }
     }
@@ -2097,7 +2109,7 @@ class _RedactionBurn {
 
   /// Re-serializes [op] verbatim (mirrors [PdfPageElements.serialize]).
   void _writeOp(ContentOperation op) {
-    ContentStreamSerializer.writeOperation(op, _out);
+    _serializeOp(op, _out);
   }
 }
 
@@ -2618,29 +2630,39 @@ PdfRect? _hullBounds(List<(double, double)> points) {
   return PdfRect(minX, minY, maxX, maxY);
 }
 
-/// Operators that put something on the page (or open structure that must
-/// stay balanced): a `q`...`Q` group holding none of them changes nothing.
-const _drawingOperators = {
-  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'Tj', 'TJ', "'", '"',
-  'Do', 'sh', 'BI', 'BMC', 'BDC', 'EMC', 'MP', 'DP', 'd0', 'd1', //
+/// Writes [op] as a burn writes everything: reals with every digit they
+/// carry (rounding to six decimals collapses content drawn at tiny scales).
+void _serializeOp(ContentOperation op, BytesBuilder out) =>
+    ContentStreamSerializer.writeOperation(op, out,
+        preserveRealPrecision: true);
+
+/// Operators that put something on the page. Marked content is not among
+/// them: a group or text object holding only that changes nothing drawn.
+const _paintOperators = {
+  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', //
+  'Do', 'sh', 'BI', 'd0', 'd1', //
 };
 
 const _showOperators = {'Tj', 'TJ', "'", '"'};
-const _textStateOperators = {'Tc', 'Tw', 'Tz', 'TL', 'Tf', 'Tr', 'Ts'};
 const _positionOperators = {'Td', 'TD', 'Tm', 'T*'};
+const _markedOpen = {'BMC', 'BDC'};
+const _markedPoint = {'MP', 'DP'};
 
 /// Rewrites a burned content stream so what's left doesn't trace what was
 /// removed, without changing what it draws:
+///  * text objects that show nothing keep only the state that outlives
+///    them (font, spacing, colour, graphics state), not the positions of
+///    the text they held;
+///  * in the others, a run of positioning operators collapses into one
+///    `Tm` in front of the next show, so the stops along the way (where
+///    removed lines stood) don't survive; positioning nothing uses goes,
+///    and so does a kern nothing after it relies on - a kern-only show, or
+///    the tail of a `TJ` - since it would only record a removed width;
 ///  * `q`...`Q` groups that draw nothing (the colour and line state of a
-///    removed shape) go;
-///  * text objects that show nothing keep only their lasting text state
-///    (font, spacing), not the positions of the text they held;
-///  * a run of positioning operators collapses into one `Tm`, so the
-///    stops along the way (where removed lines stood) don't survive, and
-///    positioning nothing follows goes.
+///    removed shape) go, and so does marked content left empty.
 ///
 /// [leadingKnown] says the leading (`TL`) is known at the start - true for
-/// a page; a form inherits it, so a `T*` there is never folded.
+/// a page; a form inherits it, so a `T*` there folds only after a `TL`.
 Uint8List _tidyRedactedContent(Uint8List content,
     {required bool leadingKnown}) {
   final List<ContentOperation> ops;
@@ -2649,72 +2671,89 @@ Uint8List _tidyRedactedContent(Uint8List content,
   } on Object {
     return content; // our own output; never expected, and safe as it is
   }
-
-  // 1. groups that draw nothing
-  final stack = <List<ContentOperation>>[[]];
-  final drew = <bool>[false];
-  for (final op in ops) {
-    if (op.operator == 'q') {
-      stack.add([op]);
-      drew.add(false);
-    } else if (op.operator == 'Q' && stack.length > 1) {
-      final group = stack.removeLast()..add(op);
-      if (drew.removeLast()) {
-        stack.last.addAll(group);
-        drew[drew.length - 1] = true;
-      }
-    } else {
-      stack.last.add(op);
-      if (_drawingOperators.contains(op.operator)) {
-        drew[drew.length - 1] = true;
-      }
-    }
+  var out = _tidyTextObjects(ops, leadingKnown: leadingKnown);
+  // dropping a group can empty marked content around it, and the other way
+  // round
+  for (var pass = 0; pass < 8; pass++) {
+    final next = _dropEmptyMarkedContent(_dropEmptyGroups(out));
+    if (next.length == out.length) break;
+    out = next;
   }
-  while (stack.length > 1) {
-    final group = stack.removeLast();
-    final d = drew.removeLast();
-    stack.last.addAll(group);
-    if (d) drew[drew.length - 1] = true;
-  }
-  final grouped = stack.single;
+  return ContentStreamSerializer.serialize(out, preserveRealPrecision: true);
+}
 
-  // 2. text objects: drop empty ones, fold positioning runs
+/// The text-object half of [_tidyRedactedContent].
+List<ContentOperation> _tidyTextObjects(List<ContentOperation> ops,
+    {required bool leadingKnown}) {
   final out = <ContentOperation>[];
+  // the leading is graphics state: `q` saves it and `Q` brings it back
   double? leading = leadingKnown ? 0 : null;
+  final saved = <double?>[];
   var i = 0;
-  while (i < grouped.length) {
-    final op = grouped[i];
+  while (i < ops.length) {
+    final op = ops[i];
     if (op.operator != 'BT') {
+      switch (op.operator) {
+        case 'q':
+          saved.add(leading);
+        case 'Q':
+          if (saved.isNotEmpty) leading = saved.removeLast();
+        case 'TL':
+          leading = op.operands.isEmpty ? null : _tidyNumber(op.operands.last);
+      }
       out.add(op);
       i++;
       continue;
     }
     var end = i + 1;
-    while (end < grouped.length && grouped[end].operator != 'ET') {
+    while (end < ops.length && ops[end].operator != 'ET') {
       end++;
     }
-    if (end >= grouped.length) {
-      out.addAll(grouped.sublist(i)); // unterminated: left alone
+    if (end >= ops.length) {
+      out.addAll(ops.sublist(i)); // unterminated: left alone
       break;
     }
-    final body = grouped.sublist(i + 1, end);
+    final body = ops.sublist(i + 1, end);
     final shows = body.any((o) =>
-        (_showOperators.contains(o.operator) ||
-            _drawingOperators.contains(o.operator)) &&
-        !_isEmptyShow(o));
+        (_showOperators.contains(o.operator) && !_isEmptyShow(o)) ||
+        _paintOperators.contains(o.operator) ||
+        o.operator == 'q' ||
+        o.operator == 'Q' ||
+        o.operator == 'BT');
     if (!shows) {
-      // nothing shown: keep only state that outlives the object
-      for (final o in body) {
-        if (_textStateOperators.contains(o.operator)) {
-          out.add(o);
-          if (o.operator == 'TL') leading = _tidyNumber(o.operands.last);
-        } else if (o.operator == 'TD' && o.operands.length == 2) {
-          final ty = _tidyNumber(o.operands[1]);
-          leading = ty == null ? null : -ty;
-          if (leading != null) {
-            out.add(ContentOperation('TL', [CosReal(leading)]));
-          }
+      // Nothing shown: keep what outlives the object - text state, colour,
+      // graphics state, and marked content that isn't closed in here.
+      final unmatched = _unmatchedMarkedContent(body);
+      for (var k = 0; k < body.length; k++) {
+        final o = body[k];
+        final name = o.operator;
+        if (_positionOperators.contains(name) && name != 'TD') continue;
+        if (name == 'Tj' || name == 'TJ' || name == "'") continue;
+        if (_markedPoint.contains(name)) continue;
+        if ((_markedOpen.contains(name) || name == 'EMC') &&
+            !unmatched.contains(k)) {
+          continue;
         }
+        if (name == 'TD') {
+          // what a TD leaves behind is its leading
+          final ty = o.operands.length == 2 ? _tidyNumber(o.operands[1]) : null;
+          leading = ty == null ? null : -ty;
+          if (ty != null) out.add(ContentOperation('TL', [_tidyOperand(-ty)]));
+          continue;
+        }
+        if (name == '"') {
+          // word and character spacing
+          if (o.operands.length >= 3) {
+            out
+              ..add(ContentOperation('Tw', [o.operands[0]]))
+              ..add(ContentOperation('Tc', [o.operands[1]]));
+          }
+          continue;
+        }
+        if (name == 'TL') {
+          leading = o.operands.isEmpty ? null : _tidyNumber(o.operands.last);
+        }
+        out.add(o);
       }
       i = end + 1;
       continue;
@@ -2725,58 +2764,69 @@ Uint8List _tidyRedactedContent(Uint8List content,
     var tlmKnown = true;
     var run = <ContentOperation>[];
     var runFoldable = true;
+    var runSetsLeading = false;
     void flushRun({required bool beforeShow}) {
       if (run.isEmpty) return;
-      final tdLeading = run.lastWhere((o) => o.operator == 'TD',
-          orElse: () => ContentOperation('', const []));
       if (!runFoldable || !tlmKnown) {
         tlmKnown = false;
         out.addAll(run);
       } else {
-        if (tdLeading.operator == 'TD') {
-          out.add(ContentOperation('TL', [CosReal(leading!)]));
+        if (runSetsLeading) {
+          out.add(ContentOperation('TL', [_tidyOperand(leading!)]));
         }
         if (beforeShow) {
           final (a, b, c, d, e, f) = tlm;
           out.add(ContentOperation('Tm', [
-            for (final v in [a, b, c, d, e, f]) CosReal(v),
+            for (final v in [a, b, c, d, e, f]) _tidyOperand(v),
           ]));
         }
       }
       run = [];
       runFoldable = true;
+      runSetsLeading = false;
     }
 
-    // A show that draws nothing - the kern a burn leaves for a removed
-    // run - only moves the pen. When the next thing is a new position (or
-    // the end of the object), that move is never used: it would only record
-    // the removed run's width.
-    bool isDead(int k) {
-      if (!_isEmptyShow(body[k])) return false;
-      for (var j = k + 1; j < body.length; j++) {
-        final next = body[j].operator;
-        if (_positionOperators.contains(next) || next == "'" || next == '"') {
-          return true;
-        }
-        if (_showOperators.contains(next) || _drawingOperators.contains(next)) {
-          return _isEmptyShow(body[j]) && isDead(j);
-        }
+    // Whether the pen position after the operator at [k] is never used:
+    // the next thing that cares about it is a new position (or the end of
+    // the object). State, marked content and shows of nothing in between
+    // don't use it.
+    final penUnused = List.filled(body.length, true);
+    var unused = true;
+    for (var j = body.length - 1; j >= 0; j--) {
+      penUnused[j] = unused;
+      final o = body[j];
+      final name = o.operator;
+      if (_positionOperators.contains(name) ||
+          name == "'" ||
+          name == '"' ||
+          name == 'BT' ||
+          name == 'ET') {
+        unused = true;
+      } else if ((name == 'Tj' || name == 'TJ') && !_isEmptyShow(o)) {
+        unused = false;
       }
-      return true; // the object ends
     }
 
     for (var k = 0; k < body.length; k++) {
       final o = body[k];
-      if (isDead(k)) continue;
-      if (_positionOperators.contains(o.operator)) {
+      final name = o.operator;
+      // a show that draws nothing - the kern a burn leaves for a removed
+      // run - only moves the pen; when nothing uses that, it would only
+      // record the removed run's width
+      if (_isEmptyShow(o) && penUnused[k]) continue;
+      if (_positionOperators.contains(name)) {
         final v = [for (final x in o.operands) _tidyNumber(x)];
-        switch (o.operator) {
+        switch (name) {
           case 'Td' || 'TD':
             if (v.length == 2 && v[0] != null && v[1] != null) {
               tlm = _redMul((1, 0, 0, 1, v[0]!, v[1]!), tlm);
-              if (o.operator == 'TD') leading = -v[1]!;
+              if (name == 'TD') {
+                leading = -v[1]!;
+                runSetsLeading = true;
+              }
             } else {
               runFoldable = false;
+              if (name == 'TD') leading = null;
             }
           case 'Tm':
             if (v.length == 6 && v.every((x) => x != null)) {
@@ -2794,9 +2844,9 @@ Uint8List _tidyRedactedContent(Uint8List content,
         run.add(o);
         continue;
       }
-      if (_showOperators.contains(o.operator)) {
+      if (_showOperators.contains(name)) {
         flushRun(beforeShow: true);
-        if (o.operator == "'" || o.operator == '"') {
+        if (name == "'" || name == '"') {
           final l = leading;
           if (l == null) {
             tlmKnown = false;
@@ -2804,26 +2854,122 @@ Uint8List _tidyRedactedContent(Uint8List content,
             tlm = _redMul((1, 0, 0, 1, 0, -l), tlm);
           }
         }
-        out.add(o);
+        out.add(name == 'TJ' && penUnused[k] ? _withoutTrailingKern(o) : o);
         continue;
       }
-      if (o.operator == 'TL') leading = _tidyNumber(o.operands.last);
-      if (o.operator == 'BT' || o.operator == 'ET') tlmKnown = false;
-      // other operators (state, marked content) keep their place; a run
-      // in front of them is emitted as it was
-      if (run.isNotEmpty) {
-        out.addAll(run);
-        run = [];
-        runFoldable = true;
+      if (name == 'TL') {
+        leading = o.operands.isEmpty ? null : _tidyNumber(o.operands.last);
+      }
+      if (name == 'BT' || name == 'ET') tlmKnown = false;
+      // State and marked content keep their place; a run in front of them
+      // carries on past them, since none of them moves the text. One that
+      // can't be followed is written out as it was, before them, so a TD's
+      // leading stays ahead of a later TL.
+      if (run.isNotEmpty && (!runFoldable || !tlmKnown)) {
+        flushRun(beforeShow: false);
       }
       out.add(o);
     }
     // positioning nothing follows is dropped (bar the leading it sets)
     flushRun(beforeShow: false);
-    out.add(grouped[end]);
+    out.add(ops[end]);
     i = end + 1;
   }
-  return ContentStreamSerializer.serialize(out);
+  return out;
+}
+
+/// The indices in [body] of marked-content operators whose partner is
+/// outside it.
+Set<int> _unmatchedMarkedContent(List<ContentOperation> body) {
+  final open = <int>[];
+  final unmatched = <int>{};
+  for (var k = 0; k < body.length; k++) {
+    final name = body[k].operator;
+    if (_markedOpen.contains(name)) {
+      open.add(k);
+    } else if (name == 'EMC') {
+      if (open.isEmpty) {
+        unmatched.add(k);
+      } else {
+        open.removeLast();
+      }
+    }
+  }
+  return unmatched..addAll(open);
+}
+
+/// Drops `q`...`Q` groups that draw nothing, unless they hold half of some
+/// marked content (dropping them would unbalance it).
+List<ContentOperation> _dropEmptyGroups(List<ContentOperation> ops) {
+  final stack = <List<ContentOperation>>[[]];
+  final keep = <bool>[true];
+  final marked = <int>[0]; // open marked content per group
+  for (final op in ops) {
+    final name = op.operator;
+    if (name == 'q') {
+      stack.add([op]);
+      keep.add(false);
+      marked.add(0);
+    } else if (name == 'Q' && stack.length > 1) {
+      final group = stack.removeLast()..add(op);
+      final drew = keep.removeLast() || marked.removeLast() != 0;
+      if (drew) {
+        stack.last.addAll(group);
+        keep[keep.length - 1] = true;
+      }
+    } else {
+      stack.last.add(op);
+      if (_paintOperators.contains(name) ||
+          (_showOperators.contains(name) && !_isEmptyShow(op)) ||
+          name == 'BT' ||
+          name == 'ET') {
+        keep[keep.length - 1] = true;
+      } else if (_markedOpen.contains(name)) {
+        marked[marked.length - 1]++;
+      } else if (name == 'EMC') {
+        // closing marked content opened outside the group pins it
+        if (--marked[marked.length - 1] < 0) keep[keep.length - 1] = true;
+      }
+    }
+  }
+  while (stack.length > 1) {
+    // unbalanced: what's left open stays
+    final group = stack.removeLast();
+    keep.removeLast();
+    marked.removeLast();
+    stack.last.addAll(group);
+  }
+  return stack.single;
+}
+
+/// Drops marked content that holds nothing (`BMC`/`BDC` straight before
+/// its `EMC`).
+List<ContentOperation> _dropEmptyMarkedContent(List<ContentOperation> ops) {
+  final out = <ContentOperation>[];
+  for (final op in ops) {
+    if (op.operator == 'EMC' &&
+        out.isNotEmpty &&
+        _markedOpen.contains(out.last.operator)) {
+      out.removeLast();
+      continue;
+    }
+    out.add(op);
+  }
+  return out;
+}
+
+/// [o] (a `TJ`) without the kerns after its last string: nothing uses the
+/// pen they move.
+ContentOperation _withoutTrailingKern(ContentOperation o) {
+  final a = o.operands.isEmpty ? null : o.operands.last;
+  if (a is! CosArray) return o;
+  var end = a.items.length;
+  while (end > 0 && a.items[end - 1] is! CosString) {
+    end--;
+  }
+  if (end == a.items.length) return o;
+  if (end == 1) return ContentOperation('Tj', [a.items.first]);
+  return ContentOperation('TJ', [CosArray(a.items.sublist(0, end))]);
 }
 
 /// A `Tj`/`TJ` that shows no glyph: only kerns, or empty strings.
@@ -2837,6 +2983,11 @@ bool _isEmptyShow(ContentOperation o) {
   return a is CosArray &&
       a.items.every((i) => i is! CosString || i.bytes.isEmpty);
 }
+
+/// [v] as an operand: an integer when it is one.
+CosObject _tidyOperand(double v) => v == v.roundToDouble() && v.abs() < 1e15
+    ? CosInteger(v.toInt())
+    : CosReal(v);
 
 double? _tidyNumber(CosObject o) => switch (o) {
       CosInteger(:final value) => value.toDouble(),

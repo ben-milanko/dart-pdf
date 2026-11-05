@@ -283,4 +283,26 @@ void main() {
 
     expect(bytes, ascii('BI /W 2 /H 1 /CS /G /BPC 8 ID\n\x00\xff\nEI\n'));
   });
+
+  test('inline image keys are escaped and reals can keep every digit', () {
+    final bytes = ContentStreamSerializer.serialize([
+      ContentOperation('cm', const [
+        CosReal(0.0000004), CosInteger(0), CosInteger(0), //
+        CosReal(0.0000004), CosInteger(0), CosInteger(0),
+      ]),
+      ContentOperation('BI', [
+        CosDictionary({
+          'W': const CosInteger(1),
+          'H': const CosInteger(1),
+          'A B': const CosInteger(1),
+        }),
+        CosString(Uint8List.fromList([0x7f])),
+      ]),
+    ], preserveRealPrecision: true);
+    final text = latin1.decode(bytes);
+    // a key with a space can't break out into the content as an operator
+    expect(text, contains('/A#20B 1'));
+    final cm = ContentStreamParser.parse(bytes).first;
+    expect((cm.operands.first as CosReal).value, closeTo(0.0000004, 1e-12));
+  });
 }
