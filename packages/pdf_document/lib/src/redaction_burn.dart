@@ -165,6 +165,21 @@ class _RedactionBurn {
       _handle(op);
     }
     if (_path.isNotEmpty) _paintPath(null);
+    // marked content left open at the end of a stream (a form that opens a
+    // sequence its invoker closes) spans content this burn can't see: its
+    // replacement text goes
+    if (_marked.any((f) => f != null && f.props != null && !f.stripped)) {
+      final open = List.of(_marked);
+      _marked
+        ..clear()
+        ..addAll(open.where((f) => f != null && f.props != null));
+      final before = changed;
+      _removed();
+      changed = before || _parent != null;
+      _marked
+        ..clear()
+        ..addAll(open);
+    }
     _flushSpan();
     _parts.add(_out.takeBytes());
     for (final frame in _namedMarks) {
@@ -221,6 +236,9 @@ class _RedactionBurn {
         }
       }
       copy.entries.addAll(_added[category] ?? const {});
+      if (sub is CosDictionary) {
+        (_session.resourceCopies[sub] ??= []).add(copy);
+      }
       out[category] = copy;
     }
     return out;
@@ -2121,7 +2139,10 @@ class _RedFont {
 
     final widthsObj = cos.resolve(font['Widths']);
     if (widthsObj is CosArray) {
-      final firstChar = _num(cos, font['FirstChar']).round();
+      // poppler takes only an integer /FirstChar (else 0): a real one is
+      // read two ways
+      final firstObj = cos.resolve(font['FirstChar']);
+      final firstChar = _num(cos, firstObj).round();
       final descriptor = cos.resolve(font['FontDescriptor']);
       final missing = descriptor is CosDictionary
           ? _num(cos, descriptor['MissingWidth'])
@@ -2143,7 +2164,7 @@ class _RedFont {
       return _RedFont._(
         isComposite: false,
         codeLength: 1,
-        metricsKnown: !skewed && wellFormed,
+        metricsKnown: !skewed && wellFormed && firstObj is CosInteger,
         knowsCode: (code) => code >= firstChar && code <= knownEnd,
         widthOf: (code) {
           final i = code - firstChar;
@@ -2167,7 +2188,21 @@ class _RedFont {
     // (StandardEncoding's quoteright/quoteleft), and never a /Differences
     // code.
     final encoding = cos.resolve(font['Encoding']);
-    final winAnsi = encoding is CosName && encoding.value == 'WinAnsiEncoding';
+    final baseEncoding = encoding is CosName
+        ? encoding.value
+        : encoding is CosDictionary
+            ? switch (cos.resolve(encoding['BaseEncoding'])) {
+                CosName(:final value) => value,
+                _ => 'StandardEncoding',
+              }
+            : 'StandardEncoding';
+    final winAnsi = baseEncoding == 'WinAnsiEncoding';
+    // MacRoman names the same glyphs as WinAnsi across printable ASCII;
+    // StandardEncoding differs at the two quotes; anything else (MacExpert,
+    // an unknown name) can't be trusted at all
+    final ascii =
+        const {'StandardEncoding', 'MacRomanEncoding'}.contains(baseEncoding);
+    final quotesDiffer = baseEncoding == 'StandardEncoding';
     final differed = <int>{};
     if (encoding is CosDictionary) {
       final diffs = cos.resolve(encoding['Differences']);
@@ -2188,11 +2223,11 @@ class _RedFont {
       codeLength: 1,
       metricsKnown: standard != null,
       knowsCode: (code) => winAnsi
-          ? code >= 32 && code <= 255
-          : code >= 32 &&
+          ? code >= 32 && code <= 255 && !differed.contains(code)
+          : ascii &&
+              code >= 32 &&
               code <= 126 &&
-              code != 0x27 &&
-              code != 0x60 &&
+              !(quotesDiffer && (code == 0x27 || code == 0x60)) &&
               !differed.contains(code),
       widthOf: (code) =>
           (standard ?? PdfStandardFont.helvetica).widthOf(code).toDouble(),
@@ -2202,24 +2237,26 @@ class _RedFont {
     );
   }
 
-  /// The base-14 face [baseFont] names exactly (subset tag and common
-  /// metric-compatible aliases allowed), or null.
+  /// The base-14 face [baseFont] names exactly - case and all, no subset
+  /// tag, no alias - or null. Viewers match these names differently
+  /// (poppler exactly, pdf.js through an alias table); only the canonical
+  /// names mean the same metrics to all of them.
   static PdfStandardFont? _standardFont(String baseFont) {
-    var n = baseFont;
-    final plus = n.indexOf('+');
-    if (plus == 6) n = n.substring(7);
-    n = n.toLowerCase().replaceAll(RegExp(r'[-, ]|mt$|ps$'), '');
     const names = {
-      'helvetica', 'helveticabold', 'helveticaoblique',
-      'helveticaboldoblique', 'arial', 'arialbold', 'arialitalic',
-      'arialbolditalic', 'timesroman', 'timesbold', 'timesitalic',
-      'timesbolditalic', 'timesnewroman', 'timesnewromanbold',
-      'timesnewromanitalic', 'timesnewromanbolditalic', 'courier',
-      'courierbold', 'courieroblique', 'courierboldoblique', 'couriernew',
-      'couriernewbold', 'couriernewitalic', 'couriernewbolditalic', //
+      'Helvetica': PdfStandardFont.helvetica,
+      'Helvetica-Bold': PdfStandardFont.helveticaBold,
+      'Helvetica-Oblique': PdfStandardFont.helveticaOblique,
+      'Helvetica-BoldOblique': PdfStandardFont.helveticaBoldOblique,
+      'Times-Roman': PdfStandardFont.times,
+      'Times-Bold': PdfStandardFont.timesBold,
+      'Times-Italic': PdfStandardFont.timesItalic,
+      'Times-BoldItalic': PdfStandardFont.timesBoldItalic,
+      'Courier': PdfStandardFont.courier,
+      'Courier-Bold': PdfStandardFont.courierBold,
+      'Courier-Oblique': PdfStandardFont.courierOblique,
+      'Courier-BoldOblique': PdfStandardFont.courierBoldOblique,
     };
-    if (!names.contains(n)) return null;
-    return PdfStandardFont.tryFromName(n);
+    return names[baseFont];
   }
 
   static _RedFont _composite(CosDocument cos, CosDictionary font) {
@@ -2266,8 +2303,13 @@ class _RedFont {
     if (descendants is! CosArray || descendants.length == 0) return false;
     final cid = cos.resolve(descendants[0]);
     if (cid is! CosDictionary) return false;
+    // poppler ignores a non-integer /DW (using 1000): read two ways
+    final dw = cos.resolve(cid['DW']);
+    if (dw is! CosNull && dw is! CosInteger) return true;
     final w = cos.resolve(cid['W']);
     if (w is! CosArray) return false;
+    bool isNumber(CosObject o) =>
+        o is CosInteger || (o is CosReal && o.value.isFinite);
     final ranges = <(int, int)>[];
     final items = [for (final i in w.items) cos.resolve(i)];
     var i = 0;
@@ -2277,9 +2319,14 @@ class _RedFont {
       if (i + 1 >= items.length) return true;
       final next = items[i + 1];
       if (next is CosArray) {
+        // a null or name among the widths is skipped by some viewers and
+        // read as 0 by others
+        if (!next.items.every((v) => isNumber(cos.resolve(v)))) return true;
         ranges.add((first.value, first.value + next.length - 1));
         i += 2;
-      } else if (next is CosInteger && i + 2 < items.length) {
+      } else if (next is CosInteger &&
+          i + 2 < items.length &&
+          isNumber(items[i + 2])) {
         ranges.add((first.value, next.value));
         i += 3;
       } else {
@@ -2364,6 +2411,7 @@ class _RedFont {
     final stack = <_RedMatrix>[];
     final points = <(double, double)>[];
     double num(CosObject o) => _num(cos, o);
+    var width = 1.0; // stroke ink reaches half the line width past a point
     for (final op in ops) {
       final o = op.operands;
       List<double> nums() => [for (final v in o) num(v)];
@@ -2401,12 +2449,19 @@ class _RedFont {
             _redApply(ctm, 0, 1),
             _redApply(ctm, 1, 0),
           ]);
-        case 'Do' || 'sh' || 'Tj' || 'TJ' || "'" || '"' || 'd0':
-          // a form, shading, text or colour glyph: unbounded here
+        case 'w':
+          if (o.isNotEmpty) width = math.max(width, num(o.first).abs());
+        case 'Do' || 'sh' || 'Tj' || 'TJ' || "'" || '"' || 'd0' || 'gs':
+          // a form, shading, text, colour glyph or graphics state (which
+          // can set a line width): unbounded here
           return null;
       }
     }
-    return _hullBounds(points);
+    final hull = _hullBounds(points);
+    if (hull == null) return null;
+    final reach = width / 2 * 10; // miter joins at the default limit
+    return PdfRect(hull.left - reach, hull.bottom - reach, hull.right + reach,
+        hull.top + reach);
   }
 }
 

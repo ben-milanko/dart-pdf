@@ -4,8 +4,8 @@ The report: a synthetic PDF with a fake SSN in a dozen places, every one
 boxed and burned. Page text went, but image, form-field, Form XObject,
 metadata, bookmark and attachment copies were still in the saved file. This
 session fixed those, then ran two adversarial review rounds against the
-burn (20, then 14 confirmed bypasses), then a third verification round
-(21 failures). Every confirmed bypass has a regression test, and each one fails on
+burn (20, then 14 confirmed bypasses), then third and fourth verification
+rounds (21 and 14 failures). Every confirmed bypass has a regression test, and each one fails on
 the code before its fix.
 
 Code: `packages/pdf_document/lib/src/redaction.dart` (document level:
@@ -176,6 +176,39 @@ group) found these:
   - Named `/Dest`/`/D` values spelled with the text are dropped.
   - Without `removeHiddenInformation`, `/AF` arrays and FileAttachment
     annotations that mention the text go too, matched in UTF-16 as well.
+
+## Round 4: annotations, exact names, copies of shared dictionaries
+
+A fourth round found 14 more failures, each with a test in the `round 4`
+group:
+
+- **Annotation extent** (`_annotationExtent`). An annotation goes when any
+  place it can draw touches a box:
+  - its /Rect;
+  - the geometry viewers draw from directly (/L with caption, /InkList,
+    /Vertices, /QuadPoints, /CL, padded by 24pt);
+  - for NoRotate annotations, the /Rect turned about its upper-left corner.
+
+  An unreadable /Rect takes the annotation. Kept annotations have their
+  appearance streams burned through the /BBox→/Rect mapping
+  (`_burnKeptAppearances`), because text clipped away by the /BBox still
+  extracts at its mapped position.
+- **Exact names only**. Only the canonical base-14 names are trusted, case
+  and all, with no subset tag or alias, as poppler matches them. Codes are
+  exact only under Standard, MacRoman or WinAnsi base encodings (/BaseEncoding
+  is honoured). A real /FirstChar, a real /DW, and non-numeric entries
+  inside /W arrays all go through the generous path.
+- **Copies of shared dictionaries**. A burn records every copy it makes of
+  a resource category dictionary (`resourceCopies`). A fix to the
+  original's direct entries is applied to every copy, whichever burn made
+  it first.
+- **Marked content left open** at the end of a stream (opened in a form,
+  closed by its invoker) has its replacement text stripped.
+- **Shared content streams**. A page showing the very content stream a burn
+  replaced is pointed at the burned stream, as a shared form is. A page
+  sharing only part of it loses that part.
+- Field-tree and number-tree walks keep visited sets. Type 3 ink bounds
+  account for line width and treat `gs` as unbounded.
 
 ## Known limitations
 

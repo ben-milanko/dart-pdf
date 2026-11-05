@@ -1097,4 +1097,225 @@ void main() {
       _gone(all, 'SECRETDESTNAME');
     });
   });
+
+  group('round 4', () {
+    const box = PdfRect(90, 690, 300, 730);
+    for (final (kind, geometry) in [
+      ('Line', '/L [100 700 290 700] /Cap true'),
+      ('Ink', '/InkList [[100 700 150 720 200 700 250 720]]'),
+      ('Polygon', '/Vertices [100 700 150 720 200 700]'),
+    ]) {
+      test('a $kind annotation drawn from its geometry under a box goes', () {
+        final all = _burn(
+          _onePage(
+            content: '',
+            resources: '',
+            pageExtra: '/Annots [5 0 R]',
+            extra: [
+              '<< /Type /Annot /Subtype /$kind /Rect [400 100 410 110] '
+                  '$geometry /Contents (SECRETGEOM$kind) >>',
+            ],
+          ),
+          box,
+        );
+        _gone(all, 'SECRETGEOM$kind');
+      });
+    }
+
+    test('a NoRotate annotation turned onto a box goes', () {
+      final all = _burn(
+        _onePage(
+          content: '',
+          resources: '',
+          pageExtra: '/Rotate 90 /Annots [5 0 R]',
+          extra: [
+            '<< /Type /Annot /Subtype /Stamp /F 16 /Rect [100 600 300 620] '
+                '/AP << /N 6 0 R >> >>',
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 200 20] '
+                    '/Resources << /Font << /F1 7 0 R >> >>',
+                'BT /F1 12 Tf 2 5 Td (SECRETNOROT) Tj ET'),
+            _helvetica,
+          ],
+        ),
+        const PdfRect(95, 630, 140, 800),
+      );
+      _gone(all, 'SECRETNOROT');
+    });
+
+    test('an annotation with an unreadable /Rect goes', () {
+      final all = _burn(
+        _onePage(
+          content: '',
+          resources: '',
+          pageExtra: '/Annots [5 0 R]',
+          extra: [
+            '<< /Type /Annot /Subtype /Stamp /Rect [100 (x) 200 720] '
+                '/AP << /N 6 0 R >> >>',
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 100 720] '
+                    '/Resources << /Font << /F1 7 0 R >> >>',
+                'BT /F1 12 Tf 5 700 Td (SECRETRECTNAN) Tj ET'),
+            _helvetica,
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETRECTNAN');
+    });
+
+    test('a kept annotation\'s clipped appearance text under a box goes', () {
+      final all = _burn(
+        _onePage(
+          content: '',
+          resources: '',
+          pageExtra: '/Annots [5 0 R]',
+          extra: [
+            '<< /Type /Annot /Subtype /Stamp /Rect [400 100 500 120] '
+                '/AP << /N 6 0 R >> >>',
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 100 20] '
+                    '/Resources << /Font << /F1 7 0 R >> >>',
+                'BT /F1 12 Tf -290 600 Td (SECRETAPCLIP) Tj ET'),
+            _helvetica,
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETAPCLIP');
+    });
+
+    test('direct invoker resources a form strips stay stripped in copies', () {
+      final all = _burn(
+        _onePage(
+          resources: '/Font << /F1 5 0 R >> /XObject << /Fm 6 0 R >> '
+              '/Properties << /MC0 << /ActualText (SECRETPAGEPROP) >> '
+              '/MC1 << /ActualText (SECRETFORMPROP) >> >> '
+              '/ExtGState << /G0 << /D [[0 140 3.111 2] 0] >> '
+              '/G1 << /D [[0 140 3.777 2] 0] >> >>',
+          content: '/Span /MC0 BDC BT /F1 12 Tf 100 700 Td (XXXX) Tj ET EMC\n'
+              '/G0 gs 20 w 100 700 m 400 700 l S\n/Fm Do',
+          extra: [
+            _helvetica,
+            _stream(
+                '/Type /XObject /Subtype /Form /BBox [0 0 612 792] '
+                    '/Resources << /Font << /F1 5 0 R >> >>',
+                '/Span /MC1 BDC BT /F1 12 Tf 100 710 Td (YYYY) Tj ET EMC\n'
+                    '/G1 gs 20 w 100 710 m 400 710 l S'),
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETPAGEPROP');
+      _gone(all, 'SECRETFORMPROP');
+      _gone(all, '3.111');
+      _gone(all, '3.777');
+    });
+
+    test('a base-14 name that is not exact is not trusted', () {
+      final i200 = 'i' * 200;
+      for (final name in ['HELVETICA', 'ABCDEF+Helvetica']) {
+        final all = _burn(
+          _onePage(
+            content: 'BT /F1 6 Tf 20 700 Td ($i200 SECRETCASE) Tj ET',
+            extra: ['<< /Type /Font /Subtype /Type1 /BaseFont /$name >>'],
+          ),
+          const PdfRect(340, 690, 420, 730),
+        );
+        _gone(all, 'SECRETCASE');
+      }
+    });
+
+    test('a base-14 font in an untrusted encoding is judged generously', () {
+      final a100 = 'a' * 100;
+      final all = _burn(
+        _onePage(
+          resources: '/Font << /F1 5 0 R /FM 6 0 R >>',
+          content: 'BT /FM 12 Tf 10 700 Td ($a100) Tj /F1 12 Tf '
+              '(SECRETMACX) Tj ET',
+          extra: [
+            _helvetica,
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+                '/Encoding /MacExpertEncoding >>',
+          ],
+        ),
+        const PdfRect(10, 690, 200, 730),
+      );
+      _gone(all, 'SECRETMACX');
+    });
+
+    test('a real /FirstChar is not trusted', () {
+      final widths = List.filled(95, '1000').join(' ');
+      final i40 = 'i' * 40;
+      final all = _burn(
+        _onePage(
+          content: 'BT /F1 12 Tf 30 700 Td ($i40 SECRETFC) Tj ET',
+          extra: [
+            '<< /Type /Font /Subtype /TrueType /BaseFont /Foo '
+                '/FirstChar 32.0 /LastChar 126 /Widths [$widths] >>',
+          ],
+        ),
+        const PdfRect(10, 690, 200, 730),
+      );
+      _gone(all, 'SECRETFC');
+    });
+
+    for (final (label, cid) in [
+      ('a real /DW', '/DW 0.0'),
+      ('a null in /W', '/W [1 [null]]'),
+    ]) {
+      test('Identity-H with $label is judged generously', () {
+        final codes = List.filled(30, '0001').join();
+        final all = _burn(
+          _onePage(
+            resources: '/Font << /F2 5 0 R >>',
+            content: 'BT /F2 12 Tf 20 700 Td <$codes> Tj '
+                '<0053004500430052004500540057> Tj ET',
+            extra: [
+              '<< /Type /Font /Subtype /Type0 /BaseFont /X '
+                  '/Encoding /Identity-H /DescendantFonts [6 0 R] >>',
+              '<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X '
+                  '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) '
+                  '/Supplement 0 >> $cid >>',
+            ],
+          ),
+          const PdfRect(380, 690, 600, 730),
+        );
+        _gone(all, '00530045004300520045');
+      });
+    }
+
+    test('marked content a form opens and the page closes is stripped', () {
+      final all = _burn(
+        _onePage(
+          resources: '/Font << /F1 5 0 R >> /XObject << /Fm 6 0 R >>',
+          content: '/Fm Do BT /F1 12 Tf 100 700 Td (XXXX) Tj ET EMC',
+          extra: [
+            _helvetica,
+            _stream('/Type /XObject /Subtype /Form /BBox [0 0 612 792]',
+                '/Span << /ActualText (SECRETOPENMC) >> BDC'),
+          ],
+        ),
+        box,
+      );
+      _gone(all, 'SECRETOPENMC');
+    });
+
+    test('a content stream shared with another page is burned there too', () {
+      final all = _burn(
+        _objects([
+          '<< /Type /Catalog /Pages 2 0 R >>',
+          '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+          '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+              '/Contents 5 0 R /Resources << /Font << /F1 6 0 R >> >> >>',
+          '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+              '/Contents 5 0 R /Resources << /Font << /F1 6 0 R >> >> >>',
+          _stream('', 'BT /F1 12 Tf 100 700 Td (SECRETSHARED) Tj ET'),
+          _helvetica,
+        ]),
+        box,
+      );
+      _gone(all, 'SECRETSHARED');
+    });
+  });
 }

@@ -358,12 +358,21 @@ extension PdfRedactionApply on PdfEditor {
       ..add(latin1.encode('\nQ\n'))
       ..add(fill);
     _setContent(pageIndex, page, rebuilt.takeBytes());
+    final newContents = page.dict['Contents'];
+    if (contents is CosReference && newContents is CosReference) {
+      session.contentReplacements[contents.objectNumber] = newContents;
+    }
 
     // 3. Drop the /Redact annotations and every annotation touching a
     //    redaction region (it draws over the fill, and its /Contents or
     //    field value is what the rect is meant to hide), with the popups,
     //    popup owners and replies that belong to them.
     final removed = _annotationsToRedact(annots, regions);
+    for (final item in annots.items) {
+      final d = cos.resolve(item);
+      if (d is! CosDictionary || removed.containsKey(d)) continue;
+      if (!_burnKeptAppearances(d, regions, session)) removed[d] = item;
+    }
     final annotationsChanged = _PdfPageAnnotationList(this, pageIndex)
         .removeWhere((_, resolved) => removed.containsKey(resolved));
     for (final MapEntry(key: dict, value: item) in removed.entries) {
@@ -418,9 +427,12 @@ extension PdfRedactionApply on PdfEditor {
     for (final item in annots.items) {
       final d = cos.resolve(item);
       if (d is! CosDictionary) continue;
-      final r = pdfRectFrom(cos, d['Rect']);
-      if (_isSubtype(cos, d, 'Redact') ||
-          (r != null && _rectTouchesAny(r, regions))) {
+      if (_isSubtype(cos, d, 'Redact')) {
+        removed[d] = item;
+        continue;
+      }
+      final extent = _annotationExtent(d);
+      if (extent == null || extent.any((r) => _rectTouchesAny(r, regions))) {
         removed[d] = item;
       }
     }
@@ -450,6 +462,128 @@ extension PdfRedactionApply on PdfEditor {
       }
     }
     return removed;
+  }
+
+  /// Everywhere an annotation can draw, in default user space, or null when
+  /// that can't be known (a /Rect a viewer reads differently): its /Rect;
+  /// the geometry some viewers draw from directly (/L line and caption,
+  /// /InkList, /Vertices, /QuadPoints, /CL callout), with room for line
+  /// width and captions; and for a NoRotate annotation on a rotated page,
+  /// the rect turned about its upper-left corner, as viewers pivot it.
+  List<PdfRect>? _annotationExtent(CosDictionary d) {
+    final cos = document.cos;
+    final rectObj = cos.resolve(d['Rect']);
+    final rect = pdfRectFrom(cos, d['Rect']);
+    if (rectObj is! CosNull && rect == null) return null;
+    final out = <PdfRect>[if (rect != null) rect];
+    final points = <(double, double)>[];
+    double num(CosObject o) => switch (cos.resolve(o)) {
+          CosInteger(:final value) => value.toDouble(),
+          CosReal(:final value) => value,
+          _ => double.nan,
+        };
+    void collect(CosObject? value, int depth) {
+      final v = cos.resolve(value);
+      if (v is! CosArray || depth > 3) return;
+      if (v.items.every((i) => cos.resolve(i) is! CosArray)) {
+        for (var i = 0; i + 1 < v.length; i += 2) {
+          points.add((num(v[i]), num(v[i + 1])));
+        }
+      } else {
+        for (final item in v.items) {
+          collect(item, depth + 1);
+        }
+      }
+    }
+
+    for (final key in const ['L', 'InkList', 'Vertices', 'QuadPoints', 'CL']) {
+      collect(d[key], 0);
+    }
+    if (points.isNotEmpty) {
+      if (points.any((p) => !p.$1.isFinite || !p.$2.isFinite)) return null;
+      final xs = points.map((p) => p.$1), ys = points.map((p) => p.$2);
+      // a caption or a thick border can sit a little off the geometry
+      const pad = 24.0;
+      out.add(PdfRect(xs.reduce(math.min) - pad, ys.reduce(math.min) - pad,
+          xs.reduce(math.max) + pad, ys.reduce(math.max) + pad));
+    }
+    final flags = cos.resolve(d['F']);
+    final f = flags is CosInteger
+        ? flags.value
+        : flags is CosReal && flags.value.isFinite
+            ? flags.value.toInt()
+            : 0;
+    if (rect != null && f & 16 != 0) {
+      // NoRotate: whatever the page rotation, the appearance can end up
+      // turned about the upper-left corner
+      final x = rect.left, y = rect.top, w = rect.width, h = rect.height;
+      out
+        ..add(PdfRect(x, y, x + h, y + w))
+        ..add(PdfRect(x - w, y, x, y + h))
+        ..add(PdfRect(x - h, y - w, x, y));
+    }
+    return out;
+  }
+
+  /// Burns the appearance streams of an annotation the burn keeps: its
+  /// /Rect may stay clear of every box while text in its appearance -
+  /// clipped away by the /BBox, so invisible - still maps under one, where
+  /// text extraction reads it. An appearance that can't be mapped or
+  /// burned takes the annotation with it.
+  bool _burnKeptAppearances(
+      CosDictionary annot, List<PdfRect> regions, _RedactionSession session) {
+    final cos = document.cos;
+    final ap = cos.resolve(annot['AP']);
+    if (ap is! CosDictionary) return true;
+    final rect = pdfRectFrom(cos, annot['Rect']);
+    CosObject? burnStream(CosObject? value) {
+      final stream = cos.resolve(value);
+      if (stream is! CosStream || rect == null) return null;
+      final burner = _RedactionBurn(
+          cos, CosDictionary(), regions, session, _updater.addObject);
+      final matrix = burner._formMatrix(stream);
+      final bbox = pdfRectFrom(cos, stream.dictionary['BBox']);
+      if (bbox == null) return CosNull.instance; // can't map: drop it
+      final t = _hullBounds([
+        _redApply(matrix, bbox.left, bbox.bottom),
+        _redApply(matrix, bbox.right, bbox.bottom),
+        _redApply(matrix, bbox.left, bbox.top),
+        _redApply(matrix, bbox.right, bbox.top),
+      ])!;
+      if (t.width <= 0 || t.height <= 0) return CosNull.instance;
+      final sx = rect.width / t.width, sy = rect.height / t.height;
+      final fit = _redMul(matrix,
+          (sx, 0, 0, sy, rect.left - t.left * sx, rect.bottom - t.bottom * sy));
+      final (changed, burned) = burner._burnForm(stream, fit);
+      if (!changed) return null;
+      if (burned == null) return CosNull.instance;
+      final ref = _updater.addObject(burned);
+      if (value is CosReference) {
+        session.retired.add(value.objectNumber);
+        (session.replacements[value.objectNumber] ??= []).add(ref);
+      }
+      return ref;
+    }
+
+    var keep = true;
+    for (final key in ap.entries.keys.toList()) {
+      final value = ap[key];
+      final resolved = cos.resolve(value);
+      if (resolved is CosStream) {
+        final burned = burnStream(value);
+        if (burned is CosNull) keep = false;
+        if (burned != null) ap[key] = burned;
+      } else if (resolved is CosDictionary) {
+        for (final state in resolved.entries.keys.toList()) {
+          final burned = burnStream(resolved[state]);
+          if (burned is CosNull) keep = false;
+          if (burned != null) resolved[state] = burned;
+        }
+        _touch(resolved);
+      }
+    }
+    _touch(ap);
+    return keep;
   }
 
   /// Takes a removed widget's field out of the form: the widget's own
@@ -498,9 +632,12 @@ extension PdfRedactionApply on PdfEditor {
 
   /// Whether [node] (a field or widget) is shown by some widget: listed on
   /// a page, not hidden, and with an area.
-  bool _fieldShown(CosDictionary node, _RedactionSession session, int depth) {
+  bool _fieldShown(CosDictionary node, _RedactionSession session, int depth,
+      [Set<CosDictionary>? visited]) {
     final cos = document.cos;
-    if (depth > 32) return true;
+    final seen = visited ?? Set<CosDictionary>.identity();
+    // a cycle or an absurd depth: count it as not shown, so the value goes
+    if (depth > 32 || !seen.add(node)) return false;
     final kids = cos.resolve(node['Kids']);
     if (kids is CosArray) {
       return kids.items.any((k) {
@@ -508,7 +645,8 @@ extension PdfRedactionApply on PdfEditor {
           return false;
         }
         final kid = cos.resolve(k);
-        return kid is CosDictionary && _fieldShown(kid, session, depth + 1);
+        return kid is CosDictionary &&
+            _fieldShown(kid, session, depth + 1, seen);
       });
     }
     final flags = cos.resolve(node['F']);
@@ -707,9 +845,11 @@ extension PdfRedactionApply on PdfEditor {
   }
 
   /// The value under [key] in a number tree.
-  CosObject? _numberTreeLookup(CosDictionary node, int key, int depth) {
+  CosObject? _numberTreeLookup(CosDictionary node, int key, int depth,
+      [Set<CosDictionary>? visited]) {
     final cos = document.cos;
-    if (depth > 32) return null;
+    final seen = visited ?? Set<CosDictionary>.identity();
+    if (depth > 32 || !seen.add(node)) return null;
     final nums = cos.resolve(node['Nums']);
     if (nums is CosArray) {
       for (var i = 0; i + 1 < nums.length; i += 2) {
@@ -722,7 +862,7 @@ extension PdfRedactionApply on PdfEditor {
       for (final kid in kids.items) {
         final k = cos.resolve(kid);
         if (k is! CosDictionary) continue;
-        final found = _numberTreeLookup(k, key, depth + 1);
+        final found = _numberTreeLookup(k, key, depth + 1, seen);
         if (found != null) return found;
       }
     }
@@ -946,15 +1086,18 @@ extension PdfRedactionApply on PdfEditor {
     final cos = document.cos;
     final substitutes = <int, CosReference>{};
     // direct entries in shared resource dictionaries: fixed in place
+    // (and in every copy a burn made of one, wherever it went)
     session.directRetired.forEach((owner, names) {
-      names.forEach((name, copies) {
-        if (copies.length == 1) {
-          owner[name] = copies.single;
-        } else {
-          owner.entries.remove(name);
-        }
-      });
-      _touch(owner);
+      for (final dict in [owner, ...?session.resourceCopies[owner]]) {
+        names.forEach((name, copies) {
+          if (copies.length == 1) {
+            dict[name] = copies.single;
+          } else {
+            dict.entries.remove(name);
+          }
+        });
+        _touch(dict);
+      }
     });
     for (final number in session.retired) {
       final copies = session.replacements[number];
@@ -962,6 +1105,34 @@ extension PdfRedactionApply on PdfEditor {
         substitutes[number] = copies.single;
       } else {
         session.purged.add(number);
+      }
+    }
+    // a page showing the very content stream a burn replaced shows the
+    // burned one, as a shared form does; one sharing only part of it loses
+    // that part
+    for (var i = 0; i < document.pageCount; i++) {
+      if (session.burnedPages.contains(i)) continue;
+      final page = document.page(i);
+      final contents = page.dict['Contents'];
+      if (contents is CosReference &&
+          session.contentReplacements.containsKey(contents.objectNumber)) {
+        page.dict['Contents'] =
+            session.contentReplacements[contents.objectNumber]!;
+        _updater.markChanged(page.dict);
+        continue;
+      }
+      final array = cos.resolve(contents);
+      if (array is CosArray) {
+        final kept = [
+          for (final item in array.items)
+            if (item is! CosReference ||
+                !session.oldContents.contains(item.objectNumber))
+              item,
+        ];
+        if (kept.length != array.length) {
+          page.dict['Contents'] = CosArray(kept);
+          _updater.markChanged(page.dict);
+        }
       }
     }
     if (session.oldContents.isNotEmpty) {
@@ -1212,6 +1383,13 @@ class _RedactionSession {
 
   /// Redacted copies made of each retired resource, by object number.
   final Map<int, List<CosReference>> replacements = {};
+
+  /// The burned content stream that replaced each page's original.
+  final Map<int, CosReference> contentReplacements = {};
+
+  /// Copies burns made of resource category dictionaries, by original - a
+  /// fix to the original's direct entries applies to them too.
+  final Map<CosDictionary, List<CosDictionary>> resourceCopies = Map.identity();
 
   /// Retired resources held directly in a resource dictionary (no object
   /// number to substitute): dictionary -> name -> redacted copies.
