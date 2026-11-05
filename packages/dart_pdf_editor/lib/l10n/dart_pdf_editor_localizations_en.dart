@@ -2485,6 +2485,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
 
   @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -5171,6 +5178,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
 
   @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -7855,6 +7869,13 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbPackToolbarsHint =>
       'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
 
   @override
   String get insertPagesTitle => 'Insert pages';

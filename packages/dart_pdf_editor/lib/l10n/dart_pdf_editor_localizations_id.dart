@@ -2497,6 +2497,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       'Isi celah di baris sebelumnya agar bilah alat yang tertambat memakan lebih sedikit ruang. Bilah alat mungkin tampil tidak berurutan.';
 
   @override
+  String get tbMainInHeader => 'Bilah alat utama di header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Tampilkan urungkan, ulangi, Tangan, dan Pilih di samping pencarian saat bilah alat tertambat di atas.';
+
+  @override
   String get insertPagesTitle => 'Sisipkan halaman';
 
   @override

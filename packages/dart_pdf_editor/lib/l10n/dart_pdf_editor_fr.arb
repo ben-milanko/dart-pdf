@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Faire flotter les barres d’outils sur la page au lieu de les ancrer aux bords de la fenêtre",
   "tbPackToolbars": "Compacter les barres d’outils",
   "tbPackToolbarsHint": "Remplit les espaces des rangées précédentes pour que les barres ancrées prennent moins de place. Les barres peuvent apparaître dans le désordre.",
+  "tbMainInHeader": "Barre principale dans l’en-tête",
+  "tbMainInHeaderHint": "Affiche Annuler, Rétablir, Main et Sélection à côté de la recherche quand les barres sont ancrées en haut.",
   "insertPagesTitle": "Insérer des pages",
   "insertPagesFiles": "Fichiers",
   "insertPagesAddFiles": "Ajouter des fichiers…",

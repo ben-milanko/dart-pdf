@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Mostra le barre degli strumenti sopra la pagina invece di agganciarle ai bordi della finestra",
   "tbPackToolbars": "Compatta le barre degli strumenti",
   "tbPackToolbarsHint": "Riempie gli spazi nelle righe precedenti così le barre ancorate occupano meno spazio. Le barre possono apparire fuori ordine.",
+  "tbMainInHeader": "Barra principale nell’intestazione",
+  "tbMainInHeaderHint": "Mostra Annulla, Ripeti, Mano e Selezione accanto alla ricerca quando le barre sono ancorate in alto.",
   "insertPagesTitle": "Inserisci pagine",
   "insertPagesFiles": "File",
   "insertPagesAddFiles": "Aggiungi file…",

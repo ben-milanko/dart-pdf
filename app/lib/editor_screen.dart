@@ -4634,6 +4634,7 @@ class _EditorScreenState extends State<EditorScreen>
                   if (parts.pageNumber case final pageNumber?) pageNumber,
                   if (parts.zoom case final zoom?) zoom,
                   if (parts.search case final search?) search,
+                  if (parts.tools case final tools?) tools,
                 ],
                 trailing: [
                   if (parts.viewOptions case final viewOptions?) viewOptions,

@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "ツールバーをウィンドウの端にドッキングせず、ページ上に浮かせて表示します",
   "tbPackToolbars": "ツールバーを詰めて配置",
   "tbPackToolbarsHint": "前の行の空きを埋めて、ドッキングしたツールバーが占める領域を減らします。ツールバーの並び順が変わることがあります。",
+  "tbMainInHeader": "メインツールバーをヘッダーに表示",
+  "tbMainInHeaderHint": "ツールバーを上部にドッキングしているとき、元に戻す・やり直し・手のひら・選択を検索の横に表示します。",
   "insertPagesTitle": "ページを挿入",
   "insertPagesFiles": "ファイル",
   "insertPagesAddFiles": "ファイルを追加…",

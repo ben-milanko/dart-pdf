@@ -2501,6 +2501,13 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Riempie gli spazi nelle righe precedenti così le barre ancorate occupano meno spazio. Le barre possono apparire fuori ordine.';
 
   @override
+  String get tbMainInHeader => 'Barra principale nell’intestazione';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Mostra Annulla, Ripeti, Mano e Selezione accanto alla ricerca quando le barre sono ancorate in alto.';
+
+  @override
   String get insertPagesTitle => 'Inserisci pagine';
 
   @override

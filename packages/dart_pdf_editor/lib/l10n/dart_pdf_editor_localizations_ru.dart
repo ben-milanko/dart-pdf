@@ -2537,6 +2537,13 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
       'Заполняет пустоты в предыдущих рядах, чтобы закреплённые панели занимали меньше места. Порядок панелей может меняться.';
 
   @override
+  String get tbMainInHeader => 'Основная панель в заголовке';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Показывать отмену, повтор, «Руку» и «Выделение» рядом с поиском, когда панели закреплены сверху.';
+
+  @override
   String get insertPagesTitle => 'Вставить страницы';
 
   @override

@@ -2462,6 +2462,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       '앞 줄의 빈 공간을 채워 고정된 도구 모음이 차지하는 공간을 줄입니다. 도구 모음 순서가 바뀔 수 있습니다.';
 
   @override
+  String get tbMainInHeader => '헤더에 기본 도구 모음 표시';
+
+  @override
+  String get tbMainInHeaderHint =>
+      '도구 모음이 위쪽에 고정되어 있을 때 실행 취소, 다시 실행, 손, 선택을 검색 옆에 표시합니다.';
+
+  @override
   String get insertPagesTitle => '페이지 삽입';
 
   @override

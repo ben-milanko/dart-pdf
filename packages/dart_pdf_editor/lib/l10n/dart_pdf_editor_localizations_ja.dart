@@ -2461,6 +2461,13 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       '前の行の空きを埋めて、ドッキングしたツールバーが占める領域を減らします。ツールバーの並び順が変わることがあります。';
 
   @override
+  String get tbMainInHeader => 'メインツールバーをヘッダーに表示';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'ツールバーを上部にドッキングしているとき、元に戻す・やり直し・手のひら・選択を検索の横に表示します。';
+
+  @override
   String get insertPagesTitle => 'ページを挿入';
 
   @override

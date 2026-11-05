@@ -2493,6 +2493,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Yerleştirilmiş araç çubukları daha az yer kaplasın diye önceki satırlardaki boşlukları doldurur. Araç çubukları sırasız görünebilir.';
 
   @override
+  String get tbMainInHeader => 'Ana araç çubuğu başlıkta';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Araç çubukları üste yerleştirildiğinde geri al, yinele, El ve Seç\'i aramanın yanında göster.';
+
+  @override
   String get insertPagesTitle => 'Sayfa ekle';
 
   @override

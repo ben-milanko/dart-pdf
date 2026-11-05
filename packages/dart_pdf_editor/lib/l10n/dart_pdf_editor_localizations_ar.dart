@@ -2535,6 +2535,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'املأ الفراغات في الصفوف السابقة لتشغل أشرطة الأدوات المثبتة مساحة أقل. قد تظهر أشرطة الأدوات بغير ترتيبها.';
 
   @override
+  String get tbMainInHeader => 'شريط الأدوات الرئيسي في الترويسة';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'اعرض التراجع والإعادة واليد والتحديد بجانب البحث عندما تكون أشرطة الأدوات مثبتة في الأعلى.';
+
+  @override
   String get insertPagesTitle => 'إدراج صفحات';
 
   @override

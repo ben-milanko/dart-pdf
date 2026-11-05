@@ -4518,6 +4518,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.'**
   String get tbPackToolbarsHint;
 
+  /// Setting: show the docked main toolbar (undo/redo, Hand/Select) in the header beside search.
+  ///
+  /// In en, this message translates to:
+  /// **'Main toolbar in the header'**
+  String get tbMainInHeader;
+
+  /// Subtitle explaining the Main toolbar in the header setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.'**
+  String get tbMainInHeaderHint;
+
   /// Title of the multi-document insert-pages dialog.
   ///
   /// In en, this message translates to:

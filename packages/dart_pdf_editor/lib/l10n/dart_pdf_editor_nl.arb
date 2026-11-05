@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Werkbalken boven de pagina laten zweven in plaats van ze aan de vensterranden vast te zetten",
   "tbPackToolbars": "Werkbalken compact plaatsen",
   "tbPackToolbarsHint": "Vult gaten in eerdere rijen zodat vastgezette werkbalken minder ruimte innemen. Werkbalken kunnen buiten volgorde verschijnen.",
+  "tbMainInHeader": "Hoofdwerkbalk in de koptekst",
+  "tbMainInHeaderHint": "Toon ongedaan maken, opnieuw, Hand en Selecteren naast zoeken als de werkbalken bovenaan vastzitten.",
   "insertPagesTitle": "Pagina's invoegen",
   "insertPagesFiles": "Bestanden",
   "insertPagesAddFiles": "Bestanden toevoegen…",

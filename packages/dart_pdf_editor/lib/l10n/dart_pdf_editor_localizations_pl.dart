@@ -2538,6 +2538,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Wypełnia luki we wcześniejszych wierszach, aby zadokowane paski zajmowały mniej miejsca. Paski mogą pojawić się w innej kolejności.';
 
   @override
+  String get tbMainInHeader => 'Główny pasek narzędzi w nagłówku';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Pokazuj Cofnij, Ponów, Rączkę i Zaznaczanie obok wyszukiwania, gdy paski są zadokowane u góry.';
+
+  @override
   String get insertPagesTitle => 'Wstaw strony';
 
   @override

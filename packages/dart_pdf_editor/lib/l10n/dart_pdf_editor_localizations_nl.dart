@@ -2497,6 +2497,13 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Vult gaten in eerdere rijen zodat vastgezette werkbalken minder ruimte innemen. Werkbalken kunnen buiten volgorde verschijnen.';
 
   @override
+  String get tbMainInHeader => 'Hoofdwerkbalk in de koptekst';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Toon ongedaan maken, opnieuw, Hand en Selecteren naast zoeken als de werkbalken bovenaan vastzitten.';
+
+  @override
   String get insertPagesTitle => 'Pagina\'s invoegen';
 
   @override

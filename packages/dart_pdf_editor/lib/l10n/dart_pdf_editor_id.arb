@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Tampilkan toolbar mengambang di atas halaman, bukan ditambatkan ke tepi jendela",
   "tbPackToolbars": "Rapatkan bilah alat",
   "tbPackToolbarsHint": "Isi celah di baris sebelumnya agar bilah alat yang tertambat memakan lebih sedikit ruang. Bilah alat mungkin tampil tidak berurutan.",
+  "tbMainInHeader": "Bilah alat utama di header",
+  "tbMainInHeaderHint": "Tampilkan urungkan, ulangi, Tangan, dan Pilih di samping pencarian saat bilah alat tertambat di atas.",
   "insertPagesTitle": "Sisipkan halaman",
   "insertPagesFiles": "File",
   "insertPagesAddFiles": "Tambahkan file…",

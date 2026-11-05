@@ -2499,6 +2499,13 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
       'Rellena los huecos de las filas anteriores para que las barras acopladas ocupen menos espacio. Las barras pueden aparecer fuera de orden.';
 
   @override
+  String get tbMainInHeader => 'Barra principal en el encabezado';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Muestra deshacer, rehacer, Mano y Seleccionar junto a la búsqueda cuando las barras están acopladas arriba.';
+
+  @override
   String get insertPagesTitle => 'Insertar páginas';
 
   @override

@@ -2491,6 +2491,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'पिछली पंक्तियों की खाली जगह भरें ताकि डॉक किए गए टूलबार कम जगह लें। टूलबार क्रम से बाहर दिख सकते हैं।';
 
   @override
+  String get tbMainInHeader => 'हेडर में मुख्य टूलबार';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'जब टूलबार ऊपर डॉक हों, तब पूर्ववत करें, फिर से करें, हैंड और चयन को खोज के पास दिखाएँ।';
+
+  @override
   String get insertPagesTitle => 'पेज डालें';
 
   @override

@@ -318,6 +318,18 @@ Future<void> showPdfToolbarLayoutDialog(
                       onChanged: (value) =>
                           preferences.toolbarPackTightly = value,
                     ),
+                  if (!preferences.toolbarFloating)
+                    SwitchListTile(
+                      key: const ValueKey('pdf-layout-main-in-header'),
+                      secondary: const Icon(Icons.vertical_align_top),
+                      title: Text(l10n.tbMainInHeader),
+                      subtitle: Text(l10n.tbMainInHeaderHint),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 24),
+                      value: preferences.toolbarMainInHeader,
+                      onChanged: (value) =>
+                          preferences.toolbarMainInHeader = value,
+                    ),
                   picker(
                     key: const ValueKey('pdf-layout-main'),
                     icon: Icons.build_outlined,
@@ -512,6 +524,8 @@ class PdfEditingToolbar extends StatefulWidget {
     this.onStyleBarDock,
     this.overlay = false,
     this.packToolbars = false,
+    this.mainInHeader = false,
+    this.mainToolbarOnly = false,
     this.body,
     this.onFloatingChanged,
     this.compact,
@@ -707,6 +721,17 @@ class PdfEditingToolbar extends StatefulWidget {
   /// keeps them strictly in order, wrapping to a new row like text. See
   /// [PdfEditingPreferences.toolbarPackTightly].
   final bool packToolbars;
+
+  /// Docked only: leaves the main toolbar (undo/redo, Hand/Select) out of
+  /// the toolbar area because the host shows it elsewhere - the editor's
+  /// header, through a second toolbar built with [mainToolbarOnly]. The
+  /// group toolbars and the properties bar stay where they are.
+  final bool mainInHeader;
+
+  /// Builds only the main toolbar - its grip, undo/redo and Hand/Select -
+  /// as one compact row with no surface of its own, for a host to place in
+  /// a header (see [mainInHeader]).
+  final bool mainToolbarOnly;
 
   /// Docks the toolbar: when set, the toolbar lays [body] (the panels and
   /// the page viewer) out with its bars as solid bands along the edges around
@@ -1716,6 +1741,24 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.mainToolbarOnly) {
+      final main = Material(
+        key: const ValueKey('pdf-header-main-toolbar'),
+        type: MaterialType.transparency,
+        child: Theme(
+          data: _denseTheme(Theme.of(context)),
+          child: ListenableBuilder(
+            listenable: Listenable.merge([controller, viewerController]),
+            builder: (context, _) =>
+                _onEdge(PdfPanelDock.top, () => _bare(() => _dock(context))),
+          ),
+        ),
+      );
+      final own = _ownCommands;
+      return own == null
+          ? main
+          : PdfEditorCommandsScope(commands: own, child: main);
+    }
     if (_docked) {
       final docked = Material(
         type: MaterialType.transparency,
@@ -1893,7 +1936,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   bool get _separateStyleBar => widget.styleBarDock != null;
 
   /// Whether the bars dock as solid bands around [PdfEditingToolbar.body].
-  bool get _docked => widget.body != null;
+  bool get _docked => widget.body != null || widget.mainToolbarOnly;
 
   /// Set while a strip is built as the properties bar's content, so it draws
   /// no surface of its own.
@@ -2052,10 +2095,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final segments = {
       for (final edge in PdfPanelDock.values) edge: <KeyedSubtree>[]
     };
-    segments[main]!.add(KeyedSubtree(
-      key: const ValueKey('pdf-docked-main'),
-      child: _onEdge(main, () => _bare(() => _dock(context))),
-    ));
+    if (!widget.mainInHeader) {
+      segments[main]!.add(KeyedSubtree(
+        key: const ValueKey('pdf-docked-main'),
+        child: _onEdge(main, () => _bare(() => _dock(context))),
+      ));
+    }
     for (final group in _visibleGroups) {
       final edge = _dockedGroupEdge(group);
       if (edge == null) continue;

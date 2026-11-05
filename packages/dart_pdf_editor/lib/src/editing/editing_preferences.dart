@@ -247,6 +247,9 @@ class PdfEditingPreferences extends ChangeNotifier
   // Docked toolbars packed first-fit (a later toolbar back-fills an earlier
   // row's gap) instead of strictly in order.
   bool _toolbarPackTightly = false;
+  // The docked main toolbar (undo/redo, Hand/Select) in the header's free
+  // space instead of the toolbar area, while it is docked on top.
+  bool _toolbarMainInHeader = false;
   // Tool bars pinned to an edge of their own, by group. A group absent here
   // rides with the main toolbar and shows only while its group is open.
   final Map<PdfEditToolGroup, PdfPanelDock> _toolStripDocks = {};
@@ -525,6 +528,8 @@ class PdfEditingPreferences extends ChangeNotifier
           store.getBool('${_prefix}toolbarFloating') ?? _toolbarFloating;
       _toolbarPackTightly =
           store.getBool('${_prefix}toolbarPackTightly') ?? _toolbarPackTightly;
+      _toolbarMainInHeader = store.getBool('${_prefix}toolbarMainInHeader') ??
+          _toolbarMainInHeader;
       for (final group in PdfEditToolGroup.values) {
         final dock = PdfPanelDock.values.asNameMap()[
             store.getString('${_prefix}toolStripDock.${group.name}')];
@@ -1970,12 +1975,29 @@ class PdfEditingPreferences extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Whether the docked main toolbar - undo/redo and Hand/Select - sits in
+  /// the header's free space beside the search field, like a desktop
+  /// editor's quick tools, instead of leading the toolbar area. It applies
+  /// while the toolbars are docked with the main toolbar on top and the
+  /// window is wide enough for the header to hold it (1100px); dragging it
+  /// to another edge, or a narrower window, brings it back down. Off (the default) keeps it in the
+  /// toolbar area. Persisted.
+  bool get toolbarMainInHeader => _toolbarMainInHeader;
+
+  set toolbarMainInHeader(bool value) {
+    if (value == _toolbarMainInHeader) return;
+    _toolbarMainInHeader = value;
+    _write((s) => s.setBool('${_prefix}toolbarMainInHeader', value));
+    notifyListeners();
+  }
+
   /// Docks the toolbars again with the main toolbar on the top edge, returns
   /// every tool bar to it, and puts the style controls back in their default
   /// place.
   void resetToolbarLayout() {
     toolbarFloating = false;
     toolbarPackTightly = false;
+    toolbarMainInHeader = false;
     toolbarDock = PdfPanelDock.top;
     styleBarDock = null;
     for (final group in _toolStripDocks.keys.toList()) {

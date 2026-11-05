@@ -1255,6 +1255,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     required List<PdfShellControlItem> viewModeControls,
     required PdfShellControlItem viewOptionsControl,
     required bool compact,
+    Widget? tools,
   }) {
     final pageNumber = features.pageNumber && !altView
         ? Padding(
@@ -1346,6 +1347,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         if (pageNumber != null) pageNumber,
         if (zoom != null) zoom,
         if (search != null) search,
+        if (tools != null && !compact) tools,
       ],
       compactLeading: [
         if (pageNumber != null) pageNumber,
@@ -1369,6 +1371,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         pageNumber: pageNumber,
         zoom: zoom,
         search: search,
+        tools: compact ? null : tools,
         viewOptions: viewOptions,
         panelSwitch: panelSwitch,
         save: save,
@@ -1388,6 +1391,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         },
       ),
     );
+  }
+
+  /// The narrowest window that shows the main toolbar in the header
+  /// (`PdfEditingPreferences.toolbarMainInHeader`); below it the toolbar
+  /// keeps it, so the header never has to scroll its panel switch away.
+  static const _mainInHeaderMinWidth = 1100.0;
+
+  /// Whether a host header ([PdfEditorView.headerBuilder]) has mounted
+  /// [PdfHeaderParts.tools]. Until it does, the main toolbar stays in the
+  /// toolbar area, so a header that leaves the part out never loses undo.
+  bool _headerToolsMounted = false;
+
+  void _setHeaderToolsMounted(bool mounted) {
+    if (_headerToolsMounted == mounted || !this.mounted) return;
+    setState(() => _headerToolsMounted = mounted);
   }
 
   Widget _buildView(BuildContext context) {
@@ -1850,7 +1868,25 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // default) or floats over the viewer; a host's own toolbar floats
           final floatToolbar =
               prefs.toolbarFloating || widget.toolbarBuilder != null;
-          PdfEditingToolbar stockToolbar({Widget? body}) => PdfEditingToolbar(
+          // the docked main toolbar can sit in the header's free space
+          // (toolbarMainInHeader) while it is on top and a header shows it;
+          // a host header that leaves PdfHeaderParts.tools out keeps it below
+          final mainInHeaderWanted = features.headerBar &&
+              showToolbar &&
+              !dockToolbar &&
+              !floatToolbar &&
+              !altView &&
+              prefs.toolbarMainInHeader &&
+              prefs.toolbarDock == PdfPanelDock.top &&
+              // page number + zoom + search + the main toolbar + view
+              // options + the panel switch (+ save) need about this much;
+              // narrower, the header would scroll its panel switch away
+              constraints.maxWidth >= _mainInHeaderMinWidth;
+          final mainInHeader = mainInHeaderWanted &&
+              (widget.headerBuilder == null || _headerToolsMounted);
+          PdfEditingToolbar stockToolbar(
+                  {Widget? body, bool mainToolbarOnly = false}) =>
+              PdfEditingToolbar(
                 controller: session,
                 viewerController: _viewer,
                 // save lives in the header now, not the dock
@@ -1899,6 +1935,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onToolStripDock: dockToolbar ? null : prefs.setToolStripDock,
                 styleBarDock: prefs.styleBarDock,
                 packToolbars: prefs.toolbarPackTightly,
+                mainInHeader: mainInHeader,
+                mainToolbarOnly: mainToolbarOnly,
                 onStyleBarDock:
                     dockToolbar ? null : (dock) => prefs.styleBarDock = dock,
                 compact: dockToolbar,
@@ -2028,6 +2066,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   viewModeControls: viewModeControls,
                   viewOptionsControl: viewOptionsControl,
                   compact: compact,
+                  tools: mainInHeaderWanted
+                      ? _HeaderToolsSlot(
+                          onMounted: _setHeaderToolsMounted,
+                          child: stockToolbar(mainToolbarOnly: true),
+                        )
+                      : null,
                 )
               : null;
           // Phone chrome steps aside for reading (scroll on to hide, back or
@@ -2228,4 +2272,39 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     }
     return body;
   }
+}
+
+/// Reports whether the header tools part is mounted (see
+/// `_PdfEditorViewState._headerToolsMounted`), after the frame that mounts
+/// or drops it.
+class _HeaderToolsSlot extends StatefulWidget {
+  const _HeaderToolsSlot({required this.onMounted, required this.child});
+
+  final ValueChanged<bool> onMounted;
+  final Widget child;
+
+  @override
+  State<_HeaderToolsSlot> createState() => _HeaderToolsSlotState();
+}
+
+class _HeaderToolsSlotState extends State<_HeaderToolsSlot> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onMounted(true));
+  }
+
+  @override
+  void dispose() {
+    final onMounted = widget.onMounted;
+    WidgetsBinding.instance.addPostFrameCallback((_) => onMounted(false));
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        key: const ValueKey('pdf-header-tools'),
+        padding: const EdgeInsetsDirectional.only(start: 12),
+        child: widget.child,
+      );
 }

@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "让工具栏浮动在页面上，而不是停靠在窗口边缘",
   "tbPackToolbars": "紧凑排列工具栏",
   "tbPackToolbarsHint": "填补前面各行的空隙，让停靠的工具栏占用更少空间。工具栏可能不按顺序显示。",
+  "tbMainInHeader": "主工具栏放在标题栏",
+  "tbMainInHeaderHint": "工具栏停靠在顶部时，在搜索旁显示撤销、重做、抓手和选择。",
   "insertPagesTitle": "插入页面",
   "insertPagesFiles": "文件",
   "insertPagesAddFiles": "添加文件…",

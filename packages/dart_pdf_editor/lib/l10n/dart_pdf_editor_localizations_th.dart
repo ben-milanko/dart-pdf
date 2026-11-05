@@ -2479,6 +2479,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'เติมช่องว่างในแถวก่อนหน้าเพื่อให้แถบเครื่องมือที่ยึดไว้ใช้พื้นที่น้อยลง แถบเครื่องมืออาจไม่เรียงตามลำดับ';
 
   @override
+  String get tbMainInHeader => 'แถบเครื่องมือหลักในส่วนหัว';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'แสดงเลิกทำ ทำซ้ำ มือ และเลือก ข้างช่องค้นหาเมื่อแถบเครื่องมือยึดไว้ด้านบน';
+
+  @override
   String get insertPagesTitle => 'แทรกหน้า';
 
   @override

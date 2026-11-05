@@ -268,6 +268,17 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       ? null
                       : (value) => widget.prefs.toolbarPackTightly = value,
                 ),
+                SwitchListTile(
+                  key: const ValueKey('settings-main-toolbar-in-header'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbMainInHeader),
+                  subtitle: Text(pdfL10n(context).tbMainInHeaderHint),
+                  value: widget.prefs.toolbarMainInHeader,
+                  // only the docked main toolbar has a header place
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarMainInHeader = value,
+                ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
                     style: theme.textTheme.titleSmall),

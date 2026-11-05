@@ -2508,6 +2508,13 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Remplit les espaces des rangées précédentes pour que les barres ancrées prennent moins de place. Les barres peuvent apparaître dans le désordre.';
 
   @override
+  String get tbMainInHeader => 'Barre principale dans l’en-tête';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Affiche Annuler, Rétablir, Main et Sélection à côté de la recherche quand les barres sont ancrées en haut.';
+
+  @override
   String get insertPagesTitle => 'Insérer des pages';
 
   @override

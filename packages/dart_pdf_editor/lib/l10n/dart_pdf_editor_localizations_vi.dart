@@ -2486,6 +2486,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Lấp chỗ trống ở các hàng trước để thanh công cụ được neo chiếm ít chỗ hơn. Thanh công cụ có thể không theo thứ tự.';
 
   @override
+  String get tbMainInHeader => 'Thanh công cụ chính trên tiêu đề';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Hiện Hoàn tác, Làm lại, Bàn tay và Chọn cạnh ô tìm kiếm khi thanh công cụ được neo ở trên.';
+
+  @override
   String get insertPagesTitle => 'Chèn trang';
 
   @override

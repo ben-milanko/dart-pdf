@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Mostrar las barras flotando sobre la página en lugar de acopladas a los bordes de la ventana",
   "tbPackToolbars": "Compactar barras de herramientas",
   "tbPackToolbarsHint": "Rellena los huecos de las filas anteriores para que las barras acopladas ocupen menos espacio. Las barras pueden aparecer fuera de orden.",
+  "tbMainInHeader": "Barra principal en el encabezado",
+  "tbMainInHeaderHint": "Muestra deshacer, rehacer, Mano y Seleccionar junto a la búsqueda cuando las barras están acopladas arriba.",
   "insertPagesTitle": "Insertar páginas",
   "insertPagesFiles": "Archivos",
   "insertPagesAddFiles": "Añadir archivos…",

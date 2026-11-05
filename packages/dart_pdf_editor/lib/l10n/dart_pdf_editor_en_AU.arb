@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Float the toolbars over the page instead of docking them to the window edges",
   "tbPackToolbars": "Pack toolbars tightly",
   "tbPackToolbarsHint": "Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.",
+  "tbMainInHeader": "Main toolbar in the header",
+  "tbMainInHeaderHint": "Show undo, redo, Hand and Select beside search while the toolbars are docked on top.",
   "insertPagesTitle": "Insert pages",
   "insertPagesFiles": "Files",
   "insertPagesAddFiles": "Add files…",

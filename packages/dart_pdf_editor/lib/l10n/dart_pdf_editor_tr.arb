@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Araç çubuklarını pencere kenarlarına yerleştirmek yerine sayfanın üzerinde yüzdür",
   "tbPackToolbars": "Araç çubuklarını sıkı yerleştir",
   "tbPackToolbarsHint": "Yerleştirilmiş araç çubukları daha az yer kaplasın diye önceki satırlardaki boşlukları doldurur. Araç çubukları sırasız görünebilir.",
+  "tbMainInHeader": "Ana araç çubuğu başlıkta",
+  "tbMainInHeaderHint": "Araç çubukları üste yerleştirildiğinde geri al, yinele, El ve Seç'i aramanın yanında göster.",
   "insertPagesTitle": "Sayfa ekle",
   "insertPagesFiles": "Dosyalar",
   "insertPagesAddFiles": "Dosya ekle…",

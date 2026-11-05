@@ -64,6 +64,8 @@ void main() {
       a.toolbarFloating = true;
       expect(a.toolbarPackTightly, isFalse, reason: 'in order by default');
       a.toolbarPackTightly = true;
+      expect(a.toolbarMainInHeader, isFalse, reason: 'below by default');
+      a.toolbarMainInHeader = true;
       await pumpEventQueue();
 
       final b = PdfEditingPreferences();
@@ -76,6 +78,7 @@ void main() {
       expect(b.styleBarDock, PdfPanelDock.left);
       expect(b.toolbarFloating, isTrue);
       expect(b.toolbarPackTightly, isTrue);
+      expect(b.toolbarMainInHeader, isTrue);
 
       b.setToolStripDock(PdfEditToolGroup.markup, null);
       expect(b.toolStripDock(PdfEditToolGroup.markup), isNull);
@@ -86,6 +89,7 @@ void main() {
       expect(b.toolbarDock, PdfPanelDock.top);
       expect(b.toolbarFloating, isFalse);
       expect(b.toolbarPackTightly, isFalse);
+      expect(b.toolbarMainInHeader, isFalse);
 
       final c = PdfEditingPreferences();
       await c.ready;
@@ -281,6 +285,84 @@ void main() {
       await tapMouse(tester, find.byKey(const ValueKey('pdf-tool-rectangle')));
       expect(find.byKey(const ValueKey('pdf-inline-fill')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-inline-line-type')), findsNothing);
+    });
+
+    testWidgets('the main toolbar can move into the header', (tester) async {
+      final prefs = await pumpEditor(tester);
+      final header = find.byKey(const ValueKey('pdf-header-tools'));
+      expect(header, findsNothing);
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
+
+      prefs.toolbarMainInHeader = true;
+      await tester.pumpAndSettle();
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsNothing);
+      // undo/redo and Hand/Select once each, in the header beside search
+      for (final key in ['pdf-undo', 'pdf-redo', 'pdf-mode-hand']) {
+        expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
+        expect(find.descendant(of: header, matching: find.byKey(ValueKey(key))),
+            findsOneWidget,
+            reason: key);
+      }
+      // no group switcher came with it
+      expect(find.byKey(const ValueKey('pdf-group-shapes')), findsNothing);
+      final tools = tester.getRect(header);
+      final markup = rectOf(tester, const ValueKey('pdf-tool-bar-markup'));
+      expect(tools.bottom, lessThanOrEqualTo(markup.top + 0.5));
+      // and it still works from there
+      await tapMouse(tester, find.byKey(const ValueKey('pdf-group-select')));
+      expect(find.byKey(const ValueKey('pdf-tool-bar-markup')), findsOneWidget);
+
+      // docked elsewhere, it leaves the header
+      prefs.toolbarDock = PdfPanelDock.left;
+      await tester.pumpAndSettle();
+      expect(header, findsNothing);
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a narrow window keeps the main toolbar out of the header',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences()..toolbarMainInHeader = true;
+      addTearDown(prefs.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(bytes: buildMultiPagePdf(1), preferences: prefs),
+        ),
+      ));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-header-tools')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
+    });
+
+    testWidgets('a host header that leaves the tools out keeps them below',
+        (tester) async {
+      tester.view.physicalSize = const Size(1280, 860);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences()..toolbarMainInHeader = true;
+      addTearDown(prefs.dispose);
+      PdfHeaderParts? seen;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(
+            bytes: buildMultiPagePdf(1),
+            preferences: prefs,
+            headerBuilder: (context, parts) {
+              seen = parts;
+              return parts.bar(leading: [if (parts.search case final s?) s]);
+            },
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(seen!.tools, isNotNull, reason: 'offered to the host');
+      expect(find.byKey(const ValueKey('pdf-header-tools')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-undo')), findsOneWidget);
     });
 
     testWidgets('a narrow window wraps the toolbars and never overflows',
@@ -498,7 +580,10 @@ void main() {
     expect(find.byKey(const ValueKey('pdf-layout-main')), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-layout-bar-select')), findsNothing);
 
-    await tapMouse(tester, find.byKey(const ValueKey('pdf-layout-style')));
+    final style = find.byKey(const ValueKey('pdf-layout-style'));
+    await tester.ensureVisible(style);
+    await tester.pumpAndSettle();
+    await tapMouse(tester, style);
     await tapMouse(
         tester, find.byKey(const ValueKey('pdf-layout-style-left')).last);
     expect(prefs.styleBarDock, PdfPanelDock.left);
@@ -516,6 +601,11 @@ void main() {
     await tester.pumpAndSettle();
     await tapMouse(tester, pack);
     expect(prefs.toolbarPackTightly, isTrue);
+    final inHeader = find.byKey(const ValueKey('pdf-layout-main-in-header'));
+    await tester.ensureVisible(inHeader);
+    await tester.pumpAndSettle();
+    await tapMouse(tester, inHeader);
+    expect(prefs.toolbarMainInHeader, isTrue);
 
     final mode = find.byKey(const ValueKey('pdf-layout-mode'));
     await tester.ensureVisible(mode);
@@ -530,6 +620,7 @@ void main() {
     await tapMouse(tester, find.byKey(const ValueKey('pdf-layout-reset')));
     expect(prefs.toolbarFloating, isFalse);
     expect(prefs.toolbarPackTightly, isFalse);
+    expect(prefs.toolbarMainInHeader, isFalse);
     expect(prefs.styleBarDock, isNull);
     expect(prefs.toolStripDocks, isEmpty);
     await tapMouse(tester, find.byKey(const ValueKey('pdf-layout-done')));

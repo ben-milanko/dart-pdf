@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "讓工具列浮動在頁面上，而不是停駐在視窗邊緣",
   "tbPackToolbars": "緊湊排列工具列",
   "tbPackToolbarsHint": "填補前面各列的空隙，讓停駐的工具列佔用較少空間。工具列可能不依順序顯示。",
+  "tbMainInHeader": "主工具列放在標題列",
+  "tbMainInHeaderHint": "工具列停駐在頂端時，在搜尋旁顯示復原、重做、手形與選取。",
   "insertPagesTitle": "插入頁面",
   "insertPagesFiles": "檔案",
   "insertPagesAddFiles": "新增檔案…",

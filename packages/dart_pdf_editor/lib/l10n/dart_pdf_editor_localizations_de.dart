@@ -2502,6 +2502,13 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Lücken in früheren Zeilen füllen, damit angedockte Symbolleisten weniger Platz brauchen. Symbolleisten können außer der Reihe erscheinen.';
 
   @override
+  String get tbMainInHeader => 'Hauptsymbolleiste in der Kopfzeile';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Rückgängig, Wiederholen, Hand und Auswahl neben der Suche zeigen, solange die Symbolleisten oben angedockt sind.';
+
+  @override
   String get insertPagesTitle => 'Seiten einfügen';
 
   @override

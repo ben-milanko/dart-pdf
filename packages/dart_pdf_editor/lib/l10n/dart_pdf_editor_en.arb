@@ -3189,6 +3189,14 @@
   "@tbPackToolbarsHint": {
     "description": "Subtitle explaining the Pack toolbars tightly setting."
   },
+  "tbMainInHeader": "Main toolbar in the header",
+  "@tbMainInHeader": {
+    "description": "Setting: show the docked main toolbar (undo/redo, Hand/Select) in the header beside search."
+  },
+  "tbMainInHeaderHint": "Show undo, redo, Hand and Select beside search while the toolbars are docked on top.",
+  "@tbMainInHeaderHint": {
+    "description": "Subtitle explaining the Main toolbar in the header setting."
+  },
   "insertPagesTitle": "Insert pages",
   "@insertPagesTitle": {
     "description": "Title of the multi-document insert-pages dialog."

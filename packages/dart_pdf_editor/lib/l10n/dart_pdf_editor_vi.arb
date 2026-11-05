@@ -730,6 +730,8 @@
   "tbFloatingToolbarsHint": "Cho thanh công cụ nổi trên trang thay vì neo vào các cạnh cửa sổ",
   "tbPackToolbars": "Xếp thanh công cụ sát nhau",
   "tbPackToolbarsHint": "Lấp chỗ trống ở các hàng trước để thanh công cụ được neo chiếm ít chỗ hơn. Thanh công cụ có thể không theo thứ tự.",
+  "tbMainInHeader": "Thanh công cụ chính trên tiêu đề",
+  "tbMainInHeaderHint": "Hiện Hoàn tác, Làm lại, Bàn tay và Chọn cạnh ô tìm kiếm khi thanh công cụ được neo ở trên.",
   "insertPagesTitle": "Chèn trang",
   "insertPagesFiles": "Tệp",
   "insertPagesAddFiles": "Thêm tệp…",
