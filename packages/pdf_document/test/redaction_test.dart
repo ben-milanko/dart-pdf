@@ -233,7 +233,7 @@ void main() {
       // the original no longer draws: a copy with its covered pixel cleared
       // does (#1255 - the old burn left every covered pixel in the file)
       expect(text, isNot(contains('/Im1 Do')));
-      final name = RegExp(r'/(RdX\d+) Do').firstMatch(text)!.group(1)!;
+      final name = RegExp(r'/(RdXO\d+) Do').firstMatch(text)!.group(1)!;
       final xobjects =
           out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
       expect(xobjects.containsKey('Im1'), isFalse);

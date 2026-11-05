@@ -227,7 +227,7 @@ void main() {
         out.cos.resolve(page.resources['XObject']) as CosDictionary;
     expect(xobjects.containsKey('Im1'), isFalse);
     expect(xobjects.containsKey('Im2'), isFalse);
-    final name = RegExp(r'/(RdX\d+) Do').firstMatch(content)!.group(1)!;
+    final name = RegExp(r'/(RdXO\d+) Do').firstMatch(content)!.group(1)!;
     final image = out.cos.resolve(xobjects[name]) as CosStream;
     final samples = out.cos.decodeStreamData(image);
     expect(samples.sublist(0, 11), everyElement(0));
