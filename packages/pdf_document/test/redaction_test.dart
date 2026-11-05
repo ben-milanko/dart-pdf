@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:test/test.dart';
 
@@ -223,13 +224,21 @@ void main() {
       expect(text, contains('re')); // fill box present
     });
 
-    test('a partially covered image is kept under the fill box', () {
+    test('a partially covered image is redrawn with the pixels cleared', () {
       final doc = PdfDocument.open(buildRedactPdf(imageContent));
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(40, 290, 150, 410)]);
       final out = PdfDocument.open(editor.applyRedactions(0));
       final text = pageText(out);
-      expect(text, contains('/Im1 Do'));
+      // the original no longer draws: a copy with its covered pixel cleared
+      // does (#1255 - the old burn left every covered pixel in the file)
+      expect(text, isNot(contains('/Im1 Do')));
+      final name = RegExp(r'/(RdXO\d+) Do').firstMatch(text)!.group(1)!;
+      final xobjects =
+          out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
+      expect(xobjects.containsKey('Im1'), isFalse);
+      final image = out.cos.resolve(xobjects[name]) as CosStream;
+      expect(out.cos.decodeStreamData(image), [0]);
       expect(text, contains('re'));
     });
   });
