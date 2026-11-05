@@ -1,0 +1,108 @@
+{
+  "repository": "ben-milanko/dart-pdf",
+  "branch": "release/15-large-upload-recovery",
+  "source": "39935aa10ee9898444d0d2b099a5878749bac3d0",
+  "run_id": 41979983927,
+  "release": {
+    "id": 435075074,
+    "tag_name": "app-v15.0.0",
+    "target_commitish": "39935aa10ee9898444d0d2b099a5878749bac3d0",
+    "name": "DartPDF 15.0.0+52",
+    "draft": true,
+    "prerelease": false,
+    "published_at": null
+  },
+  "body_sha256": "bcf23fd4733e9a8da1a83a46f1993619cd849da5f3ef88dd45a4ce7ba6aa2403",
+  "artifact": {
+    "id": 13393379014,
+    "name": "android",
+    "size_in_bytes": 178594695,
+    "digest": "sha256:51ca7ff957d621ec9718e7aad2001079b345bfebb539cd96917f496f300fa1ce",
+    "workflow_run": {
+      "id": 41979983927,
+      "repository_id": 1264447327,
+      "head_repository_id": 1264447327,
+      "head_branch": "release/15.0.0",
+      "head_sha": "39935aa10ee9898444d0d2b099a5878749bac3d0"
+    }
+  },
+  "preserved_assets": [
+    {
+      "id": 713055901,
+      "name": "dartpdf-ios-unsigned.zip",
+      "size": 23425777,
+      "digest": "sha256:f5f4d7ccde1fd98f12ff645c0d6f61d54b26e10e78e6c45d4809da7f7fdb8f9d",
+      "state": "uploaded"
+    },
+    {
+      "id": 713061236,
+      "name": "dartpdf-linux-x64.tar.gz",
+      "size": 30831432,
+      "digest": "sha256:32bb1cdb0713f2ea77c378788c609d09fe8d9afb5cc145250cbf61d7a512fd3e",
+      "state": "uploaded"
+    },
+    {
+      "id": 713061813,
+      "name": "dartpdf-linux-x86_64.AppImage",
+      "size": 28944888,
+      "digest": "sha256:900f2077cd007a968e26e7f9430b8abf8ccea13c2eae1a15facbab5c0401daeb",
+      "state": "uploaded"
+    },
+    {
+      "id": 713057637,
+      "name": "dartpdf-macos.dmg",
+      "size": 64819667,
+      "digest": "sha256:b54d6817b3f1dde2a63c73b0196b3680fd7ae783ce6203f825e1d10dae16e4f7",
+      "state": "uploaded"
+    },
+    {
+      "id": 713058280,
+      "name": "dartpdf-web.zip",
+      "size": 39103468,
+      "digest": "sha256:4813ee7c974d4862c47803e047a8c2a934bdaeb29e08a37227dc8c55c70d69c6",
+      "state": "uploaded"
+    },
+    {
+      "id": 713056660,
+      "name": "dartpdf-windows-installer.exe",
+      "size": 30850258,
+      "digest": "sha256:8d24273289a5b0f84b6b0537b6daf61d4d72fd83749a22a97200babf398309c7",
+      "state": "uploaded"
+    },
+    {
+      "id": 713056286,
+      "name": "dartpdf-windows-portable.exe",
+      "size": 30793941,
+      "digest": "sha256:2763a2e49f9d5a277358f7100317625f4a48c093103ce1b18bc8c8270dc59931",
+      "state": "uploaded"
+    },
+    {
+      "id": 713057081,
+      "name": "dartpdf-windows-x64.zip",
+      "size": 31456193,
+      "digest": "sha256:40449165a6966995cb4e88fc530dd274d7686a38f4df569f8672ded4c6285957",
+      "state": "uploaded"
+    },
+    {
+      "id": 713062094,
+      "name": "SHA256SUMS",
+      "size": 889,
+      "digest": "sha256:e3cdaaed41d850d0e983784d1c5361ffaeba9b43d8ca5361c7545dc302465a5b",
+      "state": "uploaded"
+    }
+  ],
+  "large_assets": [
+    {
+      "name": "app-release.apk",
+      "size": 131223348,
+      "digest": "sha256:bc806e9c8a9c00fcbb27b6d4b3580b2f90744c69b10f348d1a5d1137b2dcf741",
+      "path": "flutter-apk/app-release.apk"
+    },
+    {
+      "name": "app-release.aab",
+      "size": 119583801,
+      "digest": "sha256:f5b0988c1f2826fcdbe5512299e68032b34a2553d638c43ea17de15904983f62",
+      "path": "bundle/release/app-release.aab"
+    }
+  ]
+}
