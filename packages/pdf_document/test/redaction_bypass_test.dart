@@ -759,5 +759,18 @@ void main() {
       _gone(all, 'ABCDE');
       expect(all, contains('FGHIJ'));
     });
+
+    test('geometry that overflows to infinity counts as under the box', () {
+      // PDF numbers have no exponent: 1e40 written out, applied 8 times
+      final big = '1${'0' * 40}.0';
+      final all = _burn(
+        _onePage(
+          content: '${List.filled(8, '$big 0 0 $big 0 0 cm').join(' ')} '
+              'BT /F1 12 Tf 0 0 Td (SECRETINF) Tj ET',
+        ),
+        box,
+      );
+      _gone(all, 'SECRETINF');
+    });
   });
 }

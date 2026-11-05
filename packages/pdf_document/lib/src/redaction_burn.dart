@@ -988,6 +988,8 @@ class _RedactionBurn {
 
   bool _anyInside(List<(double, double)> points, double inflate) {
     for (final (x, y) in points) {
+      // overflowed geometry can't be placed: assume the worst
+      if (!x.isFinite || !y.isFinite) return true;
       for (final r in _regions) {
         if (x >= r.left - inflate &&
             x <= r.right + inflate &&
@@ -1856,6 +1858,9 @@ class _RedactionBurn {
     for (final y in ys) {
       final (ax, ay) = _redApply(m, x0, y);
       final (bx, by) = _redApply(m, x1, y);
+      if (!ax.isFinite || !ay.isFinite || !bx.isFinite || !by.isFinite) {
+        return true; // overflowed geometry can't be placed
+      }
       for (final region in _regions) {
         // a zero-length test line is a point: 1 when inside, 0 when not
         if (_coveredFraction(ax, ay, bx, by, region) > _minCoveredFraction) {
@@ -1904,6 +1909,7 @@ class _RedactionBurn {
   // --------------------------------------------------------------- geometry
 
   bool _rectIntersectsAny(PdfRect rect) {
+    if (!_finite(rect)) return true;
     for (final region in _regions) {
       if (rect.left < region.right &&
           rect.right > region.left &&
@@ -1919,6 +1925,7 @@ class _RedactionBurn {
   /// rect counts when it lies inside a region.
   bool _boundsTouchAny(PdfRect? rect) {
     if (rect == null) return false;
+    if (!_finite(rect)) return true;
     for (final region in _regions) {
       if (rect.left <= region.right &&
           rect.right >= region.left &&
@@ -1936,6 +1943,12 @@ class _RedactionBurn {
     }
     return false;
   }
+
+  static bool _finite(PdfRect r) =>
+      r.left.isFinite &&
+      r.right.isFinite &&
+      r.bottom.isFinite &&
+      r.top.isFinite;
 
   bool _boundsFullyCovered(PdfRect rect) {
     for (final region in _regions) {
