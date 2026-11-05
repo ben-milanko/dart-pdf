@@ -26,6 +26,7 @@
   "featAnnotate_d": "Highlight text, draw with ink, add shapes, notes, and stamps.",
   "featForms_t": "Forms",
   "featForms_d": "Fill existing fields or add new text fields, checkboxes, and buttons.",
+  "featForms_guide": "Fill a PDF form (English)",
   "featSign_t": "Sign",
   "featSign_d": "Place a drawn signature, or add a certificate-backed digital signature.",
   "featRedact_t": "Redact",

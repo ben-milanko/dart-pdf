@@ -26,6 +26,7 @@
   "featAnnotate_d": "Surlignez du texte, dessinez à main levée, ajoutez des formes, des notes et des tampons.",
   "featForms_t": "Formulaires",
   "featForms_d": "Remplissez des champs existants ou ajoutez de nouveaux champs de texte, cases à cocher et boutons.",
+  "featForms_guide": "Remplir un formulaire PDF (en anglais)",
   "featSign_t": "Signer",
   "featSign_d": "Apposez une signature manuscrite ou ajoutez une signature numérique adossée à un certificat.",
   "featRedact_t": "Caviarder",

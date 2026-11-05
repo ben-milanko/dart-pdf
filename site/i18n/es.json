@@ -26,6 +26,7 @@
   "featAnnotate_d": "Resalta texto, dibuja con tinta y añade formas, notas y sellos.",
   "featForms_t": "Formularios",
   "featForms_d": "Rellena campos existentes o añade nuevos campos de texto, casillas de verificación y botones.",
+  "featForms_guide": "Rellenar un formulario PDF (en inglés)",
   "featSign_t": "Firmar",
   "featSign_d": "Coloca una firma dibujada o añade una firma digital respaldada por un certificado.",
   "featRedact_t": "Censurar",

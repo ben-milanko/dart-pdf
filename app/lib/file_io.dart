@@ -391,18 +391,23 @@ String ensureJsonExtension(String path) =>
 class SaveResult {
   const SaveResult._(this.message, {this.path, this.succeeded = false});
 
-  /// A user-visible confirmation, or null when the action was cancelled.
+  /// User-visible feedback, or null for a cancelled or unconfirmed handoff.
   final String? message;
 
   /// Where it landed on disk, when that's a stable writable path (desktop
   /// save dialog). Null for downloads / share-sheet / cancellation.
   final String? path;
 
-  /// True when the document was actually written somewhere - the caller uses
-  /// this to clear the dirty state and record a recent file.
+  /// True for a completed file write, browser download handoff, or a native
+  /// share action selected by the user. A selected share action does not prove
+  /// that the receiving app durably saved the file.
   final bool succeeded;
 
   static const cancelled = SaveResult._(null);
+
+  /// The share sheet was presented, but the platform cannot report a selected
+  /// destination. Keep unsaved state/recovery rather than claiming a save.
+  static const unconfirmedShare = SaveResult._(null);
   factory SaveResult.saved(String path) =>
       SaveResult._('Saved to $path', path: path, succeeded: true);
   factory SaveResult.downloaded(String name) =>
@@ -414,6 +419,21 @@ class SaveResult {
   factory SaveResult.shared() => const SaveResult._('Shared', succeeded: true);
   factory SaveResult.failed(Object error) =>
       SaveResult._('Save failed: $error');
+}
+
+/// Use the native share acknowledgement, not merely completion of the sheet.
+/// In particular, dismissing a sheet must never clear a document's dirty state.
+Future<SaveResult> _shareAndReport(ShareParams params) async {
+  try {
+    final result = await SharePlus.instance.share(params);
+    return switch (result.status) {
+      ShareResultStatus.success => SaveResult.shared(),
+      ShareResultStatus.dismissed => SaveResult.cancelled,
+      ShareResultStatus.unavailable => SaveResult.unconfirmedShare,
+    };
+  } catch (error) {
+    return SaveResult.failed(error);
+  }
 }
 
 /// Reads a PDF straight from a known on-disk [path] - used to reopen a recent
@@ -640,7 +660,7 @@ Future<SaveResult> saveBytesAs(
       final box = context.findRenderObject() as RenderBox?;
       final origin =
           box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-      await SharePlus.instance.share(ShareParams(
+      return _shareAndReport(ShareParams(
         files: [file],
         fileNameOverrides: [name],
         // iOS builds the share sheet header from this; without it the
@@ -649,7 +669,6 @@ Future<SaveResult> saveBytesAs(
         // required on iPad: the share popover anchors to this rect
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
-      return SaveResult.shared();
     default:
       final location = await getSaveLocation(
         suggestedName: name,
@@ -701,13 +720,12 @@ Future<SaveResult> shareDocumentsAs(
       final box = context.findRenderObject() as RenderBox?;
       final origin =
           box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-      await SharePlus.instance.share(ShareParams(
+      return _shareAndReport(ShareParams(
         files: files,
         fileNameOverrides: names,
         // required on iPad: the share popover anchors to this rect
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
-      return SaveResult.shared();
     default:
       final directory = await getDirectoryPath();
       if (directory == null) return SaveResult.cancelled;
@@ -799,13 +817,12 @@ Future<SaveResult> saveJsonAs(
       final box = context.findRenderObject() as RenderBox?;
       final origin =
           box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-      await SharePlus.instance.share(ShareParams(
+      return _shareAndReport(ShareParams(
         files: [file],
         fileNameOverrides: [name],
         title: name,
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
-      return SaveResult.shared();
     default:
       final location = await getSaveLocation(
         suggestedName: name,
@@ -847,13 +864,12 @@ Future<SaveResult> saveFormDataAs(
       final box = context.findRenderObject() as RenderBox?;
       final origin =
           box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-      await SharePlus.instance.share(ShareParams(
+      return _shareAndReport(ShareParams(
         files: [file],
         fileNameOverrides: [name],
         title: name,
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
-      return SaveResult.shared();
     default:
       final location = await getSaveLocation(
         suggestedName: name,
@@ -895,13 +911,12 @@ Future<SaveResult> saveImageBytesAs(
       final box = context.findRenderObject() as RenderBox?;
       final origin =
           box == null ? null : box.localToGlobal(Offset.zero) & box.size;
-      await SharePlus.instance.share(ShareParams(
+      return _shareAndReport(ShareParams(
         files: [file],
         fileNameOverrides: [name],
         title: name,
         sharePositionOrigin: origin ?? const Rect.fromLTWH(0, 0, 1, 1),
       ));
-      return SaveResult.shared();
     default:
       final location = await getSaveLocation(
         suggestedName: name,

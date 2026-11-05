@@ -23,6 +23,7 @@
   "featAnnotate_d": "Destaque texto, desenhe à mão, adicione formas, notas e carimbos.",
   "featForms_t": "Formulários",
   "featForms_d": "Preencha campos existentes ou adicione novos campos de texto, caixas de seleção e botões.",
+  "featForms_guide": "Preencher um formulário PDF (em inglês)",
   "featSign_t": "Assinar",
   "featSign_d": "Insira uma assinatura desenhada ou adicione uma assinatura digital com certificado.",
   "featRedact_t": "Censurar",

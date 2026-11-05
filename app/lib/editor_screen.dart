@@ -332,6 +332,10 @@ class _EditorScreenState extends State<EditorScreen>
     implements TabDragWindow, PageDropWindow {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  // A repeated shortcut must not open competing save dialogs/share sheets for
+  // one tab. Other documents can still save independently.
+  final Set<DocumentTab> _savingTabs = {};
+
   /// This window's view mode (pages / reflow / page grid).
   ///
   /// The preferences are process-wide - every window shares the one instance
@@ -3080,75 +3084,84 @@ class _EditorScreenState extends State<EditorScreen>
   /// prompts for a location (save dialog / browser download / share sheet).
   /// An in-place write that fails (e.g. permissions) falls back to save-as.
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    FocusManager.instance.applyFocusChangesIfNeeded();
-    tab.session?.finishInk();
-    final session = tab.session;
-    if (session == null) return;
-    // the file on disk may carry the page colour; the session never does,
-    // so the next save bakes over the same base again
-    final bytes = _withBakedPageColor(session.bytes, source: session.document);
-    final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
-    final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
-    var result = inPlace
-        ? await saveToPath(
-            bytes,
-            tab.originPath!,
-            bookmark: tab.originBookmark,
-          )
-        : await _saveAsDocument(context, bytes, tab.title);
-    if (!mounted) return;
-    if (inPlace && !result.succeeded) {
-      // The origin couldn't be written (moved, read-only) - say so, then offer
-      // save-as rather than stopping at the error. The edits stay in the tab
-      // either way.
-      AppDevTools.instance.addLog(
-          'in-place save failed: ${tab.title} - ${result.message}',
-          level: DevLogLevel.error);
-      _toast(
-        appL10n(context).editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
-        duration: const Duration(seconds: 5),
-      );
-      result = await _saveAsDocument(context, bytes, tab.title);
-      if (!mounted) return;
-    }
-    if (result.succeeded) {
-      final path = result.path;
-      final existingBookmark =
-          path != null && path == tab.originPath ? tab.originBookmark : null;
-      final bookmark = path == null
-          ? null
-          : (await securityBookmarkForPath(path)) ?? existingBookmark;
-      if (!mounted) return;
-      setState(() {
-        tab.markSaved();
-        if (path != null) {
-          tab.title = path.split(RegExp(r'[/\\]')).last;
-          tab.originPath = path;
-          tab.originBookmark = bookmark;
-          // A stable Save As destination supersedes a private mobile/open
-          // snapshot. Session restore and future Save now follow the new file.
-          tab.cachePath = null;
+    if (!_savingTabs.add(tab)) return;
+    try {
+      FocusManager.instance.primaryFocus?.unfocus();
+      FocusManager.instance.applyFocusChangesIfNeeded();
+      tab.session?.finishInk();
+      final session = tab.session;
+      if (session == null) return;
+      // the file on disk may carry the page colour; the session never does,
+      // so the next save bakes over the same base again
+      final savedLength = session.bytes.length;
+      final bytes =
+          _withBakedPageColor(session.bytes, source: session.document);
+      final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
+      final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
+      var result = inPlace
+          ? await saveToPath(
+              bytes,
+              tab.originPath!,
+              bookmark: tab.originBookmark,
+            )
+          : await _saveAsDocument(context, bytes, tab.title);
+      if (!mounted || !_tabs.contains(tab)) return;
+      if (inPlace && !result.succeeded) {
+        // The origin couldn't be written (moved, read-only) - say so, then offer
+        // save-as rather than stopping at the error. The edits stay in the tab
+        // either way.
+        AppDevTools.instance.addLog(
+            'in-place save failed: ${tab.title} - ${result.message}',
+            level: DevLogLevel.error);
+        _toast(
+          appL10n(context)
+              .editorSaveOriginUnavailable(pdfDisplayName(tab.title)),
+          duration: const Duration(seconds: 5),
+        );
+        result = await _saveAsDocument(context, bytes, tab.title);
+        if (!mounted || !_tabs.contains(tab)) return;
+      }
+      if (result.succeeded) {
+        final path = result.path;
+        final existingBookmark =
+            path != null && path == tab.originPath ? tab.originBookmark : null;
+        final bookmark = path == null
+            ? null
+            : (await securityBookmarkForPath(path)) ?? existingBookmark;
+        if (!mounted || !_tabs.contains(tab)) return;
+        setState(() {
+          tab.markSaved(length: savedLength);
+          if (path != null) {
+            tab.title = path.split(RegExp(r'[/\\]')).last;
+            tab.originPath = path;
+            tab.originBookmark = bookmark;
+            // A stable Save As destination supersedes a private mobile/open
+            // snapshot. Session restore and future Save now follow the new file.
+            tab.cachePath = null;
+          }
+        });
+        // Saving does not notify the edit session. Reconcile the mirror with
+        // the acknowledged revision; edits made since it stay protected.
+        unawaited(_autosave.noteSaved(tab));
+        final thumbnailEntry = _tabThumbnailEntry(tab);
+        if (thumbnailEntry != null) {
+          // The stored thumbnail follows the file: a restored tab and the
+          // Recent files list re-render the saved revision next time.
+          unawaited(_recentThumbnails.invalidate(thumbnailEntry));
         }
-      });
-      // Saving never touches the edit session, so nothing notifies the mirror -
-      // tell it directly. The bytes are on the user's own disk now and the
-      // recovery copy has nothing left to protect.
-      unawaited(_autosave.noteSaved(tab));
-      final thumbnailEntry = _tabThumbnailEntry(tab);
-      if (thumbnailEntry != null) {
-        // The stored thumbnail follows the file: a restored tab and the
-        // Recent files list re-render the saved revision next time.
-        unawaited(_recentThumbnails.invalidate(thumbnailEntry));
+        if (path != null) {
+          _recents.add(
+              title: tab.title, path: path, bookmark: tab.originBookmark);
+          // A Save As gave the tab a reusable origin - remember it for next time.
+          unawaited(_library.persist());
+        }
       }
-      if (path != null) {
-        _recents.add(
-            title: tab.title, path: path, bookmark: tab.originBookmark);
-        // A Save As gave the tab a reusable origin - remember it for next time.
-        unawaited(_library.persist());
-      }
+      if (result.message != null) _toast(result.message!);
+    } catch (error) {
+      if (mounted) _toast(SaveResult.failed(error).message!);
+    } finally {
+      _savingTabs.remove(tab);
     }
-    if (result.message != null) _toast(result.message!);
   }
 
   /// [bytes] as they should reach a file: with the page colour painted

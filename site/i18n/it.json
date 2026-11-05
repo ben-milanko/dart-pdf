@@ -26,6 +26,7 @@
   "featAnnotate_d": "Evidenzia il testo, disegna a mano libera, aggiungi forme, note e timbri.",
   "featForms_t": "Moduli",
   "featForms_d": "Compila i campi esistenti o aggiungi nuovi campi di testo, caselle di controllo e pulsanti.",
+  "featForms_guide": "Compila un modulo PDF (in inglese)",
   "featSign_t": "Firma",
   "featSign_d": "Inserisci una firma grafica o aggiungi una firma digitale basata su certificato.",
   "featRedact_t": "Oscura",
