@@ -2,6 +2,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
 import 'form_secrets.dart';
+import 'unsaved_changes.dart';
 import 'signature_trust.dart';
 
 /// A detached snapshot used to move a live document into another native
@@ -141,6 +142,44 @@ class DocumentTab {
           originPath: from.originPath,
           originBookmark: from.originBookmark,
           cachePath: from.cachePath,
+        );
+
+  /// The editable document a [DocumentHandoff] from another window becomes:
+  /// every origin field and the saved baseline travel with it, so the tab
+  /// arrives exactly as dirty as it left.
+  DocumentTab.fromHandoff(
+    DocumentHandoff handoff, {
+    required PdfEditingPreferences preferences,
+  }) : this.document(
+          title: handoff.title,
+          bytes: handoff.bytes,
+          preferences: preferences,
+          originPath: handoff.originPath,
+          originBookmark: handoff.originBookmark,
+          originToken: handoff.originToken,
+          cachePath: handoff.cachePath,
+          savedLength: handoff.savedLength,
+        );
+
+  /// The document crash recovery reopens ([RecoveredDocument]) at the
+  /// revision that was in flight, still pointed at its save destination and
+  /// exactly as dirty as it was: the baseline is what had reached the real
+  /// destination, not the recovered revision. [cachePath] overrides the
+  /// record's snapshot key once it has been resolved to a live one.
+  DocumentTab.recovered(
+    RecoveredDocument recovered, {
+    required PdfEditingPreferences preferences,
+    String? cachePath,
+  }) : this.document(
+          title: recovered.record.title,
+          bytes: recovered.bytes,
+          preferences: preferences,
+          originPath: recovered.record.originPath.isEmpty
+              ? null
+              : recovered.record.originPath,
+          originBookmark: recovered.record.originBookmark,
+          cachePath: cachePath ?? recovered.record.cachePath,
+          savedLength: recovered.record.savedLength,
         );
 
   /// A document whose bytes are already in hand but not yet parsed: the

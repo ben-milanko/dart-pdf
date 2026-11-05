@@ -25,6 +25,7 @@ import 'devtools.dart';
 import 'devtools_panel.dart';
 import 'digital_signature.dart';
 import 'doc_scan.dart';
+import 'document_library.dart';
 import 'document_tab.dart';
 import 'document_tabs.dart';
 import 'file_io.dart';
@@ -154,6 +155,8 @@ class EditorScreen extends StatefulWidget {
     this.imageClipboardReader,
     this.textClipboardReader,
     this.unsavedChangesStore,
+    this.sessionStore,
+    this.pdfSnapshots,
     this.documentScanner,
     this.onNewWindow,
     this.tabDragCoordinator,
@@ -267,6 +270,14 @@ class EditorScreen extends StatefulWidget {
   /// ([openUnsavedChangesStore]).
   final UnsavedChangesStore? unsavedChangesStore;
 
+  /// Overrides where the open documents are remembered for the next launch;
+  /// production leaves this null for [SessionStore].
+  final SessionPersistence? sessionStore;
+
+  /// Overrides the private snapshots that make a path-less pick reopenable;
+  /// production leaves this null for [PlatformPdfSnapshots].
+  final PdfSnapshotStore? pdfSnapshots;
+
   /// Overrides the device document scanner behind "Scan to new document" and
   /// "Insert scan". Tests inject a fake that returns a known PDF so the menu
   /// wiring can run without the native ML Kit / VisionKit channels. Production
@@ -343,7 +354,21 @@ class _EditorScreenState extends State<EditorScreen>
   final _recents = RecentsStore();
   late final _recentThumbnails =
       widget.recentThumbnails ?? RecentThumbnailCache();
-  final _session = SessionStore();
+
+  /// The session, Recent files and snapshot persistence of the open tabs.
+  late final DocumentLibrary _library;
+
+  DocumentLibrary _createLibrary() => DocumentLibrary(
+        tabs: _tabsModel,
+        session: widget.sessionStore ?? SessionStore(),
+        recents: _recents,
+        snapshots: widget.pdfSnapshots ?? const PlatformPdfSnapshots(),
+        persistsSession: widget.ownsApplicationSession,
+        // every tab-set change is also where the crash-recovery mirror learns
+        // which documents to watch; it runs ahead of the session-load gate, so a
+        // document opened before the last session is read back is still covered
+        onTabsChanged: _autosave.syncTracking,
+      )..onPruned = _retainRecentThumbnails;
 
   /// Mirrors dirty documents to durable storage (a private directory on
   /// native, IndexedDB on the web) so a crash never costs unsaved work, and
@@ -363,7 +388,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// Gates session persistence until the previous session has been read back,
   /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
   /// before [_restoreSession] has had a chance to re-open it.
-  bool _sessionLoaded = false;
+  bool get _sessionLoaded => _library.sessionLoaded;
 
   /// True while [_restoreSession] is re-adding the last session's tabs, so a
   /// restored path-only tab that is briefly active mid-restore does not start
@@ -381,7 +406,25 @@ class _EditorScreenState extends State<EditorScreen>
   void _onTabsChanged() {
     if (!mounted) return;
     setState(() {});
-    unawaited(_persistSession());
+    _advanceActiveTab();
+  }
+
+  /// Starts what the tab now on screen still needs, once: parsing a deferred
+  /// tab, opening a restored path-only one, or the automatic OCR check of a
+  /// document. Both opens are held while the session is still restoring -
+  /// each restored tab is briefly the active one as it is added - so only the
+  /// tab left active when restore finishes opens.
+  void _advanceActiveTab() {
+    final tab = _active;
+    if (tab == null) return;
+    if (tab.isDeferredPath || tab.isDeferred) {
+      if (_restoringSession) return;
+      tab.isDeferredPath
+          ? _materializeDeferredPath(tab)
+          : _materializeDeferred(tab);
+    } else if (tab.session != null) {
+      _maybeAutoOcr(tab);
+    }
   }
 
   /// The update checker, owned here unless the host injected one.
@@ -473,13 +516,14 @@ class _EditorScreenState extends State<EditorScreen>
   @override
   void initState() {
     super.initState();
+    _library = _createLibrary();
     PdfAnnotationSnapshotClipboard.instance.addListener(_onLocalAnnotationCopy);
     WidgetsBinding.instance.addObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.addHandler(_onGlobalKeyEvent);
     }
     _recents.load().then((_) {
-      if (mounted) _pruneRecentCache();
+      if (mounted) unawaited(_library.prune());
     });
     if (widget.ownsApplicationSession) {
       // One process-wide owner receives OS file-open events. Method channels
@@ -742,6 +786,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    _library.dispose();
     _devToolsOpen.dispose();
     PdfAnnotationSnapshotClipboard.instance
         .removeListener(_onLocalAnnotationCopy);
@@ -844,12 +889,12 @@ class _EditorScreenState extends State<EditorScreen>
     // paths already open).
     await _recoverUnsavedChanges();
     if (!mounted) return;
-    final documents = await _session.load();
+    final documents = await _library.session.load();
     if (mounted && !_hasExplicitLaunchTarget) {
       // Suppress lazy materialization while restoring: each tab is briefly the
       // active one as it is added, and we don't want every restored file to
       // start opening. Only the tab left active when restore finishes should
-      // materialize (see _buildBody / _materializeDeferredPath).
+      // materialize (see _advanceActiveTab).
       _restoringSession = true;
       final unavailable = <String>[];
       try {
@@ -868,14 +913,14 @@ class _EditorScreenState extends State<EditorScreen>
       }
       if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
       // Let the tab left active materialize now that restore is done.
-      if (mounted) setState(() {});
+      if (mounted) _advanceActiveTab();
     }
     if (mounted) {
-      setState(() => _sessionLoaded = true);
+      setState(() => _library.sessionLoaded = true);
     } else {
-      _sessionLoaded = true;
+      _library.sessionLoaded = true;
     }
-    unawaited(_persistSession());
+    unawaited(_library.persist());
   }
 
   /// Re-opens the documents that had unsaved edits when the app last went
@@ -901,17 +946,8 @@ class _EditorScreenState extends State<EditorScreen>
       final liveCachePath =
           cachePath == null ? null : await resolveCachedPdfKey(cachePath);
       if (!mounted) return;
-      final tab = DocumentTab.document(
-        title: record.title,
-        bytes: doc.bytes,
-        preferences: _prefs,
-        originPath: record.originPath.isEmpty ? null : record.originPath,
-        originBookmark: record.originBookmark,
-        cachePath: liveCachePath ?? cachePath,
-        // Comes back dirty exactly as it was: the baseline is what had been
-        // written to the real destination, not the revision we recovered.
-        savedLength: record.savedLength,
-      );
+      final tab = DocumentTab.recovered(doc,
+          preferences: _prefs, cachePath: liveCachePath);
       // Adopt the existing record *before* the tab is tracked by the usual
       // open path, so continued editing appends to it instead of mirroring the
       // whole document again under a fresh id.
@@ -1029,52 +1065,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// Persists the current open set (file-backed tabs, in order) so the next
   /// launch can restore it. A no-op until the previous session has been read
   /// back, so early opens can't clobber the stored set before [_restoreSession].
-  Future<void> _persistSession() async {
-    // Every tab-set mutation lands here, so this is also where the crash-
-    // recovery mirror learns which documents it should be watching. It runs
-    // ahead of the session-load gate below: a document opened before the last
-    // session has been read back still deserves its unsaved edits protected.
-    _autosave.syncTracking(_tabs);
-    if (!widget.ownsApplicationSession || !_sessionLoaded) return;
-    final documents = <SessionDocument>[];
-    final seen = <String>{};
-    for (final tab in _tabs) {
-      final path = tab.originPath;
-      final cachePath = tab.cachePath;
-      // Track by the writable origin (desktop) or the private snapshot
-      // (mobile file cache / web IndexedDB); tabs with neither (a derived or
-      // comparison tab, or a web pick whose snapshot failed) can't be read back
-      // and are skipped.
-      final key = (path != null && path.isNotEmpty) ? path : cachePath;
-      if (key == null || key.isEmpty || !seen.add(key)) continue;
-      documents.add(SessionDocument(
-          title: tab.title,
-          path: path ?? '',
-          cachePath: cachePath,
-          bookmark: tab.originBookmark));
-    }
-    await _session.save(documents);
-  }
-
-  /// Serializes snapshot writes plus their Recent updates against pruning.
-  Future<void> _recentCacheWork = Future<void>.value();
-
-  /// Prunes unreferenced snapshots/thumbnails and enforces the web byte budget.
-  void _pruneRecentCache() {
-    _recentCacheWork = _recentCacheWork.then((_) => _pruneRecentCacheNow());
-  }
-
-  Future<void> _pruneRecentCacheNow() async {
+  /// Keeps the thumbnails of Recent entries and open tabs after a prune.
+  void _retainRecentThumbnails() {
     if (!mounted) return;
-    final keep = {
-      for (final entry in _recents.items)
-        if (entry.cachePath != null) entry.cachePath!,
-    };
-    final available = await pruneCachedPdfs(keep);
-    if (!mounted) return;
-    if (available != null) {
-      await _recents.updateCachedAvailability(keep, available);
-    }
     unawaited(_recentThumbnails.retain([
       ..._recents.items,
       for (final tab in _tabs)
@@ -1118,22 +1111,11 @@ class _EditorScreenState extends State<EditorScreen>
     insertTab(handoff, _tabs.length);
   }
 
-  DocumentTab _tabFromHandoff(DocumentHandoff handoff) => DocumentTab.document(
-        title: handoff.title,
-        bytes: handoff.bytes,
-        preferences: _prefs,
-        originPath: handoff.originPath,
-        originBookmark: handoff.originBookmark,
-        originToken: handoff.originToken,
-        cachePath: handoff.cachePath,
-        savedLength: handoff.savedLength,
-      );
-
   @override
   bool insertTab(DocumentHandoff handoff, int insertionIndex) {
     if (!mounted) return false;
     try {
-      final tab = _tabFromHandoff(handoff);
+      final tab = DocumentTab.fromHandoff(handoff, preferences: _prefs);
       _heldTabWidth = null;
       _tabsModel.insert(insertionIndex, tab);
       _recents.add(
@@ -1372,18 +1354,9 @@ class _EditorScreenState extends State<EditorScreen>
       final opened = _replaceLoadingTab(loading, tab);
       AppDevTools.instance.addLog(
           'open-trace: "$title" tab ${opened ? "shown" : "replace-skipped"}');
-      if (opened) {
-        // With a reusable file origin (desktop) or no writable store (web),
-        // record the recent right away. Without one (mobile), snapshot the
-        // bytes off the open hot path - awaiting the disk write here would hold
-        // the loading placeholder up - and record the recent once it lands.
-        if (originPath == null && canCacheRecentPdfs) {
-          unawaited(_snapshotOpenedDocument(tab, bytes));
-        } else {
-          _recents.add(
-              title: title, path: originPath, bookmark: originBookmark);
-        }
-      }
+      // Off the open hot path: a mobile snapshot's disk write must not hold
+      // the loading placeholder up.
+      if (opened) unawaited(_library.recordOpened(tab, bytes));
     } catch (e) {
       if (!mounted) return;
       _replaceLoadingTab(
@@ -1394,35 +1367,6 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       );
     }
-  }
-
-  /// Snapshots a just-opened mobile document's [bytes] into the app's private
-  /// store so it can reopen from Recent / restore next launch without a fresh
-  /// pick, then records the recent (and re-persists the session) once the
-  /// snapshot is on disk. Runs off the open hot path - the tab is already
-  /// visible - so a slow disk write never blocks the loading placeholder.
-  Future<void> _snapshotOpenedDocument(DocumentTab tab, Uint8List bytes) {
-    // A prune must not delete a snapshot between its write and its Recent add.
-    return _recentCacheWork = _recentCacheWork.then((_) async {
-      await _snapshotOpenedDocumentNow(tab, bytes);
-      await _pruneRecentCacheNow();
-    });
-  }
-
-  Future<void> _snapshotOpenedDocumentNow(
-      DocumentTab tab, Uint8List bytes) async {
-    if (!mounted || !_tabs.contains(tab)) return;
-    final cachePath = await cacheOpenedPdf(bytes);
-    if (!mounted || !_tabs.contains(tab)) return;
-    if (cachePath == null) {
-      // The snapshot failed: still record a (non-reopenable) recent.
-      await _recents.add(title: tab.title, bookmark: tab.originBookmark);
-      return;
-    }
-    tab.cachePath = cachePath;
-    await _recents.add(
-        title: tab.title, cachePath: cachePath, bookmark: tab.originBookmark);
-    unawaited(_persistSession());
   }
 
   /// Builds the edit session for a [DocumentTab.deferred] tab the first time
@@ -1847,12 +1791,7 @@ class _EditorScreenState extends State<EditorScreen>
     // app's private store, behind the first paint, so Recent/restore reopen
     // from the local copy instead of re-picking. Desktop keeps its path/bookmark
     // origin and needs no snapshot.
-    if (preview.originToken != null &&
-        preview.originPath == null &&
-        preview.cachePath == null &&
-        canCacheRecentPdfs) {
-      unawaited(_snapshotOpenedDocument(built, bytes));
-    }
+    unawaited(_library.snapshotIfUnbacked(built, bytes));
     return true;
   }
 
@@ -1885,20 +1824,9 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: cachePath,
       );
       final opened = _replaceLoadingTab(loading, built);
-      if (opened) {
-        // With a reusable file origin (desktop) record the recent directly;
-        // a mobile pick (no path) snapshots the bytes so Recent/restore reopen
-        // from the local copy - the same reopen path a plain mobile open takes.
-        if (path != null || !canCacheRecentPdfs) {
-          _recents.add(
-              title: title,
-              path: path,
-              cachePath: cachePath,
-              bookmark: bookmark);
-        } else {
-          unawaited(_snapshotOpenedDocument(built, whole));
-        }
-      }
+      // a mobile pick (no path) snapshots the bytes so Recent/restore reopen
+      // from the local copy - the same reopen path a plain mobile open takes
+      if (opened) unawaited(_library.recordOpened(built, whole));
     } catch (error) {
       if (!mounted) return;
       final handled = onOpenFailed?.call(error) ?? false;
@@ -2642,7 +2570,7 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: entry.cachePath,
         onOpenFailed: (_) {
           unawaited(_recents.remove(entry.id));
-          _pruneRecentCache();
+          unawaited(_library.prune());
           _toast(appL10n(context)
               .editorCouldNotReopen(pdfDisplayName(entry.title)));
           return true;
@@ -2684,7 +2612,7 @@ class _EditorScreenState extends State<EditorScreen>
       } else {
         await _recents.remove(entry.id);
       }
-      _pruneRecentCache();
+      unawaited(_library.prune());
       if (!mounted) return;
       AppDevTools.instance.addLog(
         'recent open failed: ${entry.title} - $e',
@@ -2726,7 +2654,7 @@ class _EditorScreenState extends State<EditorScreen>
       } else {
         await _recents.remove(entry.id);
       }
-      _pruneRecentCache();
+      unawaited(_library.prune());
       if (!mounted) return;
       _toast(
           appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
@@ -2846,8 +2774,8 @@ class _EditorScreenState extends State<EditorScreen>
     _openBytes(result, ocrResultTitle(appL10n(context), title));
     final tab = _active;
     if (tab == null) return;
-    await _snapshotOpenedDocument(tab, result);
-    await _persistSession();
+    await _library.snapshot(tab, result);
+    await _library.persist();
     // Never discard a completed job just because its tab was displayed. The
     // result stays recoverable until the replacement snapshot is saved.
     if (mounted && tab.cachePath != null) await _ocr.acknowledgeResult(result);
@@ -3217,7 +3145,7 @@ class _EditorScreenState extends State<EditorScreen>
         _recents.add(
             title: tab.title, path: path, bookmark: tab.originBookmark);
         // A Save As gave the tab a reusable origin - remember it for next time.
-        unawaited(_persistSession());
+        unawaited(_library.persist());
       }
     }
     if (result.message != null) _toast(result.message!);
@@ -3344,16 +3272,17 @@ class _EditorScreenState extends State<EditorScreen>
     final oldTitle = tab.title;
     setState(() => tab.title = name);
     _autosave.noteMetadataChanged(tab);
-    unawaited(_persistSession());
+    unawaited(_library.persist());
     // Update existing metadata immediately. A pending initial snapshot reads
     // tab.title when it records its Recent entry, so it also gets the new name.
     unawaited(_recents.rename(
         tab.originPath ?? tab.cachePath ?? oldTitle, tab.title));
-    if (tab.originPath == null && tab.cachePath == null && canCacheRecentPdfs) {
-      // New scans have no source snapshot yet. Give the renamed copy a
-      // reusable source for Recent files and session restoration too.
-      await _snapshotOpenedDocument(tab, tab.session!.bytes);
-      if (mounted && _tabs.contains(tab)) _autosave.noteMetadataChanged(tab);
+    // New scans have no source snapshot yet. Give the renamed copy a
+    // reusable source for Recent files and session restoration too.
+    if (await _library.snapshotIfUnbacked(tab, tab.session!.bytes) &&
+        mounted &&
+        _tabs.contains(tab)) {
+      _autosave.noteMetadataChanged(tab);
     }
   }
 
@@ -4852,20 +4781,9 @@ class _EditorScreenState extends State<EditorScreen>
         thumbnails: _sessionLoaded ? _recentThumbnails : null,
       );
     }
-    if (tab.isDeferredPath) {
-      // First time we show a restored path-only tab: open it progressively
-      // (after this frame), showing the placeholder meanwhile. Held off while
-      // the session is still restoring, so only the finally-active tab opens.
-      if (!_restoringSession) _materializeDeferredPath(tab);
-      return _OpeningDocument(title: tab.title);
-    }
-    if (tab.isDeferred) {
-      // First time we show a deferred tab: parse it (after this frame) and
-      // show the same placeholder a fresh open uses meanwhile.
-      _materializeDeferred(tab);
-      return _OpeningDocument(title: tab.title);
-    }
-    if (tab.isLoading) {
+    // a deferred tab parses, and a restored path-only one opens, once it is
+    // active (_advanceActiveTab); the placeholder shows meanwhile
+    if (tab.isDeferredPath || tab.isDeferred || tab.isLoading) {
       return _OpeningDocument(title: tab.title);
     }
     if (tab.error != null) {
@@ -4898,7 +4816,6 @@ class _EditorScreenState extends State<EditorScreen>
         tileRasterBackend: tileRasterBackend,
       );
     }
-    _maybeAutoOcr(tab);
     // built once per EditorScreen build (see _buildAppBar)
     final appBar = _appBarContent(tab);
     // one header: the app bar, drawn by the shell with its own controls as

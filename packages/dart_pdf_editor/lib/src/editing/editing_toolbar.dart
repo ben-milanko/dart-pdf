@@ -25,6 +25,7 @@ import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_table.dart';
+import 'text_edit_session.dart';
 import 'editor_commands.dart';
 import 'editing_tool_catalog.dart';
 import 'editing_font_controls.dart';
@@ -2375,14 +2376,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                 // the picker takes focus: hold the open text box's commit so
                 // the picked colour restyles it instead of landing after it
                 // closed
-                final hold = controller.isEditingText;
-                if (hold) controller.beginEditingTextFocusHold();
+                final hold = controller.textEditSession?.holdCommit();
                 try {
                   final picked = await pickEditingColor(context, controller,
                       initial: current);
                   if (picked != null) _applyColor(picked);
                 } finally {
-                  if (hold) controller.endEditingTextFocusHold();
+                  hold?.release();
                 }
               },
               child: SizedBox(
@@ -4266,7 +4266,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   double? _draggingLineSpacing;
   double? _draggingCharSpacing;
   double? _draggingFontWidth;
-  bool _holdingTextEditFocus = false;
+  List<PdfTextEditFocusHold>? _textEditFocusHolds;
 
   @override
   void dispose() {
@@ -4275,20 +4275,24 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _beginTextEditFocusHold() {
-    if (_holdingTextEditFocus || !controller.isEditingText) return;
-    _holdingTextEditFocus = true;
-    controller.beginEditingTextFocusHold();
-    // keep the in-place editor focused for the whole popup session so its
-    // selection highlight stays on - both when the popup opens and after each
-    // control tap, so the user can see (and keep restyling) the same run
-    controller.beginKeepEditingTextFocused();
+    final session = controller.textEditSession;
+    if (_textEditFocusHolds != null || session == null) return;
+    _textEditFocusHolds = [
+      session.holdCommit(),
+      // keep the in-place editor focused for the whole popup session so its
+      // selection highlight stays on - both when the popup opens and after
+      // each control tap, so the user can see (and keep restyling) the run
+      session.keepFocused(),
+    ];
   }
 
   void _endTextEditFocusHold() {
-    if (!_holdingTextEditFocus) return;
-    _holdingTextEditFocus = false;
-    controller.endEditingTextFocusHold();
-    controller.endKeepEditingTextFocused();
+    final holds = _textEditFocusHolds;
+    if (holds == null) return;
+    _textEditFocusHolds = null;
+    for (final hold in holds) {
+      hold.release();
+    }
   }
 
   void _setFont(PdfStandardFont font) {

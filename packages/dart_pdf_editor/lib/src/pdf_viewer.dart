@@ -6058,7 +6058,7 @@ class _PdfViewerState extends State<PdfViewer>
         (editing == null ||
             // Select is the resting mode: an empty-page tap it ignores
             // (having just dropped any selection) still falls through here
-            ((editing.tool == null || editing.tool == PdfEditTool.select) &&
+            (!editing.mode.armsPageTool &&
                 editing.markupTool == null &&
                 !editing.isPickingColor &&
                 !editing.hasAnnotationSelection &&
@@ -6094,9 +6094,7 @@ class _PdfViewerState extends State<PdfViewer>
       // modes. Their actions live in the contextual toolbar/properties
       // panel; right-click is only the selection gesture. Drawing/content
       // tools own the page, so they do not participate.
-      if (editing.tool == null ||
-          editing.tool == PdfEditTool.select ||
-          editing.tool == PdfEditTool.form) {
+      if (editing.mode.picksFormWidgets) {
         final field = editing.formFieldAt(page, x, y);
         if (field != null) {
           editing.selectFormWidgetAt(page, x, y);
@@ -6107,7 +6105,7 @@ class _PdfViewerState extends State<PdfViewer>
           return;
         }
       }
-      if (editing.tool != PdfEditTool.form) {
+      if (!editing.mode.authorsForms) {
         final hit = editing.selectableAnnotationAt(page, x, y);
         // A right-click on selected text is about that text, whatever the
         // clipboard holds: it gets the text menu (the touch chip's
@@ -6758,8 +6756,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (!widget.showNotePopups || !widget.showAnnotations) return null;
     final editing = widget.editing;
     if (editing != null &&
-        ((editing.tool != null && editing.tool != PdfEditTool.select) ||
-            editing.isPickingColor)) {
+        (editing.mode.armsPageTool || editing.isPickingColor)) {
       return null;
     }
     final point = _pagePointAt(local);
@@ -7150,7 +7147,7 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     if (_selectAllTextOn(page)) return;
-    if (editing != null && editing.tool == PdfEditTool.select) {
+    if (editing != null && editing.mode.armsSelect) {
       editing.selectAllAnnotationsOn(page);
     }
   }
@@ -7211,7 +7208,7 @@ class _PdfViewerState extends State<PdfViewer>
         editing.cancelImageCrop();
         return;
       }
-      if (editing.tool == PdfEditTool.signatureBox) {
+      if (editing.mode.escapesFirst) {
         editing.tool = PdfEditTool.select;
         _clearSelection();
         return;
@@ -7347,7 +7344,7 @@ class _PdfViewerState extends State<PdfViewer>
         editing.isCroppingImage ||
         editing.isEditingText ||
         editing.activeSavedAnnotation != null ||
-        (editing.tool != null && editing.tool != PdfEditTool.select) ||
+        editing.mode.armsPageTool ||
         HardwareKeyboard.instance.isShiftPressed ||
         HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed) {
@@ -7378,8 +7375,7 @@ class _PdfViewerState extends State<PdfViewer>
   bool _editingTextBoxAt(Offset local) {
     final editing = widget.editing;
     if (editing == null || editing.isPickingColor) return false;
-    final tool = editing.tool;
-    if (tool != null && tool != PdfEditTool.select) return false;
+    if (editing.mode.armsPageTool) return false;
     final point = _pagePointAt(local);
     if (point == null) return false;
     final hit = editing.selectableAnnotationAt(point.$1, point.$2, point.$3);
@@ -7391,12 +7387,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// pen or drawing finger) - the viewer's own gestures must stand aside.
   bool _kindDrawsInk(PointerDeviceKind? kind) {
     final editing = widget.editing;
-    if (editing == null ||
-        (editing.tool != PdfEditTool.ink &&
-            editing.tool != PdfEditTool.highlight &&
-            editing.tool != PdfEditTool.eraser)) {
-      return false;
-    }
+    if (editing == null || !editing.mode.drawsFreehand) return false;
     return switch (kind) {
       PointerDeviceKind.stylus || PointerDeviceKind.invertedStylus => true,
       PointerDeviceKind.touch => editing.preferences.fingerDrawsInk,
@@ -7414,12 +7405,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// [_EagerPinchRecognizer], not these paths - so on-screen pinch-to-zoom
   /// while drawing is unaffected; on a trackpad/wheel, switch to another
   /// tool to zoom.
-  bool get _drawToolArmed {
-    final tool = widget.editing?.tool;
-    return tool == PdfEditTool.ink ||
-        tool == PdfEditTool.highlight ||
-        tool == PdfEditTool.eraser;
-  }
+  bool get _drawToolArmed => widget.editing?.mode.drawsFreehand ?? false;
 
   void _onSelectionStart(DragStartDetails details) {
     // a raw-drawing pointer may still win this arena (the overlay's
@@ -7523,8 +7509,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (editing == null) return false;
     final keyboard = HardwareKeyboard.instance;
     if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return false;
-    return editing.tool == PdfEditTool.select ||
-        (editing.tool == null && editing.hasAnnotationSelection);
+    return editing.selectsAnnotations;
   }
 
   /// Finishes a marquee drag: selects the annotations the box covers on
@@ -7636,9 +7621,8 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null) return true;
     if (editing.isHandMode || editing.isPickingColor) return false;
-    final tool = editing.tool;
-    if (tool == null) return true;
-    if (tool != PdfEditTool.select) return false;
+    if (editing.mode.armsPageTool) return false;
+    if (!editing.mode.armsSelect) return true;
     final point = _pagePointAt(local);
     if (point == null) return false;
     return editing.selectableAnnotationAt(point.$1, point.$2, point.$3) == null;
@@ -7751,9 +7735,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// overlay, which selects/moves them or opens their menu.
   bool _beginTouchMarquee(LongPressStartDetails details) {
     final editing = widget.editing;
-    if (editing == null ||
-        editing.tool != PdfEditTool.select ||
-        editing.isPickingColor) {
+    if (editing == null || !editing.mode.armsSelect || editing.isPickingColor) {
       return false;
     }
     final point = _pagePointAt(details.localPosition);
@@ -10577,24 +10559,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                     ListenableBuilder(
                       key: const ValueKey('pdf-editing-layer'),
                       listenable: editing,
-                      // mounted for an armed tool, the eyedropper, a
-                      // default-mode (mouse click) annotation selection, or
-                      // a pending attention flash (the sidebar's zoom-to -
-                      // links and form fields flash without a selection). Cursor
-                      // cursor guides and rulers mount the same passive,
-                      // low-latency hover layer even in ordinary reader/hand
-                      // mode.
+                      // mounted while the session wants page overlays
+                      // ([PdfEditingController.wantsPageOverlays] - cursor
+                      // guides and rulers mount the same passive hover layer
+                      // even in reader/hand mode) or the page currency still
+                      // holds a committed edit's result
                       builder: (context, _) {
                         final rasterCurrent = _pageCurrent;
-                        final idle = editing.tool == null &&
-                            !editing.isPickingColor &&
-                            editing.activeSavedAnnotation == null &&
-                            !editing.hasAnnotationSelection &&
-                            editing.pendingFlash == null &&
-                            !editing.preferences.showVerticalCursorGuide &&
-                            !editing.preferences.showHorizontalCursorGuide &&
-                            !editing.preferences.showPageRulers &&
-                            !editing.preferences.showSnapGrid;
+                        final idle = !editing.wantsPageOverlays;
                         // a mounted overlay outlives its reason until the
                         // page is current: it may be standing in for the
                         // last edit, which the annotation layer has not
@@ -10650,19 +10622,18 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                     Positioned.fill(
                       child: ListenableBuilder(
                         listenable: editing,
-                        builder: (context, _) =>
-                            editing.tool == PdfEditTool.form
-                                ? ValueListenableBuilder<double>(
-                                    valueListenable: widget.transformScale,
-                                    builder: (context, zoom, _) =>
-                                        FormFieldLabelLayer(
-                                      controller: editing,
-                                      pageIndex: widget.index,
-                                      geometry: geometry,
-                                      zoom: zoom,
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
+                        builder: (context, _) => editing.mode.authorsForms
+                            ? ValueListenableBuilder<double>(
+                                valueListenable: widget.transformScale,
+                                builder: (context, zoom, _) =>
+                                    FormFieldLabelLayer(
+                                  controller: editing,
+                                  pageIndex: widget.index,
+                                  geometry: geometry,
+                                  zoom: zoom,
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   // the form tool's field fill: the same form layer as reading
@@ -10673,24 +10644,23 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                     Positioned.fill(
                       child: ListenableBuilder(
                         listenable: editing,
-                        builder: (context, _) =>
-                            editing.tool == PdfEditTool.form
-                                ? ValueListenableBuilder<double>(
-                                    valueListenable: widget.transformScale,
-                                    builder: (context, zoom, _) =>
-                                        FormInteractionLayer(
-                                      controller: editing,
-                                      pageIndex: widget.index,
-                                      geometry: geometry,
-                                      pageColor: widget.pageColor,
-                                      rasterCurrent: _rastered,
-                                      zoom: zoom,
-                                      formImagePicker: widget.formImagePicker,
-                                      onRevealField: widget.onRevealRect,
-                                      tapTargets: false,
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
+                        builder: (context, _) => editing.mode.authorsForms
+                            ? ValueListenableBuilder<double>(
+                                valueListenable: widget.transformScale,
+                                builder: (context, zoom, _) =>
+                                    FormInteractionLayer(
+                                  controller: editing,
+                                  pageIndex: widget.index,
+                                  geometry: geometry,
+                                  pageColor: widget.pageColor,
+                                  rasterCurrent: _rastered,
+                                  zoom: zoom,
+                                  formImagePicker: widget.formImagePicker,
+                                  onRevealField: widget.onRevealRect,
+                                  tapTargets: false,
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   // direct form fill: a per-field tap layer in reading /
@@ -10705,10 +10675,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                       child: ListenableBuilder(
                         listenable: formController,
                         builder: (context, _) {
-                          final tool = editing?.tool;
-                          final active = editing == null ||
-                              tool == null ||
-                              tool == PdfEditTool.select;
+                          final active =
+                              editing == null || !editing.mode.armsPageTool;
                           return active
                               ? ValueListenableBuilder<double>(
                                   valueListenable: widget.transformScale,
@@ -10751,7 +10719,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
             return ListenableBuilder(
               listenable: editing,
               builder: (context, _) =>
-                  layers(hostAboveEditing: editing.tool == PdfEditTool.select),
+                  layers(hostAboveEditing: editing.mode.armsSelect),
             );
           }),
         ),
