@@ -174,9 +174,13 @@ void main() {
       showSaveButton: false,
     ))));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
-    await tester.pump();
+    final editGroup = find.byKey(const ValueKey('pdf-group-edit'));
+    if (editGroup.evaluate().isNotEmpty) {
+      await tester.tap(editGroup, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+    }
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);
     await tester.pumpAndSettle();
@@ -303,8 +307,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);
@@ -358,8 +363,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);
@@ -472,8 +478,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('pdf-group-edit')),
-        kind: PointerDeviceKind.mouse);
+    // docked, the Edit toolbar is always out; it scrolls in a narrow window
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('pdf-toolbar-color-processing')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('pdf-toolbar-color-processing')),
         kind: PointerDeviceKind.mouse);

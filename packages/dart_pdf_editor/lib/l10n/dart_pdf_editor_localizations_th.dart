@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
-
-  @override
-  String get textAlignTop => 'จัดข้อความชิดบน';
-
-  @override
-  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
-
-  @override
-  String get textAlignBottom => 'จัดข้อความชิดล่าง';
+  String get duplicate => 'ทำสำเนา';
 
   @override
   String get add => 'เพิ่ม';
@@ -2414,6 +2405,114 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'ปิด';
 
   @override
+  String get tbBarGrip => 'ลากเพื่อเชื่อมต่อ หรือคลิกเพื่อเลือกตำแหน่ง';
+
+  @override
+  String get tbDockTop => 'บน';
+
+  @override
+  String get tbDockBottom => 'ล่าง';
+
+  @override
+  String get tbDockLeft => 'ซ้าย';
+
+  @override
+  String get tbDockRight => 'ขวา';
+
+  @override
+  String get tbDockWithMainToolbar => 'รวมกับแถบเครื่องมือหลัก';
+
+  @override
+  String get tbStyleInToolBars => 'ภายในแถบเครื่องมือ';
+
+  @override
+  String get tbSeparateStyleBar => 'แถบสไตล์แยก';
+
+  @override
+  String get tbToolbarLayout => 'เค้าโครงแถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutMain => 'แถบเครื่องมือหลัก';
+
+  @override
+  String get tbToolbarLayoutStyle => 'ตัวควบคุมสไตล์';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'แถบสไตล์รวมสี เส้น ความทึบ และแบบอักษรไว้ที่เดียวสำหรับทุกเครื่องมือและทุกการเลือก';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'แถบเครื่องมือ';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'แถบเครื่องมือที่เชื่อมไว้ที่ขอบจะเปิดค้างอยู่ตรงนั้น หากรวมกับแถบหลัก จะเปิดเมื่อคุณเลือกกลุ่มของมัน';
+
+  @override
+  String get tbToolbarLayoutReset => 'รีเซ็ตเค้าโครง';
+
+  @override
+  String get tbToolbarMode => 'แถบเครื่องมือ';
+
+  @override
+  String get tbToolbarDocked => 'เชื่อมไว้ที่ขอบ';
+
+  @override
+  String get tbToolbarFloating => 'ลอยอยู่เหนือหน้า';
+
+  @override
+  String get tbFloatingToolbar => 'ลอยเหนือหน้า';
+
+  @override
+  String get tbPropertiesHint =>
+      'เลือกเครื่องมือหรือเลือกมาร์กอัปเพื่อดูคุณสมบัติ';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'แถบคุณสมบัติแสดงการทำงานของสิ่งที่เลือก รวมถึงตัวเลือกและสไตล์ของเครื่องมือไว้ที่เดียว';
+
+  @override
+  String get tbFloatingToolbars => 'แถบเครื่องมือแบบลอย';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'แสดงแถบเครื่องมือลอยเหนือหน้าแทนการเชื่อมไว้ที่ขอบหน้าต่าง';
+
+  @override
+  String get tbPackToolbars => 'จัดแถบเครื่องมือให้ชิดกัน';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'เติมช่องว่างในแถวก่อนหน้าเพื่อให้แถบเครื่องมือที่ยึดไว้ใช้พื้นที่น้อยลง แถบเครื่องมืออาจไม่เรียงตามลำดับ';
+
+  @override
+  String get tbMainInHeader => 'แถบเครื่องมือหลักในส่วนหัว';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'แสดงเลิกทำ ทำซ้ำ มือ และเลือก ข้างช่องค้นหาเมื่อแถบเครื่องมือยึดไว้ด้านบน';
+
+  @override
+  String get tbShowToolbarNames => 'แสดงชื่อแถบเครื่องมือ';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'ติดป้ายชื่อแถบเครื่องมือที่ยึดไว้แต่ละแถบ (มาร์กอัป วาด…) ข้างเครื่องมือ ปิดไว้จะประหยัดพื้นที่ ชื่อยังอยู่ในคำแนะนำเครื่องมือ';
+
+  @override
+  String get tbCustomizeToolbars => 'ปรับแต่งแถบเครื่องมือ';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'แสดงที่จับเพื่อลากแถบเครื่องมือไปยังขอบอื่นหรือจัดลำดับใหม่ คลิกเสร็จสิ้นเมื่อทำเสร็จ';
+
+  @override
+  String get tbMoveEarlier => 'ย้ายไปก่อน';
+
+  @override
+  String get tbMoveLater => 'ย้ายไปหลัง';
+
+  @override
   String get insertPagesTitle => 'แทรกหน้า';
 
   @override
@@ -2541,6 +2640,18 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'ไม่ได้บันทึกสีหน้าลงในไฟล์: การเปลี่ยนหน้าจะทำให้ลายเซ็นไม่ถูกต้อง';
 
   @override
+  String get textVerticalAlign => 'การจัดแนวแนวตั้ง';
+
+  @override
+  String get textAlignTop => 'จัดข้อความชิดบน';
+
+  @override
+  String get textAlignMiddle => 'จัดข้อความกึ่งกลางแนวตั้ง';
+
+  @override
+  String get textAlignBottom => 'จัดข้อความชิดล่าง';
+
+  @override
   String get table => 'ตาราง';
 
   @override
@@ -2592,7 +2703,4 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์';
-
-  @override
-  String get duplicate => 'ทำสำเนา';
 }

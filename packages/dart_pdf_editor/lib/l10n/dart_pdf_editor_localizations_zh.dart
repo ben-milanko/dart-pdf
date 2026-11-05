@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get textVerticalAlign => '垂直对齐';
-
-  @override
-  String get textAlignTop => '文本顶端对齐';
-
-  @override
-  String get textAlignMiddle => '文本垂直居中';
-
-  @override
-  String get textAlignBottom => '文本底端对齐';
+  String get duplicate => '复制副本';
 
   @override
   String get add => '添加';
@@ -2389,6 +2380,107 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get dialogDismiss => '关闭';
 
   @override
+  String get tbBarGrip => '拖动以停靠，或点击选择位置';
+
+  @override
+  String get tbDockTop => '顶部';
+
+  @override
+  String get tbDockBottom => '底部';
+
+  @override
+  String get tbDockLeft => '左侧';
+
+  @override
+  String get tbDockRight => '右侧';
+
+  @override
+  String get tbDockWithMainToolbar => '随主工具栏';
+
+  @override
+  String get tbStyleInToolBars => '在工具栏内';
+
+  @override
+  String get tbSeparateStyleBar => '独立样式栏';
+
+  @override
+  String get tbToolbarLayout => '工具栏布局';
+
+  @override
+  String get tbToolbarLayoutMain => '主工具栏';
+
+  @override
+  String get tbToolbarLayoutStyle => '样式控件';
+
+  @override
+  String get tbToolbarLayoutStyleHint => '样式栏将颜色、描边、不透明度和字体集中在同一位置，适用于每个工具和选区。';
+
+  @override
+  String get tbToolbarLayoutToolBars => '工具栏';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '停靠到边缘的工具栏会一直在那里打开。随主工具栏时，选择其分组才会打开。';
+
+  @override
+  String get tbToolbarLayoutReset => '重置布局';
+
+  @override
+  String get tbToolbarMode => '工具栏';
+
+  @override
+  String get tbToolbarDocked => '停靠在边缘';
+
+  @override
+  String get tbToolbarFloating => '浮动在页面上';
+
+  @override
+  String get tbFloatingToolbar => '浮动在页面上';
+
+  @override
+  String get tbPropertiesHint => '选择工具或选中标记以查看其属性';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint => '属性栏在同一位置显示所选内容的操作以及工具的选项和样式。';
+
+  @override
+  String get tbFloatingToolbars => '浮动工具栏';
+
+  @override
+  String get tbFloatingToolbarsHint => '让工具栏浮动在页面上，而不是停靠在窗口边缘';
+
+  @override
+  String get tbPackToolbars => '紧凑排列工具栏';
+
+  @override
+  String get tbPackToolbarsHint => '填补前面各行的空隙，让停靠的工具栏占用更少空间。工具栏可能不按顺序显示。';
+
+  @override
+  String get tbMainInHeader => '主工具栏放在标题栏';
+
+  @override
+  String get tbMainInHeaderHint => '工具栏停靠在顶部时，在搜索旁显示撤销、重做、抓手和选择。';
+
+  @override
+  String get tbShowToolbarNames => '显示工具栏名称';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      '在每个停靠工具栏（标记、绘图…）的工具旁显示名称。关闭可节省空间；名称仍显示在工具提示中。';
+
+  @override
+  String get tbCustomizeToolbars => '自定义工具栏';
+
+  @override
+  String get tbCustomizeToolbarsHint => '显示手柄，可将工具栏拖到其他边缘或重新排序。完成后点击“完成”。';
+
+  @override
+  String get tbMoveEarlier => '前移';
+
+  @override
+  String get tbMoveLater => '后移';
+
+  @override
   String get insertPagesTitle => '插入页面';
 
   @override
@@ -2515,6 +2607,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get pageColorNotBakedSigned => '页面颜色未保存到文件中：更改页面会使其签名失效。';
 
   @override
+  String get textVerticalAlign => '垂直对齐';
+
+  @override
+  String get textAlignTop => '文本顶端对齐';
+
+  @override
+  String get textAlignMiddle => '文本垂直居中';
+
+  @override
+  String get textAlignBottom => '文本底端对齐';
+
+  @override
   String get table => '表格';
 
   @override
@@ -2565,9 +2669,6 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get tableClipboardError => '剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。';
-
-  @override
-  String get duplicate => '复制副本';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2575,16 +2676,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
 
   @override
-  String get textVerticalAlign => '垂直對齊';
-
-  @override
-  String get textAlignTop => '文字靠上對齊';
-
-  @override
-  String get textAlignMiddle => '文字垂直置中';
-
-  @override
-  String get textAlignBottom => '文字靠下對齊';
+  String get duplicate => '製作副本';
 
   @override
   String get add => '新增';
@@ -4955,6 +5047,108 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get dialogDismiss => '關閉';
 
   @override
+  String get tbBarGrip => '拖曳以停駐，或點按以選擇位置';
+
+  @override
+  String get tbDockTop => '頂端';
+
+  @override
+  String get tbDockBottom => '底端';
+
+  @override
+  String get tbDockLeft => '左側';
+
+  @override
+  String get tbDockRight => '右側';
+
+  @override
+  String get tbDockWithMainToolbar => '隨主工具列';
+
+  @override
+  String get tbStyleInToolBars => '在工具列內';
+
+  @override
+  String get tbSeparateStyleBar => '獨立樣式列';
+
+  @override
+  String get tbToolbarLayout => '工具列配置';
+
+  @override
+  String get tbToolbarLayoutMain => '主工具列';
+
+  @override
+  String get tbToolbarLayoutStyle => '樣式控制項';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      '樣式列將顏色、筆畫、不透明度和字型集中在同一處，適用於每個工具和選取範圍。';
+
+  @override
+  String get tbToolbarLayoutToolBars => '工具列';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      '停駐在邊緣的工具列會一直在那裡開啟。隨主工具列時，選擇其群組才會開啟。';
+
+  @override
+  String get tbToolbarLayoutReset => '重設配置';
+
+  @override
+  String get tbToolbarMode => '工具列';
+
+  @override
+  String get tbToolbarDocked => '停駐在邊緣';
+
+  @override
+  String get tbToolbarFloating => '浮動在頁面上';
+
+  @override
+  String get tbFloatingToolbar => '浮動在頁面上';
+
+  @override
+  String get tbPropertiesHint => '選擇工具或選取標記以查看其屬性';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint => '屬性列在同一處顯示所選內容的操作，以及工具的選項和樣式。';
+
+  @override
+  String get tbFloatingToolbars => '浮動工具列';
+
+  @override
+  String get tbFloatingToolbarsHint => '讓工具列浮動在頁面上，而不是停駐在視窗邊緣';
+
+  @override
+  String get tbPackToolbars => '緊湊排列工具列';
+
+  @override
+  String get tbPackToolbarsHint => '填補前面各列的空隙，讓停駐的工具列佔用較少空間。工具列可能不依順序顯示。';
+
+  @override
+  String get tbMainInHeader => '主工具列放在標題列';
+
+  @override
+  String get tbMainInHeaderHint => '工具列停駐在頂端時，在搜尋旁顯示復原、重做、手形與選取。';
+
+  @override
+  String get tbShowToolbarNames => '顯示工具列名稱';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      '在每個停駐工具列（標記、繪圖…）的工具旁顯示名稱。關閉可節省空間；名稱仍會顯示在工具提示中。';
+
+  @override
+  String get tbCustomizeToolbars => '自訂工具列';
+
+  @override
+  String get tbCustomizeToolbarsHint => '顯示控點，可將工具列拖到其他邊緣或重新排序。完成後按一下「完成」。';
+
+  @override
+  String get tbMoveEarlier => '前移';
+
+  @override
+  String get tbMoveLater => '後移';
+
+  @override
   String get insertPagesTitle => '插入頁面';
 
   @override
@@ -5081,6 +5275,18 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get pageColorNotBakedSigned => '頁面顏色未儲存至檔案：變更頁面會使其簽章失效。';
 
   @override
+  String get textVerticalAlign => '垂直對齊';
+
+  @override
+  String get textAlignTop => '文字靠上對齊';
+
+  @override
+  String get textAlignMiddle => '文字垂直置中';
+
+  @override
+  String get textAlignBottom => '文字靠下對齊';
+
+  @override
   String get table => '表格';
 
   @override
@@ -5131,7 +5337,4 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tableClipboardError => '剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。';
-
-  @override
-  String get duplicate => '製作副本';
 }

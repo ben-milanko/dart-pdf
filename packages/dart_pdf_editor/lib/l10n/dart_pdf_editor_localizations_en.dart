@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get duplicate => 'Duplicate';
 
   @override
   String get add => 'Add';
@@ -2420,6 +2411,114 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'Dismiss';
 
   @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps color, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customize toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -2560,6 +2659,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
       'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get table => 'Table';
 
   @override
@@ -2611,9 +2722,6 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
-
-  @override
-  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -2621,16 +2729,7 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnAu() : super('en_AU');
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get duplicate => 'Duplicate';
 
   @override
   String get add => 'Add';
@@ -5032,6 +5131,114 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get dialogDismiss => 'Dismiss';
 
   @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customise toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -5172,6 +5379,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get table => 'Table';
 
   @override
@@ -5223,9 +5442,6 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
-
-  @override
-  String get duplicate => 'Duplicate';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -5233,16 +5449,7 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   DartPdfEditorLocalizationsEnGb() : super('en_GB');
 
   @override
-  String get textVerticalAlign => 'Vertical alignment';
-
-  @override
-  String get textAlignTop => 'Align text to top';
-
-  @override
-  String get textAlignMiddle => 'Align text to middle';
-
-  @override
-  String get textAlignBottom => 'Align text to bottom';
+  String get duplicate => 'Duplicate';
 
   @override
   String get add => 'Add';
@@ -7644,6 +7851,114 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get dialogDismiss => 'Dismiss';
 
   @override
+  String get tbBarGrip => 'Drag to dock, or click for placement';
+
+  @override
+  String get tbDockTop => 'Top';
+
+  @override
+  String get tbDockBottom => 'Bottom';
+
+  @override
+  String get tbDockLeft => 'Left';
+
+  @override
+  String get tbDockRight => 'Right';
+
+  @override
+  String get tbDockWithMainToolbar => 'With main toolbar';
+
+  @override
+  String get tbStyleInToolBars => 'Inside tool bars';
+
+  @override
+  String get tbSeparateStyleBar => 'Separate style bar';
+
+  @override
+  String get tbToolbarLayout => 'Toolbar layout';
+
+  @override
+  String get tbToolbarLayoutMain => 'Main toolbar';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Style controls';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'A style bar keeps colour, stroke, opacity and font in one place for every tool and selection.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Tool bars';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Reset layout';
+
+  @override
+  String get tbToolbarMode => 'Toolbars';
+
+  @override
+  String get tbToolbarDocked => 'Docked to the edges';
+
+  @override
+  String get tbToolbarFloating => 'Floating over the page';
+
+  @override
+  String get tbFloatingToolbar => 'Float over the page';
+
+  @override
+  String get tbPropertiesHint =>
+      'Pick a tool or select a markup to see its properties';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.';
+
+  @override
+  String get tbFloatingToolbars => 'Floating toolbars';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Float the toolbars over the page instead of docking them to the window edges';
+
+  @override
+  String get tbPackToolbars => 'Pack toolbars tightly';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.';
+
+  @override
+  String get tbMainInHeader => 'Main toolbar in the header';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.';
+
+  @override
+  String get tbShowToolbarNames => 'Show toolbar names';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.';
+
+  @override
+  String get tbCustomizeToolbars => 'Customise toolbars';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.';
+
+  @override
+  String get tbMoveEarlier => 'Move earlier';
+
+  @override
+  String get tbMoveLater => 'Move later';
+
+  @override
   String get insertPagesTitle => 'Insert pages';
 
   @override
@@ -7784,6 +8099,18 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
       'The page colour wasn\'t saved into the file: changing the pages would invalidate its signatures.';
 
   @override
+  String get textVerticalAlign => 'Vertical alignment';
+
+  @override
+  String get textAlignTop => 'Align text to top';
+
+  @override
+  String get textAlignMiddle => 'Align text to middle';
+
+  @override
+  String get textAlignBottom => 'Align text to bottom';
+
+  @override
   String get table => 'Table';
 
   @override
@@ -7835,7 +8162,4 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tableClipboardError =>
       'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.';
-
-  @override
-  String get duplicate => 'Duplicate';
 }

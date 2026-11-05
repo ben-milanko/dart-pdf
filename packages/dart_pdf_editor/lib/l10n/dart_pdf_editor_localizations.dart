@@ -138,29 +138,11 @@ abstract class DartPdfEditorLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
-  /// No description provided for @textVerticalAlign.
+  /// Duplicate a library item or selected annotation as an independent copy.
   ///
   /// In en, this message translates to:
-  /// **'Vertical alignment'**
-  String get textVerticalAlign;
-
-  /// No description provided for @textAlignTop.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to top'**
-  String get textAlignTop;
-
-  /// No description provided for @textAlignMiddle.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to middle'**
-  String get textAlignMiddle;
-
-  /// No description provided for @textAlignBottom.
-  ///
-  /// In en, this message translates to:
-  /// **'Align text to bottom'**
-  String get textAlignBottom;
+  /// **'Duplicate'**
+  String get duplicate;
 
   /// Generic button that adds a new item.
   ///
@@ -4398,6 +4380,204 @@ abstract class DartPdfEditorLocalizations {
   /// **'Dismiss'**
   String get dialogDismiss;
 
+  /// Tooltip on a toolbar bar's grip handle: drag it to another edge, or click it to choose where the bar docks.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to dock, or click for placement'**
+  String get tbBarGrip;
+
+  /// Toolbar placement choice: dock the bar to the top edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Top'**
+  String get tbDockTop;
+
+  /// Toolbar placement choice: dock the bar to the bottom edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get tbDockBottom;
+
+  /// Toolbar placement choice: dock the bar to the left edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get tbDockLeft;
+
+  /// Toolbar placement choice: dock the bar to the right edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get tbDockRight;
+
+  /// Toolbar placement choice: a tool bar rides with the main toolbar and opens when its group is picked.
+  ///
+  /// In en, this message translates to:
+  /// **'With main toolbar'**
+  String get tbDockWithMainToolbar;
+
+  /// Style-controls placement choice: colour/stroke/opacity controls stay inside each tool bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Inside tool bars'**
+  String get tbStyleInToolBars;
+
+  /// Toggle in a tool bar's placement menu: move the style controls into one style bar of their own.
+  ///
+  /// In en, this message translates to:
+  /// **'Separate style bar'**
+  String get tbSeparateStyleBar;
+
+  /// Settings entry and dialog title for arranging the editing toolbars.
+  ///
+  /// In en, this message translates to:
+  /// **'Toolbar layout'**
+  String get tbToolbarLayout;
+
+  /// Toolbar layout dialog: section for the main toolbar (modes and tool groups).
+  ///
+  /// In en, this message translates to:
+  /// **'Main toolbar'**
+  String get tbToolbarLayoutMain;
+
+  /// Toolbar layout dialog: section for where colour/stroke/opacity/font controls appear.
+  ///
+  /// In en, this message translates to:
+  /// **'Style controls'**
+  String get tbToolbarLayoutStyle;
+
+  /// Toolbar layout dialog: explains the separate style bar.
+  ///
+  /// In en, this message translates to:
+  /// **'A style bar keeps color, stroke, opacity and font in one place for every tool and selection.'**
+  String get tbToolbarLayoutStyleHint;
+
+  /// Toolbar layout dialog: section listing each tool group's bar (Markup, Draw, Shapes…).
+  ///
+  /// In en, this message translates to:
+  /// **'Tool bars'**
+  String get tbToolbarLayoutToolBars;
+
+  /// Toolbar layout dialog: explains docking a tool bar.
+  ///
+  /// In en, this message translates to:
+  /// **'A tool bar docked to an edge stays open there. With the main toolbar, it opens when you pick its group.'**
+  String get tbToolbarLayoutToolBarsHint;
+
+  /// Toolbar layout dialog button: restore the default toolbar arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset layout'**
+  String get tbToolbarLayoutReset;
+
+  /// Toolbar layout dialog: picker for whether toolbars dock to the window edges or float over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Toolbars'**
+  String get tbToolbarMode;
+
+  /// Toolbar mode choice: solid toolbars attached to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Docked to the edges'**
+  String get tbToolbarDocked;
+
+  /// Toolbar mode choice: toolbars float as cards over the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating over the page'**
+  String get tbToolbarFloating;
+
+  /// Toggle in the main toolbar's placement menu: float the toolbars over the page instead of docking them.
+  ///
+  /// In en, this message translates to:
+  /// **'Float over the page'**
+  String get tbFloatingToolbar;
+
+  /// Shown in the docked properties bar while no tool or selection has properties.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a tool or select a markup to see its properties'**
+  String get tbPropertiesHint;
+
+  /// Toolbar layout dialog: explains the docked properties bar.
+  ///
+  /// In en, this message translates to:
+  /// **'The properties bar shows the selection\'s actions and the tool\'s options and style in one place.'**
+  String get tbToolbarLayoutPropertiesHint;
+
+  /// Setting/checkbox: float the editing toolbars over the page instead of docking them to the window edges.
+  ///
+  /// In en, this message translates to:
+  /// **'Floating toolbars'**
+  String get tbFloatingToolbars;
+
+  /// Subtitle explaining the Floating toolbars setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Float the toolbars over the page instead of docking them to the window edges'**
+  String get tbFloatingToolbarsHint;
+
+  /// Setting: pack the docked toolbars first-fit, so a later toolbar fills a gap left in an earlier row.
+  ///
+  /// In en, this message translates to:
+  /// **'Pack toolbars tightly'**
+  String get tbPackToolbars;
+
+  /// Subtitle explaining the Pack toolbars tightly setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill gaps in earlier rows so docked toolbars take less room. Toolbars may appear out of order.'**
+  String get tbPackToolbarsHint;
+
+  /// Setting: show the docked main toolbar (undo/redo, Hand/Select) in the header beside search.
+  ///
+  /// In en, this message translates to:
+  /// **'Main toolbar in the header'**
+  String get tbMainInHeader;
+
+  /// Subtitle explaining the Main toolbar in the header setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Show undo, redo, Hand and Select beside search while the toolbars are docked on top.'**
+  String get tbMainInHeaderHint;
+
+  /// Setting: show each docked toolbar's group name (Markup, Draw…) beside its tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Show toolbar names'**
+  String get tbShowToolbarNames;
+
+  /// Subtitle explaining the Show toolbar names setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Label each docked toolbar (Markup, Draw…) beside its tools. Off saves space; the names stay in the tooltips.'**
+  String get tbShowToolbarNamesHint;
+
+  /// Menu item / action: enter the mode where toolbars show grips to move and reorder them.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize toolbars'**
+  String get tbCustomizeToolbars;
+
+  /// Subtitle/tooltip explaining the Customize toolbars mode and how to finish it.
+  ///
+  /// In en, this message translates to:
+  /// **'Show grips to drag toolbars to another edge or reorder them. Click Done when finished.'**
+  String get tbCustomizeToolbarsHint;
+
+  /// Toolbar placement menu: move this toolbar one place earlier in the order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move earlier'**
+  String get tbMoveEarlier;
+
+  /// Toolbar placement menu: move this toolbar one place later in the order.
+  ///
+  /// In en, this message translates to:
+  /// **'Move later'**
+  String get tbMoveLater;
+
   /// Title of the multi-document insert-pages dialog.
   ///
   /// In en, this message translates to:
@@ -4614,6 +4794,30 @@ abstract class DartPdfEditorLocalizations {
   /// **'The page color wasn\'t saved into the file: changing the pages would invalidate its signatures.'**
   String get pageColorNotBakedSigned;
 
+  /// No description provided for @textVerticalAlign.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical alignment'**
+  String get textVerticalAlign;
+
+  /// No description provided for @textAlignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to top'**
+  String get textAlignTop;
+
+  /// No description provided for @textAlignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to middle'**
+  String get textAlignMiddle;
+
+  /// No description provided for @textAlignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align text to bottom'**
+  String get textAlignBottom;
+
   /// No description provided for @table.
   ///
   /// In en, this message translates to:
@@ -4715,12 +4919,6 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.'**
   String get tableClipboardError;
-
-  /// Duplicate a library item or selected annotation as an independent copy.
-  ///
-  /// In en, this message translates to:
-  /// **'Duplicate'**
-  String get duplicate;
 }
 
 class _DartPdfEditorLocalizationsDelegate

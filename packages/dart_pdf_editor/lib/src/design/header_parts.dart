@@ -45,6 +45,7 @@ class PdfHeaderParts {
     this.pageNumber,
     this.zoom,
     this.search,
+    this.tools,
     this.viewOptions,
     this.panelSwitch,
     this.save,
@@ -71,6 +72,12 @@ class PdfHeaderParts {
 
   /// The search field.
   final Widget? search;
+
+  /// The main toolbar - undo/redo and Hand/Select - when the user keeps it
+  /// in the header (`PdfEditingPreferences.toolbarMainInHeader`, docked on
+  /// top); null otherwise. Place it after [search]. Until it is mounted the
+  /// toolbar keeps it in its own area, so leaving it out loses nothing.
+  final Widget? tools;
 
   /// The view options button (view modes, page colour, guides, author,
   /// shortcuts).
