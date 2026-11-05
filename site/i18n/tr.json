@@ -26,6 +26,7 @@
   "featAnnotate_d": "Metni vurgulayın, mürekkeple çizin, şekiller, notlar ve damgalar ekleyin.",
   "featForms_t": "Formlar",
   "featForms_d": "Mevcut alanları doldurun ya da yeni metin alanları, onay kutuları ve düğmeler ekleyin.",
+  "featForms_guide": "PDF formu doldurun (İngilizce)",
   "featSign_t": "İmzalama",
   "featSign_d": "Çizilmiş bir imza yerleştirin veya sertifika destekli bir dijital imza ekleyin.",
   "featRedact_t": "Karartma",

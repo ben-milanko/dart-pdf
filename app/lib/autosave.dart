@@ -136,12 +136,18 @@ class AutosaveController {
     }
   }
 
-  /// Notes that [tab] was written to its real destination: the mirror has
-  /// nothing left to protect, so the record goes away.
+  /// Reconciles the mirror after a save updates [tab]'s saved baseline.
+  /// A clean tab loses its recovery record; newer edits stay protected.
   ///
   /// Saving does not notify the edit session (the bytes didn't change), so the
   /// editor has to say so explicitly.
   Future<void> noteSaved(DocumentTab tab) async {
+    // Saving an older revision must not discard edits made while the write or
+    // destination sheet was pending. Refresh their baseline/path metadata too.
+    if (tab.isDirty) {
+      _onChanged(tab);
+      return;
+    }
     final mirror = _mirrors[tab];
     if (mirror == null) return;
     mirror.cancelTimers();
