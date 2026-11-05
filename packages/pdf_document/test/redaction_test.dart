@@ -129,7 +129,7 @@ void main() {
       // flipped the original kerns, dragging CD back under the fill.
       final tj = RegExp(r'\[(.*)\] TJ').firstMatch(text)!.group(1)!;
       expect(tj, startsWith('(AB) -'));
-      expect(tj, endsWith('(CD) '));
+      expect(tj.trim(), endsWith('(CD)'));
       final gaps = RegExp(r'\)\s*(-?[\d.]+)\s*\(')
           .allMatches(tj)
           .map((m) => double.parse(m.group(1)!))
@@ -195,7 +195,9 @@ void main() {
           buildRedactPdf('BT /F1 12 Tf 72 700 Td (AB) Tj ET\n'));
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(71, 695, 80.2, 715)]);
-      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      // letter by letter: whole-word removal would take B along with A
+      final text = pageText(PdfDocument.open(
+          editor.burnRedactions(pageIndex: 0, wholeWords: false)));
       expect(text, contains('(B)'));
       expect(text, isNot(contains('(A')));
     });

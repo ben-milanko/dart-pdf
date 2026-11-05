@@ -1846,6 +1846,13 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'ページから色を選択';
 
   @override
+  String get tbRedactAsImages => '墨消ししたページを画像に置き換える';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      '最も安全：墨消ししたページは画像だけが残ります。そのページのテキストは選択も検索もできなくなり、ファイルサイズが大きくなります。';
+
+  @override
   String get tbRedactionsApplied => '墨消しを適用しました';
 
   @override

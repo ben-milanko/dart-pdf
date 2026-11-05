@@ -61,6 +61,7 @@ part 'page_annotation_list.dart';
 part 'page_background.dart';
 part 'redaction.dart';
 part 'redaction_burn.dart';
+part 'redaction_raster.dart';
 part 'form_admin.dart';
 part 'form_editor.dart';
 part 'form_scripts_editor.dart';

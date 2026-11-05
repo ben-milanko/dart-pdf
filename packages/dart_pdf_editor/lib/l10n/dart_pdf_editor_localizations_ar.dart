@@ -1892,6 +1892,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'اختيار لون من الصفحة';
 
   @override
+  String get tbRedactAsImages => 'استبدال الصفحات المنقحة بصور';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'الأكثر أمانًا: تُحفظ صورة فقط لكل صفحة منقحة. لا يمكن بعد ذلك تحديد النص في تلك الصفحات أو البحث فيه، ويزداد حجم الملف.';
+
+  @override
   String get tbRedactionsApplied => 'تم تطبيق التنقيحات';
 
   @override

@@ -1888,6 +1888,13 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Вибрати колір зі сторінки';
 
   @override
+  String get tbRedactAsImages => 'Замінити відредаговані сторінки зображеннями';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Найнадійніше: від кожної відредагованої сторінки залишається лише зображення. Текст на цих сторінках більше не можна буде виділити чи знайти, а файл стане більшим.';
+
+  @override
   String get tbRedactionsApplied => 'Редагування застосовано';
 
   @override

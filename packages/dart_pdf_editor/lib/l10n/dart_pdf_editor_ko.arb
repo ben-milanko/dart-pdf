@@ -553,6 +553,8 @@
   "tbOutline": "윤곽선",
   "tbPatternScale": "패턴 배율",
   "tbPickColorFromPage": "페이지에서 색상 선택",
+  "tbRedactAsImages": "가린 페이지를 이미지로 바꾸기",
+  "tbRedactAsImagesDetail": "가장 안전함: 가린 각 페이지의 이미지만 남습니다. 해당 페이지의 텍스트는 더 이상 선택하거나 검색할 수 없으며 파일 크기가 커집니다.",
   "tbRedactionsApplied": "교정이 적용되었습니다",
   "tbRedoShortcut": "다시 실행 (⇧⌘Z)",
   "tbReflowFailed": "리플로우할 수 없음 - 이 도구가 다시 배치할 수 있는 단일 열 단락이 아닙니다. 대신 텍스트 바꾸기를 사용해 보세요.",

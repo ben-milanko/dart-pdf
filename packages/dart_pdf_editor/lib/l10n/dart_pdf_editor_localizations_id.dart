@@ -1866,6 +1866,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Pilih warna dari halaman';
 
   @override
+  String get tbRedactAsImages => 'Ganti halaman yang disensor dengan gambar';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Paling aman: hanya gambar dari setiap halaman yang disensor yang disimpan. Teks di halaman tersebut tidak dapat lagi dipilih atau dicari, dan ukuran file bertambah.';
+
+  @override
   String get tbRedactionsApplied => 'Redaksi diterapkan';
 
   @override

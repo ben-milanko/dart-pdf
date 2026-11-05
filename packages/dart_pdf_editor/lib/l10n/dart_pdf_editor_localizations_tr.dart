@@ -1860,6 +1860,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Sayfadan bir renk seç';
 
   @override
+  String get tbRedactAsImages => 'Karartılan sayfaları görüntülerle değiştir';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'En güvenlisi: Karartılan her sayfanın yalnızca bir görüntüsü kalır. Bu sayfalardaki metin artık seçilemez veya aranamaz ve dosya büyür.';
+
+  @override
   String get tbRedactionsApplied => 'Karartmalar uygulandı';
 
   @override

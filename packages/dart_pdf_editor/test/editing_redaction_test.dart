@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart'
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -54,6 +55,79 @@ void main() {
       expect(editing.canRedo, isFalse);
       expect(editing.isModified, isTrue);
       expect(editing.hasRedactionMarks, isFalse);
+    });
+
+    test('applyRedactionsAsImages turns the marked pages into pictures',
+        () async {
+      final editing = controller(2);
+      addTearDown(editing.dispose);
+      editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
+      final ratios = <double>[];
+      expect(
+        await editing.applyRedactionsAsImages(
+          dpi: 144,
+          render: (page, ratio) async {
+            ratios.add(ratio);
+            return PdfPageRaster(
+                width: 4, height: 4, rgba: Uint8List(4 * 4 * 4));
+          },
+        ),
+        isTrue,
+      );
+      // only the marked page was rendered, at 144 dpi
+      expect(ratios, [2.0]);
+      final doc = editing.document;
+      expect(doc.pageCount, 2);
+      final page = doc.page(0);
+      expect(page.resources.entries.keys, ['XObject']);
+      expect(page.annotations, isEmpty);
+      final bytes = latin1.decode(editing.bytes, allowInvalid: true);
+      expect(bytes, isNot(contains('Page 1')));
+      // the unmarked page keeps its text
+      expect(latin1.decode(doc.page(1).contentBytes()), contains('Page 2'));
+      expect(editing.hasRedactionMarks, isFalse);
+      expect(editing.canUndo, isFalse);
+    });
+
+    test('an edit made while the pages render is not lost', () async {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
+      final applied = await editing.applyRedactionsAsImages(
+        render: (page, ratio) async {
+          // the person keeps editing meanwhile
+          editing.addRedaction(0, const PdfRect(60, 600, 200, 620));
+          return PdfPageRaster(width: 2, height: 2, rgba: Uint8List(16));
+        },
+      );
+      expect(applied, isFalse);
+      // nothing burned: both marks are still there to apply
+      expect(
+          editing.document
+              .page(0)
+              .annotations
+              .where((a) => a.subtype == 'Redact')
+              .length,
+          2);
+    });
+
+    testWidgets('applyRedactionsAsImages renders the page as displayed',
+        (tester) async {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      editing.addRedaction(0, const PdfRect(60, 715, 200, 748));
+      final size = editing.document.page(0).cropBox;
+      await tester.runAsync(() => editing.applyRedactionsAsImages(dpi: 72));
+      final page = editing.document.page(0);
+      final xobjects = editing.document.cos.resolve(page.resources['XObject'])
+          as CosDictionary;
+      final image =
+          editing.document.cos.resolve(xobjects['RdPage']) as CosStream;
+      final w = (image.dictionary['Width'] as CosInteger).value;
+      final h = (image.dictionary['Height'] as CosInteger).value;
+      expect(w, closeTo(size.width, 1));
+      expect(h, closeTo(size.height, 1));
+      expect(page.cropBox.width, closeTo(size.width, 0.01));
     });
 
     test('only a burn advances the destructive stamp; ink does not', () {
@@ -396,6 +470,40 @@ void main() {
       expect(editing.hasRedactionMarks, isFalse);
       expect(latin1.decode(editing.bytes, allowInvalid: true),
           isNot(contains('Page 1')));
+    });
+
+    testWidgets('the confirm offers replacing the pages with images',
+        (tester) async {
+      final editing = await pumpToolbar(tester);
+      editing
+        ..tool = PdfEditTool.redact
+        ..addRedaction(0, const PdfRect(60, 715, 200, 748));
+      await tester.pump();
+      final apply = find.byKey(const ValueKey('pdf-apply-redactions'));
+      await tester.ensureVisible(apply);
+      await tester.tap(apply);
+      await tester.pumpAndSettle();
+
+      final option = find.byKey(const ValueKey('pdf-redaction-as-images'));
+      expect(option, findsOneWidget);
+      expect(find.text('Replace redacted pages with images'), findsOneWidget);
+      await tester.tap(option);
+      await tester.pump();
+      expect(
+          tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+          isTrue);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-redaction-confirm-apply')));
+      await tester.pump();
+      // the render runs off the test clock
+      for (var i = 0; i < 200 && editing.hasRedactionMarks; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(editing.hasRedactionMarks, isFalse);
+      expect(editing.document.page(0).resources.entries.keys, ['XObject']);
     });
   });
 }

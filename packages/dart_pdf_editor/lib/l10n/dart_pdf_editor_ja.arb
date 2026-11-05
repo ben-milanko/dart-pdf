@@ -553,6 +553,8 @@
   "tbOutline": "アウトライン",
   "tbPatternScale": "パターンの倍率",
   "tbPickColorFromPage": "ページから色を選択",
+  "tbRedactAsImages": "墨消ししたページを画像に置き換える",
+  "tbRedactAsImagesDetail": "最も安全：墨消ししたページは画像だけが残ります。そのページのテキストは選択も検索もできなくなり、ファイルサイズが大きくなります。",
   "tbRedactionsApplied": "墨消しを適用しました",
   "tbRedoShortcut": "やり直し (⇧⌘Z)",
   "tbReflowFailed": "リフローできませんでした - このツールで再折り返しできる単一段組の段落ではありません。代わりにテキストの置換をお試しください。",

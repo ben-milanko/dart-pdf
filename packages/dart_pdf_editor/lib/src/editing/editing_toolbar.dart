@@ -1312,6 +1312,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _applyRedactions(BuildContext context) async {
+    final asImages = ValueNotifier(false);
     final confirmed = await PdfEditorPresenter.of(context).confirm(
       context,
       PdfConfirmRequest(
@@ -1321,10 +1322,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         message: pdfL10n(context).tbApplyRedactionsMessage,
         confirmLabel: pdfL10n(context).apply,
         destructive: true,
+        option: PdfConfirmOption(
+          key: const ValueKey('pdf-redaction-as-images'),
+          label: pdfL10n(context).tbRedactAsImages,
+          detail: pdfL10n(context).tbRedactAsImagesDetail,
+          value: asImages,
+        ),
       ),
     );
+    final images = asImages.value;
+    asImages.dispose();
     if (!confirmed || !context.mounted) return;
-    final burned = controller.applyRedactions();
+    final burned = images
+        ? await controller.applyRedactionsAsImages()
+        : controller.applyRedactions();
+    if (!context.mounted) return;
     _flattenToast(
       context,
       burned

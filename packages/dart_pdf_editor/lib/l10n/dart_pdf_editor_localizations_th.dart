@@ -1854,6 +1854,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'เลือกสีจากหน้า';
 
   @override
+  String get tbRedactAsImages => 'แทนที่หน้าที่ปกปิดด้วยรูปภาพ';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'ปลอดภัยที่สุด: เก็บไว้เฉพาะรูปภาพของแต่ละหน้าที่ปกปิด ข้อความในหน้าเหล่านั้นจะเลือกหรือค้นหาไม่ได้อีก และไฟล์จะมีขนาดใหญ่ขึ้น';
+
+  @override
   String get tbRedactionsApplied => 'ใช้การปิดบังข้อมูลแล้ว';
 
   @override

@@ -1861,6 +1861,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Chọn màu từ trang';
 
   @override
+  String get tbRedactAsImages => 'Thay các trang đã che bằng hình ảnh';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'An toàn nhất: mỗi trang đã che chỉ giữ lại một hình ảnh. Văn bản trên các trang đó sẽ không thể chọn hay tìm kiếm được nữa và tệp sẽ lớn hơn.';
+
+  @override
   String get tbRedactionsApplied => 'Đã áp dụng che thông tin';
 
   @override
