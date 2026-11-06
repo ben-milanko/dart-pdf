@@ -3661,8 +3661,15 @@ class PdfEditingController extends ChangeNotifier {
     final burned = PdfDocument.open(editor.applyRedactions());
     final rasters = <int, PdfPageRaster>{};
     for (final i in marked) {
-      rasters[i] =
-          await (render ?? _renderPageRaster)(burned.page(i), dpi / 72);
+      final page = burned.page(i);
+      // a huge page at full resolution would not fit in memory: past
+      // [_maxRedactionRasterPixels] the resolution drops instead
+      final area = page.cropBox.width * page.cropBox.height;
+      var ratio = dpi / 72;
+      if (area > 0 && area * ratio * ratio > _maxRedactionRasterPixels) {
+        ratio = math.sqrt(_maxRedactionRasterPixels / area);
+      }
+      rasters[i] = await (render ?? _renderPageRaster)(page, ratio);
     }
     // edited meanwhile: applying now would drop that edit - leave the
     // marks for another try
@@ -3671,6 +3678,10 @@ class PdfEditingController extends ChangeNotifier {
     _resetTo(flattened, impact: editor.impact);
     return true;
   }
+
+  /// The most pixels [applyRedactionsAsImages] renders a page at (about
+  /// 200 MB of RGBA).
+  static const _maxRedactionRasterPixels = 50e6;
 
   static Future<PdfPageRaster> _renderPageRaster(
       PdfPage page, double pixelRatio) async {
