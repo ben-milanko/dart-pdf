@@ -87,6 +87,11 @@ class CanvasPdfDevice
   /// Every stroke goes through this, text included: an outlined glyph
   /// (rendering modes 1/2/5/6) is linework, and a `0 w` stroked run used to
   /// read as blank paper for exactly the reason above (#912).
+  ///
+  /// An opaque path stroke between [thinStrokeTrueWidthMin] and one pixel is
+  /// not replaced, though: it keeps its width and gains a hairline overlay
+  /// ([_thinStrokeOverlay]), so it still grows when the picture is replayed
+  /// zoomed in.
   @visibleForTesting
   double strokeWidthFor(double width) {
     if (pixelRatio <= 0) return width;
@@ -98,6 +103,18 @@ class CanvasPdfDevice
     // for all of them.
     return width * pixelRatio < 1 ? 0 : width;
   }
+
+  /// Narrowest sub-pixel stroke, in recorded device pixels (page units at
+  /// the default [pixelRatio] 1), that keeps its true width under a hairline
+  /// overlay ([_thinStrokeOverlay]) so it grows when zoomed in. Anything
+  /// thinner is a plain hairline at every zoom: a 0.25 pt line only passes
+  /// one pixel beyond 4x, while the 0.06-0.12 pt "hairline" widths CAD
+  /// producers emit would pay the overlay's second draw for nothing.
+  ///
+  /// Measured on dense CAD sheets at 2x (headless raster), true width plus
+  /// overlay for *every* sub-pixel stroke cost +25-66% render time; this
+  /// band keeps the 0.48-0.72 pt linework that visibly mis-renders.
+  static double thinStrokeTrueWidthMin = 0.25;
 
   /// Darkens small glyph fills so their stems read as ink rather than haze
   /// (#912). **Off by default** - a deliberate deviation from exact coverage.
@@ -353,6 +370,11 @@ class CanvasPdfDevice
   PdfStroke? _strokeStyle;
   double _strokeAlpha = -1;
   BlendMode? _strokeBlend;
+
+  /// The one-device-pixel overlay for the stroke paint last returned by
+  /// [_solidStrokePaint], or null when that stroke needs none (see
+  /// [_thinStrokeOverlay]).
+  Paint? _strokeHairlinePaint;
 
   /// One entry per open transparency group: true while that group is a
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
@@ -828,8 +850,10 @@ class CanvasPdfDevice
       if (cursor.moveNext() && cursor.verb == PdfPathVerb.moveTo) {
         final x = cursor.x1, y = cursor.y1;
         if (cursor.moveNext() && cursor.verb == PdfPathVerb.lineTo) {
-          canvas.drawLine(Offset(x, y), Offset(cursor.x1, cursor.y1),
-              _solidStrokePaint(color, stroke, alpha));
+          final from = Offset(x, y), to = Offset(cursor.x1, cursor.y1);
+          canvas.drawLine(from, to, _solidStrokePaint(color, stroke, alpha));
+          final hairline = _strokeHairlinePaint;
+          if (hairline != null) canvas.drawLine(from, to, hairline);
           return;
         }
       }
@@ -842,6 +866,76 @@ class CanvasPdfDevice
       uiPath,
       _solidStrokePaint(color, stroke, alpha),
     );
+    final hairline = _strokeHairlinePaint;
+    if (hairline != null) canvas.drawPath(uiPath, hairline);
+  }
+
+  /// Whether a stroke [width] page units wide is floored by a hairline
+  /// overlay rather than replaced by one.
+  ///
+  /// [strokeWidthFor] alone turns a sub-pixel stroke into Skia's hairline,
+  /// which is one device pixel at *every* replay scale - right zoomed out,
+  /// wrong zoomed in. A recorded picture is replayed at many ratios (base
+  /// raster, deep-zoom detail patch, retained scene), and every one of them
+  /// records at [pixelRatio] 1, so a 0.72 pt CAD line stayed one pixel wide
+  /// at 4x instead of growing to ~3: parallel conduit runs that read as a
+  /// solid band zoomed out fell apart into faint threads zoomed in.
+  ///
+  /// Instead the stroke keeps its true width and a hairline is drawn down
+  /// the same path, the way [_floorThinRectFill] floors a thin fill: where
+  /// the stroke is under a pixel the hairline supplies the floor, and where
+  /// it is wider the hairline lies inside it and changes nothing. That needs
+  /// paint that is idempotent over itself - opaque, and a blend mode that
+  /// leaves a pixel already painted in that colour unchanged. Anything else
+  /// keeps the plain hairline, since painting it twice would darken it.
+  ///
+  /// The overlay is a second draw per stroke, and drawing at true width
+  /// costs more than a hairline too, so it is confined to the band where it
+  /// pays: a stroke under [thinStrokeTrueWidthMin] recorded pixels stays a
+  /// plain hairline, since it only outgrows one pixel at extreme zoom.
+  bool _thinStrokeOverlay(double width, double alpha, BlendMode blend) =>
+      pixelRatio > 0 &&
+      width * pixelRatio >= thinStrokeTrueWidthMin &&
+      width * pixelRatio < 1 &&
+      alpha >= 1 &&
+      (blend == BlendMode.srcOver ||
+          blend == BlendMode.src ||
+          blend == BlendMode.darken);
+
+  Paint _buildStrokePaint(PdfColor color, PdfStroke stroke, double alpha,
+      BlendMode blend, double width) {
+    return Paint()
+      ..style = PaintingStyle.stroke
+      ..color = _toColor(color, alpha)
+      ..strokeWidth = width
+      ..strokeCap = switch (stroke.cap) {
+        1 => StrokeCap.round,
+        2 => StrokeCap.square,
+        _ => StrokeCap.butt,
+      }
+      ..strokeJoin = switch (stroke.join) {
+        1 => StrokeJoin.round,
+        2 => StrokeJoin.bevel,
+        _ => StrokeJoin.miter,
+      }
+      ..strokeMiterLimit = stroke.miterLimit
+      ..blendMode = blend;
+  }
+
+  /// Builds the stroke paint for [stroke] and leaves its overlay (or null)
+  /// in [_strokeHairlinePaint].
+  Paint _newStrokePaint(
+      PdfColor color, PdfStroke stroke, double alpha, BlendMode blend) {
+    final overlay = _thinStrokeOverlay(stroke.width, alpha, blend);
+    _strokeHairlinePaint = overlay
+        ? (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0
+          ..color = _toColor(color, alpha)
+          ..blendMode = blend)
+        : null;
+    return _buildStrokePaint(color, stroke, alpha, blend,
+        overlay ? stroke.width : strokeWidthFor(stroke.width));
   }
 
   Paint _solidFillPaint(PdfColor color, double alpha) {
@@ -871,22 +965,7 @@ class CanvasPdfDevice
   Paint _solidStrokePaint(PdfColor color, PdfStroke stroke, double alpha) {
     final blend = _strokeElementBlend;
     if (!debugReuseSolidPaints) {
-      return Paint()
-        ..style = PaintingStyle.stroke
-        ..color = _toColor(color, alpha)
-        ..strokeWidth = strokeWidthFor(stroke.width)
-        ..strokeCap = switch (stroke.cap) {
-          1 => StrokeCap.round,
-          2 => StrokeCap.square,
-          _ => StrokeCap.butt,
-        }
-        ..strokeJoin = switch (stroke.join) {
-          1 => StrokeJoin.round,
-          2 => StrokeJoin.bevel,
-          _ => StrokeJoin.miter,
-        }
-        ..strokeMiterLimit = stroke.miterLimit
-        ..blendMode = blend;
+      return _newStrokePaint(color, stroke, alpha, blend);
     }
     final cached = _strokePaint;
     final style = _strokeStyle;
@@ -905,22 +984,7 @@ class CanvasPdfDevice
     _strokeStyle = stroke;
     _strokeAlpha = alpha;
     _strokeBlend = blend;
-    return _strokePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..color = _toColor(color, alpha)
-      ..strokeWidth = strokeWidthFor(stroke.width)
-      ..strokeCap = switch (stroke.cap) {
-        1 => StrokeCap.round,
-        2 => StrokeCap.square,
-        _ => StrokeCap.butt,
-      }
-      ..strokeJoin = switch (stroke.join) {
-        1 => StrokeJoin.round,
-        2 => StrokeJoin.bevel,
-        _ => StrokeJoin.miter,
-      }
-      ..strokeMiterLimit = stroke.miterLimit
-      ..blendMode = blend;
+    return _strokePaint = _newStrokePaint(color, stroke, alpha, blend);
   }
 
   /// Rebuilds [source] as its dashed segments (§8.4.3.6). Zero-length
