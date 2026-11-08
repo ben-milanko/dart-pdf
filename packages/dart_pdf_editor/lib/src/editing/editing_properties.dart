@@ -1142,7 +1142,9 @@ class _PdfAnnotationPropertiesPanelState
     ];
     final multilines =
         multilineStyles.isEmpty ? null : _common<bool>(multilineStyles);
-    final fonts = _common<PdfStandardFont>([for (final s in styles) s.font]);
+    final fonts = _common<(PdfStandardFont, String)>([
+      for (final s in styles) (s.font, s.fontLabel),
+    ]);
     // a size row whenever any selected field has a fixed size, so a mixed
     // selection can be pinned to one size in a single edit
     final showSize = styles.any((s) => !s.autoSize);
@@ -1163,11 +1165,15 @@ class _PdfAnnotationPropertiesPanelState
         child: Row(children: [
           Expanded(child: Text(l.propFont)),
           variesLabel('pdf-prop-form-font-varies', fonts.varies),
-          PdfFontMenuButton(
-            buttonKey: const ValueKey('pdf-prop-form-font'),
-            controller: _controller,
-            fontPicker: widget.fontPicker,
-            currentFont: style.font,
+          Flexible(
+            flex: 3,
+            child: PdfFontMenuButton(
+              buttonKey: const ValueKey('pdf-prop-form-font'),
+              controller: _controller,
+              fontPicker: widget.fontPicker,
+              currentFont: style.font,
+              currentFontLabel: style.fontLabel,
+            ),
           ),
         ]),
       ),

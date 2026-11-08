@@ -400,12 +400,20 @@ class PdfFormFieldStyle {
     required this.align,
     required this.multiline,
     this.supportsMultiline = true,
+    this.fontDisplayName,
   });
 
-  /// The base-14 face the field's /DA names, mapped leniently (an embedded
-  /// /DR font maps to Helvetica). Carries the bold/italic state the style
-  /// toggles reflect.
+  /// The nearest base-14 face, resolved through /DR when available.
+  /// Carries the bold/italic state used by the standard style toggles;
+  /// it is not necessarily the actual font used by the field.
   final PdfStandardFont font;
+
+  /// The actual non-standard font name from /DR, without a PDF subset tag.
+  /// Null for standard fonts, whose controls use the usual family label.
+  final String? fontDisplayName;
+
+  /// The field's font label, not the standard-face fallback for custom fonts.
+  String get fontLabel => fontDisplayName ?? font.family.label;
 
   /// The /DA font size in points; when [autoSize] this is a readable
   /// stand-in (the stored size is 0).
@@ -434,9 +442,24 @@ class PdfFormFieldStyle {
             .firstMatch(field.defaultAppearance ?? '')
             ?.group(1) ??
         'Helv';
+    final cos = field.form.document.cos;
+    final fonts = cos.resolve(field.form.defaultResources?['Font']);
+    final resource = fonts is CosDictionary ? cos.resolve(fonts[name]) : null;
+    final baseFont =
+        resource is CosDictionary ? cos.resolve(resource['BaseFont']) : null;
+    // /DA names resource keys (often F0/F1), not font families. Follow /DR
+    // before choosing a label or interpreting bold/italic. Metadata is enough:
+    // rebuilding the controls must not decode and parse entire font programs.
+    final actualName = (baseFont is CosName ? baseFont.value : name)
+        .replaceFirst(RegExp(r'^[A-Z]{6}\+'), '');
+    final standard = PdfStandardFont.fromName(actualName);
+    final isStandard = baseFont is CosName
+        ? PdfStandardFont.values.any((f) => f.baseFont == actualName)
+        : PdfStandardFont.tryFromName(actualName) != null;
     final size = field.appearanceFontSize;
     return PdfFormFieldStyle(
-      font: PdfStandardFont.fromName(name),
+      font: standard,
+      fontDisplayName: isStandard ? null : actualName,
       size: size == 0 ? 12 : size,
       autoSize: size == 0,
       color: Color(0xFF000000 | (field.appearanceColor ?? 0)),
