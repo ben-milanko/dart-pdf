@@ -744,7 +744,7 @@ extension PdfFormFilling on PdfEditor {
 
       final resources = CosDictionary({
         'Font': embedded != null
-            ? embedded.buildResource(_updater.addObject)
+            ? _embeddedAppearanceFontResource(embedded, fontDict!)
             : _appearanceFontResource(field.form, da.fontName, fontDict),
       });
       _setNormalAppearance(
@@ -1031,7 +1031,7 @@ extension PdfFormFilling on PdfEditor {
       // (encodeHex recorded them); build it after the content stream
       final resources = CosDictionary({
         'Font': embedded != null
-            ? embedded.buildResource(_updater.addObject)
+            ? _embeddedAppearanceFontResource(embedded, fontDict!)
             : _appearanceFontResource(field.form, da.fontName, fontDict),
       });
       final form = _widgetForm(w, h, writer, resources: resources);
@@ -1243,6 +1243,24 @@ extension PdfFormFilling on PdfEditor {
     if (fonts is! CosDictionary) return null;
     final font = cos.resolve(fonts[name]);
     return font is CosDictionary ? font : null;
+  }
+
+  /// Share the /DR descriptor (and its large font program), not the
+  /// glyph-dependent /W or /ToUnicode entries: each widget can show new text.
+  CosDictionary _embeddedAppearanceFontResource(
+      PdfEmbeddedFont embedded, CosDictionary fontDict) {
+    final cos = document.cos;
+    final descendants = cos.resolve(fontDict['DescendantFonts']);
+    CosObject? descriptor;
+    if (descendants is CosArray && descendants.items.isNotEmpty) {
+      final cid = cos.resolve(descendants.items.first);
+      if (cid is CosDictionary &&
+          cos.resolve(cid['FontDescriptor']) is CosDictionary) {
+        descriptor = cid['FontDescriptor'];
+      }
+    }
+    return embedded.buildResource(_updater.addObject,
+        fontDescriptor: descriptor);
   }
 
   /// The appearance's /Font resource: a reference to the /DR font when it
