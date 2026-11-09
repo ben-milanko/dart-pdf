@@ -819,6 +819,17 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   PdfEditingController get _session => _shell.session;
   PdfViewerController get _viewer => _shell.viewer;
   PdfEditingPreferences get _prefs => _shell.preferences;
+
+  /// The margin the viewer leaves below the last page when no floating bar
+  /// covers the bottom of the viewer.
+  static const double _lastPageGap = 12;
+
+  /// Whether any floating toolbar bar sits on the bottom edge, where the
+  /// viewer needs a scrollable tail so the last page can clear it.
+  static bool _toolbarUsesBottom(PdfEditingPreferences prefs) =>
+      prefs.toolbarDock == PdfPanelDock.bottom ||
+      prefs.styleBarDock == PdfPanelDock.bottom ||
+      prefs.toolStripDocks.containsValue(PdfPanelDock.bottom);
   PdfPerformanceController get _performance => _shell.performance;
   TextEditingController get _searchField => _shell.searchController;
   FocusNode get _searchFocus => _shell.searchFocus;
@@ -1244,6 +1255,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     required List<PdfShellControlItem> viewModeControls,
     required PdfShellControlItem viewOptionsControl,
     required bool compact,
+    Widget? tools,
   }) {
     final pageNumber = features.pageNumber && !altView
         ? Padding(
@@ -1271,6 +1283,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
             pageGrid: features.thumbnails,
             pageColor: features.pageColorEditable,
             editingGuides: true,
+            // the stock toolbar's bars can be rearranged; a host's own
+            // toolbar ([toolbarBuilder]) arranges itself
+            toolbarLayout: features.toolbar && widget.toolbarBuilder == null,
+            toolbarGroups: features.toolGroups,
+            toolGroups: widget.toolGroups,
             author: features.author,
             authorName: session.preferences.author,
             onAuthorPressed: _promptAuthor,
@@ -1330,6 +1347,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         if (pageNumber != null) pageNumber,
         if (zoom != null) zoom,
         if (search != null) search,
+        if (tools != null && !compact) tools,
       ],
       compactLeading: [
         if (pageNumber != null) pageNumber,
@@ -1353,6 +1371,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         pageNumber: pageNumber,
         zoom: zoom,
         search: search,
+        tools: compact ? null : tools,
         viewOptions: viewOptions,
         panelSwitch: panelSwitch,
         save: save,
@@ -1372,6 +1391,21 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         },
       ),
     );
+  }
+
+  /// The narrowest window that shows the main toolbar in the header
+  /// (`PdfEditingPreferences.toolbarMainInHeader`); below it the toolbar
+  /// keeps it, so the header never has to scroll its panel switch away.
+  static const _mainInHeaderMinWidth = 1100.0;
+
+  /// Whether a host header ([PdfEditorView.headerBuilder]) has mounted
+  /// [PdfHeaderParts.tools]. Until it does, the main toolbar stays in the
+  /// toolbar area, so a header that leaves the part out never loses undo.
+  bool _headerToolsMounted = false;
+
+  void _setHeaderToolsMounted(bool mounted) {
+    if (_headerToolsMounted == mounted || !this.mounted) return;
+    setState(() => _headerToolsMounted = mounted);
   }
 
   Widget _buildView(BuildContext context) {
@@ -1830,62 +1864,107 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final showToolbar = features.toolbar && sheets.isEmpty && !altView;
           final dockToolbar =
               showToolbar && constraints.maxWidth < pdfCompactWidthOf(context);
-          final toolbar = !showToolbar
+          // the stock toolbar docks as solid bands around the content (the
+          // default) or floats over the viewer; a host's own toolbar floats
+          final floatToolbar =
+              prefs.toolbarFloating || widget.toolbarBuilder != null;
+          // the docked main toolbar can sit in the header's free space
+          // (toolbarMainInHeader) while it is on top and a header shows it;
+          // a host header that leaves PdfHeaderParts.tools out keeps it below
+          final mainInHeaderWanted = features.headerBar &&
+              showToolbar &&
+              !dockToolbar &&
+              !floatToolbar &&
+              !altView &&
+              prefs.toolbarMainInHeader &&
+              prefs.toolbarDock == PdfPanelDock.top &&
+              // page number + zoom + search + the main toolbar + view
+              // options + the panel switch (+ save) need about this much;
+              // narrower, the header would scroll its panel switch away
+              constraints.maxWidth >= _mainInHeaderMinWidth;
+          final mainInHeader = mainInHeaderWanted &&
+              (widget.headerBuilder == null || _headerToolsMounted);
+          PdfEditingToolbar stockToolbar(
+                  {Widget? body, bool mainToolbarOnly = false}) =>
+              PdfEditingToolbar(
+                controller: session,
+                viewerController: _viewer,
+                // save lives in the header now, not the dock
+                textPrompt: widget.textPrompt ?? pdfPresentTextPrompt,
+                styledTextPrompt:
+                    widget.styledTextPrompt ?? pdfPresentStyledTextPrompt,
+                imagePicker: widget.imagePicker,
+                formImagePicker: widget.formImagePicker,
+                onExportSelectedContentImage:
+                    widget.onExportSelectedContentImage,
+                fontPicker: widget.fontPicker,
+                onExportCustomStamps: widget.onExportCustomStamps,
+                onImportCustomStamps: widget.onImportCustomStamps,
+                onAnnotationLibraryPressed: features.annotationLibrary
+                    ? () => prefs.showAnnotationLibraryPanel =
+                        !prefs.showAnnotationLibraryPanel
+                    : null,
+                onFindToRedact: features.search && features.searchResultsPanel
+                    ? () => prefs
+                      ..searchRedactExpanded = true
+                      ..showSearchResultsPanel = true
+                    : null,
+                palette: widget.palette,
+                tools: availableTools,
+                groups: features.toolGroups,
+                toolGroups: widget.toolGroups,
+                toolShortcuts: availableShortcuts,
+                showMarkup: features.markup,
+                showUndoRedo: features.undoRedo,
+                showColor: features.colorControls,
+                showStyle: features.styleControls,
+                showFlatten: features.flatten,
+                showColorProcessing: features.colorProcessing,
+                showAnnotationLibrary: features.annotationLibrary,
+                dock: prefs.toolbarDock,
+                // floating, the bars spread over the viewer's edges and
+                // each one can be dragged (or menu-placed) to another;
+                // the phone bar stays one fixed bar
+                onDock: dockToolbar ? null : (dock) => prefs.toolbarDock = dock,
+                onFloatingChanged: dockToolbar
+                    ? null
+                    : (value) => prefs.toolbarFloating = value,
+                overlay: !dockToolbar && body == null,
+                body: body,
+                toolStripDocks: prefs.toolStripDocks,
+                onToolStripDock: dockToolbar ? null : prefs.setToolStripDock,
+                styleBarDock: prefs.styleBarDock,
+                packToolbars: prefs.toolbarPackTightly,
+                mainInHeader: mainInHeader,
+                mainToolbarOnly: mainToolbarOnly,
+                showNames: prefs.toolbarShowNames,
+                // the grips (move to an edge, reorder) show only while the
+                // user customizes the toolbars; the phone bar has none
+                showGrips: prefs.toolbarCustomizing,
+                onDoneCustomizing: () => prefs.toolbarCustomizing = false,
+                toolStripOrder: prefs.toolStripOrder,
+                onToolStripOrder: dockToolbar
+                    ? null
+                    : (order) => prefs.toolStripOrder = order,
+                onStyleBarDock:
+                    dockToolbar ? null : (dock) => prefs.styleBarDock = dock,
+                compact: dockToolbar,
+                cardAlignment: switch (prefs.toolbarDock) {
+                  PdfPanelDock.left => Alignment.centerLeft,
+                  PdfPanelDock.right => Alignment.centerRight,
+                  PdfPanelDock.top || PdfPanelDock.bottom => Alignment.center,
+                },
+                leading: widget.toolbarLeading,
+                trailing: widget.toolbarTrailing,
+              );
+          final toolbar = !showToolbar || (!dockToolbar && !floatToolbar)
               ? null
               : widget.toolbarBuilder?.call(context, session, _viewer) ??
-                  PdfEditingToolbar(
-                    controller: session,
-                    viewerController: _viewer,
-                    // save lives in the header now, not the dock
-                    textPrompt: widget.textPrompt ?? pdfPresentTextPrompt,
-                    styledTextPrompt:
-                        widget.styledTextPrompt ?? pdfPresentStyledTextPrompt,
-                    imagePicker: widget.imagePicker,
-                    formImagePicker: widget.formImagePicker,
-                    onExportSelectedContentImage:
-                        widget.onExportSelectedContentImage,
-                    fontPicker: widget.fontPicker,
-                    onExportCustomStamps: widget.onExportCustomStamps,
-                    onImportCustomStamps: widget.onImportCustomStamps,
-                    onAnnotationLibraryPressed: features.annotationLibrary
-                        ? () => prefs.showAnnotationLibraryPanel =
-                            !prefs.showAnnotationLibraryPanel
-                        : null,
-                    onFindToRedact:
-                        features.search && features.searchResultsPanel
-                            ? () => prefs
-                              ..searchRedactExpanded = true
-                              ..showSearchResultsPanel = true
-                            : null,
-                    palette: widget.palette,
-                    tools: availableTools,
-                    groups: features.toolGroups,
-                    toolGroups: widget.toolGroups,
-                    toolShortcuts: availableShortcuts,
-                    showMarkup: features.markup,
-                    showUndoRedo: features.undoRedo,
-                    showColor: features.colorControls,
-                    showStyle: features.styleControls,
-                    showFlatten: features.flatten,
-                    showColorProcessing: features.colorProcessing,
-                    showAnnotationLibrary: features.annotationLibrary,
-                    dock: prefs.toolbarDock,
-                    compact: dockToolbar,
-                    cardAlignment: switch (prefs.toolbarDock) {
-                      PdfPanelDock.left => Alignment.centerLeft,
-                      PdfPanelDock.right => Alignment.centerRight,
-                      PdfPanelDock.top ||
-                      PdfPanelDock.bottom =>
-                        Alignment.center,
-                    },
-                    leading: [
-                      if (!dockToolbar)
-                        (context, controller, viewer) =>
-                            const PdfToolbarMoveHandle(),
-                      ...widget.toolbarLeading,
-                    ],
-                    trailing: widget.toolbarTrailing,
-                  );
+                  stockToolbar();
+          final barsDocked = showToolbar && !dockToolbar && !floatToolbar;
+          final toolbarFrame = barsDocked
+              ? (Widget content) => stockToolbar(body: content)
+              : null;
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             group: PdfShellControlGroup.actions,
@@ -1996,6 +2075,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   viewModeControls: viewModeControls,
                   viewOptionsControl: viewOptionsControl,
                   compact: compact,
+                  tools: mainInHeaderWanted
+                      ? _HeaderToolsSlot(
+                          onMounted: _setHeaderToolsMounted,
+                          child: stockToolbar(mainToolbarOnly: true),
+                        )
+                      : null,
                 )
               : null;
           // Phone chrome steps aside for reading (scroll on to hide, back or
@@ -2095,9 +2180,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                           // underneath them.
                           trailingPadding: showToolbar &&
                                   !dockToolbar &&
-                                  prefs.toolbarDock == PdfPanelDock.bottom
+                                  floatToolbar &&
+                                  _toolbarUsesBottom(prefs)
                               ? 144
-                              : 0,
+                              : _lastPageGap,
                           pageLayout: prefs.twoPageView
                               ? widget.pageLayout.withFacing(true,
                                   coverPage: prefs.twoPageCoverPage)
@@ -2146,10 +2232,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 floatingToolbar:
                     toolbar != null && !dockToolbar ? toolbar : null,
                 floatingToolbarDock: prefs.toolbarDock,
+                // the stock toolbar lays its bars out on every edge itself
+                floatingToolbarFillsViewer: widget.toolbarBuilder == null,
                 dockedToolbar: toolbar != null && dockToolbar
                     ? autoHideBar(toolbar, AxisDirection.down)
                     : null,
-                onToolbarDock: toolbar != null && !dockToolbar
+                toolbarFrame: toolbarFrame,
+                onToolbarDock: (toolbar != null || barsDocked) && !dockToolbar
                     ? (dock) => prefs.toolbarDock = dock
                     : null,
               ),
@@ -2192,4 +2281,39 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     }
     return body;
   }
+}
+
+/// Reports whether the header tools part is mounted (see
+/// `_PdfEditorViewState._headerToolsMounted`), after the frame that mounts
+/// or drops it.
+class _HeaderToolsSlot extends StatefulWidget {
+  const _HeaderToolsSlot({required this.onMounted, required this.child});
+
+  final ValueChanged<bool> onMounted;
+  final Widget child;
+
+  @override
+  State<_HeaderToolsSlot> createState() => _HeaderToolsSlotState();
+}
+
+class _HeaderToolsSlotState extends State<_HeaderToolsSlot> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onMounted(true));
+  }
+
+  @override
+  void dispose() {
+    final onMounted = widget.onMounted;
+    WidgetsBinding.instance.addPostFrameCallback((_) => onMounted(false));
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        key: const ValueKey('pdf-header-tools'),
+        padding: const EdgeInsetsDirectional.only(start: 12),
+        child: widget.child,
+      );
 }

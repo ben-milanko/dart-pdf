@@ -249,6 +249,47 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   onSelectionChanged: (s) =>
                       widget.prefs.themePreference = s.first,
                 ),
+                SwitchListTile(
+                  key: const ValueKey('settings-floating-toolbars'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbFloatingToolbars),
+                  subtitle: Text(pdfL10n(context).tbFloatingToolbarsHint),
+                  value: widget.prefs.toolbarFloating,
+                  onChanged: (value) => widget.prefs.toolbarFloating = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('settings-pack-toolbars'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbPackToolbars),
+                  subtitle: Text(pdfL10n(context).tbPackToolbarsHint),
+                  value: widget.prefs.toolbarPackTightly,
+                  // only docked toolbars wrap into rows
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarPackTightly = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('settings-main-toolbar-in-header'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbMainInHeader),
+                  subtitle: Text(pdfL10n(context).tbMainInHeaderHint),
+                  value: widget.prefs.toolbarMainInHeader,
+                  // only the docked main toolbar has a header place
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarMainInHeader = value,
+                ),
+                SwitchListTile(
+                  key: const ValueKey('settings-toolbar-names'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pdfL10n(context).tbShowToolbarNames),
+                  subtitle: Text(pdfL10n(context).tbShowToolbarNamesHint),
+                  value: widget.prefs.toolbarShowNames,
+                  // only the docked toolbars label their groups
+                  onChanged: widget.prefs.toolbarFloating
+                      ? null
+                      : (value) => widget.prefs.toolbarShowNames = value,
+                ),
                 const SizedBox(height: 16),
                 Text(appL10n(context).settingsLanguage,
                     style: theme.textTheme.titleSmall),

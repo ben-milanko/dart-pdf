@@ -152,7 +152,11 @@ void main() {
       await _pump(tester, PdfEditorView(controller: editing),
           brightness: brightness);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pdf-group-shapes')));
+      final group = find.byKey(const ValueKey('pdf-group-shapes'));
+      final rectangle = find.byKey(const ValueKey('pdf-tool-rectangle'));
+      await tester
+          .ensureVisible(group.evaluate().isNotEmpty ? group : rectangle);
+      await tester.tap(group.evaluate().isNotEmpty ? group : rectangle);
       await tester.pumpAndSettle();
       expect(editing.tool, PdfEditTool.rectangle);
 

@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsCkb([String locale = 'ckb']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
-
-  @override
-  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
-
-  @override
-  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
-
-  @override
-  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+  String get duplicate => 'دووبارەکردنەوە';
 
   @override
   String get add => 'زیادکردن';
@@ -2432,6 +2423,114 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'ڕەتکردنەوە';
 
   @override
+  String get tbBarGrip => 'ڕابکێشە بۆ لکاندن، یان کرتە بکە بۆ دیاریکردنی شوێن';
+
+  @override
+  String get tbDockTop => 'سەرەوە';
+
+  @override
+  String get tbDockBottom => 'خوارەوە';
+
+  @override
+  String get tbDockLeft => 'چەپ';
+
+  @override
+  String get tbDockRight => 'ڕاست';
+
+  @override
+  String get tbDockWithMainToolbar => 'لەگەڵ شریتی ئامرازە سەرەکییەکە';
+
+  @override
+  String get tbStyleInToolBars => 'لە ناو شریتەکانی ئامراز';
+
+  @override
+  String get tbSeparateStyleBar => 'شریتی شێوازی جیاواز';
+
+  @override
+  String get tbToolbarLayout => 'ڕێکخستنی شریتی ئامراز';
+
+  @override
+  String get tbToolbarLayoutMain => 'شریتی ئامرازی سەرەکی';
+
+  @override
+  String get tbToolbarLayoutStyle => 'کۆنترۆڵەکانی شێواز';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'شریتی شێواز ڕەنگ، هێڵ، ناڕوونی و فۆنت لە یەک شوێن کۆدەکاتەوە بۆ هەموو ئامراز و هەڵبژاردنێک.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'شریتەکانی ئامراز';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'شریتی ئامرازێک کە بە کەنارێکەوە لکاوە لەوێ کراوە دەمێنێتەوە. لەگەڵ شریتی سەرەکی، کاتێک گرووپەکەی هەڵدەبژێریت دەکرێتەوە.';
+
+  @override
+  String get tbToolbarLayoutReset => 'گەڕاندنەوەی ڕێکخستن';
+
+  @override
+  String get tbToolbarMode => 'شریتەکانی ئامراز';
+
+  @override
+  String get tbToolbarDocked => 'لکاو بە کەنارەکانەوە';
+
+  @override
+  String get tbToolbarFloating => 'سەرەوەی لاپەڕەکە';
+
+  @override
+  String get tbFloatingToolbar => 'بە سەر لاپەڕەکەدا هەڵواسە';
+
+  @override
+  String get tbPropertiesHint =>
+      'ئامرازێک یان نیشانەیەک هەڵبژێرە بۆ بینینی تایبەتمەندییەکانی';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'شریتی تایبەتمەندییەکان کردارەکانی هەڵبژاردن و هەڵبژاردە و شێوازی ئامرازەکە لە یەک شوێن نیشان دەدات.';
+
+  @override
+  String get tbFloatingToolbars => 'شریتە هەڵواسراوەکانی ئامراز';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'شریتەکانی ئامراز بە سەر لاپەڕەکەدا هەڵواسە لەبری لکاندنیان بە کەنارەکانی پەنجەرەکەوە';
+
+  @override
+  String get tbPackToolbars => 'ڕێکخستنی چڕی تووڵبارەکان';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'بۆشاییەکانی ڕیزەکانی پێشوو پڕ بکەرەوە بۆ ئەوەی تووڵبارە جێگیرکراوەکان شوێنی کەمتر بگرن. لەوانەیە تووڵبارەکان بە ڕیزبەندی خۆیان دەرنەکەون.';
+
+  @override
+  String get tbMainInHeader => 'تووڵباری سەرەکی لە سەرپەڕەدا';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'گەڕانەوە، دووبارەکردنەوە، دەست و هەڵبژاردن لە تەنیشت گەڕان پیشان بدە کاتێک تووڵبارەکان لە سەرەوە جێگیرکراون.';
+
+  @override
+  String get tbShowToolbarNames => 'پیشاندانی ناوی تووڵبارەکان';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'هەر تووڵبارێکی جێگیرکراو (نیشانەکردن، کێشان…) لە تەنیشت ئامرازەکانی ناو بنێ. کوژاندنەوەی شوێن پاشەکەوت دەکات؛ ناوەکان لە ئامۆژگارییەکاندا دەمێننەوە.';
+
+  @override
+  String get tbCustomizeToolbars => 'ڕێکخستنی تووڵبارەکان';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'دەسکەکان پیشان بدە بۆ ڕاکێشانی تووڵبارەکان بۆ لێوارێکی تر یان ڕیزکردنەوەیان. کاتێک تەواو بوو کرتە لە تەواو بکە.';
+
+  @override
+  String get tbMoveEarlier => 'بیبە بۆ پێشتر';
+
+  @override
+  String get tbMoveLater => 'بیبە بۆ دواتر';
+
+  @override
   String get insertPagesTitle => 'خستنەناوی پەڕەکان';
 
   @override
@@ -2572,6 +2671,18 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
       'ڕەنگی پەڕە لە فایلدا پاشەکەوت نەکرا: گۆڕینی پەڕەکان واژۆکانی پووچەڵ دەکاتەوە.';
 
   @override
+  String get textVerticalAlign => 'ڕێکخستنی ستوونی';
+
+  @override
+  String get textAlignTop => 'ڕێکخستنی دەق لە سەرەوە';
+
+  @override
+  String get textAlignMiddle => 'ڕێکخستنی دەق لە ناوەڕاست';
+
+  @override
+  String get textAlignBottom => 'ڕێکخستنی دەق لە خوارەوە';
+
+  @override
   String get table => 'خشتە';
 
   @override
@@ -2623,7 +2734,4 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.';
-
-  @override
-  String get duplicate => 'دووبارەکردنەوە';
 }

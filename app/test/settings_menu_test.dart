@@ -65,6 +65,8 @@ void main() {
     expect(prefs.locale, isNull);
     expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-language')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-language')));
     await tester.pumpAndSettle();
     // The menu lists each language by its native name; pick Spanish.
@@ -72,6 +74,83 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(prefs.locale, const Locale('es'));
+  });
+
+  testWidgets('settings switch the docked toolbars to tight packing and back',
+      (tester) async {
+    await openSettings(tester);
+    final pack = find.byKey(const ValueKey('settings-pack-toolbars'));
+    await tester.ensureVisible(pack);
+    await tester.pumpAndSettle();
+    // the current, in-order layout stays the default
+    expect(prefs.toolbarPackTightly, isFalse);
+    await tester.tap(pack);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarPackTightly, isTrue);
+    await tester.tap(pack);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarPackTightly, isFalse);
+
+    // floating toolbars have no rows to pack
+    prefs.toolbarFloating = true;
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(pack).onChanged, isNull);
+
+    // toolbar names are off by default and a switch away
+    prefs.toolbarFloating = false;
+    await tester.pumpAndSettle();
+    final names = find.byKey(const ValueKey('settings-toolbar-names'));
+    await tester.ensureVisible(names);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarShowNames, isFalse);
+    await tester.tap(names);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarShowNames, isTrue);
+  });
+
+  testWidgets('settings move the main toolbar into the app header and back',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+        home: EditorScreen(
+      prefs: prefs,
+      initialDocument: (bytes: buildClassicPdf(), title: 'working.pdf'),
+    )));
+    await tester.pumpAndSettle();
+    final tools = find.byKey(const ValueKey('pdf-header-tools'));
+    expect(tools, findsNothing, reason: 'the current layout by default');
+
+    await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    final toggle =
+        find.byKey(const ValueKey('settings-main-toolbar-in-header'));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(prefs.toolbarMainInHeader, isTrue);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    // the app's header row carries it, beside search
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('editor-app-bar')), matching: tools),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-docked-main')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-undo')), findsOneWidget);
+
+    prefs.toolbarMainInHeader = false;
+    await tester.pumpAndSettle();
+    expect(tools, findsNothing);
+    expect(find.byKey(const ValueKey('pdf-docked-main')), findsOneWidget);
   });
 
   testWidgets('settings offer default application setup', (tester) async {

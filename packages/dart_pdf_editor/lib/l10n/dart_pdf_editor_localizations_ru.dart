@@ -9,16 +9,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
-  String get textVerticalAlign => 'Вертикальное выравнивание';
-
-  @override
-  String get textAlignTop => 'Выровнять текст по верхнему краю';
-
-  @override
-  String get textAlignMiddle => 'Выровнять текст по центру';
-
-  @override
-  String get textAlignBottom => 'Выровнять текст по нижнему краю';
+  String get duplicate => 'Дублировать';
 
   @override
   String get add => 'Добавить';
@@ -2472,6 +2463,115 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get dialogDismiss => 'Закрыть';
 
   @override
+  String get tbBarGrip =>
+      'Перетащите, чтобы закрепить, или нажмите, чтобы выбрать место';
+
+  @override
+  String get tbDockTop => 'Сверху';
+
+  @override
+  String get tbDockBottom => 'Снизу';
+
+  @override
+  String get tbDockLeft => 'Слева';
+
+  @override
+  String get tbDockRight => 'Справа';
+
+  @override
+  String get tbDockWithMainToolbar => 'С основной панелью';
+
+  @override
+  String get tbStyleInToolBars => 'Внутри панелей инструментов';
+
+  @override
+  String get tbSeparateStyleBar => 'Отдельная панель стиля';
+
+  @override
+  String get tbToolbarLayout => 'Расположение панелей';
+
+  @override
+  String get tbToolbarLayoutMain => 'Основная панель';
+
+  @override
+  String get tbToolbarLayoutStyle => 'Настройки стиля';
+
+  @override
+  String get tbToolbarLayoutStyleHint =>
+      'Панель стиля собирает цвет, обводку, прозрачность и шрифт в одном месте для любого инструмента и выделения.';
+
+  @override
+  String get tbToolbarLayoutToolBars => 'Панели инструментов';
+
+  @override
+  String get tbToolbarLayoutToolBarsHint =>
+      'Панель, закреплённая у края, остаётся там открытой. С основной панелью она открывается при выборе её группы.';
+
+  @override
+  String get tbToolbarLayoutReset => 'Сбросить расположение';
+
+  @override
+  String get tbToolbarMode => 'Панели инструментов';
+
+  @override
+  String get tbToolbarDocked => 'Закреплены у краёв';
+
+  @override
+  String get tbToolbarFloating => 'Плавают над страницей';
+
+  @override
+  String get tbFloatingToolbar => 'Плавать над страницей';
+
+  @override
+  String get tbPropertiesHint =>
+      'Выберите инструмент или выделите пометку, чтобы увидеть её свойства';
+
+  @override
+  String get tbToolbarLayoutPropertiesHint =>
+      'Панель свойств показывает в одном месте действия выделения, параметры и стиль инструмента.';
+
+  @override
+  String get tbFloatingToolbars => 'Плавающие панели';
+
+  @override
+  String get tbFloatingToolbarsHint =>
+      'Показывать панели инструментов поверх страницы, а не закреплять у краёв окна';
+
+  @override
+  String get tbPackToolbars => 'Плотно размещать панели инструментов';
+
+  @override
+  String get tbPackToolbarsHint =>
+      'Заполняет пустоты в предыдущих рядах, чтобы закреплённые панели занимали меньше места. Порядок панелей может меняться.';
+
+  @override
+  String get tbMainInHeader => 'Основная панель в заголовке';
+
+  @override
+  String get tbMainInHeaderHint =>
+      'Показывать отмену, повтор, «Руку» и «Выделение» рядом с поиском, когда панели закреплены сверху.';
+
+  @override
+  String get tbShowToolbarNames => 'Показывать названия панелей';
+
+  @override
+  String get tbShowToolbarNamesHint =>
+      'Подписывать каждую закреплённую панель («Пометки», «Рисование»…) рядом с её инструментами. Без подписей экономится место; названия остаются в подсказках.';
+
+  @override
+  String get tbCustomizeToolbars => 'Настроить панели инструментов';
+
+  @override
+  String get tbCustomizeToolbarsHint =>
+      'Показать маркеры, чтобы перетаскивать панели к другому краю или менять их порядок. По окончании нажмите «Готово».';
+
+  @override
+  String get tbMoveEarlier => 'Переместить раньше';
+
+  @override
+  String get tbMoveLater => 'Переместить позже';
+
+  @override
   String get insertPagesTitle => 'Вставить страницы';
 
   @override
@@ -2619,6 +2719,18 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
       'Цвет страницы не сохранён в файле: изменение страниц сделает его подписи недействительными.';
 
   @override
+  String get textVerticalAlign => 'Вертикальное выравнивание';
+
+  @override
+  String get textAlignTop => 'Выровнять текст по верхнему краю';
+
+  @override
+  String get textAlignMiddle => 'Выровнять текст по центру';
+
+  @override
+  String get textAlignBottom => 'Выровнять текст по нижнему краю';
+
+  @override
   String get table => 'Таблица';
 
   @override
@@ -2670,7 +2782,4 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tableClipboardError =>
       'Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек.';
-
-  @override
-  String get duplicate => 'Дублировать';
 }
