@@ -287,6 +287,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorCloseTab => 'Fermer l\'onglet';
 
   @override
+  String get editorSortTabsByName => 'Trier les onglets par nom';
+
+  @override
   String get editorCloseTabsToRight => 'Fermer les onglets à droite';
 
   @override

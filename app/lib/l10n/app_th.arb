@@ -74,6 +74,7 @@
   "editorCloseOthers": "ปิดอันอื่น",
   "editorCloseTab": "ปิดแท็บ",
   "editorCloseTabsToRight": "ปิดแท็บทางขวา",
+  "editorSortTabsByName": "เรียงแท็บตามชื่อ",
   "editorCompareFailedTitle": "การเปรียบเทียบล้มเหลว",
   "editorCompareTitle": "เปรียบเทียบ: {title}",
   "editorCopiedToClipboard": "คัดลอกไปยังคลิปบอร์ดแล้ว",

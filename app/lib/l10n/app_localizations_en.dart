@@ -286,6 +286,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorCloseTab => 'Close tab';
 
   @override
+  String get editorSortTabsByName => 'Sort tabs by name';
+
+  @override
   String get editorCloseTabsToRight => 'Close tabs to the right';
 
   @override
@@ -1798,6 +1801,9 @@ class AppLocalizationsEnAu extends AppLocalizationsEn {
   String get editorCloseTab => 'Close tab';
 
   @override
+  String get editorSortTabsByName => 'Sort tabs by name';
+
+  @override
   String get editorCloseTabsToRight => 'Close tabs to the right';
 
   @override
@@ -3308,6 +3314,9 @@ class AppLocalizationsEnGb extends AppLocalizationsEn {
 
   @override
   String get editorCloseTab => 'Close tab';
+
+  @override
+  String get editorSortTabsByName => 'Sort tabs by name';
 
   @override
   String get editorCloseTabsToRight => 'Close tabs to the right';

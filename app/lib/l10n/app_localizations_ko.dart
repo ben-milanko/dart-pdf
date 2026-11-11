@@ -278,6 +278,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorCloseTab => '탭 닫기';
 
   @override
+  String get editorSortTabsByName => '이름순으로 탭 정렬';
+
+  @override
   String get editorCloseTabsToRight => '오른쪽 탭 닫기';
 
   @override

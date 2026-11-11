@@ -74,6 +74,7 @@
   "editorCloseOthers": "關閉其他",
   "editorCloseTab": "關閉分頁",
   "editorCloseTabsToRight": "關閉右側分頁",
+  "editorSortTabsByName": "依名稱排序分頁",
   "editorCompareFailedTitle": "比較失敗",
   "editorCompareTitle": "比較：{title}",
   "editorCopiedToClipboard": "已複製到剪貼簿",

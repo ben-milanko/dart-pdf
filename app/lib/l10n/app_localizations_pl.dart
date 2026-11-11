@@ -295,6 +295,9 @@ class AppLocalizationsPl extends AppLocalizations {
   String get editorCloseTab => 'Zamknij kartę';
 
   @override
+  String get editorSortTabsByName => 'Sortuj karty według nazwy';
+
+  @override
   String get editorCloseTabsToRight => 'Zamknij karty po prawej';
 
   @override
