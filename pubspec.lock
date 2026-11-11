@@ -21,10 +21,10 @@ packages:
     dependency: transitive
     description:
       name: archive
-      sha256: "0d58d1fa1fddf6588251ccf2819f3fb3b6d0452c1b2813ac7413a05592bfbefe"
+      sha256: de5ac590b8155e4e676088d714bd41ea620449a6adc0f7950c5073874b287ddb
       url: "https://pub.dev"
     source: hosted
-    version: "4.5.2"
+    version: "4.6.0"
   args:
     dependency: transitive
     description:
@@ -149,10 +149,10 @@ packages:
     dependency: transitive
     description:
       name: cupertino_ui
-      sha256: e003b87afde18cb396ec15928c7894063d64af04462c68df9a1404c461316dd2
+      sha256: "369e39a1c5c030a6212589c3da1809920b1c2cfade7b02aade7695bfa4b88c3a"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.5"
+    version: "1.1.6"
   dbus:
     dependency: transitive
     description:
@@ -781,10 +781,10 @@ packages:
     dependency: transitive
     description:
       name: patrol
-      sha256: "662c50d517b2f159fedbc359a7fb8d0d30cbefea6d5c2a08392a0593079d64d1"
+      sha256: "6449bf2d2107f1f56a7134857c88e4bb0dd7c732e4368ad37bb3e18fbcfb3bd7"
       url: "https://pub.dev"
     source: hosted
-    version: "4.10.0"
+    version: "4.11.0"
   patrol_finders:
     dependency: transitive
     description:
@@ -797,10 +797,10 @@ packages:
     dependency: transitive
     description:
       name: patrol_log
-      sha256: "3d91c93e8d0ed19cb12d4b27aa24eca7294e0a48d9d8445505c9775feb5fde2d"
+      sha256: eb7dbb4c7e679410bd9f4b349bbf0da4a56e5a2efe718613e268fa26f4b7bf41
       url: "https://pub.dev"
     source: hosted
-    version: "0.10.1"
+    version: "0.10.2"
   petitparser:
     dependency: transitive
     description:
