@@ -295,6 +295,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorCloseTab => 'إغلاق علامة التبويب';
 
   @override
+  String get editorSortTabsByName => 'ترتيب علامات التبويب حسب الاسم';
+
+  @override
   String get editorCloseTabsToRight => 'إغلاق علامات التبويب على اليمين';
 
   @override

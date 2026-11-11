@@ -284,6 +284,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorCloseTab => 'Đóng thẻ';
 
   @override
+  String get editorSortTabsByName => 'Sắp xếp tab theo tên';
+
+  @override
   String get editorCloseTabsToRight => 'Đóng các thẻ bên phải';
 
   @override

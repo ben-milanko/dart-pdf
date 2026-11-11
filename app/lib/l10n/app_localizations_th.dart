@@ -284,6 +284,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorCloseTab => 'ปิดแท็บ';
 
   @override
+  String get editorSortTabsByName => 'เรียงแท็บตามชื่อ';
+
+  @override
   String get editorCloseTabsToRight => 'ปิดแท็บทางขวา';
 
   @override

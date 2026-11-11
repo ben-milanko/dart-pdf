@@ -573,6 +573,12 @@ abstract class AppLocalizations {
   /// **'Close tab'**
   String get editorCloseTab;
 
+  /// Tab context-menu action that reorders every open tab alphabetically by file name.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort tabs by name'**
+  String get editorSortTabsByName;
+
   /// Tab context-menu action to close every tab to the right of this one.
   ///
   /// In en, this message translates to:

@@ -74,6 +74,7 @@
   "editorCloseOthers": "Chiudi le altre",
   "editorCloseTab": "Chiudi scheda",
   "editorCloseTabsToRight": "Chiudi le schede a destra",
+  "editorSortTabsByName": "Ordina schede per nome",
   "editorCompareFailedTitle": "Confronto non riuscito",
   "editorCompareTitle": "Confronto: {title}",
   "editorCopiedToClipboard": "Copiato negli appunti",

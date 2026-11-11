@@ -74,6 +74,7 @@
   "editorCloseOthers": "Закрити інші",
   "editorCloseTab": "Закрити вкладку",
   "editorCloseTabsToRight": "Закрити вкладки праворуч",
+  "editorSortTabsByName": "Сортувати вкладки за назвою",
   "editorCompareFailedTitle": "Помилка порівняння",
   "editorCompareTitle": "Порівняння: {title}",
   "editorCopiedToClipboard": "Скопійовано в буфер обміну",

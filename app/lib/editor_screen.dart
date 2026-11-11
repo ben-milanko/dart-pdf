@@ -3019,6 +3019,14 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         const PopupMenuDivider(),
         PopupMenuItem(
+          key: const ValueKey('tab-menu-sort-name'),
+          height: _appMenuItemHeight(),
+          value: _TabMenuAction.sortByName,
+          enabled: _tabs.length > 1,
+          child: Text(appL10n(context).editorSortTabsByName),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
           key: const ValueKey('tab-menu-close-all'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.closeAll,
@@ -3050,6 +3058,8 @@ class _EditorScreenState extends State<EditorScreen>
         await _closeTabs(_tabs.sublist(i + 1));
       case _TabMenuAction.closeAll:
         await _closeTabs(List.of(_tabs));
+      case _TabMenuAction.sortByName:
+        _tabsModel.sortByName();
     }
     onChanged?.call();
   }
@@ -5602,10 +5612,12 @@ class _EditorScreenState extends State<EditorScreen>
     final dragSource = _nativeTabDragging && tab.session != null
         ? _buildNativeTabDragSource(tab, chrome)
         : _TabDragStartListener(index: index, child: chrome);
+    // The active document is already on screen, so its hover card carries
+    // only the full file name the strip truncates.
     final hoverPreview = _TabHoverPreview(
       tab: tab,
       storedThumbnails: _recentThumbnails,
-      enabled: !selected,
+      titleOnly: selected,
       child: dragSource,
     );
     final coordinator = _registeredTabDragCoordinator;
@@ -5914,23 +5926,25 @@ enum _TabMenuAction {
   closeOthers,
   closeRight,
   closeAll,
+  sortByName,
 }
 
-/// Shows a non-interactive thumbnail card for an inactive desktop tab after a
-/// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
+/// Shows a non-interactive card after a short hover over a desktop tab: the
+/// page thumbnail and full file name for an inactive tab, just the full file
+/// name for the active one ([titleOnly]). This uses a plain [OverlayEntry], not an OverlayPortal: the tab
 /// is a reorderable-list item, and portals must not be reactivated from that
 /// subtree while the list is laying out or moving its drag proxy.
 class _TabHoverPreview extends StatefulWidget {
   const _TabHoverPreview({
     required this.tab,
-    required this.enabled,
+    required this.titleOnly,
     required this.child,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
-  final bool enabled;
+  final bool titleOnly;
   final Widget child;
 
   @override
@@ -5949,22 +5963,21 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
     if (!identical(oldWidget.tab, widget.tab)) {
       _imageCache.clear();
     }
-    if (!widget.enabled || !identical(oldWidget.tab, widget.tab)) {
+    if (!identical(oldWidget.tab, widget.tab) ||
+        oldWidget.titleOnly != widget.titleOnly) {
+      // Activating a tab swaps its card's shape; clicks already dismissed it.
       _hide();
-    } else if (widget.enabled && !oldWidget.enabled && _hovering) {
-      _schedule();
     }
   }
 
   void _schedule() {
     _timer?.cancel();
-    if (!widget.enabled) return;
     _timer = Timer(_tabHoverPreviewDelay, _show);
   }
 
   void _show() {
     _timer = null;
-    if (!mounted || !widget.enabled || !_hovering || _entry != null) return;
+    if (!mounted || !_hovering || _entry != null) return;
     final target = context.findRenderObject();
     final overlay = Overlay.of(context, rootOverlay: true);
     final overlayBox = overlay.context.findRenderObject();
@@ -5978,20 +5991,25 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
           math.max(0.0, overlaySize.width - 16),
         )
         .toDouble();
-    final height = math
-        .min(
-          _tabHoverPreviewHeight,
-          math.max(0.0, overlaySize.height - 16),
-        )
-        .toDouble();
-    if (width <= 0 || height <= 0) return;
+    final titleOnly = widget.titleOnly;
+    final height = titleOnly
+        ? null
+        : math
+            .min(
+              _tabHoverPreviewHeight,
+              math.max(0.0, overlaySize.height - 16),
+            )
+            .toDouble();
+    if (width <= 0 || (height != null && height <= 0)) return;
 
     final maxLeft = math.max(8.0, overlaySize.width - width - 8);
     final left = (origin.dx + (target.size.width - width) / 2)
         .clamp(8.0, maxLeft)
         .toDouble();
     final below = origin.dy + target.size.height + 4;
-    final top = below + height <= overlaySize.height - 8
+    // The title-only card sizes to its text; the tab strip sits at the top of
+    // the window, so it always has room below.
+    final top = height == null || below + height <= overlaySize.height - 8
         ? below
         : math.max(8.0, origin.dy - height - 4);
 
@@ -6004,6 +6022,7 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
         child: IgnorePointer(
           child: _DesktopTabPreviewCard(
             tab: widget.tab,
+            titleOnly: titleOnly,
             imageCache: _imageCache,
             storedThumbnails: widget.storedThumbnails,
           ),
@@ -6052,10 +6071,12 @@ class _DesktopTabPreviewCard extends StatelessWidget {
   const _DesktopTabPreviewCard({
     required this.tab,
     required this.imageCache,
+    this.titleOnly = false,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
+  final bool titleOnly;
   final _TabPreviewImageCache imageCache;
   final RecentThumbnailCache? storedThumbnails;
 
@@ -6089,43 +6110,54 @@ class _DesktopTabPreviewCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
         child: Column(
+          mainAxisSize: titleOnly ? MainAxisSize.min : MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: _TabPreview(
-                tab: tab,
-                pageIndex: pageIndex,
-                imageCache: imageCache,
-                storedThumbnails: storedThumbnails,
-                previewKey: const ValueKey('tab-hover-preview-thumbnail'),
-                imageKey: const ValueKey('tab-hover-preview-image'),
+            if (!titleOnly) ...[
+              Expanded(
+                child: _TabPreview(
+                  tab: tab,
+                  pageIndex: pageIndex,
+                  imageCache: imageCache,
+                  storedThumbnails: storedThumbnails,
+                  previewKey: const ValueKey('tab-hover-preview-thumbnail'),
+                  imageKey: const ValueKey('tab-hover-preview-image'),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (tab.isDirty)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    // Centre the dot on the first line of the title.
+                    padding: const EdgeInsetsDirectional.only(end: 6, top: 6),
                     child: Icon(Icons.circle, size: 8, color: scheme.primary),
                   ),
                 Expanded(
-                  child: MiddleEllipsisText(
+                  // The strip truncates names, so the card spells the whole
+                  // file name out, wrapping instead of eliding.
+                  child: Text(
                     tab.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : tab.title,
-                    hidePdfExtension: tab.title.isNotEmpty,
                     key: const ValueKey('tab-hover-preview-title'),
+                    maxLines: titleOnly ? null : 6,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ),
-                if (tab.session != null)
-                  Text(
-                    appL10n(context).editorPageNumber(pageIndex + 1),
-                    key: const ValueKey('tab-hover-preview-page'),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                if (tab.session != null && !titleOnly)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 8, top: 2),
+                    child: Text(
+                      appL10n(context).editorPageNumber(pageIndex + 1),
+                      key: const ValueKey('tab-hover-preview-page'),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
                   ),
               ],
             ),

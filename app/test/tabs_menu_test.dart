@@ -1,5 +1,6 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -502,12 +503,8 @@ void main() {
     final previewTitle = find.byKey(
       const ValueKey('tab-hover-preview-title'),
     );
-    final previewTitleWidget = tester.widget<MiddleEllipsisText>(previewTitle);
-    expect(previewTitleWidget.data, 'alpha.pdf');
-    expect(previewTitleWidget.hidePdfExtension, isTrue);
-    // ignore: avoid_dynamic_calls
-    expect((tester.renderObject(previewTitle) as dynamic).debugDisplayedText,
-        'alpha');
+    // The card spells out the whole file name the strip truncates.
+    expect(tester.widget<Text>(previewTitle).data, 'alpha.pdf');
     expect(
       tester
           .widget<Text>(
@@ -522,12 +519,73 @@ void main() {
       findsOneWidget,
     );
 
-    // beta is active, so moving to it dismisses alpha's card and does not
-    // replace it with a redundant preview of the document already on screen.
+    // beta is active, so moving to it dismisses alpha's card and replaces it
+    // with just beta's full name - no redundant preview of the page on screen.
     await mouse.moveTo(tester.getCenter(tabTitle('beta.pdf')));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
     expect(find.byKey(const ValueKey('tab-hover-preview')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('tab-hover-preview-page')), findsNothing);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('tab-hover-preview-title')))
+          .data,
+      'beta.pdf',
+    );
     await mouse.removePointer();
+  });
+
+  testWidgets('hover card shows a long file name in full', (tester) async {
+    const name = 'VT-DRG-MIRROR-SIGNALS-SHEET-08 IN DRFCR.pdf';
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, name);
+    await openTab(tester, 'beta.pdf');
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    await tester.pump();
+    await mouse.moveTo(tester.getCenter(tabTitle(name)));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final title = find.byKey(const ValueKey('tab-hover-preview-title'));
+    expect(tester.widget<Text>(title).data, name);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: title, matching: find.byType(RichText)),
+    );
+    expect(paragraph.didExceedMaxLines, isFalse);
+    await mouse.removePointer();
+  });
+
+  testWidgets('Sort tabs by name orders the strip and keeps the active tab',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'sheet 10.pdf');
+    await openTab(tester, 'Beta.pdf');
+    await openTab(tester, 'sheet 2.pdf');
+    await openTab(tester, 'alpha.pdf');
+
+    await rightClickTab(tester, 'Beta.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-sort-name')));
+    await tester.pumpAndSettle();
+
+    double x(String name) => tester.getCenter(tabTitle(name)).dx;
+    expect(x('alpha.pdf'), lessThan(x('Beta.pdf')));
+    expect(x('Beta.pdf'), lessThan(x('sheet 2.pdf')));
+    expect(x('sheet 2.pdf'), lessThan(x('sheet 10.pdf')));
+    // alpha was on screen before the sort and still is.
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
+        FontWeight.w600);
   });
 
   testWidgets('right-click opens the tab context menu', (tester) async {
