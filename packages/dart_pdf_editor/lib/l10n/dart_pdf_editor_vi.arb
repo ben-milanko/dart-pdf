@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Đã áp dụng che thông tin",
   "tbRedoShortcut": "Làm lại (⇧⌘Z)",
   "tbReflowFailed": "Không thể sắp xếp lại - đây không phải là đoạn văn một cột mà công cụ này có thể dàn lại. Hãy thử Thay thế văn bản.",
+  "tbConvertToFreeText": "Chuyển thành hộp văn bản",
   "tbReflowParagraph": "Sắp xếp lại đoạn văn",
   "tbRenameField": "Đổi tên trường",
   "tbRenameFieldEllipsis": "Đổi tên trường…",

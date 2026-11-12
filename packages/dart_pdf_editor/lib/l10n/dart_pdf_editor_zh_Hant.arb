@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "已套用塗黑",
   "tbRedoShortcut": "重做 (⇧⌘Z)",
   "tbReflowFailed": "無法重排 - 這不是此工具可重新換行的單欄段落。請改用「取代文字」。",
+  "tbConvertToFreeText": "轉換為文字方塊",
   "tbReflowParagraph": "重排段落",
   "tbRenameField": "重新命名欄位",
   "tbRenameFieldEllipsis": "重新命名欄位…",

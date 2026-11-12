@@ -1886,6 +1886,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
       'No se pudo reajustar: este no es un párrafo de una sola columna que esta herramienta pueda reajustar. Prueba con Reemplazar texto.';
 
   @override
+  String get tbConvertToFreeText => 'Convertir en cuadro de texto';
+
+  @override
   String get tbReflowParagraph => 'Reajustar párrafo';
 
   @override

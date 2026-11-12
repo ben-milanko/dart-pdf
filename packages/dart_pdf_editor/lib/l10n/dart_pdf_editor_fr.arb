@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Caviardages appliqués",
   "tbRedoShortcut": "Rétablir (⇧⌘Z)",
   "tbReflowFailed": "Redistribution impossible - ce n'est pas un paragraphe à une seule colonne que cet outil peut redécouper. Essayez plutôt Remplacer le texte.",
+  "tbConvertToFreeText": "Convertir en zone de texte",
   "tbReflowParagraph": "Redistribuer le paragraphe",
   "tbRenameField": "Renommer le champ",
   "tbRenameFieldEllipsis": "Renommer le champ…",

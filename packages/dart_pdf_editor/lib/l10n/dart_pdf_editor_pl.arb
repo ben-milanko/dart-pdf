@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Zastosowano wymazania",
   "tbRedoShortcut": "Ponów (⇧⌘Z)",
   "tbReflowFailed": "Nie można przepłynąć - to nie jest jednokolumnowy akapit, który to narzędzie potrafi ponownie zawinąć. Spróbuj zamiast tego Zamień tekst.",
+  "tbConvertToFreeText": "Konwertuj na pole tekstowe",
   "tbReflowParagraph": "Przepływ akapitu",
   "tbRenameField": "Zmień nazwę pola",
   "tbRenameFieldEllipsis": "Zmień nazwę pola…",

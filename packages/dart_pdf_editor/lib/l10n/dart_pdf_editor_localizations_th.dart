@@ -1873,6 +1873,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
       'ไม่สามารถจัดเรียงใหม่ได้ - นี่ไม่ใช่ย่อหน้าคอลัมน์เดียวที่เครื่องมือนี้จัดเรียงใหม่ได้ ลองใช้แทนที่ข้อความแทน';
 
   @override
+  String get tbConvertToFreeText => 'แปลงเป็นกล่องข้อความ';
+
+  @override
   String get tbReflowParagraph => 'จัดเรียงย่อหน้าใหม่';
 
   @override

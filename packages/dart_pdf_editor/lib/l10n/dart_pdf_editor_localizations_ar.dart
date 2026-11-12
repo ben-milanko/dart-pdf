@@ -1911,6 +1911,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
       'تعذّرت إعادة التدفق - هذه ليست فقرة بعمود واحد يمكن لهذه الأداة إعادة لفّها. جرّب استبدال النص بدلاً من ذلك.';
 
   @override
+  String get tbConvertToFreeText => 'تحويل إلى مربع نص';
+
+  @override
   String get tbReflowParagraph => 'إعادة تدفق الفقرة';
 
   @override

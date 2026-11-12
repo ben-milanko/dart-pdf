@@ -1909,6 +1909,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Nie można przepłynąć - to nie jest jednokolumnowy akapit, który to narzędzie potrafi ponownie zawinąć. Spróbuj zamiast tego Zamień tekst.';
 
   @override
+  String get tbConvertToFreeText => 'Konwertuj na pole tekstowe';
+
+  @override
   String get tbReflowParagraph => 'Przepływ akapitu';
 
   @override

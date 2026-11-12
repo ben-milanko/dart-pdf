@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "墨消しを適用しました",
   "tbRedoShortcut": "やり直し (⇧⌘Z)",
   "tbReflowFailed": "リフローできませんでした - このツールで再折り返しできる単一段組の段落ではありません。代わりにテキストの置換をお試しください。",
+  "tbConvertToFreeText": "テキストボックスに変換",
   "tbReflowParagraph": "段落をリフロー",
   "tbRenameField": "フィールド名を変更",
   "tbRenameFieldEllipsis": "フィールド名を変更…",

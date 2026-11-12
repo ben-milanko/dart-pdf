@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "تم تطبيق التنقيحات",
   "tbRedoShortcut": "إعادة (⇧⌘Z)",
   "tbReflowFailed": "تعذّرت إعادة التدفق - هذه ليست فقرة بعمود واحد يمكن لهذه الأداة إعادة لفّها. جرّب استبدال النص بدلاً من ذلك.",
+  "tbConvertToFreeText": "تحويل إلى مربع نص",
   "tbReflowParagraph": "إعادة تدفق الفقرة",
   "tbRenameField": "إعادة تسمية الحقل",
   "tbRenameFieldEllipsis": "إعادة تسمية الحقل…",

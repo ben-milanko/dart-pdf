@@ -1884,6 +1884,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
       'Impossibile ridisporre - non è un paragrafo a colonna singola che questo strumento può riformattare. Prova invece Sostituisci testo.';
 
   @override
+  String get tbConvertToFreeText => 'Converti in casella di testo';
+
+  @override
   String get tbReflowParagraph => 'Ridisponi paragrafo';
 
   @override

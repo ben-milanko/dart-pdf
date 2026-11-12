@@ -1865,6 +1865,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
       'リフローできませんでした - このツールで再折り返しできる単一段組の段落ではありません。代わりにテキストの置換をお試しください。';
 
   @override
+  String get tbConvertToFreeText => 'テキストボックスに変換';
+
+  @override
   String get tbReflowParagraph => '段落をリフロー';
 
   @override

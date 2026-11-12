@@ -1884,6 +1884,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
       'Não foi possível refluir - este não é um parágrafo de coluna única que esta ferramenta possa reajustar. Tente Substituir texto.';
 
   @override
+  String get tbConvertToFreeText => 'Converter em caixa de texto';
+
+  @override
   String get tbReflowParagraph => 'Refluir parágrafo';
 
   @override

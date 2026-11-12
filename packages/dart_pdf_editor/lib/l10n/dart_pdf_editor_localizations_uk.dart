@@ -1907,6 +1907,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       'Не вдалося переформатувати — це не одноколонковий абзац, який цей інструмент може переверстати. Спробуйте натомість «Замінити текст».';
 
   @override
+  String get tbConvertToFreeText => 'Перетворити на текстове поле';
+
+  @override
   String get tbReflowParagraph => 'Переформатувати абзац';
 
   @override

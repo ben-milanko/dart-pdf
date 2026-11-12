@@ -2430,6 +2430,10 @@
   "@tbReflowFailed": {
     "description": "Snackbar shown when a paragraph cannot be reflowed because it is not a simple single-column paragraph."
   },
+  "tbConvertToFreeText": "Convert to text box",
+  "@tbConvertToFreeText": {
+    "description": "Tooltip for the button that turns the selected page-content text into a movable free-text annotation."
+  },
   "tbReflowParagraph": "Reflow paragraph",
   "@tbReflowParagraph": {
     "description": "Title/tooltip for re-wrapping a whole paragraph of page content after an edit."

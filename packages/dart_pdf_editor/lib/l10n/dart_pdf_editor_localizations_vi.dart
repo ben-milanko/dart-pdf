@@ -1880,6 +1880,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       'Không thể sắp xếp lại - đây không phải là đoạn văn một cột mà công cụ này có thể dàn lại. Hãy thử Thay thế văn bản.';
 
   @override
+  String get tbConvertToFreeText => 'Chuyển thành hộp văn bản';
+
+  @override
   String get tbReflowParagraph => 'Sắp xếp lại đoạn văn';
 
   @override

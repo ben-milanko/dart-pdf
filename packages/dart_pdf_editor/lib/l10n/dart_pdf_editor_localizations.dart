@@ -3487,6 +3487,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Couldn\'t reflow - this isn\'t a single-column paragraph this tool can re-wrap. Try Replace text instead.'**
   String get tbReflowFailed;
 
+  /// Tooltip for the button that turns the selected page-content text into a movable free-text annotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to text box'**
+  String get tbConvertToFreeText;
+
   /// Title/tooltip for re-wrapping a whole paragraph of page content after an edit.
   ///
   /// In en, this message translates to:

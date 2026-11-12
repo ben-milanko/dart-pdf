@@ -1866,6 +1866,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
       '리플로우할 수 없음 - 이 도구가 다시 배치할 수 있는 단일 열 단락이 아닙니다. 대신 텍스트 바꾸기를 사용해 보세요.';
 
   @override
+  String get tbConvertToFreeText => '텍스트 상자로 변환';
+
+  @override
   String get tbReflowParagraph => '단락 리플로우';
 
   @override

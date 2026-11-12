@@ -11690,6 +11690,203 @@ class PdfEditingController extends ChangeNotifier {
     return reflowed;
   }
 
+  /// Converts the selected page-content text into a free-text annotation:
+  /// the [selectedElementWord] runs are removed from the content stream and
+  /// a FreeText box carrying the same characters is placed over where they
+  /// drew, as one undoable edit.
+  ///
+  /// The box keeps the text's apparent size (`Tf` scaled through the text
+  /// and transformation matrices), a fill colour read from the content
+  /// stream (DeviceGray/RGB/CMYK, black otherwise) and the closest
+  /// base-14 family to the run's /BaseFont, with bold/italic recovered from
+  /// the name. It is widened when that face measures wider than the
+  /// original so the line never wraps. The box is transparent and
+  /// borderless, so the page reads the same; the text is now an
+  /// annotation the user can move, restyle and retype.
+  ///
+  /// On success the content selection is cleared, the tool switches to
+  /// select and the new annotation is selected. Returns false when nothing
+  /// convertible is selected.
+  bool convertSelectedElementTextToFreeText() {
+    final selected = _selectedElement;
+    final element = selectedElement;
+    if (selected == null || element == null || !canEditSelectedElementText) {
+      return false;
+    }
+    final pageIndex = selected.$1;
+    final elements = elementsOn(pageIndex);
+    if (element.id >= elements.elements.length ||
+        !identical(elements.elements[element.id], element)) {
+      return false;
+    }
+    final word = _textWordAround(elements.elements, element);
+    final text = word.map((e) => e.text ?? '').join().trim();
+    if (text.isEmpty) return false;
+    PdfRect? bounds;
+    for (final e in word) {
+      final b = e.bounds;
+      if (b == null) continue;
+      bounds = bounds == null
+          ? b
+          : PdfRect(
+              math.min(bounds.left, b.left),
+              math.min(bounds.bottom, b.bottom),
+              math.max(bounds.right, b.right),
+              math.max(bounds.top, b.top),
+            );
+    }
+    if (bounds == null) return false;
+
+    final fontSize = _apparentFontSize(element);
+    final font = _standardFontFor(pageIndex, element);
+    final color = _fillColorBefore(elements.operations, word.first.start);
+    final rect = _freeTextRectOver(pageIndex, bounds, text, font, fontSize);
+
+    final page = _page(pageIndex);
+    final before = page.annotations.length;
+    final converted = apply(
+      (e) => e
+        ..deleteElements(elements, [for (final w in word) w.id])
+        ..addFreeText(
+          pageIndex,
+          rect,
+          text,
+          fontSize: fontSize,
+          font: font,
+          verticalAlign: PdfTextVerticalAlign.center,
+          color: color,
+          borderWidth: 0,
+          pageRotation: page.rotation,
+          author: preferences.author,
+        ),
+    );
+    if (!converted) return false;
+    _selectedElement = null;
+    tool = PdfEditTool.select;
+    final total = _page(pageIndex).annotations.length;
+    _selected.clear();
+    if (total > before) _selected.add((pageIndex, total - 1));
+    notifyListeners();
+    return true;
+  }
+
+  /// The size [element]'s glyphs appear at on the page: `Tf` scaled by the
+  /// vertical axis of the text matrix composed with the CTM. Clamped to a
+  /// range the free-text controls accept.
+  static double _apparentFontSize(PdfContentElement element) {
+    final placement = element.textPlacement;
+    if (placement == null) return 12;
+    final m = placement.matrix.concat(element.ctm);
+    final scale = math.sqrt(m.c * m.c + m.d * m.d);
+    final size = placement.fontSize.abs() * scale;
+    if (!size.isFinite || size <= 0) return 12;
+    return ((size * 10).round() / 10).clamp(1.0, 1000.0);
+  }
+
+  /// The base-14 face closest to the /BaseFont behind [element]'s /Font
+  /// resource: the matching family when the name says so (Arial, Times,
+  /// Courier ...), Helvetica otherwise, keeping bold/italic either way.
+  PdfStandardFont _standardFontFor(int pageIndex, PdfContentElement element) {
+    final resource = element.resourceName;
+    var name = resource ?? '';
+    if (resource != null) {
+      final cos = _document.cos;
+      final fonts = cos.resolve(_page(pageIndex).resources['Font']);
+      final dict = fonts is CosDictionary ? cos.resolve(fonts[resource]) : null;
+      final base = dict is CosDictionary ? cos.resolve(dict['BaseFont']) : null;
+      if (base is CosName) name = base.value;
+    }
+    final known = PdfStandardFont.tryFromName(name);
+    if (known != null) return known;
+    final n = name.toLowerCase();
+    return PdfStandardFont.styled(
+      PdfStandardFontFamily.sans,
+      bold: n.contains('bold') || n.contains('black') || n.contains('heavy'),
+      italic: n.contains('italic') || n.contains('oblique'),
+    );
+  }
+
+  /// The non-stroking colour in effect at operation [end], following
+  /// `q`/`Q` nesting and the device colour operators (`g`, `rg`, `k`, plus
+  /// `sc`/`scn` with 1, 3 or 4 numeric operands). Black when unknown.
+  static int _fillColorBefore(List<ContentOperation> operations, int end) {
+    var color = 0x000000;
+    final stack = <int>[];
+    int channel(double v) => (v.clamp(0.0, 1.0) * 255).round();
+    int? fromComponents(List<double> c) => switch (c.length) {
+          1 => channel(c[0]) * 0x010101,
+          3 => (channel(c[0]) << 16) | (channel(c[1]) << 8) | channel(c[2]),
+          4 => (channel((1 - c[0]) * (1 - c[3])) << 16) |
+              (channel((1 - c[1]) * (1 - c[3])) << 8) |
+              channel((1 - c[2]) * (1 - c[3])),
+          _ => null,
+        };
+    List<double>? numbers(ContentOperation op) {
+      final out = <double>[];
+      for (final operand in op.operands) {
+        if (operand is CosInteger) {
+          out.add(operand.value.toDouble());
+        } else if (operand is CosReal) {
+          out.add(operand.value);
+        } else {
+          return null; // a pattern name: not a flat colour
+        }
+      }
+      return out;
+    }
+
+    for (var i = 0; i < end && i < operations.length; i++) {
+      final op = operations[i];
+      switch (op.operator) {
+        case 'q':
+          stack.add(color);
+        case 'Q':
+          if (stack.isNotEmpty) color = stack.removeLast();
+        case 'g' || 'rg' || 'k' || 'sc' || 'scn':
+          final values = numbers(op);
+          final next = values == null ? null : fromComponents(values);
+          if (next != null) color = next;
+      }
+    }
+    return color;
+  }
+
+  /// A page-space box over [bounds] that a FreeText appearance draws [text]
+  /// into on one line: padded by the appearance's inset and widened (to the
+  /// right as the page is viewed) when [font] measures wider than the
+  /// original run.
+  PdfRect _freeTextRectOver(
+    int pageIndex,
+    PdfRect bounds,
+    String text,
+    PdfTextFont font,
+    double fontSize,
+  ) {
+    const pad = 3.0;
+    final page = _page(pageIndex);
+    final geometry = PdfPageGeometry(
+      cropBox: page.cropBox,
+      rotation: page.rotation,
+      viewSize: ui.Size(
+        _visualPageWidth(pageIndex),
+        _visualPageHeight(pageIndex),
+      ),
+    );
+    final view = geometry.toViewRect(bounds);
+    final needWidth = font.measure(text, fontSize) + 1;
+    final width = math.max(view.width, needWidth) + 2 * pad;
+    final lineHeight =
+        fontSize * (kPdfFreeTextDefaultLineSpacing + 0.1).clamp(1.2, 2.0);
+    final height = math.max(view.height, lineHeight) + 2 * pad;
+    final centerY = view.center.dy;
+    return geometry.toPageRect(Rect.fromLTRB(
+      view.left - pad,
+      centerY - height / 2,
+      view.left - pad + width,
+      centerY + height / 2,
+    ));
+  }
+
   // ---------------------------------------------------------------------
   // forms
 

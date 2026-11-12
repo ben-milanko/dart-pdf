@@ -1880,6 +1880,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
       'रीफ़्लो नहीं कर सके - यह एकल-स्तंभ अनुच्छेद नहीं है जिसे यह टूल फिर से लपेट सके। इसके बजाय टेक्स्ट बदलें आज़माएँ।';
 
   @override
+  String get tbConvertToFreeText => 'टेक्स्ट बॉक्स में बदलें';
+
+  @override
   String get tbReflowParagraph => 'अनुच्छेद रीफ़्लो करें';
 
   @override

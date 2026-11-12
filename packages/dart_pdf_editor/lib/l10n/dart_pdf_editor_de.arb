@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Schwärzungen angewendet",
   "tbRedoShortcut": "Wiederholen (⇧⌘Z)",
   "tbReflowFailed": "Umbruch nicht möglich - dies ist kein einspaltiger Absatz, den dieses Werkzeug neu umbrechen kann. Verwenden Sie stattdessen Text ersetzen.",
+  "tbConvertToFreeText": "In Textfeld umwandeln",
   "tbReflowParagraph": "Absatz umbrechen",
   "tbRenameField": "Feld umbenennen",
   "tbRenameFieldEllipsis": "Feld umbenennen…",

@@ -1889,6 +1889,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Redistribution impossible - ce n\'est pas un paragraphe à une seule colonne que cet outil peut redécouper. Essayez plutôt Remplacer le texte.';
 
   @override
+  String get tbConvertToFreeText => 'Convertir en zone de texte';
+
+  @override
   String get tbReflowParagraph => 'Redistribuer le paragraphe';
 
   @override
