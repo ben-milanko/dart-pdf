@@ -12,6 +12,7 @@ import 'canvas_path_cache.dart';
 import 'font_substitution.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
+import 'vertex_indices.dart';
 
 const _redToAlpha = <double>[
   0,
@@ -372,6 +373,46 @@ class CanvasPdfDevice
   /// areas it doesn't cover — earlier elements — intact).
   BlendMode get _elementBlend => _knockoutActive ? BlendMode.src : _blend;
 
+  // Interned colour filters (#1274). Flutter 3.50's web engine caches the
+  // native filter on the Dart ColorFilter object by identity, so handing the
+  // same instance to every draw that needs it reuses one native filter instead
+  // of creating and finalizing one per draw. Small LRUs: a page uses a handful
+  // of stencil colours and soft-mask transfers.
+  static const _internedFilterLimit = 64;
+  static final _stencilFilters = <int, ColorFilter>{};
+  static final _transferFilters = <(bool, double, double), ColorFilter>{};
+
+  static ColorFilter _interned<K>(
+      Map<K, ColorFilter> cache, K key, ColorFilter Function() create) {
+    final hit = cache.remove(key);
+    if (hit != null) return cache[key] = hit; // re-insert as most recent
+    if (cache.length >= _internedFilterLimit) cache.remove(cache.keys.first);
+    return cache[key] = create();
+  }
+
+  static ColorFilter _stencilFilter(Color color) => _interned(_stencilFilters,
+      color.toARGB32(), () => ColorFilter.mode(color, BlendMode.srcIn));
+
+  static ColorFilter _transferFilter(
+          bool luminosity, double scale, double offset) =>
+      _interned(
+          _transferFilters,
+          (luminosity, scale, offset),
+          () => ColorFilter.matrix(luminosity
+              ? <double>[
+                  0, 0, 0, 0, 0, //
+                  0, 0, 0, 0, 0, //
+                  0, 0, 0, 0, 0, //
+                  0.2126 * scale, 0.7152 * scale, 0.0722 * scale, 0,
+                  offset * 255,
+                ]
+              : <double>[
+                  0, 0, 0, 0, 0, //
+                  0, 0, 0, 0, 0, //
+                  0, 0, 0, 0, 0, //
+                  0, 0, 0, scale, offset * 255,
+                ]));
+
   /// Converts rendered luminance into alpha — the compositing core of a
   /// /Luminosity soft mask.
   static const _luminanceToAlpha = ColorFilter.matrix([
@@ -659,24 +700,13 @@ class CanvasPdfDevice
       // Fold the /TR transfer (linearised) into the luminance→alpha matrix:
       // alpha = luminance * scale + offset.
       paint.colorFilter = hasTransfer
-          ? ColorFilter.matrix(<double>[
-              0, 0, 0, 0, 0, //
-              0, 0, 0, 0, 0, //
-              0, 0, 0, 0, 0, //
-              0.2126 * transferScale, 0.7152 * transferScale,
-              0.0722 * transferScale, 0, transferOffset * 255,
-            ])
+          ? _transferFilter(true, transferScale, transferOffset)
           : _luminanceToAlpha;
     } else if (hasTransfer) {
       // Alpha mask: remap the captured alpha through the transfer. Unpainted
       // (transparent) areas filter to transferOffset = TR(0), so the
       // out-of-bounds backdrop falls out for free.
-      paint.colorFilter = ColorFilter.matrix(<double>[
-        0, 0, 0, 0, 0, //
-        0, 0, 0, 0, 0, //
-        0, 0, 0, 0, 0, //
-        0, 0, 0, transferScale, transferOffset * 255,
-      ]);
+      paint.colorFilter = _transferFilter(false, transferScale, transferOffset);
     }
     canvas.saveLayer(null, paint);
     if (luminosity) {
@@ -779,6 +809,11 @@ class CanvasPdfDevice
   @override
   void fillMesh(PdfMesh mesh, double alpha) {
     if (mesh.vertices.isEmpty || mesh.triangles.isEmpty) return;
+    // Flutter 3.50's web engine rejects any index >= vertex count on every
+    // backend (CanvasKit used to accept up to 2x). The mesh parser only emits
+    // indices of vertices it added, so this holds by construction (#1275).
+    assert(pdfVertexIndicesInRange(mesh.triangles, mesh.vertices.length),
+        'mesh triangle index out of range');
     final positions = Float32List(mesh.vertices.length * 2);
     final colors = Int32List(mesh.vertices.length);
     final a = (alpha.clamp(0.0, 1.0) * 255).round();
@@ -2035,8 +2070,8 @@ class CanvasPdfDevice
       ..blendMode = softMask == null ? _fillElementBlend : BlendMode.srcOver;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
-      paint.colorFilter = ColorFilter.mode(
-          _toColor(request.stencilColor, request.alpha), BlendMode.srcIn);
+      paint.colorFilter =
+          _stencilFilter(_toColor(request.stencilColor, request.alpha));
     } else {
       paint.color = Color.from(alpha: request.alpha, red: 0, green: 0, blue: 0);
     }
