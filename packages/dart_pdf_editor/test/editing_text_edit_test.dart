@@ -16,6 +16,8 @@ import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/font_registration.dart';
+
 /// The editing overlay's preview painter, read through a dynamic cast
 /// (the painter class is private to the library).
 dynamic overlayPainter(WidgetTester tester) => tester
@@ -1318,6 +1320,8 @@ void main() {
                 'Type0';
       }), isTrue);
       await settle(tester);
+      // The restyle registered the embedded font with the engine.
+      await settleFontRegistration(tester);
     });
 
     testWidgets("the iOS selection menu doesn't cover the inline style chip",

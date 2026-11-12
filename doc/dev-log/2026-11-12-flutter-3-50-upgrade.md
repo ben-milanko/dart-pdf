@@ -32,6 +32,22 @@ still proves that against 3.47.0.
     the material_ui delegates.
 - **Generated Windows plugin registrants** reordered (`share_plus` after
   `url_launcher_windows`). That is just 3.50's tooling sort order.
+- **Android toolchain floor.** 3.50's Gradle plugin refuses builds below
+  Gradle 9.3.1, AGP 9.1.1 or KGP 2.4.10 (see `DependencyVersionChecker.kt`).
+  The example was on Gradle 9.1.0 / AGP 9.0.1 / KGP 2.3.20, and the app on
+  KGP 2.3.20. Both now use 3.50's template set: Gradle 9.5.0, AGP 9.3.1,
+  KGP 2.4.20, which also clears the warn thresholds. `dart_pdf_printing`'s
+  standalone buildscript Kotlin moves to 2.4.20 to match.
+- **Font registration lands a real event-loop turn later.** After
+  `FontLoader`/`loadFontFromList` registers a new family, the engine's
+  `fontsChange` system message now arrives after a widget test's fake-async
+  pumps. `RelayoutWhenSystemFontsChangeMixin`'s frame callback is then still
+  pending at teardown, and the test fails with "an animation is still
+  running". The framework side of this is unchanged between 3.47 and 3.50,
+  so the timing change is in the engine. The three tests that register a
+  family for the first time in their isolate now end with
+  `settleFontRegistration` (`test/support/font_registration.dart`): one
+  `runAsync` turn, then a pump.
 
 ## Deliberately not changed
 

@@ -2,7 +2,7 @@ group = "dev.milanko.dart_pdf_printing"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    val kotlinVersion = "2.3.20"
+    val kotlinVersion = "2.4.20"
     repositories {
         google()
         mavenCentral()
