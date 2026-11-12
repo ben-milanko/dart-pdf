@@ -2401,6 +2401,11 @@ void main() {
               'draw invalidates it');
       expect(backend.stats.coalescedDrawBatches, 1);
       expect(backend.stats.drawCallsSaved, 1);
+      // Only the per-draw image texture is bound individually; the transform
+      // rides in a binding set, so each draw replays at most that one binding.
+      expect(backend.stats.bindingSetsCreated, greaterThan(0));
+      expect(backend.stats.dynamicBindingReplays,
+          lessThanOrEqualTo(backend.stats.textureDrawCalls));
       expect(backend.stats.texturesUploaded, 2);
       expect(backend.stats.textureCacheMisses, 2);
       expect(backend.stats.textureCacheHits, 0,
@@ -6472,6 +6477,10 @@ void main() {
               'draw invalidates the retained atlas state');
       expect(backend.stats.coalescedDrawBatches, 1);
       expect(backend.stats.drawCallsSaved, 1);
+      // Transform, atlas info and atlas texture all ride in binding sets, so
+      // no draw in this glyph + solid scene replays an individual binding.
+      expect(backend.stats.bindingSetsCreated, greaterThan(0));
+      expect(backend.stats.dynamicBindingReplays, 0);
     });
   });
 

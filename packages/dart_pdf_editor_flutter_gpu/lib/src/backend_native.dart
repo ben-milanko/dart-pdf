@@ -9298,6 +9298,22 @@ class _GpuEncoder {
   _GpuRetainedBindingKind? _retainedBindingKind;
   _GpuGlyphAtlas? _boundGlyphAtlas;
   gpu.Texture? _boundImageTexture;
+
+  // Flutter GPU replays every individually bound resource on every draw, and
+  // each replay heap-copies that resource's shader metadata. Its binding maps
+  // are also keyed per shader, so between clears they accumulate one entry per
+  // pipeline touched. A gpu.BindingSet is resolved against reflection once
+  // and replayed with borrowed metadata. Resources that stay fixed for this
+  // pass - the tile transform for each pipeline, and each glyph atlas's
+  // texture and info - live in sets bound to slot 0; per-draw data (blend and
+  // soft-mask info, image and offscreen textures) stays individually bound.
+  // Sets reference the pass's DeviceBuffer-backed transient arena, which
+  // outlives the command buffer, so caching them per encoder is sound.
+  final Map<gpu.UniformSlot, gpu.BindingSet> _transformSets = {};
+  final Map<_GpuGlyphAtlas, gpu.BindingSet> _glyphSets = {};
+  // Individually bound slots since the last clear: what each draw replays
+  // through the allocating path (counted into stats.dynamicBindingReplays).
+  final Set<gpu.UniformSlot> _individualBindings = {};
   // Every equation used by this encoder is a private immutable singleton, so
   // identity also describes the fixed-function state already on the pass.
   gpu.ColorBlendEquation? _appliedBlendEquation;
@@ -9461,7 +9477,7 @@ class _GpuEncoder {
           writeMask: _pathMask | nextBit,
         ))
         ..bindPipeline(pipelines.solid)
-        ..bindUniform(pipelines.solidTransform, transform);
+        ..bindSet(_transformSet(pipelines.solidTransform));
       _drawBuffer(draw.cover, _GpuDrawKind.stencilCover);
       // setToReferenceValue writes zero into the scratch bits while setting
       // [nextBit], so the following path starts from an empty winding field.
@@ -9477,7 +9493,7 @@ class _GpuEncoder {
     _setBlendEquation(_paintBlend);
     pass
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform);
+      ..bindSet(_transformSet(pipelines.solidTransform));
     _drawBuffer(vertices, _GpuDrawKind.directSolid);
   }
 
@@ -9501,7 +9517,7 @@ class _GpuEncoder {
     _setBlendEquation(_noWrite);
     pass
       ..bindPipeline(pipelines.stencil)
-      ..bindUniform(pipelines.stencilTransform, transform)
+      ..bindSet(_transformSet(pipelines.stencilTransform))
       ..setStencilReference(_activeClipBit | 1)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: compare,
@@ -9541,7 +9557,7 @@ class _GpuEncoder {
     _setBlendEquation(_noWrite);
     pass
       ..bindPipeline(pipelines.stencil)
-      ..bindUniform(pipelines.stencilTransform, transform)
+      ..bindSet(_transformSet(pipelines.stencilTransform))
       ..setStencilReference(_activeClipBit);
     if (rule == PdfFillRule.evenOdd) {
       pass.setStencilConfig(config(gpu.StencilOperation.invert));
@@ -9661,7 +9677,7 @@ class _GpuEncoder {
         writeMask: _pathMask,
       ))
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform);
+      ..bindSet(_transformSet(pipelines.solidTransform));
     _drawView(cover, vertices, _GpuDrawKind.stencilCover);
   }
 
@@ -9684,7 +9700,7 @@ class _GpuEncoder {
         writeMask: _pathMask,
       ))
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform);
+      ..bindSet(_transformSet(pipelines.solidTransform));
     _drawBuffer(mesh, _GpuDrawKind.stencilCover);
     // The gradient mesh conservatively covers the path bounds, but clearing
     // the scratch bits explicitly keeps a malformed transform or degenerate
@@ -9729,7 +9745,7 @@ class _GpuEncoder {
     _setBlendEquation(_noWrite);
     pass
       ..bindPipeline(pipelines.stencil)
-      ..bindUniform(pipelines.stencilTransform, transform);
+      ..bindSet(_transformSet(pipelines.stencilTransform));
     if (union) {
       // A union only needs one path bit. Setting it is idempotent, so any
       // number of overlapping contours stays non-zero; incrementing the
@@ -9776,7 +9792,7 @@ class _GpuEncoder {
         writeMask: mask,
       ))
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform);
+      ..bindSet(_transformSet(pipelines.solidTransform));
     _drawBuffer(stencilClear, _GpuDrawKind.stencilClear);
   }
 
@@ -9794,7 +9810,7 @@ class _GpuEncoder {
       _replaceRetainedBindings(_GpuRetainedBindingKind.image);
       pass
         ..bindPipeline(pipelines.texture)
-        ..bindUniform(pipelines.textureTransform, transform);
+        ..bindSet(_transformSet(pipelines.textureTransform));
     }
     if (!retained || !identical(_boundImageTexture, texture)) {
       pass.bindTexture(
@@ -9802,6 +9818,7 @@ class _GpuEncoder {
         texture,
         sampler: _linearSampler,
       );
+      _individualBindings.add(pipelines.textureSampler);
       _boundImageTexture = texture;
     }
     _drawBuffer(vertices, _GpuDrawKind.texture);
@@ -9821,14 +9838,15 @@ class _GpuEncoder {
     _setBlendEquation(_paintBlend);
     pass
       ..bindPipeline(pipelines.texture)
-      ..bindUniform(pipelines.textureTransform, transform)
+      ..bindSet(_transformSet(pipelines.textureTransform))
       ..bindTexture(
         pipelines.textureSampler,
         texture,
         sampler: _nearestSampler,
       );
+    _individualBindings.add(pipelines.textureSampler);
     _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.texture);
-    pass.clearBindings();
+    _clearBindings();
   }
 
   /// Combines one premultiplied source tile with its existing backdrop using
@@ -9840,14 +9858,15 @@ class _GpuEncoder {
     pass
       ..setScissor(gpu.Scissor(x: 0, y: 0, width: width, height: height))
       ..bindPipeline(pipelines.texture)
-      ..bindUniform(pipelines.textureTransform, transform)
+      ..bindSet(_transformSet(pipelines.textureTransform))
       ..bindTexture(
         pipelines.textureSampler,
         texture,
         sampler: _nearestSampler,
       );
+    _individualBindings.add(pipelines.textureSampler);
     _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.texture);
-    pass.clearBindings();
+    _clearBindings();
   }
 
   void advancedBlend(
@@ -9870,7 +9889,7 @@ class _GpuEncoder {
           ? gpu.Scissor(x: 0, y: 0, width: width, height: height)
           : _scissorForPdfRect(bounds))
       ..bindPipeline(pipelines.blend)
-      ..bindUniform(pipelines.blendTransform, transform)
+      ..bindSet(_transformSet(pipelines.blendTransform))
       ..bindUniform(
           pipelines.blendInfo, emplaceTransient(ByteData.sublistView(info)))
       ..bindTexture(
@@ -9883,8 +9902,13 @@ class _GpuEncoder {
         source,
         sampler: _nearestSampler,
       );
+    _individualBindings.addAll([
+      pipelines.blendInfo,
+      pipelines.blendBackdropSampler,
+      pipelines.blendSourceSampler,
+    ]);
     _drawView(emplaceTransient(vertices.bytes), 6, _GpuDrawKind.blend);
-    pass.clearBindings();
+    _clearBindings();
   }
 
   gpu.Scissor _scissorForPdfRect(PdfRect rect) {
@@ -9958,13 +9982,7 @@ class _GpuEncoder {
       _replaceRetainedBindings(_GpuRetainedBindingKind.glyph);
       pass
         ..bindPipeline(pipelines.glyph)
-        ..bindUniform(pipelines.glyphTransform, transform)
-        ..bindUniform(pipelines.glyphInfo, atlas.info.view)
-        ..bindTexture(
-          pipelines.glyphSampler,
-          atlas.texture,
-          sampler: _nearestSampler,
-        );
+        ..bindSet(_glyphSet(atlas));
       _boundGlyphAtlas = atlas;
     }
     _drawBuffer(vertices, _GpuDrawKind.glyph);
@@ -9977,14 +9995,15 @@ class _GpuEncoder {
     _setBlendEquation(_paintBlend);
     pass
       ..bindPipeline(pipelines.softMask)
-      ..bindUniform(pipelines.softMaskTransform, transform)
+      ..bindSet(_transformSet(pipelines.softMaskTransform))
       ..bindUniform(pipelines.softMaskInfo, info)
       ..bindTexture(pipelines.softMaskContentSampler, contentTexture,
           sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
           sampler: _linearSampler);
+    _individualBindings.addAll(_softMaskIndividualSlots);
     _drawBuffer(vertices, _GpuDrawKind.softMask);
-    pass.clearBindings();
+    _clearBindings();
   }
 
   void softMaskFill(_GpuBuffer fan, _GpuBuffer cover, PdfFillRule rule,
@@ -10007,7 +10026,7 @@ class _GpuEncoder {
         writeMask: _pathMask,
       ))
       ..bindPipeline(pipelines.softMask)
-      ..bindUniform(pipelines.softMaskTransform, transform)
+      ..bindSet(_transformSet(pipelines.softMaskTransform))
       ..bindUniform(pipelines.softMaskInfo, info)
       // The normal grayscale mask texture has opaque alpha. Binding it as the
       // content sample too lets contentStencil supply the solid fill color,
@@ -10016,13 +10035,14 @@ class _GpuEncoder {
           sampler: _linearSampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
           sampler: _linearSampler);
+    _individualBindings.addAll(_softMaskIndividualSlots);
     _drawBuffer(cover, _GpuDrawKind.softMask);
-    pass.clearBindings();
+    _clearBindings();
     _clearStencil(_pathMask);
   }
 
   void _replaceRetainedBindings(_GpuRetainedBindingKind kind) {
-    pass.clearBindings();
+    _clearBindings();
     _retainedBindingKind = kind;
     _boundGlyphAtlas = null;
     _boundImageTexture = null;
@@ -10030,10 +10050,59 @@ class _GpuEncoder {
 
   void _dropRetainedBindings() {
     if (_retainedBindingKind == null) return;
-    pass.clearBindings();
+    _clearBindings();
     _retainedBindingKind = null;
     _boundGlyphAtlas = null;
     _boundImageTexture = null;
+  }
+
+  /// Empties every binding on the pass, sets included. Every encode path
+  /// binds its pipeline and slot-0 set again on entry, so nothing relies on a
+  /// set surviving this.
+  void _clearBindings() {
+    pass.clearBindings();
+    _individualBindings.clear();
+  }
+
+  List<gpu.UniformSlot> get _softMaskIndividualSlots => [
+        pipelines.softMaskInfo,
+        pipelines.softMaskContentSampler,
+        pipelines.softMaskMaskSampler,
+      ];
+
+  /// The slot-0 set carrying this pass's tile transform for the pipeline
+  /// whose vertex shader declares [slot]. One set per pipeline, because a set
+  /// replays by stage and binding index without regard to the bound pipeline.
+  gpu.BindingSet _transformSet(gpu.UniformSlot slot) {
+    stats.bindingSetBinds++;
+    return _transformSets[slot] ??= _createBindingSet(
+      uniforms: {slot: transform},
+    );
+  }
+
+  /// The slot-0 set for drawing glyphs from [atlas]: the tile transform, the
+  /// atlas dimensions and the atlas texture, all fixed for this pass.
+  gpu.BindingSet _glyphSet(_GpuGlyphAtlas atlas) {
+    stats.bindingSetBinds++;
+    return _glyphSets[atlas] ??= _createBindingSet(
+      uniforms: {
+        pipelines.glyphTransform: transform,
+        pipelines.glyphInfo: atlas.info.view,
+      },
+      textures: {
+        pipelines.glyphSampler:
+            gpu.TextureBinding(atlas.texture, sampler: _nearestSampler),
+      },
+    );
+  }
+
+  gpu.BindingSet _createBindingSet({
+    required Map<gpu.UniformSlot, gpu.BufferView> uniforms,
+    Map<gpu.UniformSlot, gpu.TextureBinding> textures = const {},
+  }) {
+    stats.bindingSetsCreated++;
+    return pipelines.context
+        .createBindingSet(uniforms: uniforms, textures: textures);
   }
 
   void _setBlendEquation(gpu.ColorBlendEquation equation) {
@@ -10052,6 +10121,7 @@ class _GpuEncoder {
 
   void _drawView(gpu.BufferView view, int vertices, _GpuDrawKind kind) {
     stats.drawCalls++;
+    stats.dynamicBindingReplays += _individualBindings.length;
     switch (kind) {
       case _GpuDrawKind.directSolid:
         stats.directSolidDrawCalls++;
@@ -10107,7 +10177,7 @@ class _GpuEncoder {
 }
 
 class _GpuPipelines {
-  _GpuPipelines._(gpu.GpuContext context, gpu.ShaderLibrary library)
+  _GpuPipelines._(this.context, gpu.ShaderLibrary library)
       : stencil = context.createRenderPipeline(library['PdfTileStencilVertex']!,
             library['PdfTileStencilFragment']!),
         solid = context.createRenderPipeline(
@@ -10446,6 +10516,9 @@ class _GpuPipelines {
         '${detail.isEmpty ? '' : ': $detail'}');
   }
 
+  /// The context these pipelines (and every [gpu.BindingSet] an encoder
+  /// creates against their shaders) belong to.
+  final gpu.GpuContext context;
   final gpu.RenderPipeline stencil;
   final gpu.RenderPipeline solid;
   final gpu.RenderPipeline texture;
