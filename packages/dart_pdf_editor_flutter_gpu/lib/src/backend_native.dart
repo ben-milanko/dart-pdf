@@ -4363,8 +4363,11 @@ class _FlutterGpuTileSession
         pipelines: gpuPipelines,
         useMsaa: msaa,
       );
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (bytes == null) throw StateError('GPU scene warm-up readback failed');
+      // Wait for the GPU to finish the warm-up pass. The completion fence is
+      // all this needs; a 1-pixel readback used to stand in for it.
+      if (!await compiled.whenSubmissionsComplete()) {
+        throw StateError('GPU scene warm-up submission failed');
+      }
       stats.sceneWarmUpCompletions++;
       PdfPerfLog.log(
         'tile gpu scene warm commands=${units.length} '
@@ -4768,6 +4771,40 @@ class _CompiledScene {
   bool _texturesReleased = false;
   bool _geometryReleased = false;
   int _inFlight = 0;
+  // Callers of [whenSubmissionsComplete] waiting for _inFlight to reach zero,
+  // and whether any submission they waited on failed.
+  final List<Completer<bool>> _idleWaiters = [];
+  bool _failedSinceIdle = false;
+
+  /// Completes once every command buffer this scene has submitted so far has
+  /// finished on the GPU: true if all of them succeeded, false otherwise.
+  ///
+  /// This is the GPU's own completion fence. It replaces a pixel readback
+  /// (`Image.toByteData`) wherever a caller only needs to know the work ran:
+  /// a readback adds a GPU-to-CPU copy and, on Flutter 3.50's Android Vulkan
+  /// path, roughly 400 ms of latency for no information the fence lacks.
+  Future<bool> whenSubmissionsComplete() {
+    if (_inFlight == 0) {
+      final ok = !_failedSinceIdle;
+      _failedSinceIdle = false;
+      return Future<bool>.value(ok);
+    }
+    final waiter = Completer<bool>();
+    _idleWaiters.add(waiter);
+    return waiter.future;
+  }
+
+  void _settleIdleWaiters() {
+    if (_inFlight != 0) return;
+    final ok = !_failedSinceIdle;
+    _failedSinceIdle = false;
+    if (_idleWaiters.isEmpty) return;
+    final waiters = List.of(_idleWaiters);
+    _idleWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete(ok);
+    }
+  }
 
   void dispose() {
     if (_disposed) return;
@@ -4811,7 +4848,10 @@ class _CompiledScene {
       ..completedSubmissions += 1
       ..completionMicros += elapsed
       ..maxCompletionMicros = math.max(stats.maxCompletionMicros, elapsed);
-    if (!success) stats.failedSubmissions++;
+    if (!success) {
+      stats.failedSubmissions++;
+      _failedSinceIdle = true;
+    }
     PdfPerfLog.log(
       'tile gpu complete page=${tracePage ?? '-'} '
       'img=${width}x$height selected=$selectedCommands '
@@ -4819,6 +4859,7 @@ class _CompiledScene {
       'success=$success inFlight=${stats.inFlightSubmissions}',
     );
     _releaseResourcesIfReady();
+    _settleIdleWaiters();
   }
 
   ui.Image render(
@@ -4921,10 +4962,12 @@ class _CompiledScene {
       });
     } catch (_) {
       _inFlight--;
+      _failedSinceIdle = true;
       stats
         ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
         ..failedSubmissions += 1;
       _releaseResourcesIfReady();
+      _settleIdleWaiters();
       rethrow;
     }
     stats
@@ -5857,10 +5900,12 @@ class _CompiledScene {
       }
     } catch (_) {
       _inFlight--;
+      _failedSinceIdle = true;
       stats
         ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
         ..failedSubmissions += 1;
       _releaseResourcesIfReady();
+      _settleIdleWaiters();
       rethrow;
     }
     stats
@@ -6173,10 +6218,12 @@ class _CompiledScene {
       );
     } catch (_) {
       _inFlight--;
+      _failedSinceIdle = true;
       stats
         ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
         ..failedSubmissions += 1;
       _releaseResourcesIfReady();
+      _settleIdleWaiters();
       rethrow;
     }
     stats
