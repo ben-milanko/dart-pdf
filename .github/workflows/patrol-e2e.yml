@@ -361,31 +361,28 @@ jobs:
           --device macos
           --target patrol_test/demo_e2e_test.dart
       # #1270 diagnostic, not a perf gate: interleaved A/B of straight-polyline
-      # submission (stroked path vs drawLine vs drawRawPoints) on Metal, with
-      # the pixel cost of each. Results go to the job summary.
+      # submission (stroked path vs drawLine vs drawRawPoints) on Impeller
+      # Metal, with the pixel cost of each. `flutter test --enable-impeller`
+      # rasterizes on Metal here (as flutter-gpu-smoke relies on) and, unlike
+      # Patrol on macOS, its stdout reaches the log. Results go to the summary.
       - name: A/B straight-polyline submission (#1270)
-        working-directory: ${{ env.EXAMPLE_DIR }}
+        working-directory: packages/dart_pdf_editor
+        env:
+          PDF_POLYLINE_AB: "1"
         run: |
-          name=polyline-ab-results.log
-          # Patrol does not forward the app's print output on macOS, so the
-          # test writes its results into its own temp dir (inside the sandbox
-          # container) and this step reads them back from there.
-          find "$HOME/Library/Containers" "${TMPDIR:-/tmp}" -name "$name" -delete 2>/dev/null || true
-          patrol test \
-            --device macos \
-            --target patrol_test/polyline_ab_perf_test.dart \
-            --show-flutter-logs
-          results="$(find "$HOME/Library/Containers" "${TMPDIR:-/tmp}" -name "$name" -print -quit 2>/dev/null || true)"
-          if [[ -z "$results" ]]; then
-            echo "::error::The polyline A/B passed but left no $name in the app container"
+          log="$RUNNER_TEMP/polyline-ab.log"
+          flutter test --enable-impeller \
+            test/benchmark_polyline_submission_test.dart \
+            --reporter expanded 2>&1 | tee "$log"
+          if ! grep -q '\[polyline-ab\] mode=' "$log"; then
+            echo "::error::The polyline A/B printed no results"
             exit 1
           fi
-          cat "$results"
           {
-            echo "### Straight-polyline submission A/B (#1270, macOS Metal)"
+            echo "### Straight-polyline submission A/B (#1270, macOS Impeller Metal)"
             echo
             echo '```'
-            cat "$results"
+            grep -o '\[polyline-ab\].*' "$log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Patrol macOS result bundle

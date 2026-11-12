@@ -43,9 +43,14 @@ zoom. `closePath` contributes its closing segment.
 
 ## The A/B
 
-`example/patrol_test/polyline_ab_perf_test.dart`, run by the macOS Patrol job
-(Metal). Fixture: `buildSyntheticPlanPolylines()` in pdf_test_fixtures - one
-A3 sheet of 3,000 strokes generated to the plan-set shape above, deterministic
+`test/benchmark_polyline_submission_test.dart` (dart_pdf_editor), run with
+`flutter test --enable-impeller` in the macOS Patrol job
+(Impeller Metal, skipped unless `PDF_POLYLINE_AB` is set). It started as a
+Patrol test, but Patrol on macOS does not forward the app's output to the CLI,
+and a results file written to the app's temp dir did not turn up in the
+sandbox container either; `flutter test` prints straight to the log.
+
+Fixture: `buildSyntheticPlanPolylines()` in pdf_test_fixtures - one A3 sheet of 3,000 strokes generated to the plan-set shape above, deterministic
 (LCG, seeded). One recording, then a warm-up plus 8 repetitions rotating the
 three modes so none always runs first; per mode it logs p50 picture record
 time, p50 raster time (`rasterizeViaLayer` at 2x), picture bytes, and the

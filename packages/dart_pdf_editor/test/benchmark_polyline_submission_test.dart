@@ -2,21 +2,20 @@
 // 3.50's Impeller (UberSDF lines on desktop) rasterize CAD/plan linework
 // faster than a tessellated stroked path, and at what pixel cost?
 //
-// Runs on the macOS Patrol lane (Metal). Every mode is measured in the same
-// process, interleaved, so runner noise hits all of them alike. Results are
-// logged as `[polyline-ab]` lines; CI copies them into the job summary.
-// Nothing here gates on time - only the sanity checks can fail.
-// The A/B switch is a debug seam; this harness is its intended caller.
-// ignore_for_file: invalid_use_of_visible_for_testing_member
-
+//   PDF_POLYLINE_AB=1 fvm flutter test --enable-impeller \
+//     test/benchmark_polyline_submission_test.dart --reporter expanded
+//
+// CI runs it on macOS (Metal) and copies the `[polyline-ab]` lines into the
+// job summary. Every mode is measured in one process, interleaved, so runner
+// noise hits all of them alike. Nothing gates on time - only a "drew the same
+// sheet" sanity bound can fail. Skipped unless PDF_POLYLINE_AB is set.
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
-import 'package:patrol/patrol.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -25,28 +24,18 @@ const _pageRatio = 2.0;
 const _zoomRatio = 8.0;
 
 void main() {
-  patrolTest('A/Bs straight-polyline submission on a plan sheet', ($) async {
-    expect($.isWeb, isFalse);
-    await $.pumpWidget(const MaterialApp(home: SizedBox()));
-    await runPolylineAb();
-    await $.pumpWidget(const SizedBox());
-    await $.pump(const Duration(milliseconds: 50));
+  testWidgets('A/Bs straight-polyline submission on a plan sheet',
+      (tester) async {
+    if (Platform.environment['PDF_POLYLINE_AB'] == null) {
+      markTestSkipped('set PDF_POLYLINE_AB=1');
+      return;
+    }
+    await tester.runAsync(_runPolylineAb);
   });
 }
 
-/// Results file in the app's temporary directory (inside the sandbox
-/// container on macOS). Patrol does not forward the app's print output to the
-/// CLI on macOS, so CI finds this file after the run and copies it into the
-/// job summary instead of grepping the console.
-const polylineAbResultsName = 'polyline-ab-results.log';
-
-File? _results;
-
-void _log(String message) {
-  final line = '[polyline-ab] $message';
-  debugPrint(line);
-  _results?.writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
-}
+// ignore: avoid_print
+void _log(String message) => print('[polyline-ab] $message');
 
 double _p50(List<double> v) {
   final s = [...v]..sort();
@@ -75,10 +64,7 @@ Future<Uint8List> _pixels(ui.Image image) async =>
   return (total / (a.length / 4 * 3), visible / (a.length / 4));
 }
 
-Future<void> runPolylineAb() async {
-  _results = File('${Directory.systemTemp.path}/$polylineAbResultsName');
-  if (_results!.existsSync()) _results!.deleteSync();
-  debugPrint('polyline-ab results file=${_results!.path}');
+Future<void> _runPolylineAb() async {
   final document = PdfDocument.open(buildSyntheticPlanPolylines());
   final page = document.page(0);
   final recorder = RecordingPdfDevice();
@@ -103,7 +89,7 @@ Future<void> runPolylineAb() async {
   _log(
       'fixture strokes=3000 page=${size.width.round()}x${size.height.round()}pt '
       'ratio=$_pageRatio reps=$_repetitions (+1 warm-up) '
-      'platform=${defaultTargetPlatform.name}');
+      'platform=${Platform.operatingSystem}');
   try {
     for (var rep = -1; rep < _repetitions; rep++) {
       // Rotate the order each repetition so no mode always runs first.

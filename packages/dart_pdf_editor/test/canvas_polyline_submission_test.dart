@@ -1,6 +1,6 @@
 // #1270 A/B switch: CanvasPdfDevice.debugStraightPolylines submits straight
 // polylines as line segments. These pin its eligibility rules; the raster
-// timing lives in the macOS Patrol A/B (patrol_test/polyline_ab_perf_test.dart).
+// timing lives in benchmark_polyline_submission_test.dart (run on macOS Metal).
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
