@@ -1410,8 +1410,14 @@ void main() {
         );
         expect(view.complete, isTrue);
         expect(view.placements.length, 16);
-        // Every slice is a real tile-sized image of its own.
-        expect(view.placements.every((p) => p.image.width == 16), isTrue);
+        // Every placement draws a tile-sized cell, all out of the one slab
+        // (#1276: clones of the slab, not a toImageSync copy per tile).
+        expect(
+            view.placements
+                .every((p) => p.src.width == 16 && p.src.height == 16),
+            isTrue);
+        final slab = view.placements.first.image;
+        expect(view.placements.every((p) => p.image.isCloneOf(slab)), isTrue);
         expect(raster.calls.length, 1); // fully cached, nothing new
         store.dispose();
       });
@@ -1473,7 +1479,11 @@ void main() {
           final tx = placement.destFraction.left >= 0.5 ? 1 : 0;
           final ty = placement.destFraction.top >= 0.5 ? 1 : 0;
           final data = (await placement.image.toByteData())!;
-          final o = ((8 * placement.image.width) + 8) * 4; // center pixel
+          // Centre of the cell this placement draws (its own image when
+          // slabs aren't shared, its slab cell when they are).
+          final cx = placement.src.center.dx.floor();
+          final cy = placement.src.center.dy.floor();
+          final o = ((cy * placement.image.width) + cx) * 4;
           final pixel = Color.fromARGB(data.getUint8(o + 3), data.getUint8(o),
               data.getUint8(o + 1), data.getUint8(o + 2));
           expect(pixel, colors[ty * 2 + tx],

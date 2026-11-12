@@ -1100,8 +1100,10 @@ class PdfTileStore extends ChangeNotifier {
             final region = tileRegion(key);
             if (_cache.containsKey(key)) continue;
             final image = _sliceTile(slab, batchRegion, region, ratio);
-            _cache.put(key,
-                PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
+            _cache.put(
+                key,
+                PdfTile(
+                    image, region, key.rung, _fractionOf(region, pageSize)));
             debugTilesLanded++;
             _storePersistentTile(key, image, region, ratio, persistence);
           }
@@ -1153,9 +1155,12 @@ class PdfTileStore extends ChangeNotifier {
         size.width.toDouble(),
         size.height.toDouble(),
       ).intersect(bounds);
-      if (cell.isEmpty) continue;
-      landing.add((key, region, cell));
-      covered += (cell.width * cell.height).round() * 4;
+      // A slab smaller than its batch region leaves a cell partly or wholly
+      // outside it; that tile still lands, drawing only the pixels the slab
+      // has (the copy path left the rest transparent too).
+      final source = cell.isEmpty ? Rect.zero : cell;
+      landing.add((key, region, source));
+      covered += (source.width * source.height).round() * 4;
     }
     if (landing.isEmpty) return;
     final waste = math.max(0, slab.width * slab.height * 4 - covered);
