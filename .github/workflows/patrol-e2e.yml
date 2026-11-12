@@ -360,6 +360,25 @@ jobs:
           patrol test
           --device macos
           --target patrol_test/demo_e2e_test.dart
+      # #1270 diagnostic, not a perf gate: interleaved A/B of straight-polyline
+      # submission (stroked path vs drawLine vs drawRawPoints) on Metal, with
+      # the pixel cost of each. Results go to the job summary.
+      - name: A/B straight-polyline submission (#1270)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          log="$RUNNER_TEMP/polyline-ab.log"
+          patrol test \
+            --device macos \
+            --target patrol_test/polyline_ab_perf_test.dart \
+            --show-flutter-logs \
+            2>&1 | tee "$log"
+          {
+            echo "### Straight-polyline submission A/B (#1270, macOS Metal)"
+            echo
+            echo '```'
+            grep -o '\[polyline-ab\].*' "$log" | sort -u || echo "no [polyline-ab] lines in the log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Patrol macOS result bundle
         if: always()
         uses: actions/upload-artifact@v7

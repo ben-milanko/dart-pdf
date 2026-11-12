@@ -36,6 +36,25 @@ const _redToAlpha = <double>[
   0,
 ];
 
+/// How [CanvasPdfDevice.strokePath] submits a straight, multi-segment,
+/// opaque polyline - an A/B switch for #1270.
+///
+/// Flutter 3.50's Impeller draws lines, rects and rrects analytically
+/// ("UberSDF") on desktop instead of tessellating them, but a general stroked
+/// path is still tessellated on the CPU. About half the strokes on CAD/plan
+/// sheets are straight polylines of 2-11 segments, so this decides whether to
+/// hand them to the engine as segments instead.
+enum PdfPolylineSubmission {
+  /// One `drawPath` per stroke, with the stroke's joins. The default.
+  path,
+
+  /// One `drawLine` per segment: the analytic line path. Joins are lost.
+  lines,
+
+  /// One `drawRawPoints(PointMode.lines)` per stroke. Joins are lost.
+  rawPoints,
+}
+
 /// Paints interpreter callbacks onto a Flutter [Canvas].
 ///
 /// Expects the canvas to be set up in page space (PDF user space, y-up); the
@@ -324,6 +343,19 @@ class CanvasPdfDevice
   static bool debugReuseSolidPaints = true;
   @visibleForTesting
   static bool debugDrawSimpleLines = true;
+
+  /// #1270 A/B: how straight polylines are submitted. Off ([path]) until the
+  /// macOS A/B shows a raster win at an acceptable pixel cost.
+  @visibleForTesting
+  static PdfPolylineSubmission debugStraightPolylines =
+      PdfPolylineSubmission.path;
+
+  /// The widest stroke (in page units) [debugStraightPolylines] decomposes.
+  /// Splitting a polyline into segments drops its joins; on thin linework the
+  /// missing miter wedge is sub-pixel at reading zoom. Plan sheets top out at
+  /// 1 pt.
+  @visibleForTesting
+  static double debugStraightPolylineMaxWidth = 1.0;
 
   /// Overprint fallback-compositing kill switch (the A/B baseline is "off").
   /// Off, [setOverprint] still records the state but fills/strokes composite
@@ -834,6 +866,15 @@ class CanvasPdfDevice
         }
       }
     }
+    if (debugStraightPolylines != PdfPolylineSubmission.path &&
+        path.segmentCount > 2 &&
+        alpha >= 1 &&
+        stroke.width <= debugStraightPolylineMaxWidth &&
+        !stroke.dashArray.any((d) => d > 0) &&
+        _strokeElementBlend == BlendMode.srcOver &&
+        _drawStraightPolyline(path, _solidStrokePaint(color, stroke, alpha))) {
+      return;
+    }
     var uiPath = _cachedUiPath(path, PdfFillRule.nonzero);
     if (stroke.dashArray.any((d) => d > 0)) {
       uiPath = _dashPath(uiPath, stroke.dashArray, stroke.dashPhase);
@@ -842,6 +883,61 @@ class CanvasPdfDevice
       uiPath,
       _solidStrokePaint(color, stroke, alpha),
     );
+  }
+
+  /// Draws [path] as independent segments if every verb is a move, line or
+  /// close; returns false (drawing nothing) if it has a curve. Opaque,
+  /// srcOver-only by the caller: segments overlap at their shared vertices, so
+  /// translucent paint would double-cover the joins.
+  bool _drawStraightPolyline(PdfPath path, Paint paint) {
+    final points = Float32List(path.segmentCount * 4);
+    var n = 0;
+    var startX = 0.0, startY = 0.0, lastX = 0.0, lastY = 0.0;
+    var open = false;
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
+          startX = lastX = cursor.x1;
+          startY = lastY = cursor.y1;
+          open = true;
+        case PdfPathVerb.lineTo:
+          if (!open) return false;
+          points
+            ..[n++] = lastX
+            ..[n++] = lastY
+            ..[n++] = cursor.x1
+            ..[n++] = cursor.y1;
+          lastX = cursor.x1;
+          lastY = cursor.y1;
+        case PdfPathVerb.close:
+          if (open && (lastX != startX || lastY != startY)) {
+            points
+              ..[n++] = lastX
+              ..[n++] = lastY
+              ..[n++] = startX
+              ..[n++] = startY;
+          }
+          lastX = startX;
+          lastY = startY;
+        case PdfPathVerb.cubicTo:
+          return false;
+      }
+    }
+    if (n == 0) return false;
+    switch (debugStraightPolylines) {
+      case PdfPolylineSubmission.lines:
+        for (var i = 0; i < n; i += 4) {
+          canvas.drawLine(Offset(points[i], points[i + 1]),
+              Offset(points[i + 2], points[i + 3]), paint);
+        }
+      case PdfPolylineSubmission.rawPoints:
+        canvas.drawRawPoints(
+            ui.PointMode.lines, Float32List.sublistView(points, 0, n), paint);
+      case PdfPolylineSubmission.path:
+        return false;
+    }
+    return true;
   }
 
   Paint _solidFillPaint(PdfColor color, double alpha) {
