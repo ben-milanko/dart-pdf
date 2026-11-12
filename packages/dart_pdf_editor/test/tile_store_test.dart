@@ -1410,9 +1410,60 @@ void main() {
         );
         expect(view.complete, isTrue);
         expect(view.placements.length, 16);
-        // Every slice is a real tile-sized image of its own.
-        expect(view.placements.every((p) => p.image.width == 16), isTrue);
+        // Every placement draws a tile-sized cell, all out of the one slab
+        // (#1276: clones of the slab, not a toImageSync copy per tile).
+        expect(
+            view.placements
+                .every((p) => p.src.width == 16 && p.src.height == 16),
+            isTrue);
+        final slab = view.placements.first.image;
+        expect(view.placements.every((p) => p.image.isCloneOf(slab)), isTrue);
         expect(raster.calls.length, 1); // fully cached, nothing new
+        store.dispose();
+      });
+    });
+
+    testWidgets(
+        'a batch spanning cached cells copies its tiles instead of sharing '
+        'a half-unused slab', (tester) async {
+      // #1276 follow-up: the native mobile tile gate fills a 64 MB budget with
+      // exactly 64 one-MB tiles. A prefetch slab whose box spanned four cached
+      // cells charged its unused half to the four new tiles, so the budget
+      // filled at 60. Such a batch now slices per tile, as before.
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(32, 32);
+        PdfTileView view(Rect visible) => store.viewFor(
+              id: _id(0),
+              pageSize: pageSize,
+              desiredRatio: 1.0,
+              visiblePageRect: visible,
+              rasterize: raster.call,
+            );
+        // Cache the two diagonal cells first.
+        view(const Rect.fromLTWH(0, 0, 16, 16));
+        await raster.flush();
+        view(const Rect.fromLTWH(16, 16, 16, 16));
+        await raster.flush();
+        expect(store.tileCount, 2);
+
+        // The other two are half of their 2x2 box: one 32x32 slab, half of
+        // it already cached.
+        view(const Rect.fromLTWH(0, 0, 32, 32));
+        expect(raster.calls.last.region, const Rect.fromLTWH(0, 0, 32, 32));
+        await raster.flush();
+        expect(store.tileCount, 4);
+        expect(store.retainedBytes, 4 * 16 * 16 * 4,
+            reason: 'every tile costs exactly its own pixels');
+        final placements = view(const Rect.fromLTWH(0, 0, 32, 32)).placements;
+        expect(placements.every((p) => p.image.width == 16), isTrue,
+            reason: 'copied tiles, not clones of the half-used slab');
         store.dispose();
       });
     });
@@ -1473,7 +1524,11 @@ void main() {
           final tx = placement.destFraction.left >= 0.5 ? 1 : 0;
           final ty = placement.destFraction.top >= 0.5 ? 1 : 0;
           final data = (await placement.image.toByteData())!;
-          final o = ((8 * placement.image.width) + 8) * 4; // center pixel
+          // Centre of the cell this placement draws (its own image when
+          // slabs aren't shared, its slab cell when they are).
+          final cx = placement.src.center.dx.floor();
+          final cy = placement.src.center.dy.floor();
+          final o = ((cy * placement.image.width) + cx) * 4;
           final pixel = Color.fromARGB(data.getUint8(o + 3), data.getUint8(o),
               data.getUint8(o + 1), data.getUint8(o + 2));
           expect(pixel, colors[ty * 2 + tx],
