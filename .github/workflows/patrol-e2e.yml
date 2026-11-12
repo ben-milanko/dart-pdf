@@ -366,17 +366,26 @@ jobs:
       - name: A/B straight-polyline submission (#1270)
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
-          log="$RUNNER_TEMP/polyline-ab.log"
+          name=polyline-ab-results.log
+          # Patrol does not forward the app's print output on macOS, so the
+          # test writes its results into its own temp dir (inside the sandbox
+          # container) and this step reads them back from there.
+          find "$HOME/Library/Containers" "${TMPDIR:-/tmp}" -name "$name" -delete 2>/dev/null || true
           patrol test \
             --device macos \
             --target patrol_test/polyline_ab_perf_test.dart \
-            --show-flutter-logs \
-            2>&1 | tee "$log"
+            --show-flutter-logs
+          results="$(find "$HOME/Library/Containers" "${TMPDIR:-/tmp}" -name "$name" -print -quit 2>/dev/null || true)"
+          if [[ -z "$results" ]]; then
+            echo "::error::The polyline A/B passed but left no $name in the app container"
+            exit 1
+          fi
+          cat "$results"
           {
             echo "### Straight-polyline submission A/B (#1270, macOS Metal)"
             echo
             echo '```'
-            grep -o '\[polyline-ab\].*' "$log" | sort -u || echo "no [polyline-ab] lines in the log"
+            cat "$results"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Patrol macOS result bundle

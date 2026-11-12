@@ -9,6 +9,7 @@
 // The A/B switch is a debug seam; this harness is its intended caller.
 // ignore_for_file: invalid_use_of_visible_for_testing_member
 
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -33,7 +34,19 @@ void main() {
   });
 }
 
-void _log(String message) => debugPrint('[polyline-ab] $message');
+/// Results file in the app's temporary directory (inside the sandbox
+/// container on macOS). Patrol does not forward the app's print output to the
+/// CLI on macOS, so CI finds this file after the run and copies it into the
+/// job summary instead of grepping the console.
+const polylineAbResultsName = 'polyline-ab-results.log';
+
+File? _results;
+
+void _log(String message) {
+  final line = '[polyline-ab] $message';
+  debugPrint(line);
+  _results?.writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+}
 
 double _p50(List<double> v) {
   final s = [...v]..sort();
@@ -63,6 +76,9 @@ Future<Uint8List> _pixels(ui.Image image) async =>
 }
 
 Future<void> runPolylineAb() async {
+  _results = File('${Directory.systemTemp.path}/$polylineAbResultsName');
+  if (_results!.existsSync()) _results!.deleteSync();
+  debugPrint('polyline-ab results file=${_results!.path}');
   final document = PdfDocument.open(buildSyntheticPlanPolylines());
   final page = document.page(0);
   final recorder = RecordingPdfDevice();
