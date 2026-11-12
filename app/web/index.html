@@ -435,6 +435,144 @@
     })();
   </script>
 
+  <!-- On-screen keyboard settle. Flutter web measures the page only when the
+       visual viewport fires 'resize', and on iOS (Safari, and Brave/Chrome on
+       WebKit) the last resize of a keyboard dismissal can arrive while the
+       keyboard is still animating away, or before the text field has blurred.
+       Flutter then keeps a short physical size or a stale keyboard inset, and
+       the body shows through as a blank band under the app until something
+       else resizes the window. Once the viewport has been quiet for a moment
+       and no field is focused, undo any document scroll iOS left behind for the focused input and
+       re-send 'resize' so Flutter measures the settled viewport. Mobile only:
+       desktop resizes already end on a real event. -->
+  <script>
+    (function () {
+      var vv = window.visualViewport;
+      if (!vv) return;
+      var coarse = window.matchMedia &&
+        window.matchMedia('(pointer: coarse)').matches;
+      var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!coarse && !ios) return;
+
+      // The keyboard animation runs ~250-500 ms; re-measure across it.
+      var SETTLE_MS = [120, 360, 800];
+      var timers = [];
+      var resending = false;
+
+      function editing() {
+        var el = document.activeElement;
+        if (!el) return false;
+        var tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+      }
+
+      function settle() {
+        // Only once nothing is being edited. While a field is focused the
+        // engine's own resize events carry the keyboard inset, and opening an
+        // inline text box hands focus from the keyboard primer
+        // (soft_keyboard_primer_web.dart) to Flutter's textarea - re-measuring
+        // or scrolling across that handoff can cost the keyboard.
+        if (editing()) return;
+        if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+        resending = true;
+        try {
+          vv.dispatchEvent(new Event('resize'));
+        } finally {
+          resending = false;
+        }
+      }
+
+      function schedule() {
+        if (resending) return;
+        for (var i = 0; i < timers.length; i++) window.clearTimeout(timers[i]);
+        timers = SETTLE_MS.map(function (ms) {
+          return window.setTimeout(settle, ms);
+        });
+      }
+
+      vv.addEventListener('resize', schedule);
+      vv.addEventListener('scroll', schedule);
+      window.addEventListener('resize', schedule);
+      window.addEventListener('orientationchange', schedule);
+      // A dismissal that doesn't resize at all (iOS can skip the final
+      // event) still blurs the field.
+      document.addEventListener('focusout', schedule, true);
+    })();
+  </script>
+
+  <!-- Viewport readout for diagnosing the keyboard band on a device: open the
+       app with ?vpdebug in the URL. Shows what the browser reports (layout
+       and visual viewport, document scroll, focused element) next to what
+       Flutter is drawing (the flutter-view's canvas), plus the last few
+       viewport/focus events. Off unless asked for; inert to touch. -->
+  <script>
+    (function () {
+      if (!/[?&#]vpdebug\b/.test(location.search + location.hash)) return;
+      var box = document.createElement('pre');
+      box.setAttribute('aria-hidden', 'true');
+      box.style.cssText = 'position:fixed;left:4px;top:40%;z-index:2147483647;' +
+        'margin:0;padding:6px 8px;font:11px/1.35 ui-monospace,Menlo,monospace;' +
+        'color:#0f0;background:rgba(0,0,0,.78);border-radius:6px;' +
+        'pointer-events:none;white-space:pre;max-width:96vw;overflow:hidden;';
+      var log = [];
+      var t0 = Date.now();
+      function note(what) {
+        var vv = window.visualViewport;
+        log.push(((Date.now() - t0) / 1000).toFixed(2) + ' ' + what +
+          (vv ? ' vv=' + Math.round(vv.height) : ''));
+        if (log.length > 12) log.shift();
+      }
+      function r(n) { return Math.round(n); }
+      function render() {
+        var vv = window.visualViewport;
+        var de = document.documentElement;
+        var view = document.querySelector('flutter-view');
+        var canvasH = 0;
+        if (view) {
+          view.querySelectorAll('canvas').forEach(function (c) {
+            var h = c.getBoundingClientRect().height;
+            if (h > canvasH) canvasH = h;
+          });
+        }
+        var a = document.activeElement;
+        box.textContent = [
+          'inner  ' + r(innerWidth) + 'x' + r(innerHeight) +
+            '  client ' + de.clientWidth + 'x' + de.clientHeight,
+          'vv     ' + (vv ? r(vv.width) + 'x' + r(vv.height) +
+            ' top=' + r(vv.offsetTop) + ' scale=' + vv.scale.toFixed(2) : '-'),
+          'scroll ' + r(scrollX) + ',' + r(scrollY) +
+            '  dpr ' + devicePixelRatio,
+          'view   ' + (view ? r(view.getBoundingClientRect().height) : '-') +
+            '  canvas ' + r(canvasH),
+          'focus  ' + (a ? a.tagName.toLowerCase() : '-'),
+          '--'
+        ].concat(log).join('\n');
+      }
+      var vv = window.visualViewport;
+      if (vv) {
+        vv.addEventListener('resize', function () { note('vv.resize'); });
+        vv.addEventListener('scroll', function () { note('vv.scroll'); });
+      }
+      window.addEventListener('resize', function () { note('win.resize'); });
+      document.addEventListener('focusin', function (e) {
+        note('focusin ' + e.target.tagName.toLowerCase());
+      }, true);
+      document.addEventListener('focusout', function (e) {
+        note('focusout ' + e.target.tagName.toLowerCase());
+      }, true);
+      ['pointerup', 'touchend'].forEach(function (type) {
+        document.addEventListener(type, function () { note(type); }, true);
+      });
+      function attach() {
+        if (document.body) document.body.appendChild(box);
+        else window.setTimeout(attach, 50);
+      }
+      attach();
+      window.setInterval(render, 250);
+    })();
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
