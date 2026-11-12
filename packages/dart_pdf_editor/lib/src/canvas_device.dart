@@ -390,6 +390,16 @@ class CanvasPdfDevice
     return cache[key] = create();
   }
 
+  /// The interned stencil filter for [color] (tests check identity).
+  @visibleForTesting
+  static ColorFilter debugStencilFilter(Color color) => _stencilFilter(color);
+
+  /// The interned soft-mask transfer filter (tests check identity).
+  @visibleForTesting
+  static ColorFilter debugTransferFilter(
+          bool luminosity, double scale, double offset) =>
+      _transferFilter(luminosity, scale, offset);
+
   static ColorFilter _stencilFilter(Color color) => _interned(_stencilFilters,
       color.toARGB32(), () => ColorFilter.mode(color, BlendMode.srcIn));
 

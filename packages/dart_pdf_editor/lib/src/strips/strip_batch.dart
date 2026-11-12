@@ -68,8 +68,7 @@ class StripBatch {
   Future<void> decodeAtlas() {
     final completer = Completer<void>();
     ui.decodeImageFromPixels(
-        atlasPixels, atlasWidth, atlasHeight, ui.PixelFormat.rgba8888,
-        (image) {
+        atlasPixels, atlasWidth, atlasHeight, ui.PixelFormat.rgba8888, (image) {
       atlas = image;
       completer.complete();
     });

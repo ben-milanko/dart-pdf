@@ -905,6 +905,10 @@ class PdfPageRenderer {
   /// byte-identical.
   static Future<ui.Image> rasterizeViaLayer(
       ui.Picture picture, Size size, double pixelRatio) async {
+    // Flutter 3.50's SceneBuilder.addPicture silently skips a disposed
+    // picture (and would rasterize a blank page) instead of throwing, which
+    // would hide a lease-lifecycle bug. Keep it loud in debug builds (#1273).
+    assert(!picture.debugDisposed, 'rasterizeViaLayer on a disposed picture');
     final builder = ui.SceneBuilder()
       ..pushTransform(Float64List.fromList(<double>[
         pixelRatio, 0, 0, 0, //
