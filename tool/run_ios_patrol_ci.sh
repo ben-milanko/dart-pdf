@@ -41,6 +41,9 @@ scenarios=(
   gpu-native-page-0-first-tile
   gpu-native-page-0-canvas-tile
   gpu-native-page-0-reused-tile
+  gpu-native-page-0-first-tile-readback
+  gpu-native-page-0-canvas-tile-readback
+  gpu-native-page-0-reused-tile-readback
 )
 require_one=()
 for scenario in "${scenarios[@]}"; do
