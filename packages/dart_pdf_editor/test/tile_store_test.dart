@@ -1423,6 +1423,51 @@ void main() {
       });
     });
 
+    testWidgets(
+        'a batch spanning cached cells copies its tiles instead of sharing '
+        'a half-unused slab', (tester) async {
+      // #1276 follow-up: the native mobile tile gate fills a 64 MB budget with
+      // exactly 64 one-MB tiles. A prefetch slab whose box spanned four cached
+      // cells charged its unused half to the four new tiles, so the budget
+      // filled at 60. Such a batch now slices per tile, as before.
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(32, 32);
+        PdfTileView view(Rect visible) => store.viewFor(
+              id: _id(0),
+              pageSize: pageSize,
+              desiredRatio: 1.0,
+              visiblePageRect: visible,
+              rasterize: raster.call,
+            );
+        // Cache the two diagonal cells first.
+        view(const Rect.fromLTWH(0, 0, 16, 16));
+        await raster.flush();
+        view(const Rect.fromLTWH(16, 16, 16, 16));
+        await raster.flush();
+        expect(store.tileCount, 2);
+
+        // The other two are half of their 2x2 box: one 32x32 slab, half of
+        // it already cached.
+        view(const Rect.fromLTWH(0, 0, 32, 32));
+        expect(raster.calls.last.region, const Rect.fromLTWH(0, 0, 32, 32));
+        await raster.flush();
+        expect(store.tileCount, 4);
+        expect(store.retainedBytes, 4 * 16 * 16 * 4,
+            reason: 'every tile costs exactly its own pixels');
+        final placements = view(const Rect.fromLTWH(0, 0, 32, 32)).placements;
+        expect(placements.every((p) => p.image.width == 16), isTrue,
+            reason: 'copied tiles, not clones of the half-used slab');
+        store.dispose();
+      });
+    });
+
     testWidgets('slab slices land each tile\'s own pixels', (tester) async {
       await tester.runAsync(() async {
         final store = PdfTileStore(

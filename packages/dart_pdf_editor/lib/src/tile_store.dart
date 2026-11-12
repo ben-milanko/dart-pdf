@@ -1093,9 +1093,10 @@ class PdfTileStore extends ChangeNotifier {
       }
       final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       try {
-        if (shareSlabs && persistence == null) {
-          _landShared(batch, slab, batchRegion, tileRegion, ratio, pageSize);
-        } else {
+        if (!(shareSlabs &&
+            persistence == null &&
+            _landShared(
+                batch, slab, batchRegion, tileRegion, ratio, pageSize))) {
           for (final key in batch) {
             final region = tileRegion(key);
             if (_cache.containsKey(key)) continue;
@@ -1133,7 +1134,12 @@ class PdfTileStore extends ChangeNotifier {
 
   /// [shareSlabs] landing: every new tile in [batch] gets its own clone of
   /// [slab] (the caller disposes the original) and its cell as the source.
-  void _landShared(
+  ///
+  /// Returns false, landing nothing, when more than [_maxSharedSlabWaste] of
+  /// the slab would be pixels no new tile draws (cells already cached when
+  /// the batch rastered): keeping that slab alive would cost the budget more
+  /// than the copies it saves, so the caller slices it as before.
+  bool _landShared(
     List<PdfTileKey> batch,
     ui.Image slab,
     Rect batchRegion,
@@ -1162,8 +1168,11 @@ class PdfTileStore extends ChangeNotifier {
       landing.add((key, region, source));
       covered += (source.width * source.height).round() * 4;
     }
-    if (landing.isEmpty) return;
-    final waste = math.max(0, slab.width * slab.height * 4 - covered);
+    final slabBytes = slab.width * slab.height * 4;
+    final waste = math.max(0, slabBytes - covered);
+    if (landing.isEmpty || waste > slabBytes * _maxSharedSlabWaste) {
+      return false;
+    }
     final share = waste ~/ landing.length;
     for (final (key, region, cell) in landing) {
       _cache.put(
@@ -1172,7 +1181,13 @@ class PdfTileStore extends ChangeNotifier {
               source: cell, sharedBytes: share));
       debugTilesLanded++;
     }
+    return true;
   }
+
+  /// See [_landShared]: the largest unused fraction of a slab worth sharing.
+  /// A cold settle (every cell new) wastes nothing; a revisit batch whose
+  /// bounding box spans cached cells copies instead.
+  static const _maxSharedSlabWaste = 0.125;
 
   /// Cuts one tile out of a batch slab: a 1:1 `drawImageRect` blit converted
   /// with `toImageSync`, so the tile becomes its own GPU-resident texture
