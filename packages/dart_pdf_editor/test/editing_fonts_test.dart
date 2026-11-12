@@ -9,6 +9,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/font_registration.dart';
+
 /// The TrueType fixture lives in pdf_document's test tree.
 final _fontBytes =
     File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
@@ -268,6 +270,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-font-std-serif')));
       await tester.pumpAndSettle();
       expect(c.fontFamily.family, PdfStandardFontFamily.serif);
+      // Opening the menu registers the bundled previews for the first time.
+      await settleFontRegistration(tester);
     });
 
     testWidgets('font choices can be searched', (tester) async {
@@ -415,6 +419,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.activeFont, isNotNull);
       expect(c.activeFontLabel, contains('DejaVu'));
+      // The menu registered the document font's preview face.
+      await settleFontRegistration(tester);
     });
 
     testWidgets('a document font row previews in its own registered face',
