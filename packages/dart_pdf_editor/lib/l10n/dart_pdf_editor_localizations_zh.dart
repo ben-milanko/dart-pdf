@@ -1859,6 +1859,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbReflowFailed => '无法重排 - 这不是此工具可重新排版的单栏段落。请改用“替换文本”。';
 
   @override
+  String get tbConvertToFreeText => '转换为文本框';
+
+  @override
   String get tbReflowParagraph => '重排段落';
 
   @override
@@ -4423,6 +4426,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbReflowFailed => '無法重排 - 這不是此工具可重新換行的單欄段落。請改用「取代文字」。';
+
+  @override
+  String get tbConvertToFreeText => '轉換為文字方塊';
 
   @override
   String get tbReflowParagraph => '重排段落';

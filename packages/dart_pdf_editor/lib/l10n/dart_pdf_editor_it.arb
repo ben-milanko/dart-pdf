@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Oscuramenti applicati",
   "tbRedoShortcut": "Ripeti (⇧⌘Z)",
   "tbReflowFailed": "Impossibile ridisporre - non è un paragrafo a colonna singola che questo strumento può riformattare. Prova invece Sostituisci testo.",
+  "tbConvertToFreeText": "Converti in casella di testo",
   "tbReflowParagraph": "Ridisponi paragrafo",
   "tbRenameField": "Rinomina campo",
   "tbRenameFieldEllipsis": "Rinomina campo…",

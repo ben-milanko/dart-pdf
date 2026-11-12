@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Tarjas aplicadas",
   "tbRedoShortcut": "Refazer (⇧⌘Z)",
   "tbReflowFailed": "Não foi possível refluir - este não é um parágrafo de coluna única que esta ferramenta possa reajustar. Tente Substituir texto.",
+  "tbConvertToFreeText": "Converter em caixa de texto",
   "tbReflowParagraph": "Refluir parágrafo",
   "tbRenameField": "Renomear campo",
   "tbRenameFieldEllipsis": "Renomear campo…",

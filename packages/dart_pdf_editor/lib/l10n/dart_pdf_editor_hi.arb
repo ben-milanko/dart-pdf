@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "रिडैक्शन लागू किए गए",
   "tbRedoShortcut": "फिर से करें (⇧⌘Z)",
   "tbReflowFailed": "रीफ़्लो नहीं कर सके - यह एकल-स्तंभ अनुच्छेद नहीं है जिसे यह टूल फिर से लपेट सके। इसके बजाय टेक्स्ट बदलें आज़माएँ।",
+  "tbConvertToFreeText": "टेक्स्ट बॉक्स में बदलें",
   "tbReflowParagraph": "अनुच्छेद रीफ़्लो करें",
   "tbRenameField": "फ़ील्ड का नाम बदलें",
   "tbRenameFieldEllipsis": "फ़ील्ड का नाम बदलें…",

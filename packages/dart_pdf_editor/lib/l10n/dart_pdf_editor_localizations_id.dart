@@ -1883,6 +1883,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
       'Tidak dapat mengalirkan ulang - ini bukan paragraf satu kolom yang dapat dibungkus ulang alat ini. Coba Ganti teks sebagai gantinya.';
 
   @override
+  String get tbConvertToFreeText => 'Ubah menjadi kotak teks';
+
+  @override
   String get tbReflowParagraph => 'Alir ulang paragraf';
 
   @override

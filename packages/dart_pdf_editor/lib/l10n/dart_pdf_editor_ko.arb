@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "교정이 적용되었습니다",
   "tbRedoShortcut": "다시 실행 (⇧⌘Z)",
   "tbReflowFailed": "리플로우할 수 없음 - 이 도구가 다시 배치할 수 있는 단일 열 단락이 아닙니다. 대신 텍스트 바꾸기를 사용해 보세요.",
+  "tbConvertToFreeText": "텍스트 상자로 변환",
   "tbReflowParagraph": "단락 리플로우",
   "tbRenameField": "필드 이름 바꾸기",
   "tbRenameFieldEllipsis": "필드 이름 바꾸기…",

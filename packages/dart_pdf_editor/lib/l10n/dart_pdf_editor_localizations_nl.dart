@@ -1883,6 +1883,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
       'Kan niet herschikken - dit is geen enkelkoloms alinea die deze tool opnieuw kan afbreken. Probeer in plaats daarvan Tekst vervangen.';
 
   @override
+  String get tbConvertToFreeText => 'Omzetten naar tekstvak';
+
+  @override
   String get tbReflowParagraph => 'Alinea herschikken';
 
   @override

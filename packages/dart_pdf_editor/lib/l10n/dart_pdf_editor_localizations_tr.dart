@@ -1877,6 +1877,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
       'Yeniden akıtılamadı - bu, bu aracın yeniden sarabileceği tek sütunlu bir paragraf değil. Bunun yerine Metni değiştir\'i deneyin.';
 
   @override
+  String get tbConvertToFreeText => 'Metin kutusuna dönüştür';
+
+  @override
   String get tbReflowParagraph => 'Paragrafı yeniden akıt';
 
   @override

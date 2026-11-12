@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Redaksi diterapkan",
   "tbRedoShortcut": "Ulangi (⇧⌘Z)",
   "tbReflowFailed": "Tidak dapat mengalirkan ulang - ini bukan paragraf satu kolom yang dapat dibungkus ulang alat ini. Coba Ganti teks sebagai gantinya.",
+  "tbConvertToFreeText": "Ubah menjadi kotak teks",
   "tbReflowParagraph": "Alir ulang paragraf",
   "tbRenameField": "Ganti nama bidang",
   "tbRenameFieldEllipsis": "Ganti nama bidang…",

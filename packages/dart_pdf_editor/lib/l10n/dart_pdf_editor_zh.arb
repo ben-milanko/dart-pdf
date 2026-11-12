@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "已应用密文遮盖",
   "tbRedoShortcut": "重做 (⇧⌘Z)",
   "tbReflowFailed": "无法重排 - 这不是此工具可重新排版的单栏段落。请改用“替换文本”。",
+  "tbConvertToFreeText": "转换为文本框",
   "tbReflowParagraph": "重排段落",
   "tbRenameField": "重命名字段",
   "tbRenameFieldEllipsis": "重命名字段…",

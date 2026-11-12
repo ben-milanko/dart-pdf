@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "ใช้การปิดบังข้อมูลแล้ว",
   "tbRedoShortcut": "ทำซ้ำ (⇧⌘Z)",
   "tbReflowFailed": "ไม่สามารถจัดเรียงใหม่ได้ - นี่ไม่ใช่ย่อหน้าคอลัมน์เดียวที่เครื่องมือนี้จัดเรียงใหม่ได้ ลองใช้แทนที่ข้อความแทน",
+  "tbConvertToFreeText": "แปลงเป็นกล่องข้อความ",
   "tbReflowParagraph": "จัดเรียงย่อหน้าใหม่",
   "tbRenameField": "เปลี่ยนชื่อช่อง",
   "tbRenameFieldEllipsis": "เปลี่ยนชื่อช่อง…",

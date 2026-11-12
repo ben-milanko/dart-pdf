@@ -558,6 +558,7 @@
   "tbRedactionsApplied": "Redactions applied",
   "tbRedoShortcut": "Redo (⇧⌘Z)",
   "tbReflowFailed": "Couldn't reflow - this isn't a single-column paragraph this tool can re-wrap. Try Replace text instead.",
+  "tbConvertToFreeText": "Convert to text box",
   "tbReflowParagraph": "Reflow paragraph",
   "tbRenameField": "Rename field",
   "tbRenameFieldEllipsis": "Rename field…",

@@ -1882,6 +1882,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
       'Umbruch nicht möglich - dies ist kein einspaltiger Absatz, den dieses Werkzeug neu umbrechen kann. Verwenden Sie stattdessen Text ersetzen.';
 
   @override
+  String get tbConvertToFreeText => 'In Textfeld umwandeln';
+
+  @override
   String get tbReflowParagraph => 'Absatz umbrechen';
 
   @override
