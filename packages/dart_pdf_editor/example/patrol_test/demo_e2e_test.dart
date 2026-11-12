@@ -127,8 +127,13 @@ void main() {
       );
       await demo.waitForFinder(find.byType(PdfReader));
       expect($(PdfEditorView), findsNothing);
-      expect(demo.viewer.currentPage, 5,
-          reason: 'mode switches preserve the reading position');
+      // The new shell restores the saved viewport after its preferences load
+      // and its first layout, so the page settles a few frames after the
+      // widget appears.
+      await demo.waitFor(
+        () => demo.viewer.currentPage == 5,
+        reason: 'mode switches preserve the reading position',
+      );
 
       await demo.chooseAppMenuItem(
         'Switch to edit mode',
@@ -136,7 +141,10 @@ void main() {
       );
       await demo.waitForFinder(find.byType(PdfEditorView));
       expect($(PdfReader), findsNothing);
-      expect(demo.viewer.currentPage, 5);
+      await demo.waitFor(
+        () => demo.viewer.currentPage == 5,
+        reason: 'mode switches preserve the reading position',
+      );
     } finally {
       await demo.close();
     }
@@ -282,13 +290,9 @@ void main() {
       PdfFormField field(String name) =>
           demo.editing.acroForm!.fields.firstWhere((f) => f.name == name);
 
-      await demo.tapFormField('name');
-      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
-      expect(editor, findsOneWidget);
-      await $.tester.enterText(editor, 'Grace Hopper');
-      await $.tester.testTextInput.receiveAction(TextInputAction.done);
-      await $.pump(const Duration(milliseconds: 400));
-      await demo.waitFor(
+      await demo.fillTextFieldUntil(
+        'name',
+        'Grace Hopper',
         () => field('name').value == 'Grace Hopper',
         reason: 'the text-field revision should finish before validation',
       );
@@ -480,6 +484,37 @@ class _DemoHarness {
     for (var attempt = 0; attempt < 2; attempt++) {
       await tapFormField(name, widgetIndex: widgetIndex);
       for (var i = 0; i < 20 && !changed(); i++) {
+        await $.pump(const Duration(milliseconds: 100));
+      }
+      if (changed()) return;
+    }
+    expect(changed(), isTrue, reason: reason);
+  }
+
+  /// Types [value] into a text form field through its inline editor and
+  /// submits it, retrying the whole tap-type-submit once when a slow Android
+  /// emulator loses the edit while the viewer is still framing the field.
+  ///
+  /// The commit itself is synchronous, so a lost edit shows up as no new
+  /// revision at all rather than a slow one; waiting longer would not help.
+  /// Like [tapFormFieldUntil], every attempt goes through the live overlay.
+  Future<void> fillTextFieldUntil(
+    String name,
+    String value,
+    bool Function() changed, {
+    required String reason,
+    int widgetIndex = 0,
+  }) async {
+    final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (editor.evaluate().isEmpty) {
+        await tapFormField(name, widgetIndex: widgetIndex);
+      }
+      await waitForFinder(editor, attempts: 20);
+      await tester.enterText(editor, value);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await $.pump(const Duration(milliseconds: 400));
+      for (var i = 0; i < 40 && !changed(); i++) {
         await $.pump(const Duration(milliseconds: 100));
       }
       if (changed()) return;
