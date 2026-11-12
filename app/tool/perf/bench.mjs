@@ -177,11 +177,24 @@ function main() {
   // bundle, its `_drive()` falls through to the default `scroll` case, and
   // the table silently compares two different workloads - the baseline column
   // simply has no rows for the new metrics. Build artefacts stay behind.
+  // Keep the ref's own Flutter constraint: today's harness pubspec names
+  // today's SDK floor, and a ref from before an SDK bump (built by its own
+  // .fvmrc) would otherwise fail version solving before measuring anything.
+  const refHarnessPubspec = join(wt, 'app', 'tool', 'perf_harness', 'pubspec.yaml');
+  const flutterConstraint = /^(\s+flutter:\s*)(['"][^'"\n]*['"])\s*$/m;
+  const refConstraint = existsSync(refHarnessPubspec)
+    ? readFileSync(refHarnessPubspec, 'utf8').match(flutterConstraint)?.[2]
+    : undefined;
   cpSync(join(APP_DIR, 'tool', 'perf_harness'),
       join(wt, 'app', 'tool', 'perf_harness'), {
     recursive: true,
     filter: (src) => !/[/\\](build|\.dart_tool)([/\\]|$)/.test(src),
   });
+  if (refConstraint) {
+    const copied = readFileSync(refHarnessPubspec, 'utf8');
+    writeFileSync(refHarnessPubspec,
+        copied.replace(flutterConstraint, (_, key) => `${key}${refConstraint}`));
+  }
   matchHarnessDesignLibrary(sha, wt);
   build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
