@@ -19,6 +19,11 @@ part of 'editor.dart';
 ///
 /// Capture with [PdfVectorSnapshotEditing.captureVectorSnapshot].
 ///
+/// Links over the region travel too ([links]): a capture keeps each /Link
+/// whose action is portable (a /URI - see [PdfSnapshotLink]), a paste
+/// re-creates them as live /Link annotations tied to the pasted stamp, and
+/// [toPdfBytes] writes them onto its page.
+///
 /// Size note: the whole page's content stream travels with the snapshot
 /// (only the form BBox clips it), so a small snap of a content-heavy page
 /// still embeds that page's operators once. Repeated pastes of the *same*
@@ -26,7 +31,8 @@ part of 'editor.dart';
 /// duplicating it (see [PdfVectorSnapshotEditing.pasteVectorSnapshot]).
 class PdfVectorSnapshot {
   PdfVectorSnapshot._(this.region, this.displayWidth, this.displayHeight,
-      this._content, this._resources, this._matrix);
+      this._content, this._resources, this._matrix,
+      [this.links = const []]);
 
   /// Imports the first page of a PDF as a detached vector snapshot.
   ///
@@ -67,13 +73,19 @@ class PdfVectorSnapshot {
   /// page, a rotation+translation for 90/180/270.
   final List<double> _matrix;
 
+  /// The links captured over the region, in the upright
+  /// `[0 0 displayWidth displayHeight]` box (origin bottom-left) - pasted
+  /// back as live /Link annotations over the stamp.
+  final List<PdfSnapshotLink> links;
+
   /// Serializes this snapshot as a self-contained, single-page PDF whose
   /// page is exactly the captured region (MediaBox `[0 0 displayWidth
   /// displayHeight]`, the page's /Rotate already baked into the content).
   ///
   /// Hosts can exchange these bytes as `application/pdf` with applications
   /// that support PDF clipboard data. Resources stay vector where the source
-  /// was vector; embedded images keep their original encoding. Throws when
+  /// was vector; embedded images keep their original encoding, and [links]
+  /// become /Link annotations on the page. Throws when
   /// the captured region has empty or non-finite dimensions.
   Uint8List toPdfBytes() {
     _validateSize();
@@ -100,13 +112,21 @@ class PdfVectorSnapshot {
     // then fill it in (the builder serializes nothing until build())
     final pages = CosDictionary();
     final pagesRef = builder.add(pages);
-    final pageRef = builder.add(CosDictionary({
+    final page = CosDictionary({
       'Type': const CosName('Page'),
       'Parent': pagesRef,
       'MediaBox': _rectArray(PdfRect(0, 0, displayWidth, displayHeight)),
       'Resources': resources,
       'Contents': contentRef,
-    }));
+    });
+    final pageRef = builder.add(page);
+    if (links.isNotEmpty) {
+      // the snapshot's box *is* this page's box, so the link rects carry over
+      page['Annots'] = CosArray([
+        for (final link in links)
+          builder.add(link._annotation(link.rect)..['P'] = pageRef),
+      ]);
+    }
     pages
       ..['Type'] = const CosName('Pages')
       ..['Kids'] = CosArray([pageRef])
@@ -127,6 +147,55 @@ class PdfVectorSnapshot {
     }
   }
 }
+
+/// A link captured with a [PdfVectorSnapshot]: where it sits in the
+/// snapshot's upright `[0 0 displayWidth displayHeight]` box and the action
+/// it runs.
+///
+/// Only actions that mean the same thing in any document are captured - a
+/// /URI (web or mail link). In-document jumps (/GoTo, a bare /Dest, named
+/// destinations) point at the *source* document's pages, which a detached
+/// snapshot no longer has, so those links are left out rather than pasted
+/// pointing somewhere else. A link with several /QuadPoints (one wrapping
+/// over lines) is captured as one entry per quad, so the pasted link covers
+/// the words rather than the whole box around them.
+class PdfSnapshotLink {
+  PdfSnapshotLink._(this.rect, this._action, this._contents);
+
+  /// The link's area in the snapshot's display box.
+  final PdfRect rect;
+
+  /// The detached action dictionary (a /URI action).
+  final CosDictionary _action;
+
+  /// The source link's /Contents (its accessible description), if any.
+  final String? _contents;
+
+  /// The URI the link opens.
+  String? get uri {
+    final value = _action['URI'];
+    return value is CosString ? value.text : null;
+  }
+
+  /// A fresh, detached /Link annotation dictionary over [rect] running this
+  /// link's action, with no visible border.
+  CosDictionary _annotation(PdfRect rect) {
+    final dict = CosDictionary({
+      'Type': const CosName('Annot'),
+      'Subtype': const CosName('Link'),
+      'Rect': _rectArray(rect),
+      'F': const CosInteger(4),
+      'Border': CosArray(
+          [const CosInteger(0), const CosInteger(0), const CosInteger(0)]),
+      'A': _copyDetached(_action),
+    });
+    if (_contents != null) dict['Contents'] = CosString.fromText(_contents);
+    return dict;
+  }
+}
+
+/// The action types a [PdfSnapshotLink] keeps (see there for why).
+const _portableLinkActions = {'URI'};
 
 /// Replaces every inline [CosStream] in [node] with a reference to an object
 /// registered on [builder] (children first, so a stream nested in another
@@ -181,6 +250,11 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   /// footprint. Everything outside it is clipped away, so the snapshot keeps
   /// [region] as its box but draws only what the polygon encloses; pass the
   /// polygon's bounds as [region].
+  ///
+  /// Links over the region are captured as [PdfVectorSnapshot.links]
+  /// (whatever [annotations] says - a link is not drawn, it is what the
+  /// drawing *does*), clipped to the region and, for a traced capture, kept
+  /// only where they reach into the polygon.
   PdfVectorSnapshot captureVectorSnapshot(int pageIndex, PdfRect region,
       {bool annotations = true, List<(double, double)>? clip}) {
     final page = document.page(pageIndex);
@@ -230,7 +304,109 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       270 => ([0, 1, -1, 0, ry1, -rx0], h, w),
       _ => ([1, 0, 0, 1, -rx0, -ry0], w, h),
     };
-    return PdfVectorSnapshot._(region, dW, dH, content, resources, matrix);
+    final links = _snapshotLinks(
+        page, region, clip, PdfMatrix.row(matrix), PdfRect(0, 0, dW, dH));
+    return PdfVectorSnapshot._(
+        region, dW, dH, content, resources, matrix, links);
+  }
+
+  /// [page]'s portable links (see [PdfSnapshotLink]) over [region], mapped
+  /// through [toBox] (page user space -> the snapshot's display box) and
+  /// clipped to [box]. With a traced [clip] polygon, a link is kept only when
+  /// it reaches into the polygon.
+  List<PdfSnapshotLink> _snapshotLinks(PdfPage page, PdfRect region,
+      List<(double, double)>? clip, PdfMatrix toBox, PdfRect box) {
+    final cos = document.cos;
+    final links = <PdfSnapshotLink>[];
+    final copier = _SnapshotCopier(cos);
+    for (final annot in page.annotations) {
+      if (annot.subtype != 'Link' || annot.isHidden) continue;
+      final action = cos.resolve(annot.dict['A']);
+      if (action is! CosDictionary) continue;
+      final type = cos.resolve(action['S']);
+      if (type is! CosName || !_portableLinkActions.contains(type.value)) {
+        continue;
+      }
+      final copied = copier.copy(action);
+      if (copied is! CosDictionary) continue;
+      // a chained /Next could be anything; the link runs its own action only
+      copied.entries.remove('Next');
+      final contents = cos.resolve(annot.dict['Contents']);
+      for (final area in _linkAreas(annot)) {
+        final inRegion = area.intersect(region);
+        if (inRegion.width <= 0 || inRegion.height <= 0) continue;
+        if (clip != null && clip.length >= 3 && !_reaches(inRegion, clip)) {
+          continue;
+        }
+        final rect = _boundsOf4(toBox, inRegion).intersect(box);
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        links.add(PdfSnapshotLink._(
+            rect, copied, contents is CosString ? contents.text : null));
+      }
+    }
+    return links;
+  }
+
+  /// The areas [link] is active over: one per /QuadPoints quad (their
+  /// bounds), or its /Rect when it has no usable quads.
+  List<PdfRect> _linkAreas(PdfAnnotation link) {
+    final cos = document.cos;
+    final raw = cos.resolve(link.dict['QuadPoints']);
+    final areas = <PdfRect>[];
+    if (raw is CosArray && raw.length >= 8 && raw.length % 8 == 0) {
+      final values = <double>[];
+      for (final item in raw.items) {
+        final n = cos.resolve(item);
+        if (n is CosInteger) {
+          values.add(n.value.toDouble());
+        } else if (n is CosReal) {
+          values.add(n.value);
+        } else {
+          values.clear();
+          break;
+        }
+      }
+      for (var i = 0; i + 7 < values.length; i += 8) {
+        var l = values[i], r = values[i], b = values[i + 1], t = values[i + 1];
+        for (var j = 2; j < 8; j += 2) {
+          final x = values[i + j], y = values[i + j + 1];
+          if (x < l) l = x;
+          if (x > r) r = x;
+          if (y < b) b = y;
+          if (y > t) t = y;
+        }
+        // quads outside /Rect are ignored by viewers (§12.5.6.5)
+        final area = PdfRect(l, b, r, t).intersect(link.rect);
+        if (area.width > 0 && area.height > 0) areas.add(area);
+      }
+    }
+    if (areas.isEmpty) areas.add(link.rect);
+    return areas;
+  }
+
+  /// Whether [rect] reaches into the closed [polygon]: a corner or the
+  /// center inside it, or a polygon vertex inside [rect].
+  static bool _reaches(PdfRect rect, List<(double, double)> polygon) {
+    bool inside(double x, double y) {
+      var hit = false;
+      for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        final (xi, yi) = polygon[i];
+        final (xj, yj) = polygon[j];
+        if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+          hit = !hit;
+        }
+      }
+      return hit;
+    }
+
+    final cx = (rect.left + rect.right) / 2;
+    final cy = (rect.bottom + rect.top) / 2;
+    return inside(cx, cy) ||
+        inside(rect.left, rect.bottom) ||
+        inside(rect.right, rect.bottom) ||
+        inside(rect.right, rect.top) ||
+        inside(rect.left, rect.top) ||
+        polygon.any((p) => rect.contains(p.$1, p.$2));
   }
 
   /// The operators drawing [page]'s on-screen annotations that overlap
@@ -306,6 +482,12 @@ extension PdfVectorSnapshotEditing on PdfEditor {
   /// captured form, this paste references it instead of duplicating it.
   /// Returns the captured form's object number (pass it back as
   /// [sharedObject] next time), or -1 when nothing was pasted.
+  ///
+  /// The snapshot's [PdfVectorSnapshot.links] come along as live /Link
+  /// annotations over the stamp (added before it in /Annots, so the stamp
+  /// stays the page's last annotation). They belong to the stamp: moving,
+  /// resizing, rotating, flipping, or cropping it re-lays them, and removing
+  /// it removes them.
   int pasteVectorSnapshot(
     int pageIndex,
     PdfRect targetRect,
@@ -383,18 +565,133 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       ..drawXObject('Cap')
       ..restore();
     if (pageRotation != 0) w.restore();
-    _addAnnotation(
-      pageIndex,
-      // mark the stamp so the editor can tell a pasted vector snapshot apart
-      // from an ordinary stamp - only these recolour as vectors
-      _markupDict('Stamp', targetRect, 0x000000, null, author)
-        ..[_vectorSnapshotMarker] = const CosBoolean(true),
-      _form(targetRect, w,
+    // mark the stamp so the editor can tell a pasted vector snapshot apart
+    // from an ordinary stamp - only these recolour as vectors
+    final stamp = _markupDict('Stamp', targetRect, 0x000000, null, author)
+      ..[_vectorSnapshotMarker] = const CosBoolean(true);
+    if (snapshot.links.isEmpty) {
+      _addAnnotation(
+        pageIndex,
+        stamp,
+        _form(targetRect, w,
+            resources: _resources(
+                extGState: gs, xObject: CosDictionary({'Cap': capRef}))),
+        name: name,
+      );
+      return capObject;
+    }
+
+    // the captured box -> appearance form space mapping the content above
+    // draws under (the scale onto the visual rect, then the counter-
+    // rotation), recorded so the links can be re-laid whenever the stamp's
+    // geometry changes
+    var capToForm = PdfMatrix(sx, 0, 0, sy, visualRect.left, visualRect.bottom);
+    if (pageRotation != 0) {
+      capToForm =
+          capToForm.concat(_counterRotationMatrix(targetRect, pageRotation));
+    }
+    stamp[_snapshotCapMatrixKey] =
+        CosArray([for (final v in capToForm.toList()) CosReal(v)]);
+    stamp['NM'] = CosString.fromText(name ?? _generateAnnotationName());
+    stamp['AP'] = CosDictionary({
+      'N': _updater.addObject(_form(targetRect, w,
           resources: _resources(
-              extGState: gs, xObject: CosDictionary({'Cap': capRef}))),
-      name: name,
-    );
+              extGState: gs, xObject: CosDictionary({'Cap': capRef}))))
+    });
+    final stampRef = _updater.addObject(stamp);
+    final links = _PdfPageAnnotationList(this, pageIndex);
+    for (final link in snapshot.links) {
+      links.append(_updater.addObject(link._annotation(link.rect)
+        ..[_snapshotLinkOwnerKey] = stampRef
+        ..[_snapshotLinkBoxKey] = _rectArray(link.rect)));
+    }
+    links.append(stampRef);
+    _markAnnotations([pageIndex]);
+    _layoutSnapshotLinks(pageIndex, stamp);
     return capObject;
+  }
+
+  /// The matrix [writePdfCounterRotation] writes for [rect]'s center.
+  static PdfMatrix _counterRotationMatrix(PdfRect rect, int rotation) {
+    final cx = (rect.left + rect.right) / 2;
+    final cy = (rect.bottom + rect.top) / 2;
+    return switch (rotation) {
+      90 => PdfMatrix(0, 1, -1, 0, cx + cy, cy - cx),
+      180 => PdfMatrix(-1, 0, 0, -1, 2 * cx, 2 * cy),
+      270 => PdfMatrix(0, -1, 1, 0, cx - cy, cx + cy),
+      _ => PdfMatrix.identity,
+    };
+  }
+
+  /// Re-lays the /Link annotations a pasted vector snapshot [stamp] owns
+  /// (see [pasteVectorSnapshot]) over its current geometry: each link's box
+  /// in the captured snapshot maps through the recorded capture -> form
+  /// mapping, is clipped to the appearance BBox (a crop hides what it cuts
+  /// away), and lands on the page through the appearance's /Matrix and
+  /// BBox -> /Rect fit - so the links follow every move, resize, rotation,
+  /// flip, and crop. A link cropped away entirely is hidden (/F Hidden),
+  /// not removed, so widening the crop again brings it back. No-op for
+  /// anything else.
+  void _layoutSnapshotLinks(int pageIndex, CosDictionary stamp) {
+    final cos = document.cos;
+    final rawMatrix = cos.resolve(stamp[_snapshotCapMatrixKey]);
+    if (rawMatrix is! CosArray || rawMatrix.length != 6) return;
+    final values = <double>[];
+    for (final item in rawMatrix.items) {
+      final n = cos.resolve(item);
+      if (n is CosInteger) {
+        values.add(n.value.toDouble());
+      } else if (n is CosReal) {
+        values.add(n.value);
+      } else {
+        return;
+      }
+    }
+    final capToForm = PdfMatrix.row(values);
+    final rect = pdfRectFrom(cos, stamp['Rect']);
+    final ap = cos.resolve(stamp['AP']);
+    final form = ap is CosDictionary ? cos.resolve(ap['N']) : null;
+    if (rect == null || form is! CosStream) return;
+    final bbox = pdfRectFrom(cos, form.dictionary['BBox']);
+    final formToPage = _bakedFormMatrix(form, rect);
+    if (bbox == null || formToPage == null) return;
+    final list = _PdfPageAnnotationList(this, pageIndex);
+    for (final link in _ownedSnapshotLinks(pageIndex, stamp)) {
+      final box = pdfRectFrom(cos, link[_snapshotLinkBoxKey]);
+      if (box == null) continue;
+      final inForm = _boundsOf4(capToForm, box).intersect(bbox);
+      if (inForm.width <= 0 || inForm.height <= 0) {
+        link['F'] = const CosInteger(4 | 2); // cropped away: hidden
+      } else {
+        final corners = [
+          formToPage.apply(inForm.left, inForm.bottom),
+          formToPage.apply(inForm.right, inForm.bottom),
+          formToPage.apply(inForm.right, inForm.top),
+          formToPage.apply(inForm.left, inForm.top),
+        ];
+        link
+          ..['F'] = const CosInteger(4)
+          ..['Rect'] = _rectArray(_boundsOf4(formToPage, inForm))
+          ..['QuadPoints'] = CosArray([
+            for (final (x, y) in corners) ...[CosReal(x), CosReal(y)],
+          ]);
+      }
+      list.markOwnerChangedFor(link);
+    }
+  }
+
+  /// The /Link dictionaries on page [pageIndex] that [stamp] owns.
+  List<CosDictionary> _ownedSnapshotLinks(int pageIndex, CosDictionary stamp) {
+    final cos = document.cos;
+    final annots = cos.resolve(document.page(pageIndex).dict['Annots']);
+    if (annots is! CosArray) return const [];
+    return [
+      for (final item in annots.items)
+        if (cos.resolve(item) case final CosDictionary link
+            when link.containsKey(_snapshotLinkOwnerKey) &&
+                identical(cos.resolve(link[_snapshotLinkOwnerKey]), stamp))
+          link,
+    ];
   }
 
   /// Whether [annotation] is a vector snapshot this editor pasted - a /Stamp
@@ -501,6 +798,19 @@ extension PdfVectorSnapshotEditing on PdfEditor {
       ]);
     }
     if (rect != null) dict['Rect'] = _rectArray(rect);
+    if (dict.containsKey(_snapshotCapMatrixKey)) {
+      // the new appearance draws the captured box under this mapping (the
+      // crop path ignores the page's /Rotate, as the matrix above does)
+      dict[_snapshotCapMatrixKey] = CosArray([
+        CosReal(sx),
+        CosReal(0),
+        CosReal(0),
+        CosReal(sy),
+        CosReal(target.left - (capBox.left + c.left * capBox.width) * sx),
+        CosReal(
+            target.bottom - (capBox.bottom + c.bottom * capBox.height) * sy),
+      ]);
+    }
     _replaceAppearance(
       dict,
       appearance,
@@ -641,6 +951,33 @@ const _vectorSnapshotMarker = 'DartPdfVectorSnapshot';
 /// against its captured box) - see
 /// [PdfVectorSnapshotEditing.cropVectorSnapshot].
 const _snapshotCropKey = 'DartPdfSnapshotCrop';
+
+/// The private key on a pasted vector snapshot stamp recording the mapping
+/// from its captured box into its appearance's form space - what
+/// [PdfVectorSnapshotEditing._layoutSnapshotLinks] lays its links out by.
+const _snapshotCapMatrixKey = 'DartPdfSnapshotCapMatrix';
+
+/// The private key on a pasted snapshot's /Link pointing at the stamp that
+/// owns it.
+const _snapshotLinkOwnerKey = 'DartPdfSnapshotLinkOf';
+
+/// The private key on a pasted snapshot's /Link recording its area in the
+/// captured box (the snapshot's display box).
+const _snapshotLinkBoxKey = 'DartPdfSnapshotLinkBox';
+
+/// The bounds of [rect]'s corners under [m].
+PdfRect _boundsOf4(PdfMatrix m, PdfRect rect) {
+  final (x0, y0) = m.apply(rect.left, rect.bottom);
+  final (x1, y1) = m.apply(rect.right, rect.bottom);
+  final (x2, y2) = m.apply(rect.right, rect.top);
+  final (x3, y3) = m.apply(rect.left, rect.top);
+  double lo(double a, double b, double c, double d) =>
+      math.min(math.min(a, b), math.min(c, d));
+  double hi(double a, double b, double c, double d) =>
+      math.max(math.max(a, b), math.max(c, d));
+  return PdfRect(lo(x0, x1, x2, x3), lo(y0, y1, y2, y3), hi(x0, x1, x2, x3),
+      hi(y0, y1, y2, y3));
+}
 
 /// Formats a matrix component for a content stream - integers without a
 /// trailing `.0`.
