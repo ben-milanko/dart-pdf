@@ -4,7 +4,7 @@
 // the thing the VM diff's header said "stays manual, not worth automating yet."
 //
 //   node bench.mjs --scenario <name> [--baseline <ref>] [--iterations N]
-//                  [--threshold R] [--keep] [--no-build-current]
+//                  [--threshold R] [--keep] [--no-build-current] [--no-build-baseline]
 //
 // Defaults: scenario scroll-plan, baseline main, iterations 3, threshold 1.10.
 //
@@ -42,6 +42,7 @@ const ITER = Number(opt('--iterations', '3'));
 const THRESHOLD = Number(opt('--threshold', '1.10'));
 const KEEP = has('--keep');
 const BUILD_CURRENT = !has('--no-build-current');
+const BUILD_BASELINE = !has('--no-build-baseline');
 
 // Structural/equality metrics: a change is informational, not a regression
 // (they should stay ~constant across revisions). `frames` (total captured) is
@@ -196,8 +197,11 @@ function main() {
         copied.replace(flutterConstraint, (_, key) => `${key}${refConstraint}`));
   }
   matchHarnessDesignLibrary(sha, wt);
-  build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
+  // A sweep over several scenarios against one ref builds the baseline once:
+  // the bundle switches workload from the URL, so later runs can reuse it.
+  if (BUILD_BASELINE || !existsSync(join(refWeb, 'index.html'))) build(wt);
+  else console.log(`▶ skipping baseline build (--no-build-baseline); using ${refWeb}`);
 
   // ---- interleaved runs ----
   const out = join(tmpdir(), 'dart-pdf-webperf-ab', `runs-${sha}-${process.pid}`);
