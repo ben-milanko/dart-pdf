@@ -75,6 +75,7 @@ export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnail_drop.dart';
 export 'src/editing/editing_thumbnails.dart';
+export 'src/editing/page_menu_action.dart';
 export 'src/editing/editing_tool_catalog.dart';
 export 'src/editing/editor_commands.dart';
 export 'src/editing/editor_panel.dart';

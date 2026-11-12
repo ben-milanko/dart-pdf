@@ -26,6 +26,7 @@ import 'editing_controller.dart';
 import 'editing_panel.dart';
 import 'editing_preferences.dart';
 import 'editing_thumbnail_drop.dart';
+import 'page_menu_action.dart';
 import 'thumbnail_cache.dart';
 import '../design/editor_presenter.dart';
 import '../insert_pages_dialog.dart';
@@ -88,6 +89,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.onPickPdfToInsert,
     this.onPickPdfFilesToInsert,
     this.onExportPages,
+    this.pageMenuActionsBuilder,
     this.onSplitPages,
     this.fileDropController,
     this.renderWorker,
@@ -190,6 +192,10 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// When given, an "Export pages…" entry appears in the page-actions
   /// footer menu.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Adds host entries to each page tile's right-click menu; see
+  /// [PdfPageMenuActionsBuilder]. Null adds none.
+  final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
   /// that action is hidden. Outputs follow the user's range order.
@@ -1180,6 +1186,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                 widget.hiddenAnnotationSubtypes,
                             allowPageEditing: widget.allowPageEditing,
                             onExportPages: widget.onExportPages,
+                            pageMenuActionsBuilder:
+                                widget.pageMenuActionsBuilder,
                             cache: _cache,
                             tileWidth: tileWidth,
                             renderWorker: widget.renderWorker,
@@ -1415,6 +1423,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
             allowPageEditing: widget.allowPageEditing,
             onExportPages: widget.onExportPages,
+            pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
             cache: _cache,
             tileWidth: tileWidth,
             renderWorker: widget.renderWorker,
@@ -1891,6 +1900,7 @@ class PdfThumbnailView extends StatefulWidget {
     this.onPickPdfToInsert,
     this.onPickPdfFilesToInsert,
     this.onExportPages,
+    this.pageMenuActionsBuilder,
     this.onSplitPages,
     this.fileDropController,
     this.onOpenPage,
@@ -1939,6 +1949,10 @@ class PdfThumbnailView extends StatefulWidget {
   /// Receives the bytes of an exported page range; null hides the
   /// "Export pages…" page-action and the selection bar's export.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Adds host entries to each page tile's right-click menu; see
+  /// [PdfPageMenuActionsBuilder]. Null adds none.
+  final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
   /// that action is hidden. Outputs follow the user's range order.
@@ -2698,6 +2712,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView>
                                                   widget.allowPageEditing,
                                               onExportPages:
                                                   widget.onExportPages,
+                                              pageMenuActionsBuilder:
+                                                  widget.pageMenuActionsBuilder,
                                               cache: _cache,
                                               // the tile pads ~21px around the thumbnail
                                               tileWidth: tileWidth - 21,
@@ -2859,6 +2875,7 @@ class _GridPageCell extends StatefulWidget {
     required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
+    this.pageMenuActionsBuilder,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -2887,6 +2904,10 @@ class _GridPageCell extends StatefulWidget {
   final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Adds host entries to each page tile's right-click menu; see
+  /// [PdfPageMenuActionsBuilder]. Null adds none.
+  final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -2935,6 +2956,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         hiddenAnnotationSubtypes: widget.hiddenAnnotationSubtypes,
         allowPageEditing: widget.allowPageEditing,
         onExportPages: widget.onExportPages,
+        pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
         cache: widget.cache,
         tileWidth: widget.tileWidth,
         renderWorker: widget.renderWorker,
@@ -3156,6 +3178,7 @@ class _PageTile extends StatefulWidget {
     required this.hiddenAnnotationSubtypes,
     required this.allowPageEditing,
     required this.onExportPages,
+    this.pageMenuActionsBuilder,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -3183,6 +3206,10 @@ class _PageTile extends StatefulWidget {
   final Set<String> hiddenAnnotationSubtypes;
   final bool allowPageEditing;
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Adds host entries to each page tile's right-click menu; see
+  /// [PdfPageMenuActionsBuilder]. Null adds none.
+  final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -3258,6 +3285,8 @@ class _PageTileState extends State<_PageTile> {
   Set<String> get hiddenAnnotationSubtypes => widget.hiddenAnnotationSubtypes;
   bool get allowPageEditing => widget.allowPageEditing;
   void Function(Uint8List bytes)? get onExportPages => widget.onExportPages;
+  PdfPageMenuActionsBuilder? get pageMenuActionsBuilder =>
+      widget.pageMenuActionsBuilder;
   PdfThumbnailCache get cache => widget.cache;
   double get tileWidth => widget.tileWidth;
   PdfRenderWorker? get renderWorker => widget.renderWorker;
@@ -3345,6 +3374,7 @@ class _PageTileState extends State<_PageTile> {
           pageIndex: pageIndex,
           allowPageEditing: allowPageEditing,
           onExportPages: onExportPages,
+          pageMenuActionsBuilder: pageMenuActionsBuilder,
         );
       },
       // a selected tile reads as a primary-framed, tinted chip behind the
@@ -3682,9 +3712,12 @@ Future<void> _showPageTileMenu({
   required int pageIndex,
   required bool allowPageEditing,
   required void Function(Uint8List bytes)? onExportPages,
+  PdfPageMenuActionsBuilder? pageMenuActionsBuilder,
 }) async {
   final canExport = onExportPages != null;
-  if (!allowPageEditing && !canExport) return;
+  if (!allowPageEditing && !canExport && pageMenuActionsBuilder == null) {
+    return;
+  }
   // right-clicking a tile that isn't already selected selects just it (a
   // right-click on a tile that is part of a multi-selection keeps the
   // selection), so the pages the menu acts on always include this one
@@ -3696,8 +3729,13 @@ Future<void> _showPageTileMenu({
   // "Duplicate page" / "Export 3 pages" - the verb's object reflects how
   // many pages the action spans (each verb is its own ICU plural)
   final count = targets.length;
+  final hostActions = pageMenuActionsBuilder?.call(
+          context, pageIndex, List.unmodifiable(targets)) ??
+      const <PdfPageMenuAction>[];
 
-  final items = <PdfMenuEntry<_PageTileAction>>[
+  // Object-typed so the host's entries (picked as their PdfPageMenuAction)
+  // share the menu with the built-in _PageTileAction rows
+  final items = <PdfMenuEntry<Object>>[
     if (allowPageEditing) ...[
       _pageMenuRow(context, _PageTileAction.rotateLeft,
           tileKey: 'pdf-thumbnail-menu-rotate-left',
@@ -3743,6 +3781,7 @@ Future<void> _showPageTileMenu({
           icon: Icons.vertical_align_bottom,
           label: l10n.thumbInsertBlankAfter),
     ],
+    for (final action in hostActions) _hostPageMenuRow(context, action),
     if (canExport)
       _pageMenuRow(context, _PageTileAction.export,
           tileKey: 'pdf-thumbnail-menu-export',
@@ -3760,11 +3799,13 @@ Future<void> _showPageTileMenu({
 
   final picked = await PdfEditorPresenter.of(context).menu(
     context,
-    PdfMenuRequest<_PageTileAction>.at(position, entries: items),
+    PdfMenuRequest<Object>.at(position, entries: items),
   );
   switch (picked) {
     case null:
       return;
+    case PdfPageMenuAction(:final onSelected):
+      onSelected();
     case _PageTileAction.rotateLeft:
       controller.rotatePages(targets, -90);
     case _PageTileAction.rotateRight:
@@ -3807,6 +3848,43 @@ Future<void> _jumpToInsertedPage(
   await SchedulerBinding.instance.endOfFrame;
   await SchedulerBinding.instance.endOfFrame;
   await viewerController.jumpToPage(pageIndex);
+}
+
+/// A host [PdfPageMenuAction] as a dense menu row matching [_pageMenuRow];
+/// picking it resolves the menu to the action itself.
+PdfMenuItem<Object> _hostPageMenuRow(
+  BuildContext context,
+  PdfPageMenuAction action,
+) {
+  final enabled = action.enabled;
+  final icon = action.icon;
+  final key = action.key;
+  final disabledColor = Theme.of(context).disabledColor;
+  return PdfMenuItem<Object>(
+    // ValueKey<String> exactly: the presenter reads the key back only from
+    // that type (a ValueKey<String?> is silently dropped)
+    key: key == null ? null : ValueKey<String>(key),
+    value: action,
+    label: action.label,
+    icon: icon,
+    enabled: enabled,
+    height: _densePopupMenuHeight,
+    child: Row(children: [
+      if (icon != null)
+        Icon(icon, size: 16, color: enabled ? null : disabledColor)
+      else
+        const SizedBox(width: 16),
+      const SizedBox(width: 8),
+      Flexible(
+        child: Text(
+          action.label,
+          overflow: TextOverflow.ellipsis,
+          style: _densePopupTextStyle(context,
+              color: enabled ? null : disabledColor),
+        ),
+      ),
+    ]),
+  );
 }
 
 PdfMenuItem<_PageTileAction> _pageMenuRow(

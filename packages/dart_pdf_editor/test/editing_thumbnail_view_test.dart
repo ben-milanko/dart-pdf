@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart'
-    show PointerDeviceKind, kLongPressTimeout;
+    show PointerDeviceKind, kLongPressTimeout, kSecondaryMouseButton;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -102,6 +102,7 @@ void main() {
     void Function(Uint8List bytes)? onExportPages,
     void Function(int pageIndex)? onOpenPage,
     PdfEditingController? controller,
+    PdfPageMenuActionsBuilder? pageMenuActionsBuilder,
   }) async {
     final editing =
         controller ?? PdfEditingController(buildMultiPagePdf(pages));
@@ -116,6 +117,7 @@ void main() {
           allowPageEditing: allowPageEditing,
           onExportPages: onExportPages,
           onOpenPage: onOpenPage,
+          pageMenuActionsBuilder: pageMenuActionsBuilder,
         ),
       ),
     ));
@@ -129,6 +131,31 @@ void main() {
       tester.pump(const Duration(seconds: 2));
 
   group('PdfThumbnailView', () {
+    testWidgets('a grid tile\'s right-click menu carries host entries',
+        (tester) async {
+      wideScreen(tester);
+      int? pickedPage;
+      await pumpGrid(
+        tester,
+        pageMenuActionsBuilder: (context, pageIndex, selected) => [
+          PdfPageMenuAction(
+            key: 'host-copy-link',
+            label: 'Copy link to page ${pageIndex + 1}',
+            onSelected: () => pickedPage = pageIndex,
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-grid-cell-1')),
+          buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(find.text('Copy link to page 2'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('host-copy-link')));
+      await tester.pumpAndSettle();
+      expect(pickedPage, 1);
+      await drain(tester);
+    });
+
     testWidgets('lays out one cell per page', (tester) async {
       wideScreen(tester);
       await pumpGrid(tester, pages: 5);
