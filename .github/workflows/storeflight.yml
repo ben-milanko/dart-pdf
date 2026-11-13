@@ -444,7 +444,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
       - name: Install Android upload key
         if: env.ANDROID_KEYSTORE_BASE64 != ''
@@ -1117,7 +1117,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
       - name: Install Android upload key
         if: env.ANDROID_KEYSTORE_BASE64 != ''
