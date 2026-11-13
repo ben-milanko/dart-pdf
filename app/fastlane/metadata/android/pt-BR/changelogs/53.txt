@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Restaure as janelas ao reabrir a aplicação. Guarde predefinições de impressão e veja as margens. Preserve ligações nas capturas copiadas. Converta texto selecionado numa caixa móvel. A ocultação pode substituir as páginas afetadas por imagens; o texto deixa de poder ser pesquisado ou selecionado. Melhorias nas fontes dos formulários e na ampliação.

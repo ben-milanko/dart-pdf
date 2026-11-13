@@ -26,7 +26,8 @@ jobs:
     # Pull requests reuse the already-initialized Preview Demo Web build job.
     # Keep this standalone lane for main/deploy pushes and manual runs.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # Patrol 4.8 Playwright rejects Ubuntu 26.04; keep browser tests on its supported image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7

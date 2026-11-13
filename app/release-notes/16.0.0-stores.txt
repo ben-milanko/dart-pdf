@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Restore document windows when reopening the app. Save named print presets and preview printer margins. Keep links in copied snapshots. Convert selected page text into a movable text box. Redaction can replace affected pages with images; text on those pages is no longer searchable or selectable. Improve form fonts and zoom rendering.

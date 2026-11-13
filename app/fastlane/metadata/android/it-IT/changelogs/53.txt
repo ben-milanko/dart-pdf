@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Ripristina le finestre alla riapertura. Salva impostazioni di stampa e visualizza i margini. Conserva i link nelle istantanee copiate. Converti il testo selezionato in una casella mobile. L’oscuramento può sostituire le pagine interessate con immagini; il testo non è più ricercabile o selezionabile. Migliorati caratteri dei moduli e zoom.

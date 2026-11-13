@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Retrouvez les fenêtres à la réouverture. Enregistrez des préréglages d’impression et affichez les marges. Conservez les liens dans les captures copiées. Transformez le texte sélectionné en zone mobile. La caviardisation peut remplacer les pages concernées par des images ; leur texte ne peut plus être recherché ni sélectionné. Polices des formulaires et zoom améliorés.

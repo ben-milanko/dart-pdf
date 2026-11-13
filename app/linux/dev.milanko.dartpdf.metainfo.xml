@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="16.0.0" date="2026-11-13">
+      <description><p>Restore document windows, save print presets, preserve snapshot links and improve redaction and zoom rendering.</p></description>
+    </release>
     <release version="15.0.0" date="2026-11-05">
       <description><p>Fix redaction of covered images, form fields and hidden text. Preserve unsaved changes during saving. Improve paste, zoom and measurement controls.</p></description>
     </release>

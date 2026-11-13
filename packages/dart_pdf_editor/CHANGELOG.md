@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 16.0.0
 
 - Add `PdfEditorView.pageMenuActionsBuilder` (also on `PdfThumbnailSidebar` and `PdfThumbnailView`) so a host can add its own entries to the page-thumbnail right-click menu. The builder is called per right-click with the clicked page and the selection the menu acts on, and returns `PdfPageMenuAction`s (label, icon, enabled, `onSelected`), which appear after the insert entries and before Export. A read-only strip with only host entries still opens the menu.
+- **BREAKING:** add three abstract localization getters; custom subclasses must implement them. See `doc/MIGRATING-16.0.0.md`.
+- Convert selected page text to a free-text annotation and optionally replace redacted pages with images.
+- Keep deep-zoom tiles in shared slabs and unify layout zoom with the viewport frame.
 
 ## 15.0.0
 
