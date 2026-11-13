@@ -62,6 +62,33 @@ abstract interface class SessionPersistence {
   Future<void> save(List<SessionDocument> documents);
 }
 
+/// [SessionPersistence] that also remembers which window each document was
+/// in, so a desktop session with several native windows comes back as
+/// several windows (see window_sessions.dart).
+abstract interface class WindowSessionPersistence
+    implements SessionPersistence {
+  /// The open documents of each window, in window order. Never contains an
+  /// empty window.
+  Future<List<List<SessionDocument>>> loadWindows();
+
+  /// Replaces the persisted session with [windows] (window order, each in
+  /// tab order).
+  Future<void> saveWindows(List<List<SessionDocument>> windows);
+}
+
+/// The documents of every window in [windows] as one list, in window then
+/// tab order, each reusable source once - what a single-window launch (or an
+/// older build) restores.
+List<SessionDocument> flattenSessionWindows(
+    Iterable<List<SessionDocument>> windows) {
+  final seen = <String>{};
+  return [
+    for (final window in windows)
+      for (final doc in window)
+        if (seen.add(doc.readPath ?? '')) doc,
+  ];
+}
+
 /// Persists the ordered list of file-backed documents currently open so the
 /// editor can re-open them the next time it launches ("restore last session").
 ///
@@ -72,39 +99,87 @@ abstract interface class SessionPersistence {
 /// when storage is unavailable (widget tests) it degrades to the in-memory
 /// list, mirroring how [RecentsStore] and [PdfEditingPreferences] handle the
 /// same case.
-class SessionStore implements SessionPersistence {
+class SessionStore implements WindowSessionPersistence {
   SessionStore({CachedPdfKeyResolver? resolveCacheKey})
       : _resolveCacheKey = resolveCacheKey ?? resolveCachedPdfKey;
 
   final CachedPdfKeyResolver _resolveCacheKey;
 
+  /// Every open document, flattened across windows. This is the only key an
+  /// older build reads, so a downgrade still restores every document (in one
+  /// window), and it is how [loadWindows] notices an older build has since
+  /// rewritten the session.
   static const _key = 'dart_pdf_editor_app.session';
 
-  List<SessionDocument> _documents = const [];
+  /// The same documents grouped by window: `{"windows": [[doc, ...], ...]}`.
+  static const _windowsKey = 'dart_pdf_editor_app.session.windows';
 
-  /// The most recently loaded/saved set of open documents, in tab order.
-  List<SessionDocument> get documents => List.unmodifiable(_documents);
+  List<List<SessionDocument>> _windows = const [];
 
-  /// Reads the persisted open-document list. Returns the (possibly empty) list
-  /// and also caches it in [documents].
+  /// The most recently loaded/saved set of open documents, in tab order
+  /// (flattened across windows).
+  List<SessionDocument> get documents =>
+      List.unmodifiable(flattenSessionWindows(_windows));
+
+  /// Reads the persisted open-document list, flattened across windows.
+  /// Returns the (possibly empty) list and also caches it in [documents].
   @override
-  Future<List<SessionDocument>> load() async {
+  Future<List<SessionDocument>> load() async =>
+      flattenSessionWindows(await loadWindows());
+
+  @override
+  Future<List<List<SessionDocument>>> loadWindows() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_key);
-      if (raw == null) return _documents;
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return _documents;
-      _documents = [
-        for (final m in decoded.whereType<Map>())
-          await _rebase(SessionDocument.fromJson(m.cast<String, dynamic>())),
-      ].where((d) => d.readPath != null).toList();
+      final flat = _decodeDocuments(_decode(prefs.getString(_key)));
+      if (flat == null) return _windows;
+      var windows = [flat];
+      final grouped = _decode(prefs.getString(_windowsKey));
+      if (grouped is Map && grouped['windows'] is List) {
+        final candidate = [
+          for (final w in (grouped['windows'] as List))
+            if (_decodeDocuments(w) case final docs? when docs.isNotEmpty) docs,
+        ];
+        // Trust the grouping only while it still describes the flat list: an
+        // older build rewrites just the flat key, and its set wins.
+        if (_sameDocuments(flattenSessionWindows(candidate), flat)) {
+          windows = candidate;
+        }
+      }
+      _windows = [
+        for (final window in windows)
+          [
+            for (final doc in window) await _rebase(doc),
+          ],
+      ].where((w) => w.isNotEmpty).toList();
     } catch (e) {
       // No storage (tests) - keep whatever is already in memory.
       AppDevTools.instance
           .addLog('session restore failed: $e', level: DevLogLevel.error);
     }
-    return _documents;
+    return _windows;
+  }
+
+  static Object? _decode(String? raw) => raw == null ? null : jsonDecode(raw);
+
+  static List<SessionDocument>? _decodeDocuments(Object? decoded) {
+    if (decoded is! List) return null;
+    return [
+      for (final m in decoded.whereType<Map>())
+        if (SessionDocument.fromJson(m.cast<String, dynamic>()) case final doc
+            when doc.readPath != null)
+          doc,
+    ];
+  }
+
+  static bool _sameDocuments(List<SessionDocument> a, List<SessionDocument> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].path != b[i].path || a[i].cachePath != b[i].cachePath) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Points [doc]'s snapshot at the live store, which an app update can move
@@ -121,14 +196,29 @@ class SessionStore implements SessionPersistence {
         bookmark: doc.bookmark);
   }
 
-  /// Replaces the persisted open-document list with [documents] (tab order).
+  /// Replaces the persisted open-document list with [documents] (tab order),
+  /// as one window.
   @override
-  Future<void> save(List<SessionDocument> documents) async {
-    _documents = List.unmodifiable(documents);
+  Future<void> save(List<SessionDocument> documents) =>
+      saveWindows([documents]);
+
+  @override
+  Future<void> saveWindows(List<List<SessionDocument>> windows) async {
+    _windows = List.unmodifiable([
+      for (final w in windows)
+        if (w.isNotEmpty) List<SessionDocument>.unmodifiable(w),
+    ]);
+    List<Map<String, dynamic>> encode(List<SessionDocument> docs) =>
+        [for (final d in docs) d.toJson()];
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _key, jsonEncode(_documents.map((d) => d.toJson()).toList()));
+          _key, jsonEncode(encode(flattenSessionWindows(_windows))));
+      await prefs.setString(
+          _windowsKey,
+          jsonEncode({
+            'windows': [for (final w in _windows) encode(w)],
+          }));
     } catch (e) {
       // No storage - nothing to persist.
       AppDevTools.instance

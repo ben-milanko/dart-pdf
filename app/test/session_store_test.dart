@@ -76,4 +76,58 @@ void main() {
     final docs = await store.load();
     expect(docs.single.cachePath, '/new/recent_pdfs/m.pdf');
   });
+
+  group('windows', () {
+    const a = SessionDocument(title: 'a.pdf', path: '/a.pdf');
+    const b = SessionDocument(title: 'b.pdf', path: '/b.pdf');
+    const c = SessionDocument(title: 'c.pdf', path: '/c.pdf');
+
+    test('round-trip each window\'s documents, in window order', () async {
+      await SessionStore().saveWindows(const [
+        [a, b],
+        [],
+        [c],
+      ]);
+      final windows = await SessionStore().loadWindows();
+      expect([
+        for (final w in windows) [for (final d in w) d.path]
+      ], [
+        ['/a.pdf', '/b.pdf'],
+        ['/c.pdf'],
+      ], reason: 'an empty window has nothing to restore');
+    });
+
+    test('a single-window load gets every window\'s documents once', () async {
+      await SessionStore().saveWindows(const [
+        [a, b],
+        [b, c],
+      ]);
+      expect((await SessionStore().load()).map((d) => d.path),
+          ['/a.pdf', '/b.pdf', '/c.pdf']);
+    });
+
+    test('a session saved before windows were tracked is one window', () async {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.session':
+            '[{"t":"a.pdf","p":"/a.pdf"},{"t":"b.pdf","p":"/b.pdf"}]',
+      });
+      final windows = await SessionStore().loadWindows();
+      expect(windows, hasLength(1));
+      expect(windows.single.map((d) => d.path), ['/a.pdf', '/b.pdf']);
+    });
+
+    test('an older build\'s later rewrite of the flat list wins', () async {
+      await SessionStore().saveWindows(const [
+        [a],
+        [b],
+      ]);
+      // What a build without window tracking writes: only the flat key.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'dart_pdf_editor_app.session', '[{"t":"c.pdf","p":"/c.pdf"}]');
+      final windows = await SessionStore().loadWindows();
+      expect(windows, hasLength(1));
+      expect(windows.single.single.path, '/c.pdf');
+    });
+  });
 }
