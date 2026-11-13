@@ -16,6 +16,11 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A healthy run takes 24-34 minutes. Without a limit a wedged step sits
+    # until GitHub's 6-hour default: `dart test --coverage` once lost a test
+    # isolate's VM-service connection, reported the failure, then waited on
+    # the orphaned process for 50 minutes before it was cancelled by hand.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
