@@ -310,4 +310,53 @@ class DartPdfPrintingLocalizationsNl extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Printers laden…';
+
+  @override
+  String get printPresets => 'Voorinstellingen';
+
+  @override
+  String get printPresetLabel => 'Voorinstelling';
+
+  @override
+  String get printPresetNone => 'Geen';
+
+  @override
+  String get printPresetNoneSaved => 'Geen opgeslagen voorinstellingen';
+
+  @override
+  String get printPresetSave => 'Opslaan als voorinstelling…';
+
+  @override
+  String get printPresetDelete => 'Voorinstelling verwijderen';
+
+  @override
+  String get printPresetModified =>
+      'Gewijzigd sinds het opslaan. Sla opnieuw op om bij te werken.';
+
+  @override
+  String get printPresetSaveTitle => 'Afdrukvoorinstelling opslaan';
+
+  @override
+  String get printPresetName => 'Naam voorinstelling';
+
+  @override
+  String get printPresetReplaces => 'Vervangt de voorinstelling met deze naam.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Ook $printer kiezen met kleur, dubbelzijdig en lade';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Opslaan';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Gearceerde randen vallen buiten het afdrukbare gebied van de printer (links, boven, rechts, onder: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'De gekozen printer kan niet op dit papierformaat afdrukken.';
 }

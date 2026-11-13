@@ -304,4 +304,51 @@ class DartPdfPrintingLocalizationsKo extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => '프린터 불러오는 중…';
+
+  @override
+  String get printPresets => '사전 설정';
+
+  @override
+  String get printPresetLabel => '사전 설정';
+
+  @override
+  String get printPresetNone => '없음';
+
+  @override
+  String get printPresetNoneSaved => '저장된 사전 설정 없음';
+
+  @override
+  String get printPresetSave => '사전 설정으로 저장…';
+
+  @override
+  String get printPresetDelete => '사전 설정 삭제';
+
+  @override
+  String get printPresetModified => '저장 후 변경되었습니다. 업데이트하려면 다시 저장하세요.';
+
+  @override
+  String get printPresetSaveTitle => '인쇄 사전 설정 저장';
+
+  @override
+  String get printPresetName => '사전 설정 이름';
+
+  @override
+  String get printPresetReplaces => '이 이름의 사전 설정을 대체합니다.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '$printer 및 해당 색상, 양면, 용지함도 선택';
+  }
+
+  @override
+  String get printPresetSaveAction => '저장';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return '빗금 친 가장자리는 프린터의 인쇄 가능 영역 밖입니다(왼쪽, 위, 오른쪽, 아래: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported => '선택한 프린터는 이 용지 크기에 인쇄할 수 없습니다.';
 }

@@ -97,5 +97,19 @@
   "printOptionsProperties": "印表機內容…",
   "printOptionsDirectPrinter": "按下「列印」會將此工作直接傳送至所選印表機。",
   "printOptionsPropertiesError": "無法開啟印表機內容。",
-  "printOptionsLoadingPrinters": "正在載入印表機…"
+  "printOptionsLoadingPrinters": "正在載入印表機…",
+  "printPresets": "預設集",
+  "printPresetLabel": "預設集",
+  "printPresetNone": "無",
+  "printPresetNoneSaved": "沒有已儲存的預設集",
+  "printPresetSave": "另存為預設集…",
+  "printPresetDelete": "刪除預設集",
+  "printPresetModified": "儲存後已變更。再次儲存即可更新。",
+  "printPresetSaveTitle": "儲存列印預設集",
+  "printPresetName": "預設集名稱",
+  "printPresetReplaces": "將取代同名的預設集。",
+  "printPresetIncludePrinter": "同時選取 {printer} 及其色彩、雙面和紙匣設定",
+  "printPresetSaveAction": "儲存",
+  "printOptionsPrinterMargins": "斜線邊緣位於印表機可列印範圍之外（左、上、右、下：{left}, {top}, {right}, {bottom} pt）。",
+  "printOptionsPaperUnsupported": "所選印表機無法在此紙張大小上列印。"
 }

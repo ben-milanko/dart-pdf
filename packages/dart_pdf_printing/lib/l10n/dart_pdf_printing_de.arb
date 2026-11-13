@@ -137,5 +137,19 @@
   "printOptionsProperties": "Druckereigenschaften…",
   "printOptionsDirectPrinter": "„Drucken“ sendet diesen Auftrag direkt an den ausgewählten Drucker.",
   "printOptionsPropertiesError": "Die Druckereigenschaften konnten nicht geöffnet werden.",
-  "printOptionsLoadingPrinters": "Drucker werden geladen…"
+  "printOptionsLoadingPrinters": "Drucker werden geladen…",
+  "printPresets": "Vorgaben",
+  "printPresetLabel": "Vorgabe",
+  "printPresetNone": "Keine",
+  "printPresetNoneSaved": "Keine gespeicherten Vorgaben",
+  "printPresetSave": "Als Vorgabe speichern…",
+  "printPresetDelete": "Vorgabe löschen",
+  "printPresetModified": "Seit dem Speichern geändert. Erneut speichern, um die Vorgabe zu aktualisieren.",
+  "printPresetSaveTitle": "Druckvorgabe speichern",
+  "printPresetName": "Name der Vorgabe",
+  "printPresetReplaces": "Ersetzt die Vorgabe mit diesem Namen.",
+  "printPresetIncludePrinter": "Auch {printer} mit Farbe, Duplex und Papierfach auswählen",
+  "printPresetSaveAction": "Speichern",
+  "printOptionsPrinterMargins": "Schraffierte Ränder liegen außerhalb des druckbaren Bereichs (links, oben, rechts, unten: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Der ausgewählte Drucker kann dieses Papierformat nicht drucken."
 }

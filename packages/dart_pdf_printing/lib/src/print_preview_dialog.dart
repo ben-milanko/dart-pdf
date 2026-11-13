@@ -6,6 +6,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 
@@ -118,9 +119,27 @@ class PrintPreviewDialog extends StatefulWidget {
   final List<int> selectedPages;
   final Future<List<PdfDocument>> Function()? addFiles;
 
+  /// Test seam: whether previews are recorded on a background isolate instead
+  /// of the UI thread (native only). Production leaves it true. Widget-test suites
+  /// that open this dialog set it false in `flutter_test_config.dart`, like
+  /// `PdfViewer.debugAutoRenderWorkerEnabled`: a real isolate never completes
+  /// under the test binding's fake clock, so the preview would never settle.
+  static bool debugRenderWorkerEnabled = true;
+
   @override
   State<PrintPreviewDialog> createState() => _PrintPreviewDialogState();
 }
+
+/// One composed preview sheet, ready to render.
+class _ComposedSheet {
+  _ComposedSheet(this.bytes, this.document)
+      : size = PdfPageRenderer.pageSize(document.page(0));
+  final Uint8List bytes;
+  final PdfDocument document;
+  final Size size;
+}
+
+typedef _AreaKey = (String, bool, PrintDuplex, int, double, double);
 
 class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   // Controller revisions share a mutable COS graph. Retaining their wrapper
@@ -144,14 +163,32 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   bool _choosingRegion = false;
   bool _addingFiles = false;
   String? _error;
-  (PdfDocument, PrintSettings, int)? _previewFor;
-  PdfDocument? _previewDocument;
+  // The sheet on screen. A newer one is composed after the frame that asked
+  // for it, so typing into a field never composes inside build, and the old
+  // sheet stays visible until its replacement exists.
+  (PdfDocument, PrintSettings, int)? _composedFor;
+  (PdfDocument, PrintSettings, int)? _composeWanted;
+  _ComposedSheet? _composed;
+  bool _composeFailed = false;
+  bool _composeScheduled = false;
+  PdfRenderWorker? _sheetWorker;
+  PdfRenderWorker? _sourceWorker;
+  PdfDocument? _sourceWorkerFor;
+  // Hardware margins per printer, its options and sheet size. Kept for the
+  // dialog's lifetime: flipping between paper sizes doesn't ask the driver
+  // again.
+  final _printableAreas = <_AreaKey, PrintPrintableArea?>{};
+  final _areaRequests = <_AreaKey>{};
   PrintPreferences? _preferences;
+  String? _preset;
   bool _loadingPreferences = true;
   List<PrintPrinter> _printers = const [];
   String? _printer;
   PrintPrinterSettings? _printerSettings;
   PrintDestination? _destination;
+  // The last destination the driver confirmed. Drawn (disabled) while a newly
+  // chosen printer loads, in place of an empty gap.
+  PrintDestination? _shownDestination;
   bool _loadingPrinters = false;
   bool _loadingPrinter = false;
   String? _printerError;
@@ -214,6 +251,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       }
       _syncRangeInput();
       _settings = preferences.settingsFor(_pages);
+      _preset = preferences.activePreset;
       _rangeInvalid = _pages.isEmpty;
       if (_range == PrintPageRange.current) _previewSlot = 0;
       _clampPreview();
@@ -236,14 +274,14 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       _loadingPrinters = true;
       _loadingPrinter = false;
       _destination = null;
-      _printerSettings = null;
       _printerError = null;
       _missingPrinter = null;
     });
     try {
       final printers = await listPrintPrinters();
       if (!mounted || request != _printerRequest) return;
-      final saved = _preferences?.printer;
+      final preset = _preset == null ? null : _preferences?.preset(_preset!);
+      final saved = preset?.destination?.printer ?? _preferences?.printer;
       final savedExists = printers.any((printer) => printer.name == saved);
       final name = saved != null
           ? (savedExists ? saved : null)
@@ -253,26 +291,33 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         _printer = name;
         _loadingPrinters = false;
         _missingPrinter = saved != null && !savedExists ? saved : null;
+        if (name == null) _printerSettings = null;
         if (printers.isEmpty) {
           _printerError = printL10n(context).printOptionsNoPrinters;
         }
       });
-      if (name != null) await _selectPrinter(name);
+      if (name != null) {
+        await _selectPrinter(name, preferred: preset?.destination);
+      }
     } catch (_) {
       if (!mounted || request != _printerRequest) return;
       setState(() {
         _loadingPrinters = false;
+        _printerSettings = null;
         _printerError = printL10n(context).printOptionsPrinterError;
       });
     }
   }
 
-  Future<void> _selectPrinter(String name) async {
+  /// [preferred] (a preset's choices) wins over what was last used with
+  /// [name]. The previous printer's controls stay on screen, disabled, while
+  /// the driver answers, so the panel doesn't collapse and re-grow.
+  Future<void> _selectPrinter(String name,
+      {PrintDestination? preferred}) async {
     final request = ++_printerRequest;
     setState(() {
       _printer = name;
       _destination = null;
-      _printerSettings = null;
       _loadingPrinter = true;
       _printerError = null;
       _missingPrinter = null;
@@ -282,11 +327,12 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       final settings = await loadPrintPrinterSettings(name);
       if (!mounted || request != _printerRequest) return;
       _acceptPrinterSettings(
-          name, settings, _preferences!.destinationFor(name));
+          name, settings, preferred ?? _preferences!.destinationFor(name));
     } catch (_) {
       if (!mounted || request != _printerRequest) return;
       setState(() {
         _loadingPrinter = false;
+        _printerSettings = null;
         _printerError = printL10n(context).printOptionsPrinterError;
       });
     }
@@ -311,6 +357,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     setState(() {
       _printerSettings = settings;
       _destination = destination;
+      _shownDestination = destination;
       _loadingPrinter = false;
       _printerError = null;
     });
@@ -324,7 +371,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         color: color ?? current.color,
         duplex: duplex ?? current.duplex,
         tray: tray ?? current.tray);
-    setState(() => _destination = destination);
+    setState(() => _destination = _shownDestination = destination);
     unawaited(_preferences!.saveDestination(destination));
   }
 
@@ -353,6 +400,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
 
   @override
   void dispose() {
+    _sheetWorker?.dispose();
+    _sourceWorker?.dispose();
     _rangeInput.dispose();
     for (final controller in _numbers.values) {
       controller.dispose();
@@ -419,18 +468,79 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       _rangeInvalid = false;
       _choosingRegion = false;
       _error = null;
-      _invalidNumbers.clear();
-      for (final entry in _numbers.entries) {
-        entry.value.text = switch (entry.key) {
-          'copies' => '1',
-          'scale' => '100',
-          'margin' => '18',
-          'offset-x' || 'offset-y' => '0',
-          _ => '',
-        };
+      _preset = null;
+      _syncNumberFields();
+    });
+    unawaited(_preferences?.selectPreset(null));
+    _savePreferences();
+  }
+
+  /// Points every number field at [_settings], discarding any invalid text.
+  void _syncNumberFields() {
+    _invalidNumbers.clear();
+    for (final entry in _numbers.entries) {
+      entry.value.text = _format(switch (entry.key) {
+        'copies' => _settings.copies.toDouble(),
+        'scale' => _settings.customScale,
+        'margin' => _settings.margin,
+        'offset-x' => _settings.offsetX,
+        'offset-y' => _settings.offsetY,
+        _ => 0,
+      });
+    }
+  }
+
+  void _applyPreset(String? name) {
+    final preset = name == null ? null : _preferences?.preset(name);
+    setState(() {
+      _preset = preset?.name;
+      if (preset != null) {
+        _settings =
+            preset.settingsFor(_pages).copyWith(region: _settings.region);
+        _error = null;
+        _syncNumberFields();
+        _clampPreview();
       }
     });
+    unawaited(_preferences?.selectPreset(preset?.name));
+    if (preset == null) return;
     _savePreferences();
+    final destination = preset.destination;
+    if (_directWindows && destination != null) {
+      if (_printers.any((printer) => printer.name == destination.printer)) {
+        unawaited(_selectPrinter(destination.printer, preferred: destination));
+      } else if (!_loadingPrinters) {
+        setState(() => _missingPrinter = destination.printer);
+      }
+    }
+  }
+
+  Future<void> _savePreset() async {
+    final preferences = _preferences;
+    if (preferences == null) return;
+    final result = await showPdfDialog<(String, bool)>(
+      context: context,
+      builder: (_) => _SavePresetDialog(
+        initialName: _preset ?? '',
+        existing: preferences.presetNames,
+        printer: _directWindows ? _destination?.printer : null,
+        includePrinter: _preset == null ||
+            preferences.preset(_preset!)?.destination != null,
+      ),
+    );
+    if (!mounted || result == null) return;
+    final (name, includePrinter) = result;
+    await preferences.savePreset(name, _settings,
+        destination: includePrinter ? _destination : null);
+    if (mounted) setState(() => _preset = name);
+  }
+
+  Future<void> _deletePreset() async {
+    final name = _preset;
+    if (name == null) return;
+    setState(() => _preset = null);
+    await _preferences?.deletePreset(name);
+    if (mounted) setState(() {});
   }
 
   Future<void> _addFiles() async {
@@ -467,7 +577,10 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       setState(() => _error = printL10n(context).printOptionsInvalidLayout);
       return;
     }
-    if (_sheet() == null) {
+    try {
+      preparePrintDocument(_document, _settings,
+          includeCopies: false, sheetIndex: _previewSlot);
+    } catch (_) {
       setState(() => _error = printL10n(context).printOptionsInvalidLayout);
       return;
     }
@@ -475,20 +588,94 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         document: _document, settings: _settings, destination: _destination));
   }
 
-  PdfDocument? _sheet() {
-    if (_settings.pages.isEmpty) return null;
+  /// The sheet to show, asking for a fresh one when the job has changed
+  /// since it was composed. Safe to call from build: composition runs after
+  /// the frame, once, however many settings changed during it.
+  _ComposedSheet? _sheet() {
+    if (_loadingPreferences || _settings.pages.isEmpty) return null;
     final key = (_document, _settings, _previewSlot);
-    if (_previewFor != key) {
-      _previewFor = key;
-      try {
-        _previewDocument = PdfDocument.open(preparePrintDocument(
-            _document, _settings,
-            includeCopies: false, sheetIndex: _previewSlot));
-      } catch (_) {
-        _previewDocument = null;
+    if (_composedFor != key) {
+      _composeWanted = key;
+      if (!_composeScheduled) {
+        _composeScheduled = true;
+        SchedulerBinding.instance.addPostFrameCallback((_) => _compose());
       }
     }
-    return _previewDocument;
+    return _composed;
+  }
+
+  void _compose() {
+    _composeScheduled = false;
+    final key = _composeWanted;
+    if (!mounted || key == null || key == _composedFor) return;
+    final (document, settings, slot) = key;
+    _ComposedSheet? sheet;
+    try {
+      final bytes = preparePrintDocument(document, settings,
+          includeCopies: false, sheetIndex: slot);
+      sheet = _ComposedSheet(bytes, PdfDocument.open(bytes));
+    } catch (_) {
+      sheet = null;
+    }
+    _sheetWorker?.dispose();
+    _sheetWorker = sheet != null && _offThreadRenders
+        ? PdfRenderWorker.startUncached(sheet.bytes)
+        : null;
+    setState(() {
+      _composedFor = key;
+      _composed = sheet;
+      _composeFailed = sheet == null;
+    });
+  }
+
+  // Each composed sheet gets a fresh worker. A native isolate spawns in
+  // milliseconds; a Web Worker boots a ~1 MB script (over a second on a
+  // phone), far too slow to start per settings change, so web keeps its
+  // on-thread render.
+  bool get _offThreadRenders =>
+      PrintPreviewDialog.debugRenderWorkerEnabled && !kIsWeb;
+
+  PdfRenderWorker? _workerForSource() {
+    if (!_offThreadRenders) return null;
+    if (!identical(_sourceWorkerFor, _document)) {
+      _sourceWorker?.dispose();
+      _sourceWorkerFor = _document;
+      _sourceWorker = PdfRenderWorker.startUncached(_document.cos.bytes,
+          populatedRanges: _document.cos.populatedRanges);
+    }
+    return _sourceWorker;
+  }
+
+  /// The selected printer's unprintable edges for a sheet of [size], or null
+  /// while unknown (not Windows, no printer yet, or the driver hasn't
+  /// answered). Asks the driver in the background the first time.
+  PrintPrintableArea? _printableArea(Size size) {
+    final destination = _destination;
+    if (!_directWindows || destination == null) return null;
+    final key = (
+      destination.printer,
+      destination.color,
+      destination.duplex,
+      destination.tray,
+      size.width,
+      size.height,
+    );
+    if (_printableAreas.containsKey(key)) return _printableAreas[key];
+    if (_areaRequests.add(key)) {
+      () async {
+        PrintPrintableArea? area;
+        try {
+          area = await loadPrintPrintableArea(
+              destination, size.width, size.height);
+        } catch (_) {
+          area = null;
+        }
+        _areaRequests.remove(key);
+        if (!mounted) return;
+        setState(() => _printableAreas[key] = area);
+      }();
+    }
+    return null;
   }
 
   @override
@@ -727,24 +914,39 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       ]);
     }
     final destination = _destination;
+    final shown = destination ?? _shownDestination;
     final settings = _printerSettings;
     return _section(l10n.printOptionsPrinter, [
       Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Text(l10n.printOptionsDirectPrinter,
               style: Theme.of(context).textTheme.bodySmall)),
-      if (_loadingPrinters)
-        LinearProgressIndicator(
-            key: const ValueKey('print-printers-loading'),
-            semanticsLabel: l10n.printOptionsLoadingPrinters),
-      if (_printers.isNotEmpty)
-        _dropdown<String>(
-            'printer',
-            l10n.printOptionsPrinter,
-            _printer,
-            {for (final printer in _printers) printer.name: printer.name},
-            (value) => unawaited(_selectPrinter(value)),
-            hint: l10n.printOptionsChoosePrinter),
+      // One fixed-height slot for either query, so the controls below never
+      // shift when a progress bar comes and goes.
+      SizedBox(
+          height: 4,
+          child: _loadingPrinters
+              ? LinearProgressIndicator(
+                  key: const ValueKey('print-printers-loading'),
+                  semanticsLabel: l10n.printOptionsLoadingPrinters)
+              : _loadingPrinter
+                  ? LinearProgressIndicator(
+                      key: const ValueKey('print-printer-loading'),
+                      semanticsLabel: l10n.printOptionsLoadingPrinters)
+                  : null),
+      const SizedBox(height: 8),
+      if (_printers.isNotEmpty || _loadingPrinters)
+        AbsorbPointer(
+            absorbing: _loadingPrinters,
+            child: _dropdown<String>(
+                'printer',
+                l10n.printOptionsPrinter,
+                _printer,
+                {for (final printer in _printers) printer.name: printer.name},
+                (value) => unawaited(_selectPrinter(value)),
+                hint: _loadingPrinters
+                    ? l10n.printOptionsLoadingPrinters
+                    : l10n.printOptionsChoosePrinter)),
       if (_missingPrinter != null)
         Text(l10n.printOptionsPrinterUnavailable(_missingPrinter!),
             key: const ValueKey('print-printer-missing'),
@@ -753,45 +955,44 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         Text(_printerError!,
             key: const ValueKey('print-printer-error'),
             style: TextStyle(color: Theme.of(context).colorScheme.error)),
-      if (_loadingPrinter)
-        LinearProgressIndicator(
-            key: const ValueKey('print-printer-loading'),
-            semanticsLabel: l10n.printOptionsLoadingPrinters),
-      if (settings != null && destination != null)
+      if (settings != null && shown != null)
         AbsorbPointer(
-            absorbing: _loadingPrinter,
-            child: Column(children: [
-              _dropdown<bool>(
-                  'color',
-                  l10n.printOptionsColor,
-                  destination.color,
-                  {
-                    if (settings.supportsColor) true: l10n.printOptionsColor,
-                    false: l10n.printOptionsGrayscale
-                  },
-                  (value) => _changeDestination(color: value)),
-              _dropdown<PrintDuplex>(
-                  'duplex',
-                  l10n.printOptionsDuplex,
-                  destination.duplex,
-                  {
-                    PrintDuplex.simplex: l10n.printOptionsSimplex,
-                    if (settings.supportsDuplex) ...{
-                      PrintDuplex.longEdge: l10n.printOptionsLongEdge,
-                      PrintDuplex.shortEdge: l10n.printOptionsShortEdge,
-                    }
-                  },
-                  (value) => _changeDestination(duplex: value)),
-              _dropdown<int>(
-                  'tray',
-                  l10n.printOptionsTray,
-                  destination.tray,
-                  {
-                    0: l10n.printOptionsDefaultTray,
-                    for (final tray in settings.trays) tray.id: tray.name,
-                  },
-                  (value) => _changeDestination(tray: value)),
-            ])),
+            absorbing: _loadingPrinter || destination == null,
+            child: Opacity(
+                opacity: _loadingPrinter ? 0.6 : 1,
+                child: Column(children: [
+                  _dropdown<bool>(
+                      'color',
+                      l10n.printOptionsColor,
+                      shown.color,
+                      {
+                        if (settings.supportsColor)
+                          true: l10n.printOptionsColor,
+                        false: l10n.printOptionsGrayscale
+                      },
+                      (value) => _changeDestination(color: value)),
+                  _dropdown<PrintDuplex>(
+                      'duplex',
+                      l10n.printOptionsDuplex,
+                      shown.duplex,
+                      {
+                        PrintDuplex.simplex: l10n.printOptionsSimplex,
+                        if (settings.supportsDuplex) ...{
+                          PrintDuplex.longEdge: l10n.printOptionsLongEdge,
+                          PrintDuplex.shortEdge: l10n.printOptionsShortEdge,
+                        }
+                      },
+                      (value) => _changeDestination(duplex: value)),
+                  _dropdown<int>(
+                      'tray',
+                      l10n.printOptionsTray,
+                      shown.tray,
+                      {
+                        0: l10n.printOptionsDefaultTray,
+                        for (final tray in settings.trays) tray.id: tray.name,
+                      },
+                      (value) => _changeDestination(tray: value)),
+                ]))),
       Wrap(spacing: 8, children: [
         TextButton.icon(
             key: const ValueKey('print-printer-retry'),
@@ -800,10 +1001,10 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                 : () => unawaited(_loadPrinters()),
             icon: const Icon(Icons.refresh),
             label: Text(l10n.printOptionsRetry)),
-        if (destination != null)
+        if (shown != null)
           TextButton(
               key: const ValueKey('print-printer-properties'),
-              onPressed: _loadingPrinter
+              onPressed: _loadingPrinter || destination == null
                   ? null
                   : () => unawaited(_printerProperties()),
               child: Text(l10n.printOptionsProperties)),
@@ -811,8 +1012,49 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     ]);
   }
 
+  Widget _presetOptions(DartPdfPrintingLocalizations l10n) {
+    final preferences = _preferences!;
+    final names = preferences.presetNames;
+    final preset = _preset == null ? null : preferences.preset(_preset!);
+    final modified = preset != null &&
+        !preset.matches(_settings,
+            current: _directWindows && !_loadingPrinter ? _destination : null);
+    return _section(l10n.printPresets, [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            child: _dropdown<String>(
+                'preset',
+                l10n.printPresetLabel,
+                preset?.name ?? '',
+                {
+                  '': names.isEmpty
+                      ? l10n.printPresetNoneSaved
+                      : l10n.printPresetNone,
+                  for (final name in names) name: name,
+                },
+                (value) => _applyPreset(value.isEmpty ? null : value))),
+        const SizedBox(width: 4),
+        IconButton(
+            key: const ValueKey('print-preset-save'),
+            tooltip: l10n.printPresetSave,
+            onPressed: _savePreset,
+            icon: const Icon(Icons.save_outlined)),
+        IconButton(
+            key: const ValueKey('print-preset-delete'),
+            tooltip: l10n.printPresetDelete,
+            onPressed: preset == null ? null : _deletePreset,
+            icon: const Icon(Icons.delete_outline)),
+      ]),
+      if (modified)
+        Text(l10n.printPresetModified,
+            key: const ValueKey('print-preset-modified'),
+            style: Theme.of(context).textTheme.bodySmall),
+    ]);
+  }
+
   Widget _options(DartPdfPrintingLocalizations l10n) =>
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _presetOptions(l10n),
         _printerOptions(l10n),
         _section(l10n.printOptionsPages, [
           Wrap(spacing: 8, runSpacing: 4, children: [
@@ -1044,8 +1286,12 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
       ]);
 
   Widget _preview(DartPdfPrintingLocalizations l10n) {
-    final sheet = _choosingRegion ? _document : _sheet();
+    final composed = _sheet();
+    final sheet = _choosingRegion ? _document : composed?.document;
     final pageIndex = _choosingRegion ? _currentPage : 0;
+    final hardware = _choosingRegion || composed == null
+        ? null
+        : _printableArea(composed.size);
     final count = printSheetCount(_settings);
     final orderedPages =
         _settings.reverse ? _settings.pages.reversed.toList() : _settings.pages;
@@ -1059,8 +1305,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     final sourcePage = _document.page(sourceIndex);
     final unit = _pageUnit(sourcePage);
     final source = PdfPageRenderer.pageSize(sourcePage) * unit;
-    final size =
-        sheet == null ? null : PdfPageRenderer.pageSize(sheet.page(pageIndex));
+    final size = _choosingRegion ? null : composed?.size;
     return Column(
         key: _previewAnchor,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1076,12 +1321,27 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
                       padding: const EdgeInsets.all(12),
                       child: sheet == null
                           ? Center(
-                              child: Text(_settings.pages.isEmpty
-                                  ? l10n.printPreviewRangeError(_pageCount)
-                                  : l10n.printPreviewUnavailable))
+                              child: _settings.pages.isEmpty ||
+                                      (_composeFailed && !_choosingRegion)
+                                  ? Text(_settings.pages.isEmpty
+                                      ? l10n.printPreviewRangeError(_pageCount)
+                                      : l10n.printPreviewUnavailable)
+                                  : const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2)))
                           : _PagePreview(
                               document: sheet,
                               pageIndex: pageIndex,
+                              worker: _choosingRegion
+                                  ? _workerForSource()
+                                  : _sheetWorker,
+                              stale: !_choosingRegion &&
+                                  (_composeFailed ||
+                                      _composedFor !=
+                                          (_document, _settings, _previewSlot)),
+                              printableArea: hardware,
                               margin: !_choosingRegion && _marginMode
                                   ? _settings.margin
                                   : 0,
@@ -1136,6 +1396,24 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
             Text(l10n.printOptionsMarginGuide,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall),
+          if (hardware != null && !hardware.supported)
+            Text(l10n.printOptionsPaperUnsupported,
+                key: const ValueKey('print-paper-unsupported'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.error))
+          else if (hardware != null && hardware.hasMargins)
+            Text(
+                l10n.printOptionsPrinterMargins(
+                    _format(hardware.left),
+                    _format(hardware.top),
+                    _format(hardware.right),
+                    _format(hardware.bottom)),
+                key: const ValueKey('print-printer-margins'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall),
         ]);
   }
 }
@@ -1169,16 +1447,29 @@ PdfDocument _mergePrintSources(List<PdfDocument> sources) {
 }
 
 /// Fits the raster and its interactive crop area to exactly the same bounds.
+///
+/// The page is recorded on [worker] when one is live, so a heavy drawing
+/// never interprets on the UI thread; replay and rasterization stay here.
+/// Until a new page has rendered the previous image stays up (at its own
+/// proportions) under a small progress mark, rather than blanking.
 class _PagePreview extends StatefulWidget {
   const _PagePreview(
       {required this.document,
       required this.pageIndex,
+      this.worker,
+      this.stale = false,
       this.margin = 0,
+      this.printableArea,
       this.region,
       this.onRegionSelected});
   final PdfDocument document;
   final int pageIndex;
+  final PdfRenderWorker? worker;
+
+  /// A newer sheet is being composed; show that this one is on its way out.
+  final bool stale;
   final double margin;
+  final PrintPrintableArea? printableArea;
   final PdfRect? region;
   final ValueChanged<PdfRect>? onRegionSelected;
 
@@ -1188,6 +1479,10 @@ class _PagePreview extends StatefulWidget {
 
 class _PagePreviewState extends State<_PagePreview> {
   ui.Image? _image;
+  // What [_image] shows. Its proportions frame the preview until the
+  // current page has rendered.
+  (PdfDocument, int)? _imageOf;
+  Size? _imageSize;
   int _token = 0;
   (PdfDocument, int, int)? _rendered;
   bool _failed = false;
@@ -1207,7 +1502,10 @@ class _PagePreviewState extends State<_PagePreview> {
     if (_rendered == key) return;
     _rendered = key;
     final token = ++_token;
-    final page = widget.document.page(widget.pageIndex);
+    final document = widget.document;
+    final pageIndex = widget.pageIndex;
+    final worker = widget.worker;
+    final page = document.page(pageIndex);
     final size = PdfPageRenderer.pageSize(page);
     final pixelRatio = math.min(
         (bucket * 32 * ratio / math.max(1, size.width)).clamp(0.01, 4.0),
@@ -1215,7 +1513,26 @@ class _PagePreviewState extends State<_PagePreview> {
             math.sqrt(4000000 / math.max(1, size.width * size.height))));
     () async {
       try {
-        final image =
+        ui.Image? image;
+        if (worker != null && worker.isActive) {
+          final commands =
+              await worker.record(pageIndex, imagePixelRatio: pixelRatio);
+          // Superseded while the worker was busy: skip the replay, and above
+          // all don't fall back to the UI-thread render below.
+          if (!mounted || token != _token) return;
+          if (commands != null) {
+            final picture = await PdfPageRenderer.pictureFromCommands(
+                page, commands,
+                maxImagePixelRatio: pixelRatio);
+            try {
+              image =
+                  await PdfPageRenderer.rasterize(picture, size, pixelRatio);
+            } finally {
+              picture.dispose();
+            }
+          }
+        }
+        image ??=
             await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
         if (!mounted || token != _token) {
           image.dispose();
@@ -1224,6 +1541,8 @@ class _PagePreviewState extends State<_PagePreview> {
         setState(() {
           _image?.dispose();
           _image = image;
+          _imageOf = (document, pageIndex);
+          _imageSize = size;
           _failed = false;
         });
       } catch (_) {
@@ -1231,6 +1550,7 @@ class _PagePreviewState extends State<_PagePreview> {
         setState(() {
           _image?.dispose();
           _image = null;
+          _imageOf = null;
           _failed = true;
         });
       }
@@ -1239,14 +1559,16 @@ class _PagePreviewState extends State<_PagePreview> {
 
   @override
   Widget build(BuildContext context) {
-    final pageSize =
+    final targetSize =
         PdfPageRenderer.pageSize(widget.document.page(widget.pageIndex));
     final ratio = MediaQuery.of(context).devicePixelRatio;
+    final current = _imageOf == (widget.document, widget.pageIndex);
     return LayoutBuilder(builder: (context, constraints) {
-      final fit = applyBoxFit(BoxFit.contain, pageSize, constraints.biggest)
-          .destination;
+      final target =
+          applyBoxFit(BoxFit.contain, targetSize, constraints.biggest)
+              .destination;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _renderIfNeeded(fit.width, ratio);
+        if (mounted) _renderIfNeeded(target.width, ratio);
       });
       final image = _image;
       if (image == null) {
@@ -1258,89 +1580,138 @@ class _PagePreviewState extends State<_PagePreview> {
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2)));
       }
+      final pageSize = current ? targetSize : _imageSize!;
+      final fit = current
+          ? target
+          : applyBoxFit(BoxFit.contain, pageSize, constraints.biggest)
+              .destination;
+      final selecting = widget.onRegionSelected != null && current;
+      final pending = !current || widget.stale;
       Offset clamp(Offset point) =>
           Offset(point.dx.clamp(0, fit.width), point.dy.clamp(0, fit.height));
+      final page = SizedBox(
+          width: fit.width,
+          height: fit.height,
+          child: MouseRegion(
+            cursor: selecting ? SystemMouseCursors.precise : MouseCursor.defer,
+            child: GestureDetector(
+              dragStartBehavior: DragStartBehavior.down,
+              behavior: HitTestBehavior.opaque,
+              onPanStart: !selecting
+                  ? null
+                  : (details) => setState(() {
+                        _dragStart = clamp(details.localPosition);
+                        _dragRect = Rect.fromPoints(_dragStart!, _dragStart!);
+                      }),
+              onPanUpdate: !selecting
+                  ? null
+                  : (details) => setState(() {
+                        _dragRect = Rect.fromPoints(
+                            _dragStart!, clamp(details.localPosition));
+                      }),
+              onPanEnd: !selecting
+                  ? null
+                  : (_) {
+                      final rect = _dragRect;
+                      setState(() {
+                        _dragStart = null;
+                        _dragRect = null;
+                      });
+                      if (rect == null || rect.width < 3 || rect.height < 3) {
+                        return;
+                      }
+                      widget.onRegionSelected!(PdfRect(
+                          rect.left / fit.width * pageSize.width,
+                          rect.top / fit.height * pageSize.height,
+                          rect.right / fit.width * pageSize.width,
+                          rect.bottom / fit.height * pageSize.height));
+                    },
+              onPanCancel: !selecting
+                  ? null
+                  : () => setState(() {
+                        _dragStart = null;
+                        _dragRect = null;
+                      }),
+              child: CustomPaint(
+                  key: const ValueKey('print-preview-page'),
+                  painter: _PagePreviewPainter(image, pageSize,
+                      margin: widget.margin,
+                      printableArea: current ? widget.printableArea : null,
+                      crop: _dragRect ??
+                          (widget.region == null || !current
+                              ? null
+                              : Rect.fromLTRB(
+                                  widget.region!.left /
+                                      pageSize.width *
+                                      fit.width,
+                                  widget.region!.bottom /
+                                      pageSize.height *
+                                      fit.height,
+                                  widget.region!.right /
+                                      pageSize.width *
+                                      fit.width,
+                                  widget.region!.top /
+                                      pageSize.height *
+                                      fit.height)))),
+            ),
+          ));
       return Center(
-          child: SizedBox(
-              width: fit.width,
-              height: fit.height,
-              child: MouseRegion(
-                cursor: widget.onRegionSelected == null
-                    ? MouseCursor.defer
-                    : SystemMouseCursors.precise,
-                child: GestureDetector(
-                  dragStartBehavior: DragStartBehavior.down,
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: widget.onRegionSelected == null
-                      ? null
-                      : (details) => setState(() {
-                            _dragStart = clamp(details.localPosition);
-                            _dragRect =
-                                Rect.fromPoints(_dragStart!, _dragStart!);
-                          }),
-                  onPanUpdate: widget.onRegionSelected == null
-                      ? null
-                      : (details) => setState(() {
-                            _dragRect = Rect.fromPoints(
-                                _dragStart!, clamp(details.localPosition));
-                          }),
-                  onPanEnd: widget.onRegionSelected == null
-                      ? null
-                      : (_) {
-                          final rect = _dragRect;
-                          setState(() {
-                            _dragStart = null;
-                            _dragRect = null;
-                          });
-                          if (rect == null ||
-                              rect.width < 3 ||
-                              rect.height < 3) {
-                            return;
-                          }
-                          widget.onRegionSelected!(PdfRect(
-                              rect.left / fit.width * pageSize.width,
-                              rect.top / fit.height * pageSize.height,
-                              rect.right / fit.width * pageSize.width,
-                              rect.bottom / fit.height * pageSize.height));
-                        },
-                  onPanCancel: widget.onRegionSelected == null
-                      ? null
-                      : () => setState(() {
-                            _dragStart = null;
-                            _dragRect = null;
-                          }),
-                  child: CustomPaint(
-                      key: const ValueKey('print-preview-page'),
-                      painter: _PagePreviewPainter(image, pageSize,
-                          margin: widget.margin,
-                          crop: _dragRect ??
-                              (widget.region == null
-                                  ? null
-                                  : Rect.fromLTRB(
-                                      widget.region!.left /
-                                          pageSize.width *
-                                          fit.width,
-                                      widget.region!.bottom /
-                                          pageSize.height *
-                                          fit.height,
-                                      widget.region!.right /
-                                          pageSize.width *
-                                          fit.width,
-                                      widget.region!.top /
-                                          pageSize.height *
-                                          fit.height)))),
-                ),
-              )));
+          child: Stack(clipBehavior: Clip.none, children: [
+        page,
+        // Delay the mark so a quick re-render never flashes it.
+        if (pending)
+          const Positioned(
+              right: 6,
+              top: 6,
+              child: _DelayedProgress(key: ValueKey('print-preview-pending'))),
+      ]));
     });
   }
 }
 
+/// A small spinner that only appears if the wait outlasts a beat.
+class _DelayedProgress extends StatefulWidget {
+  const _DelayedProgress({super.key});
+
+  @override
+  State<_DelayedProgress> createState() => _DelayedProgressState();
+}
+
+class _DelayedProgressState extends State<_DelayedProgress> {
+  Timer? _timer;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedOpacity(
+      opacity: _visible ? 1 : 0,
+      duration: const Duration(milliseconds: 150),
+      child: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2)));
+}
+
 class _PagePreviewPainter extends CustomPainter {
   const _PagePreviewPainter(this.image, this.pageSize,
-      {this.margin = 0, this.crop});
+      {this.margin = 0, this.printableArea, this.crop});
   final ui.Image image;
   final Size pageSize;
   final double margin;
+  final PrintPrintableArea? printableArea;
   final Rect? crop;
 
   @override
@@ -1350,6 +1721,9 @@ class _PagePreviewPainter extends CustomPainter {
         Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
         Offset.zero & size,
         Paint()..filterQuality = FilterQuality.medium);
+    if (printableArea case final area? when area.hasMargins) {
+      _paintUnprintable(canvas, size, area);
+    }
     if (margin > 0) {
       final inset = margin / pageSize.width * size.width;
       final rect = (Offset.zero & size).deflate(inset);
@@ -1377,10 +1751,156 @@ class _PagePreviewPainter extends CustomPainter {
     }
   }
 
+  /// Hatches the band around the edge the printer can't reach, the way a
+  /// prepress preview does: whatever lies under it won't come out on paper.
+  void _paintUnprintable(Canvas canvas, Size size, PrintPrintableArea area) {
+    final sx = size.width / pageSize.width;
+    final sy = size.height / pageSize.height;
+    final paper = Offset.zero & size;
+    final printable = Rect.fromLTRB(area.left * sx, area.top * sy,
+        size.width - area.right * sx, size.height - area.bottom * sy);
+    final band = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(paper)
+      ..addRect(printable.isEmpty ? Rect.zero : printable);
+    canvas.save();
+    canvas.clipPath(band);
+    canvas.drawRect(paper, Paint()..color = const Color(0x33808080));
+    final hatch = Paint()
+      ..color = const Color(0x8C6B7280)
+      ..strokeWidth = 1;
+    const spacing = 6.0;
+    for (var x = -size.height; x < size.width; x += spacing) {
+      canvas.drawLine(
+          Offset(x, size.height), Offset(x + size.height, 0), hatch);
+    }
+    canvas.restore();
+    if (!printable.isEmpty) {
+      final edge = Paint()
+        ..color = const Color(0xFF6B7280)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1;
+      _dashedRect(canvas, printable, edge);
+    }
+  }
+
+  static void _dashedRect(Canvas canvas, Rect rect, Paint paint) {
+    const dash = 4.0, gap = 3.0;
+    void line(Offset a, Offset b) {
+      final length = (b - a).distance;
+      if (length == 0) return;
+      final step = (b - a) / length;
+      for (var t = 0.0; t < length; t += dash + gap) {
+        canvas.drawLine(
+            a + step * t, a + step * math.min(t + dash, length), paint);
+      }
+    }
+
+    line(rect.topLeft, rect.topRight);
+    line(rect.topRight, rect.bottomRight);
+    line(rect.bottomRight, rect.bottomLeft);
+    line(rect.bottomLeft, rect.topLeft);
+  }
+
   @override
   bool shouldRepaint(_PagePreviewPainter old) =>
       !identical(old.image, image) ||
       old.pageSize != pageSize ||
       old.margin != margin ||
+      old.printableArea != printableArea ||
       old.crop != crop;
+}
+
+/// Names a print preset. Returns the trimmed name and whether to remember the
+/// printer with it, or null when cancelled.
+class _SavePresetDialog extends StatefulWidget {
+  const _SavePresetDialog({
+    required this.initialName,
+    required this.existing,
+    required this.printer,
+    required this.includePrinter,
+  });
+
+  final String initialName;
+  final List<String> existing;
+
+  /// The printer that would be saved with the preset; null hides the choice.
+  final String? printer;
+  final bool includePrinter;
+
+  @override
+  State<_SavePresetDialog> createState() => _SavePresetDialogState();
+}
+
+class _SavePresetDialogState extends State<_SavePresetDialog> {
+  late final _name = TextEditingController(text: widget.initialName)
+    ..selection =
+        TextSelection(baseOffset: 0, extentOffset: widget.initialName.length);
+  late bool _includePrinter = widget.includePrinter;
+
+  String get _trimmed => _name.text.trim();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_trimmed.isEmpty) return;
+    Navigator.of(context)
+        .pop((_trimmed, widget.printer != null && _includePrinter));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = printL10n(context);
+    final replaces = widget.existing.contains(_trimmed);
+    return AlertDialog(
+      key: const ValueKey('print-preset-dialog'),
+      title: Text(l10n.printPresetSaveTitle),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                key: const ValueKey('print-preset-name'),
+                controller: _name,
+                autofocus: true,
+                maxLength: 60,
+                contextMenuBuilder: pdfTextContextMenu,
+                decoration: InputDecoration(
+                    labelText: l10n.printPresetName,
+                    border: const OutlineInputBorder(),
+                    helperText: replaces ? l10n.printPresetReplaces : null),
+                onChanged: (_) => setState(() {}),
+              ),
+              if (widget.printer case final printer?)
+                CheckboxListTile(
+                  key: const ValueKey('print-preset-include-printer'),
+                  value: _includePrinter,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(l10n.printPresetIncludePrinter(printer)),
+                  onChanged: (value) =>
+                      setState(() => _includePrinter = value ?? false),
+                ),
+            ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.cancel)),
+        PdfDialogSubmit.action(
+            onSubmit: _trimmed.isEmpty ? null : _save,
+            child: FilledButton(
+                key: const ValueKey('print-preset-confirm'),
+                onPressed: _trimmed.isEmpty ? null : _save,
+                child: Text(l10n.printPresetSaveAction))),
+      ],
+    );
+  }
 }

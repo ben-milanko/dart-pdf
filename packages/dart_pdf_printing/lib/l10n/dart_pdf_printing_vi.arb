@@ -97,5 +97,19 @@
   "printOptionsProperties": "Thuộc tính máy in…",
   "printOptionsDirectPrinter": "In sẽ gửi lệnh in này trực tiếp đến máy in đã chọn.",
   "printOptionsPropertiesError": "Không thể mở thuộc tính máy in.",
-  "printOptionsLoadingPrinters": "Đang tải máy in…"
+  "printOptionsLoadingPrinters": "Đang tải máy in…",
+  "printPresets": "Cài đặt sẵn",
+  "printPresetLabel": "Cài đặt sẵn",
+  "printPresetNone": "Không có",
+  "printPresetNoneSaved": "Chưa lưu cài đặt sẵn nào",
+  "printPresetSave": "Lưu thành cài đặt sẵn…",
+  "printPresetDelete": "Xóa cài đặt sẵn",
+  "printPresetModified": "Đã thay đổi kể từ khi lưu. Lưu lại để cập nhật.",
+  "printPresetSaveTitle": "Lưu cài đặt in sẵn",
+  "printPresetName": "Tên cài đặt sẵn",
+  "printPresetReplaces": "Thay thế cài đặt sẵn có tên này.",
+  "printPresetIncludePrinter": "Chọn cả {printer} cùng màu, in hai mặt và khay",
+  "printPresetSaveAction": "Lưu",
+  "printOptionsPrinterMargins": "Viền gạch chéo nằm ngoài vùng in được của máy in (trái, trên, phải, dưới: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Máy in đã chọn không in được trên khổ giấy này."
 }

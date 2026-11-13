@@ -310,4 +310,53 @@ class DartPdfPrintingLocalizationsId extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Memuat printer…';
+
+  @override
+  String get printPresets => 'Preset';
+
+  @override
+  String get printPresetLabel => 'Preset';
+
+  @override
+  String get printPresetNone => 'Tidak ada';
+
+  @override
+  String get printPresetNoneSaved => 'Belum ada preset tersimpan';
+
+  @override
+  String get printPresetSave => 'Simpan sebagai preset…';
+
+  @override
+  String get printPresetDelete => 'Hapus preset';
+
+  @override
+  String get printPresetModified =>
+      'Berubah sejak disimpan. Simpan lagi untuk memperbarui.';
+
+  @override
+  String get printPresetSaveTitle => 'Simpan preset cetak';
+
+  @override
+  String get printPresetName => 'Nama preset';
+
+  @override
+  String get printPresetReplaces => 'Menggantikan preset dengan nama ini.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Pilih juga $printer beserta warna, dupleks, dan bakinya';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Simpan';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Tepi berarsir berada di luar area cetak printer (kiri, atas, kanan, bawah: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Printer yang dipilih tidak dapat mencetak pada ukuran kertas ini.';
 }

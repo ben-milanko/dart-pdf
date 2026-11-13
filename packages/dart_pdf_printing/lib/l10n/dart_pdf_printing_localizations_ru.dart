@@ -311,4 +311,53 @@ class DartPdfPrintingLocalizationsRu extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Загрузка принтеров…';
+
+  @override
+  String get printPresets => 'Наборы настроек';
+
+  @override
+  String get printPresetLabel => 'Набор настроек';
+
+  @override
+  String get printPresetNone => 'Нет';
+
+  @override
+  String get printPresetNoneSaved => 'Нет сохранённых наборов';
+
+  @override
+  String get printPresetSave => 'Сохранить как набор…';
+
+  @override
+  String get printPresetDelete => 'Удалить набор';
+
+  @override
+  String get printPresetModified =>
+      'Изменено после сохранения. Сохраните снова, чтобы обновить.';
+
+  @override
+  String get printPresetSaveTitle => 'Сохранить набор настроек печати';
+
+  @override
+  String get printPresetName => 'Название набора';
+
+  @override
+  String get printPresetReplaces => 'Заменит набор с этим названием.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Также выбирать $printer с цветом, двусторонней печатью и лотком';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Сохранить';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Заштрихованные края вне области печати принтера (слева, сверху, справа, снизу: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Выбранный принтер не печатает на бумаге этого размера.';
 }

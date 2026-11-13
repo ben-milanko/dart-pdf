@@ -97,5 +97,19 @@
   "printOptionsProperties": "Propriedades da impressora…",
   "printOptionsDirectPrinter": "Imprimir envia este trabalho diretamente à impressora selecionada.",
   "printOptionsPropertiesError": "Não foi possível abrir as propriedades da impressora.",
-  "printOptionsLoadingPrinters": "Carregando impressoras…"
+  "printOptionsLoadingPrinters": "Carregando impressoras…",
+  "printPresets": "Predefinições",
+  "printPresetLabel": "Predefinição",
+  "printPresetNone": "Nenhuma",
+  "printPresetNoneSaved": "Nenhuma predefinição salva",
+  "printPresetSave": "Salvar como predefinição…",
+  "printPresetDelete": "Excluir predefinição",
+  "printPresetModified": "Alterada desde que foi salva. Salve novamente para atualizá-la.",
+  "printPresetSaveTitle": "Salvar predefinição de impressão",
+  "printPresetName": "Nome da predefinição",
+  "printPresetReplaces": "Substitui a predefinição com este nome.",
+  "printPresetIncludePrinter": "Selecionar também {printer} com cor, frente e verso e bandeja",
+  "printPresetSaveAction": "Salvar",
+  "printOptionsPrinterMargins": "As bordas hachuradas ficam fora da área imprimível da impressora (esquerda, topo, direita, base: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "A impressora selecionada não imprime neste tamanho de papel."
 }

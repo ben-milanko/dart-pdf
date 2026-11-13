@@ -115,3 +115,68 @@ Future<PrintPrinterSettings?> showPrintPrinterProperties(
   );
   return result == null ? null : PrintPrinterSettings.fromMap(result);
 }
+
+/// What a printer can physically mark on one prepared sheet: the unprintable
+/// band on each edge, in PDF points, in the sheet's content-up frame.
+class PrintPrintableArea {
+  const PrintPrintableArea({
+    this.supported = true,
+    this.left = 0,
+    this.top = 0,
+    this.right = 0,
+    this.bottom = 0,
+  });
+
+  /// False when the driver would substitute different media for this paper
+  /// size. Spooling such a sheet fails rather than clipping it.
+  final bool supported;
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  bool get hasMargins => left > 0 || top > 0 || right > 0 || bottom > 0;
+
+  factory PrintPrintableArea.fromMap(Map<dynamic, dynamic> map) {
+    double edge(String key) {
+      final value = map[key];
+      return value is num && value.isFinite && value > 0 ? value.toDouble() : 0;
+    }
+
+    return PrintPrintableArea(
+      supported: map['supported'] != false,
+      left: edge('left'),
+      top: edge('top'),
+      right: edge('right'),
+      bottom: edge('bottom'),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is PrintPrintableArea &&
+      other.supported == supported &&
+      other.left == left &&
+      other.top == top &&
+      other.right == right &&
+      other.bottom == bottom;
+
+  @override
+  int get hashCode => Object.hash(supported, left, top, right, bottom);
+}
+
+/// Measures the hardware margins of [destination] for a [width] x [height]
+/// point sheet with the exact driver settings a direct job would use. Windows
+/// only; the query runs on a native worker thread.
+Future<PrintPrintableArea> loadPrintPrintableArea(
+    PrintDestination destination, double width, double height) async {
+  final result = await _channel.invokeMapMethod<dynamic, dynamic>(
+    'printableArea',
+    {...destination.toMap(), 'width': width, 'height': height},
+  );
+  if (result == null) {
+    throw PlatformException(
+        code: 'print_failed', message: 'Printer unavailable');
+  }
+  return PrintPrintableArea.fromMap(result);
+}

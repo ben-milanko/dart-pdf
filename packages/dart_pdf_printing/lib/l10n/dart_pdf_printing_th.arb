@@ -97,5 +97,19 @@
   "printOptionsProperties": "คุณสมบัติเครื่องพิมพ์…",
   "printOptionsDirectPrinter": "ปุ่มพิมพ์จะส่งงานนี้ไปยังเครื่องพิมพ์ที่เลือกโดยตรง",
   "printOptionsPropertiesError": "ไม่สามารถเปิดคุณสมบัติเครื่องพิมพ์ได้",
-  "printOptionsLoadingPrinters": "กำลังโหลดเครื่องพิมพ์…"
+  "printOptionsLoadingPrinters": "กำลังโหลดเครื่องพิมพ์…",
+  "printPresets": "ค่าที่ตั้งไว้",
+  "printPresetLabel": "ค่าที่ตั้งไว้",
+  "printPresetNone": "ไม่มี",
+  "printPresetNoneSaved": "ไม่มีค่าที่บันทึกไว้",
+  "printPresetSave": "บันทึกเป็นค่าที่ตั้งไว้…",
+  "printPresetDelete": "ลบค่าที่ตั้งไว้",
+  "printPresetModified": "มีการเปลี่ยนแปลงหลังบันทึก บันทึกอีกครั้งเพื่ออัปเดต",
+  "printPresetSaveTitle": "บันทึกค่าการพิมพ์ที่ตั้งไว้",
+  "printPresetName": "ชื่อค่าที่ตั้งไว้",
+  "printPresetReplaces": "จะแทนที่ค่าที่ตั้งไว้ที่มีชื่อนี้",
+  "printPresetIncludePrinter": "เลือก {printer} พร้อมสี การพิมพ์สองหน้า และถาดด้วย",
+  "printPresetSaveAction": "บันทึก",
+  "printOptionsPrinterMargins": "ขอบที่แรเงาอยู่นอกพื้นที่พิมพ์ได้ของเครื่องพิมพ์ (ซ้าย บน ขวา ล่าง: {left}, {top}, {right}, {bottom} pt)",
+  "printOptionsPaperUnsupported": "เครื่องพิมพ์ที่เลือกพิมพ์บนกระดาษขนาดนี้ไม่ได้"
 }

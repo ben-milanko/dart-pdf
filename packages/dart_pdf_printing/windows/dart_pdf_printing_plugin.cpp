@@ -3,6 +3,8 @@
 #include <flutter/standard_method_codec.h>
 
 #include <exception>
+#include <functional>
+#include <optional>
 #include <thread>
 
 namespace dart_pdf_printing {
@@ -123,13 +125,16 @@ flutter::EncodableValue PrinterSettingsPayload(
 // separate NativePrinter and captures no channel service or window pointer.
 // Slow/unreachable network printer drivers therefore cannot freeze the window,
 // race a print job, or retain a dangling service when the window closes.
-void QueryPrintersAsync(
-    bool list_printers, NativePrinter::Options options,
-    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+// Runs |query| on its own thread with its own NativePrinter. |query| replies.
+void RunPrinterQueryAsync(
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result,
+    std::function<void(NativePrinter&, flutter::MethodResult<
+                                           flutter::EncodableValue>&)>
+        query) {
   auto reply = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
       std::move(result));
   try {
-    std::thread([list_printers, options = std::move(options), reply]() {
+    std::thread([reply, query = std::move(query)]() {
       const HRESULT initialized =
           ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
       if (FAILED(initialized)) {
@@ -141,32 +146,7 @@ void QueryPrintersAsync(
       } com_scope;
       try {
         NativePrinter printer;
-        if (list_printers) {
-          std::vector<NativePrinter::Destination> printers;
-          if (!printer.ListPrinters(&printers)) {
-            reply->Error("print_failed", printer.error());
-            return;
-          }
-          flutter::EncodableList destinations;
-          for (const auto& destination : printers) {
-            destinations.push_back(
-                flutter::EncodableValue(flutter::EncodableMap{
-                    {flutter::EncodableValue("name"),
-                     flutter::EncodableValue(
-                         Utf8FromUtf16(destination.name.c_str()))},
-                    {flutter::EncodableValue("isDefault"),
-                     flutter::EncodableValue(destination.is_default)},
-                }));
-          }
-          reply->Success(flutter::EncodableValue(destinations));
-        } else {
-          NativePrinter::Settings settings;
-          if (!printer.PrinterSettings(nullptr, options, false, &settings)) {
-            reply->Error("print_failed", printer.error());
-            return;
-          }
-          reply->Success(PrinterSettingsPayload(settings));
-        }
+        query(printer, *reply);
       } catch (const std::exception& error) {
         reply->Error("print_failed", error.what());
       }
@@ -174,6 +154,75 @@ void QueryPrintersAsync(
   } catch (const std::exception& error) {
     reply->Error("print_failed", error.what());
   }
+}
+
+void QueryPrintersAsync(
+    bool list_printers, NativePrinter::Options options,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  RunPrinterQueryAsync(std::move(result), [list_printers,
+                                           options = std::move(options)](
+                                              NativePrinter& printer,
+                                              auto& reply) {
+    if (list_printers) {
+      std::vector<NativePrinter::Destination> printers;
+      if (!printer.ListPrinters(&printers)) {
+        reply.Error("print_failed", printer.error());
+        return;
+      }
+      flutter::EncodableList destinations;
+      for (const auto& destination : printers) {
+        destinations.push_back(flutter::EncodableValue(flutter::EncodableMap{
+            {flutter::EncodableValue("name"),
+             flutter::EncodableValue(Utf8FromUtf16(destination.name.c_str()))},
+            {flutter::EncodableValue("isDefault"),
+             flutter::EncodableValue(destination.is_default)},
+        }));
+      }
+      reply.Success(flutter::EncodableValue(destinations));
+    } else {
+      NativePrinter::Settings settings;
+      if (!printer.PrinterSettings(nullptr, options, false, &settings)) {
+        reply.Error("print_failed", printer.error());
+        return;
+      }
+      reply.Success(PrinterSettingsPayload(settings));
+    }
+  });
+}
+
+void QueryPrintableAreaAsync(
+    NativePrinter::Options options, double width, double height,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  RunPrinterQueryAsync(std::move(result), [options = std::move(options), width,
+                                           height](NativePrinter& printer,
+                                                   auto& reply) {
+    NativePrinter::PrintableArea area;
+    if (!printer.QueryPrintableArea(options, width, height, &area)) {
+      reply.Error("print_failed", printer.error());
+      return;
+    }
+    reply.Success(flutter::EncodableValue(flutter::EncodableMap{
+        {flutter::EncodableValue("supported"),
+         flutter::EncodableValue(area.supported)},
+        {flutter::EncodableValue("left"), flutter::EncodableValue(area.left)},
+        {flutter::EncodableValue("top"), flutter::EncodableValue(area.top)},
+        {flutter::EncodableValue("right"), flutter::EncodableValue(area.right)},
+        {flutter::EncodableValue("bottom"),
+         flutter::EncodableValue(area.bottom)},
+    }));
+  });
+}
+
+std::optional<double> Number(const flutter::EncodableMap* args,
+                             const char* key) {
+  if (args == nullptr) return std::nullopt;
+  const auto* value = Lookup(*args, key);
+  if (value == nullptr) return std::nullopt;
+  if (const auto* number = std::get_if<double>(value)) return *number;
+  if (const auto integer = Integer(*value)) {
+    return static_cast<double>(*integer);
+  }
+  return std::nullopt;
 }
 
 }  // namespace
@@ -217,6 +266,17 @@ void DartPdfPrintingPlugin::HandleMethodCall(
                          : std::get_if<flutter::EncodableMap>(call.arguments());
   if (call.method_name() == "listPrinters") {
     QueryPrintersAsync(true, {}, std::move(result));
+  } else if (call.method_name() == "printableArea") {
+    const auto options = PrintOptions(args);
+    const auto width = Number(args, "width");
+    const auto height = Number(args, "height");
+    if (options.printer.empty() || !width || !height || !(*width > 0) ||
+        !(*height > 0)) {
+      result->Error("bad_args",
+                    "Printable area requires a printer, width and height");
+      return;
+    }
+    QueryPrintableAreaAsync(options, *width, *height, std::move(result));
   } else if (call.method_name() == "printerSettings" ||
              call.method_name() == "printerProperties") {
     const auto options = PrintOptions(args);
