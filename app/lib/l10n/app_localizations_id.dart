@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -287,6 +289,9 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Tutup tab';
+
+  @override
+  String get editorSortTabsByName => 'Urutkan tab menurut nama';
 
   @override
   String get editorCloseTabsToRight => 'Tutup tab di sebelah kanan';

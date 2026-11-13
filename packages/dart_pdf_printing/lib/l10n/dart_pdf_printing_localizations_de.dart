@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -308,4 +310,53 @@ class DartPdfPrintingLocalizationsDe extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Drucker werden geladen…';
+
+  @override
+  String get printPresets => 'Vorgaben';
+
+  @override
+  String get printPresetLabel => 'Vorgabe';
+
+  @override
+  String get printPresetNone => 'Keine';
+
+  @override
+  String get printPresetNoneSaved => 'Keine gespeicherten Vorgaben';
+
+  @override
+  String get printPresetSave => 'Als Vorgabe speichern…';
+
+  @override
+  String get printPresetDelete => 'Vorgabe löschen';
+
+  @override
+  String get printPresetModified =>
+      'Seit dem Speichern geändert. Erneut speichern, um die Vorgabe zu aktualisieren.';
+
+  @override
+  String get printPresetSaveTitle => 'Druckvorgabe speichern';
+
+  @override
+  String get printPresetName => 'Name der Vorgabe';
+
+  @override
+  String get printPresetReplaces => 'Ersetzt die Vorgabe mit diesem Namen.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Auch $printer mit Farbe, Duplex und Papierfach auswählen';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Speichern';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Schraffierte Ränder liegen außerhalb des druckbaren Bereichs (links, oben, rechts, unten: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Der ausgewählte Drucker kann dieses Papierformat nicht drucken.';
 }

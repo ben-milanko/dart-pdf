@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: 3.47.8
+  FLUTTER_VERSION: 3.50.0
   # The CLI release paired with the example's patrol 4.10.0.
   PATROL_CLI_VERSION: 4.8.0
   PATROL_ANALYTICS_ENABLED: "false"
@@ -26,7 +26,8 @@ jobs:
     # Pull requests reuse the already-initialized Preview Demo Web build job.
     # Keep this standalone lane for main/deploy pushes and manual runs.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # Patrol 4.8 Playwright rejects Ubuntu 26.04; keep browser tests on its supported image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -223,6 +224,9 @@ jobs:
             --require-scenario-runs "gpu-native-page-0-first-tile=$PATROL_NATIVE_PERF_REPETITIONS"
             --require-scenario-runs "gpu-native-page-0-canvas-tile=$PATROL_NATIVE_PERF_REPETITIONS"
             --require-scenario-runs "gpu-native-page-0-reused-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-first-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-canvas-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-reused-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
@@ -322,6 +326,9 @@ jobs:
             --require-scenario-runs "gpu-native-page-0-first-tile=$PATROL_NATIVE_PERF_REPETITIONS"
             --require-scenario-runs "gpu-native-page-0-canvas-tile=$PATROL_NATIVE_PERF_REPETITIONS"
             --require-scenario-runs "gpu-native-page-0-reused-tile=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-first-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-canvas-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
+            --require-scenario-runs "gpu-native-page-0-reused-tile-readback=$PATROL_NATIVE_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then

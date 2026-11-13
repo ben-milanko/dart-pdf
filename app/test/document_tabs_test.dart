@@ -175,4 +175,28 @@ void main() {
     expect(cached.documentId, 'cache/123.pdf');
     expect(bare.documentId, 'report.pdf');
   });
+
+  test('sortByName orders naturally and keeps the active tab', () {
+    final active = _Tab('Sheet 2');
+    tabs
+      ..add(_Tab('sheet 10'))
+      ..add(_Tab(''))
+      ..add(active)
+      ..add(_Tab('alpha'))
+      ..add(_Tab('sheet 002b'));
+    tabs.activate(2);
+    changes = 0;
+    tabs.sortByName();
+    expect(titles(), ['alpha', 'Sheet 2', 'sheet 002b', 'sheet 10', '']);
+    expect(tabs.active, same(active));
+    expect(changes, 1);
+  });
+
+  test('compareTabTitles is case-insensitive and numeric-aware', () {
+    expect(compareTabTitles('a', 'B'), lessThan(0));
+    expect(compareTabTitles('x9', 'x10'), lessThan(0));
+    expect(compareTabTitles('x010', 'x9'), greaterThan(0));
+    expect(compareTabTitles('', 'a'), greaterThan(0));
+    expect(compareTabTitles('a', 'a'), 0);
+  });
 }

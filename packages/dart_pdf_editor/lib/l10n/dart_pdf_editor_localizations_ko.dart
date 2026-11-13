@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1847,6 +1849,13 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => '페이지에서 색상 선택';
 
   @override
+  String get tbRedactAsImages => '가린 페이지를 이미지로 바꾸기';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      '가장 안전함: 가린 각 페이지의 이미지만 남습니다. 해당 페이지의 텍스트는 더 이상 선택하거나 검색할 수 없으며 파일 크기가 커집니다.';
+
+  @override
   String get tbRedactionsApplied => '교정이 적용되었습니다';
 
   @override
@@ -1855,6 +1864,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       '리플로우할 수 없음 - 이 도구가 다시 배치할 수 있는 단일 열 단락이 아닙니다. 대신 텍스트 바꾸기를 사용해 보세요.';
+
+  @override
+  String get tbConvertToFreeText => '텍스트 상자로 변환';
 
   @override
   String get tbReflowParagraph => '단락 리플로우';

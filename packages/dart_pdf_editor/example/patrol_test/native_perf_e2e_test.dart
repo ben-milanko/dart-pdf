@@ -93,27 +93,22 @@ Future<void> runNativeGpuPerfScenario() async {
         reason: 'the one-pixel scene warm-up is not a visible tile');
 
     const firstRegion = Rect.fromLTWH(40, 40, 256, 192);
-    final firstGpu = await _measureNativeGpuScenario(
+    final firstGpu = await _measureTileThenReadback(
       'gpu-native-page-0-first-tile',
       platform,
-      () => _rasterAndReadback(
-        () => accelerated.rasterizeRegion(
-          firstRegion,
-          pixelRatio: 2,
-          tracePage: 0,
-        ),
+      () => accelerated.rasterizeRegion(
+        firstRegion,
+        pixelRatio: 2,
+        tracePage: 0,
       ),
+      gpu: backend,
     );
-    final canvas = await _measureNativeGpuScenario(
+    final canvas = await _measureTileThenReadback(
       'gpu-native-page-0-canvas-tile',
       platform,
-      () => _rasterAndReadback(
-        () => scene.rasterizeRegion(firstRegion, pixelRatio: 2),
-      ),
+      () => scene.rasterizeRegion(firstRegion, pixelRatio: 2),
     );
-    expect(firstGpu, isNotNull);
-    expect(canvas, isNotNull);
-    expect(firstGpu!.width, canvas!.width);
+    expect(firstGpu.width, canvas.width);
     expect(firstGpu.height, canvas.height);
     final meanDifference =
         _meanChannelDifference(firstGpu.pixels, canvas.pixels);
@@ -124,16 +119,15 @@ Future<void> runNativeGpuPerfScenario() async {
     );
 
     const reusedRegion = Rect.fromLTWH(72, 64, 256, 192);
-    await _measureNativeGpuScenario(
+    await _measureTileThenReadback(
       'gpu-native-page-0-reused-tile',
       platform,
-      () => _rasterAndReadback(
-        () => accelerated.rasterizeRegion(
-          reusedRegion,
-          pixelRatio: 2,
-          tracePage: 0,
-        ),
+      () => accelerated.rasterizeRegion(
+        reusedRegion,
+        pixelRatio: 2,
+        tracePage: 0,
       ),
+      gpu: backend,
     );
     await _waitForGpuIdle(backend);
 
@@ -201,16 +195,54 @@ Future<_NativeGpuRaster?> _measureNativeGpuScenario(
   return result;
 }
 
-Future<_NativeGpuRaster> _rasterAndReadback(
-  Future<ui.Image> Function() rasterize,
-) async {
-  final image = await rasterize();
+/// Times one tile as two scenarios: [name] until the tile is finished, and
+/// `$name-readback` for the GPU-to-CPU pixel copy the Canvas parity check
+/// needs.
+///
+/// "Finished" is the GPU completion fence when [gpu] is given (the flutter_gpu
+/// backend returns its image before the GPU has run the pass) and the returned
+/// image otherwise (Canvas's `Picture.toImage`). No on-screen path reads tiles
+/// back. Folded into one number, the readback hid the render time: on Flutter
+/// 3.50's Android Vulkan path `toByteData` alone added ~400 ms to every tile.
+Future<_NativeGpuRaster> _measureTileThenReadback(
+  String name,
+  String platform,
+  Future<ui.Image> Function() rasterize, {
+  FlutterGpuTileRasterBackend? gpu,
+}) async {
+  ui.Image? image;
+  await _measureNativeGpuScenario(name, platform, () async {
+    image = await rasterize();
+    if (gpu != null) await _awaitGpuCompletion(gpu);
+    return null;
+  });
+  final rendered = image!;
   try {
-    final pixels = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (pixels == null) fail('native raster RGBA readback returned null');
-    return (pixels: pixels, width: image.width, height: image.height);
+    final raster = await _measureNativeGpuScenario(
+      '$name-readback',
+      platform,
+      () async {
+        final pixels =
+            await rendered.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (pixels == null) fail('native raster RGBA readback returned null');
+        return (pixels: pixels, width: rendered.width, height: rendered.height);
+      },
+    );
+    return raster!;
   } finally {
-    image.dispose();
+    rendered.dispose();
+  }
+}
+
+/// Waits for every flutter_gpu submission to complete, polling finely enough
+/// (1 ms) that the wait does not blur a tile's render time.
+Future<void> _awaitGpuCompletion(FlutterGpuTileRasterBackend backend) async {
+  final deadline = Stopwatch()..start();
+  while (backend.stats.inFlightSubmissions != 0) {
+    if (deadline.elapsed > const Duration(seconds: 10)) {
+      fail('flutter_gpu submissions did not complete within 10 s');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 

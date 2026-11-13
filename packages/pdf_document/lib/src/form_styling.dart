@@ -104,7 +104,7 @@ extension PdfFormStyling on PdfEditor {
   /// Ensures [font] lives in the form /DR /Font and returns the resource
   /// name /DA should reference it by. Base-14 faces reuse their conventional
   /// short name ([PdfStandardFont.resourceName]); embedded fonts are written
-  /// as a Type0 face under a fresh `FF<n>` key.
+  /// as a Type0 face under an `FF<n>` key, reused for identical font bytes.
   String _ensureDrFont(PdfAcroForm form, PdfTextFont font) {
     final cos = document.cos;
     final (:fonts, :dr) = _formDrFonts(form);
@@ -121,6 +121,18 @@ extension PdfFormStyling on PdfEditor {
         _stageFormResources(form, fonts, dr);
       }
     } else if (font is PdfEmbeddedFont) {
+      // Match the program, not just the PostScript name: distinct subsets or
+      // faces can have the same name. This also works after save/reopen and
+      // when callers parse a separate PdfEmbeddedFont for every field.
+      for (final entry in fonts.entries.entries) {
+        final dict = cos.resolve(entry.value);
+        if (dict is! CosDictionary) continue;
+        final existing = PdfEmbeddedFont.fromFontDict(cos, dict, entry.key);
+        if (existing != null &&
+            _sameFontBytes(existing.fontBytes, font.fontBytes)) {
+          return entry.key;
+        }
+      }
       var i = 0;
       while (fonts.containsKey('FF$i')) {
         i++;
@@ -138,6 +150,14 @@ extension PdfFormStyling on PdfEditor {
       return _ensureDrFont(form, PdfStandardFont.helvetica);
     }
     return name;
+  }
+
+  bool _sameFontBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// The form's /DR /Font dictionary, creating /DR and /Font when absent.

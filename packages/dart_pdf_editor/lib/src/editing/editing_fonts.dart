@@ -172,6 +172,7 @@ class PdfFontMenuButton extends StatelessWidget {
     this.bundled,
     this.platformFonts,
     this.currentFont,
+    this.currentFontLabel,
   });
 
   final PdfEditingController controller;
@@ -197,6 +198,10 @@ class PdfFontMenuButton extends StatelessWidget {
   /// Null means the controller's active/default font.
   final PdfTextFont? currentFont;
 
+  /// Display name for a document font that cannot be represented by
+  /// [currentFont], such as a form resource with only font metadata available.
+  final String? currentFontLabel;
+
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
@@ -204,8 +209,12 @@ class PdfFontMenuButton extends StatelessWidget {
       icon: const Icon(Icons.font_download_outlined, size: 18),
       label: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 120),
-        child: Text(_fontLabel(currentFont) ?? controller.activeFontLabel,
-            overflow: TextOverflow.ellipsis, maxLines: 1),
+        child: Text(
+            currentFontLabel ??
+                _fontLabel(currentFont) ??
+                controller.activeFontLabel,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1),
       ),
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,

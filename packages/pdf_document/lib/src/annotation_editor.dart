@@ -4485,6 +4485,10 @@ extension PdfAnnotationEditing on PdfEditor {
       targets.add(annotation.dict);
       final popup = cos.resolve(annotation.dict['Popup']);
       if (popup is CosDictionary) targets.add(popup);
+      // a pasted vector snapshot's links go with it
+      if (annotation.dict.containsKey(_snapshotCapMatrixKey)) {
+        targets.addAll(_ownedSnapshotLinks(pageIndex, annotation.dict));
+      }
     }
     if (targets.isEmpty) return;
     if (repairGroups) _repairAnnotationGroupsForRemoval(pageIndex, targets);
@@ -6217,6 +6221,10 @@ extension PdfAnnotationEditing on PdfEditor {
     bool visual = true,
   }) {
     _PdfPageAnnotationList(this, pageIndex).markOwnerChangedFor(dict);
+    // a pasted vector snapshot's links follow its geometry
+    if (dict.containsKey(_snapshotCapMatrixKey)) {
+      _layoutSnapshotLinks(pageIndex, dict);
+    }
     _markAnnotations([pageIndex], visual: visual);
   }
 

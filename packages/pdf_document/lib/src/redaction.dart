@@ -58,6 +58,15 @@ extension PdfRedactionApply on PdfEditor {
   /// scrubs hidden copies of the removed text. With
   /// [removeHiddenInformation] it also drops document metadata (keeping
   /// only /Producer and the dates), embedded files and document JavaScript.
+  /// With [wholeWords] (the default) a word that loses any letter loses all
+  /// of them, and the fill grows to cover it: a fragment left beside a box
+  /// gives away what stood next to it.
+  ///
+  /// Text after a removed run keeps its place, so the gap it leaves has the
+  /// removed run's width. That width can be measured from the positions of
+  /// the text around it and matched against candidate strings; it is the
+  /// price of not reflowing the page, and replacing the page with an image
+  /// ([PdfRedactionRaster.replacePagesWithImages]) does not remove it.
   ///
   /// Unlike every other editor operation, the burn is NOT written as an
   /// incremental update - an incremental save keeps the original bytes
@@ -74,6 +83,7 @@ extension PdfRedactionApply on PdfEditor {
   Uint8List burnRedactions({
     int? pageIndex,
     bool removeHiddenInformation = true,
+    bool wholeWords = true,
   }) {
     final pages = pageIndex != null
         ? [pageIndex]
@@ -85,7 +95,7 @@ extension PdfRedactionApply on PdfEditor {
         'before redacting',
       );
     }
-    final session = _RedactionSession();
+    final session = _RedactionSession()..wholeWords = wholeWords;
     for (final i in pages) {
       if (_applyRedactionsOnPage(i, session)) session.burnedPages.add(i);
     }
@@ -313,6 +323,7 @@ extension PdfRedactionApply on PdfEditor {
     }
     if (redactions.isEmpty) return false;
     final regions = [for (final r in redactions) r.rect];
+    session.extraFills.clear();
 
     // 1. Surgically remove covered content from the page's streams (and
     //    from the form XObjects, images, patterns and soft masks it draws).
@@ -349,21 +360,7 @@ extension PdfRedactionApply on PdfEditor {
     page.dict.entries.remove('PieceInfo');
     _updater.markChanged(page.dict);
 
-    // 2. Paint the fill (and any overlay text) over each region, on top.
-    final fill = _redactionFillContent(page, redactions);
-
-    final rebuilt = BytesBuilder(copy: false)
-      ..add(latin1.encode('q\n'))
-      ..add(burned)
-      ..add(latin1.encode('\nQ\n'))
-      ..add(fill);
-    _setContent(pageIndex, page, rebuilt.takeBytes());
-    final newContents = page.dict['Contents'];
-    if (contents is CosReference && newContents is CosReference) {
-      session.contentReplacements[contents.objectNumber] = newContents;
-    }
-
-    // 3. Drop the /Redact annotations and every annotation touching a
+    // 2. Drop the /Redact annotations and every annotation touching a
     //    redaction region (it draws over the fill, and its /Contents or
     //    field value is what the rect is meant to hide), with the popups,
     //    popup owners and replies that belong to them.
@@ -378,6 +375,29 @@ extension PdfRedactionApply on PdfEditor {
     for (final MapEntry(key: dict, value: item) in removed.entries) {
       _purgeAnnotation(dict, item, session);
     }
+
+    // 3. Paint the fill (and any overlay text) over each region, on top -
+    //    and over letters whole-word removal took beyond the boxes. This
+    //    comes after the kept appearances burn: they can take words beyond
+    //    the boxes too, and those fills belong on this page.
+    final color = redactions.first.fillColor;
+    final fill = _redactionFillContent(page, [
+      ...redactions,
+      for (final r in session.extraFills) _Redaction(r, color, null, null),
+    ]);
+    session.extraFills.clear();
+
+    final rebuilt = BytesBuilder(copy: false)
+      ..add(latin1.encode('q\n'))
+      ..add(burned)
+      ..add(latin1.encode('\nQ\n'))
+      ..add(fill);
+    _setContent(pageIndex, page, rebuilt.takeBytes());
+    final newContents = page.dict['Contents'];
+    if (contents is CosReference && newContents is CosReference) {
+      session.contentReplacements[contents.objectNumber] = newContents;
+    }
+
     if (annotationsChanged) _markAnnotations([pageIndex], visual: false);
     return true;
   }
@@ -1375,6 +1395,13 @@ class _RedactionSession {
 
   final List<int> burnedPages = [];
   bool formFieldsRemoved = false;
+
+  /// Whether a word losing any letter loses them all.
+  bool wholeWords = true;
+
+  /// Areas of letters taken beyond the boxes (whole-word removal), to be
+  /// painted over like the boxes; drained per page.
+  final List<PdfRect> extraFills = [];
 
   /// Form XObject burns so far, bounded so a hostile file of forms drawing
   /// forms can't make the burn run for ever.

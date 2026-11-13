@@ -74,6 +74,7 @@
   "editorCloseOthers": "Diğerlerini kapat",
   "editorCloseTab": "Sekmeyi kapat",
   "editorCloseTabsToRight": "Sağdaki sekmeleri kapat",
+  "editorSortTabsByName": "Sekmeleri ada göre sırala",
   "editorCompareFailedTitle": "Karşılaştırma başarısız",
   "editorCompareTitle": "Karşılaştır: {title}",
   "editorCopiedToClipboard": "Panoya kopyalandı",

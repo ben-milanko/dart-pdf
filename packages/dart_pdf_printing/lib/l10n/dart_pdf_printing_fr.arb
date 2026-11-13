@@ -137,5 +137,19 @@
   "printOptionsProperties": "Propriétés de l’imprimante…",
   "printOptionsDirectPrinter": "Imprimer envoie ce travail directement à l’imprimante sélectionnée.",
   "printOptionsPropertiesError": "Impossible d’ouvrir les propriétés de l’imprimante.",
-  "printOptionsLoadingPrinters": "Chargement des imprimantes…"
+  "printOptionsLoadingPrinters": "Chargement des imprimantes…",
+  "printPresets": "Préréglages",
+  "printPresetLabel": "Préréglage",
+  "printPresetNone": "Aucun",
+  "printPresetNoneSaved": "Aucun préréglage enregistré",
+  "printPresetSave": "Enregistrer comme préréglage…",
+  "printPresetDelete": "Supprimer le préréglage",
+  "printPresetModified": "Modifié depuis l'enregistrement. Enregistrez à nouveau pour le mettre à jour.",
+  "printPresetSaveTitle": "Enregistrer le préréglage d'impression",
+  "printPresetName": "Nom du préréglage",
+  "printPresetReplaces": "Remplace le préréglage portant ce nom.",
+  "printPresetIncludePrinter": "Sélectionner aussi {printer} avec sa couleur, son recto verso et son bac",
+  "printPresetSaveAction": "Enregistrer",
+  "printOptionsPrinterMargins": "Les bords hachurés sont hors de la zone imprimable de l'imprimante (gauche, haut, droite, bas : {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "L'imprimante sélectionnée ne peut pas imprimer ce format de papier."
 }

@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1859,6 +1861,13 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Pick a color from the page';
 
   @override
+  String get tbRedactAsImages => 'Replace redacted pages with images';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Most secure: only a picture of each redacted page is kept. Text on those pages can no longer be selected or searched, and the file gets larger.';
+
+  @override
   String get tbRedactionsApplied => 'Redactions applied';
 
   @override
@@ -1867,6 +1876,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Couldn\'t reflow - this isn\'t a single-column paragraph this tool can re-wrap. Try Replace text instead.';
+
+  @override
+  String get tbConvertToFreeText => 'Convert to text box';
 
   @override
   String get tbReflowParagraph => 'Reflow paragraph';
@@ -4464,6 +4476,13 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get tbPickColorFromPage => 'Pick a colour from the page';
 
   @override
+  String get tbRedactAsImages => 'Replace redacted pages with images';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Most secure: only a picture of each redacted page is kept. Text on those pages can no longer be selected or searched, and the file gets larger.';
+
+  @override
   String get tbRedactionsApplied => 'Redactions applied';
 
   @override
@@ -4472,6 +4491,9 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   @override
   String get tbReflowFailed =>
       'Couldn\'t reflow - this isn\'t a single-column paragraph this tool can re-wrap. Try Replace text instead.';
+
+  @override
+  String get tbConvertToFreeText => 'Convert to text box';
 
   @override
   String get tbReflowParagraph => 'Reflow paragraph';
@@ -7069,6 +7091,13 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   String get tbPickColorFromPage => 'Pick a colour from the page';
 
   @override
+  String get tbRedactAsImages => 'Replace redacted pages with images';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Most secure: only a picture of each redacted page is kept. Text on those pages can no longer be selected or searched, and the file gets larger.';
+
+  @override
   String get tbRedactionsApplied => 'Redactions applied';
 
   @override
@@ -7077,6 +7106,9 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
   @override
   String get tbReflowFailed =>
       'Couldn\'t reflow - this isn\'t a single-column paragraph this tool can re-wrap. Try Replace text instead.';
+
+  @override
+  String get tbConvertToFreeText => 'Convert to text box';
 
   @override
   String get tbReflowParagraph => 'Reflow paragraph';

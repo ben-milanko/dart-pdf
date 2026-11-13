@@ -97,5 +97,19 @@
   "printOptionsProperties": "打印机属性…",
   "printOptionsDirectPrinter": "点击“打印”会将此任务直接发送到所选打印机。",
   "printOptionsPropertiesError": "无法打开打印机属性。",
-  "printOptionsLoadingPrinters": "正在加载打印机…"
+  "printOptionsLoadingPrinters": "正在加载打印机…",
+  "printPresets": "预设",
+  "printPresetLabel": "预设",
+  "printPresetNone": "无",
+  "printPresetNoneSaved": "没有已保存的预设",
+  "printPresetSave": "另存为预设…",
+  "printPresetDelete": "删除预设",
+  "printPresetModified": "保存后已更改。再次保存即可更新。",
+  "printPresetSaveTitle": "保存打印预设",
+  "printPresetName": "预设名称",
+  "printPresetReplaces": "将替换同名预设。",
+  "printPresetIncludePrinter": "同时选择 {printer} 及其颜色、双面和纸盒设置",
+  "printPresetSaveAction": "保存",
+  "printOptionsPrinterMargins": "斜线边缘位于打印机可打印区域之外（左、上、右、下：{left}, {top}, {right}, {bottom} pt）。",
+  "printOptionsPaperUnsupported": "所选打印机无法在此纸张尺寸上打印。"
 }

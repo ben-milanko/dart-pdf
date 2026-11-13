@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -276,6 +278,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get editorCloseTab => '탭 닫기';
+
+  @override
+  String get editorSortTabsByName => '이름순으로 탭 정렬';
 
   @override
   String get editorCloseTabsToRight => '오른쪽 탭 닫기';

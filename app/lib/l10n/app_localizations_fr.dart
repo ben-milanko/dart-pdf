@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -285,6 +287,9 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Fermer l\'onglet';
+
+  @override
+  String get editorSortTabsByName => 'Trier les onglets par nom';
 
   @override
   String get editorCloseTabsToRight => 'Fermer les onglets à droite';

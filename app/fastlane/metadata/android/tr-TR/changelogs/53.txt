@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Uygulama yeniden açıldığında belge pencerelerini geri yükleyin. Adlandırılmış yazdırma ayarlarını kaydedin ve kenar boşluklarını önizleyin. Kopyalanan anlık görüntülerde bağlantıları koruyun. Seçili metni taşınabilir metin kutusuna dönüştürün. Karartılan sayfalar görüntülerle değiştirilebilir; metinleri artık aranamaz veya seçilemez. Form yazı tipleri ve yakınlaştırma iyileştirildi.

@@ -10,6 +10,8 @@ import 'dart:ui' as ui;
 
 import 'package:pdf_graphics/raster.dart';
 
+import '../vertex_indices.dart';
+
 export 'package:pdf_graphics/raster.dart'
     show
         StripBatchData,
@@ -30,7 +32,7 @@ class StripBatch {
             ui.Vertices.raw(ui.VertexMode.triangles, chunk.positions,
                 textureCoordinates: chunk.textureCoordinates,
                 colors: chunk.colors,
-                indices: chunk.indices),
+                indices: _checkedIndices(chunk.indices, chunk.positions)),
         ],
         chunkAlphaBases = [
           for (final chunk in data.chunks) chunk.alphaBase,
@@ -66,8 +68,7 @@ class StripBatch {
   Future<void> decodeAtlas() {
     final completer = Completer<void>();
     ui.decodeImageFromPixels(
-        atlasPixels, atlasWidth, atlasHeight, ui.PixelFormat.rgba8888,
-        (image) {
+        atlasPixels, atlasWidth, atlasHeight, ui.PixelFormat.rgba8888, (image) {
       atlas = image;
       completer.complete();
     });
@@ -81,4 +82,11 @@ class StripBatch {
       v.dispose();
     }
   }
+}
+
+/// [indices] after a debug-only range check against [positions] (#1275).
+Uint16List _checkedIndices(Uint16List indices, Float32List positions) {
+  assert(pdfVertexIndicesInRange(indices, positions.length ~/ 2),
+      'strip/slug quad index out of range');
+  return indices;
 }

@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 
 import 'package:pdf_graphics/raster.dart';
 
+import '../vertex_indices.dart';
+
 export 'package:pdf_graphics/raster.dart'
     show
         SlugBatchBuilder,
@@ -20,7 +22,7 @@ class SlugBatch {
             ui.Vertices.raw(ui.VertexMode.triangles, chunk.positions,
                 textureCoordinates: chunk.textureCoordinates,
                 colors: chunk.colors,
-                indices: chunk.indices),
+                indices: _checkedIndices(chunk.indices, chunk.positions)),
         ],
         atlasPixels = data.atlasPixels,
         atlasWidth = data.atlasWidth,
@@ -53,4 +55,11 @@ class SlugBatch {
       vertices.dispose();
     }
   }
+}
+
+/// [indices] after a debug-only range check against [positions] (#1275).
+Uint16List _checkedIndices(Uint16List indices, Float32List positions) {
+  assert(pdfVertexIndicesInRange(indices, positions.length ~/ 2),
+      'strip/slug quad index out of range');
+  return indices;
 }

@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1892,6 +1894,13 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'اختيار لون من الصفحة';
 
   @override
+  String get tbRedactAsImages => 'استبدال الصفحات المنقحة بصور';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'الأكثر أمانًا: تُحفظ صورة فقط لكل صفحة منقحة. لا يمكن بعد ذلك تحديد النص في تلك الصفحات أو البحث فيه، ويزداد حجم الملف.';
+
+  @override
   String get tbRedactionsApplied => 'تم تطبيق التنقيحات';
 
   @override
@@ -1900,6 +1909,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'تعذّرت إعادة التدفق - هذه ليست فقرة بعمود واحد يمكن لهذه الأداة إعادة لفّها. جرّب استبدال النص بدلاً من ذلك.';
+
+  @override
+  String get tbConvertToFreeText => 'تحويل إلى مربع نص';
 
   @override
   String get tbReflowParagraph => 'إعادة تدفق الفقرة';

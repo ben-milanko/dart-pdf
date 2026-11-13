@@ -16,11 +16,16 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A healthy run takes 24-34 minutes. Without a limit a wedged step sits
+    # until GitHub's 6-hour default: `dart test --coverage` once lost a test
+    # isolate's VM-service connection, reported the failure, then waited on
+    # the orphaned process for 50 minutes before it was cancelled by hand.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       # Run before pub get on purpose: the formatter wrapper must preserve the
@@ -279,7 +284,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       - name: Legacy bridge DCE check
@@ -300,7 +305,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       - run: flutter pub get
@@ -799,7 +804,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       # Guard: the checked-in worker asset must stay the small placeholder, not
@@ -875,7 +880,7 @@ jobs:
           "$RUNNER_TEMP/long_paths_test"
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       - run: flutter pub get
@@ -1011,7 +1016,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
       - name: Install desktop dependencies and virtual display

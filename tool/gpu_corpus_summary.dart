@@ -287,6 +287,11 @@ class GpuCorpusComparison {
       // triangles rather than having no comparable page statistics.
       ('Direct triangle draws', 'directTriangleDraws', true),
       ('Geometry vertices', 'geometryVertices', false),
+      // Binding-set counters: shown once both sides report them. A base that
+      // predates them did replay individual bindings, just without counting,
+      // so a missing value is not zero.
+      ('Binding-set binds', 'bindingSetBinds', false),
+      ('Dynamic binding replays', 'dynamicBindingReplays', false),
     ]) {
       final hasCurrent =
           samples.every((sample) => sample.$2.stat(metric.$2) != null);

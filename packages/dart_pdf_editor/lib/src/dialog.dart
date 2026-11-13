@@ -195,7 +195,7 @@ class _PdfDialogKeyboardScopeState extends State<_PdfDialogKeyboardScope> {
 /// calls to native dialog windows. Those windows are not yet reliable enough
 /// for editor workflows: on macOS they can be registered as an off-screen
 /// sheet that blocks its parent without accepting input. DartPDF still uses
-/// native [RegularWindow]s for real multi-window editing, while its modal
+/// native [Window]s for real multi-window editing, while its modal
 /// prompts stay attached to the navigator that opened them.
 /// Wrap the primary action button in [PdfDialogSubmit] to submit with Enter.
 ///

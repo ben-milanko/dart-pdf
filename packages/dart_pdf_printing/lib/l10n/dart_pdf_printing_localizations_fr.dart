@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -308,4 +310,53 @@ class DartPdfPrintingLocalizationsFr extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Chargement des imprimantes…';
+
+  @override
+  String get printPresets => 'Préréglages';
+
+  @override
+  String get printPresetLabel => 'Préréglage';
+
+  @override
+  String get printPresetNone => 'Aucun';
+
+  @override
+  String get printPresetNoneSaved => 'Aucun préréglage enregistré';
+
+  @override
+  String get printPresetSave => 'Enregistrer comme préréglage…';
+
+  @override
+  String get printPresetDelete => 'Supprimer le préréglage';
+
+  @override
+  String get printPresetModified =>
+      'Modifié depuis l\'enregistrement. Enregistrez à nouveau pour le mettre à jour.';
+
+  @override
+  String get printPresetSaveTitle => 'Enregistrer le préréglage d\'impression';
+
+  @override
+  String get printPresetName => 'Nom du préréglage';
+
+  @override
+  String get printPresetReplaces => 'Remplace le préréglage portant ce nom.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Sélectionner aussi $printer avec sa couleur, son recto verso et son bac';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Enregistrer';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Les bords hachurés sont hors de la zone imprimable de l\'imprimante (gauche, haut, droite, bas : $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'L\'imprimante sélectionnée ne peut pas imprimer ce format de papier.';
 }

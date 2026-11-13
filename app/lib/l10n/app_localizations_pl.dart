@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -293,6 +295,9 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Zamknij kartę';
+
+  @override
+  String get editorSortTabsByName => 'Sortuj karty według nazwy';
 
   @override
   String get editorCloseTabsToRight => 'Zamknij karty po prawej';

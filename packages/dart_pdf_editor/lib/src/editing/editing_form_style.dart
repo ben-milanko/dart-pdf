@@ -181,6 +181,7 @@ class _PdfFormFieldStyleControlsState extends State<PdfFormFieldStyleControls> {
                 controller: _controller,
                 fontPicker: widget.fontPicker,
                 currentFont: style.font,
+                currentFontLabel: style.fontLabel,
               ),
             ]),
             const SizedBox(height: 6),

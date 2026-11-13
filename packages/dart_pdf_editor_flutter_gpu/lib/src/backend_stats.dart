@@ -45,6 +45,18 @@ class FlutterGpuTileBackendStats {
   int analyticTextFallbackRuns = 0;
   int glyphBindingReuses = 0;
   int imageBindingReuses = 0;
+
+  /// Flutter GPU binding sets created (per pass: one per pipeline's tile
+  /// transform plus one per glyph atlas drawn).
+  int bindingSetsCreated = 0;
+
+  /// Binding-set binds issued in place of individual transform/atlas binds.
+  int bindingSetBinds = 0;
+
+  /// Individually bound resources replayed by draws: summed over draws, the
+  /// resources each draw re-binds through Flutter GPU's per-draw allocating
+  /// path. Binding sets exist to keep this low.
+  int dynamicBindingReplays = 0;
   int coalescedDrawBatches = 0;
   int drawCallsSaved = 0;
   int drawCalls = 0;
@@ -205,6 +217,9 @@ class FlutterGpuTileBackendStats {
         'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'glyphBindingReuses': glyphBindingReuses,
         'imageBindingReuses': imageBindingReuses,
+        'bindingSetsCreated': bindingSetsCreated,
+        'bindingSetBinds': bindingSetBinds,
+        'dynamicBindingReplays': dynamicBindingReplays,
         'coalescedDrawBatches': coalescedDrawBatches,
         'drawCallsSaved': drawCallsSaved,
         'drawCalls': drawCalls,
@@ -318,6 +333,9 @@ class FlutterGpuTileBackendStats {
     analyticTextFallbackRuns = 0;
     glyphBindingReuses = 0;
     imageBindingReuses = 0;
+    bindingSetsCreated = 0;
+    bindingSetBinds = 0;
+    dynamicBindingReplays = 0;
     coalescedDrawBatches = 0;
     drawCallsSaved = 0;
     drawCalls = 0;
@@ -408,6 +426,8 @@ class FlutterGpuTileBackendStats {
       'analyticFallbackRuns=$analyticTextFallbackRuns '
       'glyphBindingReuses=$glyphBindingReuses '
       'imageBindingReuses=$imageBindingReuses '
+      'bindingSets=$bindingSetsCreated/$bindingSetBinds '
+      'dynamicBindingReplays=$dynamicBindingReplays '
       'coalescedDrawBatches=$coalescedDrawBatches '
       'drawCallsSaved=$drawCallsSaved '
       'drawCalls=$drawCalls '

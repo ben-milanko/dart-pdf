@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1854,6 +1856,13 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'เลือกสีจากหน้า';
 
   @override
+  String get tbRedactAsImages => 'แทนที่หน้าที่ปกปิดด้วยรูปภาพ';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'ปลอดภัยที่สุด: เก็บไว้เฉพาะรูปภาพของแต่ละหน้าที่ปกปิด ข้อความในหน้าเหล่านั้นจะเลือกหรือค้นหาไม่ได้อีก และไฟล์จะมีขนาดใหญ่ขึ้น';
+
+  @override
   String get tbRedactionsApplied => 'ใช้การปิดบังข้อมูลแล้ว';
 
   @override
@@ -1862,6 +1871,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'ไม่สามารถจัดเรียงใหม่ได้ - นี่ไม่ใช่ย่อหน้าคอลัมน์เดียวที่เครื่องมือนี้จัดเรียงใหม่ได้ ลองใช้แทนที่ข้อความแทน';
+
+  @override
+  String get tbConvertToFreeText => 'แปลงเป็นกล่องข้อความ';
 
   @override
   String get tbReflowParagraph => 'จัดเรียงย่อหน้าใหม่';

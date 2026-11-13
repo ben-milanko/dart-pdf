@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1846,6 +1848,13 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'ページから色を選択';
 
   @override
+  String get tbRedactAsImages => '墨消ししたページを画像に置き換える';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      '最も安全：墨消ししたページは画像だけが残ります。そのページのテキストは選択も検索もできなくなり、ファイルサイズが大きくなります。';
+
+  @override
   String get tbRedactionsApplied => '墨消しを適用しました';
 
   @override
@@ -1854,6 +1863,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'リフローできませんでした - このツールで再折り返しできる単一段組の段落ではありません。代わりにテキストの置換をお試しください。';
+
+  @override
+  String get tbConvertToFreeText => 'テキストボックスに変換';
 
   @override
   String get tbReflowParagraph => '段落をリフロー';

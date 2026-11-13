@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Dokumentfenster beim Neustart wiederherstellen. Benannte Druckvorlagen speichern und Druckerränder anzeigen. Links in kopierten Ausschnitten erhalten. Ausgewählten Text in ein verschiebbares Textfeld umwandeln. Geschwärzte Seiten lassen sich durch Bilder ersetzen; ihr Text ist dann weder durchsuchbar noch auswählbar. Formularschriften und Zoom verbessert.

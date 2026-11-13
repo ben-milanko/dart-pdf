@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -274,6 +276,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get editorCloseTab => '关闭标签页';
+
+  @override
+  String get editorSortTabsByName => '按名称排序标签页';
 
   @override
   String get editorCloseTabsToRight => '关闭右侧标签页';
@@ -1742,6 +1747,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorCloseTab => '關閉分頁';
+
+  @override
+  String get editorSortTabsByName => '依名稱排序分頁';
 
   @override
   String get editorCloseTabsToRight => '關閉右側分頁';

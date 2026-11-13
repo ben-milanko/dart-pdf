@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Recupera las ventanas al abrir la aplicación. Guarda ajustes de impresión y previsualiza los márgenes. Conserva enlaces en capturas copiadas. Convierte texto seleccionado en un cuadro móvil. La censura puede sustituir las páginas afectadas por imágenes; su texto ya no se puede buscar ni seleccionar. Mejoras en fuentes de formularios y zoom.

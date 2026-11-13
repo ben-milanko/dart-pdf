@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1890,6 +1892,13 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Pobierz kolor ze strony';
 
   @override
+  String get tbRedactAsImages => 'Zastąp zaczernione strony obrazami';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Najbezpieczniej: z każdej zaczernionej strony zostaje tylko obraz. Tekstu na tych stronach nie będzie można zaznaczać ani wyszukiwać, a plik będzie większy.';
+
+  @override
   String get tbRedactionsApplied => 'Zastosowano wymazania';
 
   @override
@@ -1898,6 +1907,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Nie można przepłynąć - to nie jest jednokolumnowy akapit, który to narzędzie potrafi ponownie zawinąć. Spróbuj zamiast tego Zamień tekst.';
+
+  @override
+  String get tbConvertToFreeText => 'Konwertuj na pole tekstowe';
 
   @override
   String get tbReflowParagraph => 'Przepływ akapitu';

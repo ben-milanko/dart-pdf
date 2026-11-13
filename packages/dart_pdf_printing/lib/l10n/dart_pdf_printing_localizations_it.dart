@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -309,4 +311,54 @@ class DartPdfPrintingLocalizationsIt extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Caricamento delle stampanti…';
+
+  @override
+  String get printPresets => 'Preimpostazioni';
+
+  @override
+  String get printPresetLabel => 'Preimpostazione';
+
+  @override
+  String get printPresetNone => 'Nessuna';
+
+  @override
+  String get printPresetNoneSaved => 'Nessuna preimpostazione salvata';
+
+  @override
+  String get printPresetSave => 'Salva come preimpostazione…';
+
+  @override
+  String get printPresetDelete => 'Elimina preimpostazione';
+
+  @override
+  String get printPresetModified =>
+      'Modificata dal salvataggio. Salvala di nuovo per aggiornarla.';
+
+  @override
+  String get printPresetSaveTitle => 'Salva preimpostazione di stampa';
+
+  @override
+  String get printPresetName => 'Nome preimpostazione';
+
+  @override
+  String get printPresetReplaces =>
+      'Sostituisce la preimpostazione con questo nome.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Seleziona anche $printer con colore, fronte-retro e cassetto';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Salva';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'I bordi tratteggiati sono fuori dall\'area stampabile della stampante (sinistra, alto, destra, basso: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'La stampante selezionata non può stampare su questo formato carta.';
 }

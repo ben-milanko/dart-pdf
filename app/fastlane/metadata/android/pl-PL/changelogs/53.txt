@@ -1,0 +1,3 @@
+DartPDF 16.0.0
+
+Przywracaj okna po ponownym otwarciu aplikacji. Zapisuj ustawienia druku i podglądaj marginesy. Zachowuj łącza w kopiowanych zrzutach. Zamieniaj zaznaczony tekst w ruchome pole tekstowe. Redakcja może zastąpić strony obrazami; ich tekstu nie można już wyszukiwać ani zaznaczać. Poprawiono czcionki formularzy i powiększanie.

@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1869,6 +1871,14 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Prélever une couleur sur la page';
 
   @override
+  String get tbRedactAsImages =>
+      'Remplacer les pages caviardées par des images';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Le plus sûr : seule une image de chaque page caviardée est conservée. Le texte de ces pages ne peut plus être sélectionné ni recherché, et le fichier devient plus volumineux.';
+
+  @override
   String get tbRedactionsApplied => 'Caviardages appliqués';
 
   @override
@@ -1877,6 +1887,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Redistribution impossible - ce n\'est pas un paragraphe à une seule colonne que cet outil peut redécouper. Essayez plutôt Remplacer le texte.';
+
+  @override
+  String get tbConvertToFreeText => 'Convertir en zone de texte';
 
   @override
   String get tbReflowParagraph => 'Redistribuer le paragraphe';

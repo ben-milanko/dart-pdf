@@ -74,6 +74,7 @@
   "editorCloseOthers": "Fermer les autres",
   "editorCloseTab": "Fermer l'onglet",
   "editorCloseTabsToRight": "Fermer les onglets à droite",
+  "editorSortTabsByName": "Trier les onglets par nom",
   "editorCompareFailedTitle": "Échec de la comparaison",
   "editorCompareTitle": "Comparer : {title}",
   "editorCopiedToClipboard": "Copié dans le presse-papiers",

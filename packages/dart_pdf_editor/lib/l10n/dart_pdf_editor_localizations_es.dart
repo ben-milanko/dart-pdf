@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1866,6 +1868,14 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Elegir un color de la página';
 
   @override
+  String get tbRedactAsImages =>
+      'Reemplazar las páginas censuradas por imágenes';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Lo más seguro: de cada página censurada solo se conserva una imagen. El texto de esas páginas ya no se podrá seleccionar ni buscar, y el archivo ocupará más.';
+
+  @override
   String get tbRedactionsApplied => 'Censuras aplicadas';
 
   @override
@@ -1874,6 +1884,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'No se pudo reajustar: este no es un párrafo de una sola columna que esta herramienta pueda reajustar. Prueba con Reemplazar texto.';
+
+  @override
+  String get tbConvertToFreeText => 'Convertir en cuadro de texto';
 
   @override
   String get tbReflowParagraph => 'Reajustar párrafo';

@@ -12,6 +12,7 @@ import 'canvas_path_cache.dart';
 import 'font_substitution.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
+import 'vertex_indices.dart';
 
 const _redToAlpha = <double>[
   0,
@@ -779,6 +780,11 @@ class CanvasPdfDevice
   @override
   void fillMesh(PdfMesh mesh, double alpha) {
     if (mesh.vertices.isEmpty || mesh.triangles.isEmpty) return;
+    // Flutter 3.50's web engine rejects any index >= vertex count on every
+    // backend (CanvasKit used to accept up to 2x). The mesh parser only emits
+    // indices of vertices it added, so this holds by construction (#1275).
+    assert(pdfVertexIndicesInRange(mesh.triangles, mesh.vertices.length),
+        'mesh triangle index out of range');
     final positions = Float32List(mesh.vertices.length * 2);
     final colors = Int32List(mesh.vertices.length);
     final a = (alpha.clamp(0.0, 1.0) * 255).round();

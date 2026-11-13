@@ -480,30 +480,12 @@ class PdfEmbeddedFont implements PdfTextFont {
   ///
   /// Covers the glyphs shown since the last [resetUsage] (always including
   /// .notdef). Call this *after* the content stream is built.
-  CosDictionary buildResource(CosReference Function(CosObject) addObject) {
-    final compressed = Uint8List.fromList(const ZLibEncoder().encode(_bytes));
-
-    final fontFileDict = CosDictionary({
-      'Length': CosInteger(compressed.length),
-      'Length1': CosInteger(_bytes.length),
-      'Filter': const CosName('FlateDecode'),
-    });
-    if (_isCff) fontFileDict['Subtype'] = const CosName('OpenType');
-    final fontFileRef = addObject(CosStream(fontFileDict, compressed));
-
-    final descriptor = CosDictionary({
-      'Type': const CosName('FontDescriptor'),
-      'FontName': CosName(postScriptName),
-      'Flags': CosInteger(_flags),
-      'FontBBox': CosArray([for (final v in _bbox) CosInteger(v)]),
-      'ItalicAngle': CosInteger(_italicAngle),
-      'Ascent': CosInteger(_ascent),
-      'Descent': CosInteger(_descent),
-      'CapHeight': CosInteger(_capHeight),
-      'StemV': CosInteger(_stemV),
-      _isCff ? 'FontFile3' : 'FontFile2': fontFileRef,
-    });
-    final descriptorRef = addObject(descriptor);
+  /// [fontDescriptor] may reference a descriptor for this same font in the
+  /// destination document. Reusing it shares the full font program while
+  /// keeping this appearance's widths and ToUnicode mapping independent.
+  CosDictionary buildResource(CosReference Function(CosObject) addObject,
+      {CosObject? fontDescriptor}) {
+    final descriptorRef = fontDescriptor ?? _buildDescriptor(addObject);
 
     final cidFont = CosDictionary({
       'Type': const CosName('Font'),
@@ -533,6 +515,32 @@ class PdfEmbeddedFont implements PdfTextFont {
     });
 
     return CosDictionary({resourceName: type0});
+  }
+
+  CosReference _buildDescriptor(CosReference Function(CosObject) addObject) {
+    final compressed = Uint8List.fromList(const ZLibEncoder().encode(_bytes));
+
+    final fontFileDict = CosDictionary({
+      'Length': CosInteger(compressed.length),
+      'Length1': CosInteger(_bytes.length),
+      'Filter': const CosName('FlateDecode'),
+    });
+    if (_isCff) fontFileDict['Subtype'] = const CosName('OpenType');
+    final fontFileRef = addObject(CosStream(fontFileDict, compressed));
+
+    final descriptor = CosDictionary({
+      'Type': const CosName('FontDescriptor'),
+      'FontName': CosName(postScriptName),
+      'Flags': CosInteger(_flags),
+      'FontBBox': CosArray([for (final v in _bbox) CosInteger(v)]),
+      'ItalicAngle': CosInteger(_italicAngle),
+      'Ascent': CosInteger(_ascent),
+      'Descent': CosInteger(_descent),
+      'CapHeight': CosInteger(_capHeight),
+      'StemV': CosInteger(_stemV),
+      _isCff ? 'FontFile3' : 'FontFile2': fontFileRef,
+    });
+    return addObject(descriptor);
   }
 
   /// A /W array with one entry per used glyph: `gid [ width ]`.

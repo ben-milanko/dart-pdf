@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1865,6 +1867,13 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Selecionar uma cor da página';
 
   @override
+  String get tbRedactAsImages => 'Substituir as páginas ocultadas por imagens';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Mais seguro: de cada página ocultada só fica uma imagem. O texto dessas páginas deixa de poder ser selecionado ou pesquisado, e o ficheiro fica maior.';
+
+  @override
   String get tbRedactionsApplied => 'Tarjas aplicadas';
 
   @override
@@ -1873,6 +1882,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Não foi possível refluir - este não é um parágrafo de coluna única que esta ferramenta possa reajustar. Tente Substituir texto.';
+
+  @override
+  String get tbConvertToFreeText => 'Converter em caixa de texto';
 
   @override
   String get tbReflowParagraph => 'Refluir parágrafo';

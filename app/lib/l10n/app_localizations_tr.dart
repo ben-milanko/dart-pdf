@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -285,6 +287,9 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Sekmeyi kapat';
+
+  @override
+  String get editorSortTabsByName => 'Sekmeleri ada göre sırala';
 
   @override
   String get editorCloseTabsToRight => 'Sağdaki sekmeleri kapat';

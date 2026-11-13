@@ -655,6 +655,7 @@ class PdfConfirmRequest {
     this.destructive = false,
     this.key,
     this.confirmKey,
+    this.option,
   });
 
   /// The question's title.
@@ -674,6 +675,35 @@ class PdfConfirmRequest {
 
   /// A key for the stock dialog's confirm button.
   final Key? confirmKey;
+
+  /// An optional choice to offer with the question (a checkbox in the stock
+  /// dialog). A presenter that doesn't show it leaves its value as it is.
+  final PdfConfirmOption? option;
+}
+
+/// A yes/no choice offered with a [PdfConfirmRequest]: read [value] after
+/// the confirm resolves.
+@immutable
+class PdfConfirmOption {
+  /// Offers [label] (with [detail] beneath it), starting from [value].
+  const PdfConfirmOption({
+    required this.label,
+    required this.value,
+    this.detail,
+    this.key,
+  });
+
+  /// The choice's label.
+  final String label;
+
+  /// What choosing it means, when that needs saying.
+  final String? detail;
+
+  /// The choice, as the person leaves it.
+  final ValueNotifier<bool> value;
+
+  /// A key for the stock dialog's checkbox.
+  final Key? key;
 }
 
 /// What [PdfEditorPresenter.link] asks for.

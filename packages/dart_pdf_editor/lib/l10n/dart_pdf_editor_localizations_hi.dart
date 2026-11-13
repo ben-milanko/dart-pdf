@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1861,6 +1863,13 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'पृष्ठ से एक रंग चुनें';
 
   @override
+  String get tbRedactAsImages => 'रिडैक्ट किए गए पेजों को छवियों से बदलें';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'सबसे सुरक्षित: हर रिडैक्ट किए गए पेज की केवल एक छवि रखी जाती है। उन पेजों का टेक्स्ट अब चुना या खोजा नहीं जा सकेगा, और फ़ाइल बड़ी हो जाएगी।';
+
+  @override
   String get tbRedactionsApplied => 'रिडैक्शन लागू किए गए';
 
   @override
@@ -1869,6 +1878,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'रीफ़्लो नहीं कर सके - यह एकल-स्तंभ अनुच्छेद नहीं है जिसे यह टूल फिर से लपेट सके। इसके बजाय टेक्स्ट बदलें आज़माएँ।';
+
+  @override
+  String get tbConvertToFreeText => 'टेक्स्ट बॉक्स में बदलें';
 
   @override
   String get tbReflowParagraph => 'अनुच्छेद रीफ़्लो करें';

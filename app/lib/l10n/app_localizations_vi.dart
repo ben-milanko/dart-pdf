@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -282,6 +284,9 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Đóng thẻ';
+
+  @override
+  String get editorSortTabsByName => 'Sắp xếp tab theo tên';
 
   @override
   String get editorCloseTabsToRight => 'Đóng các thẻ bên phải';

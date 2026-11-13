@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -307,4 +309,53 @@ class DartPdfPrintingLocalizationsHi extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'प्रिंटर लोड हो रहे हैं…';
+
+  @override
+  String get printPresets => 'प्रीसेट';
+
+  @override
+  String get printPresetLabel => 'प्रीसेट';
+
+  @override
+  String get printPresetNone => 'कोई नहीं';
+
+  @override
+  String get printPresetNoneSaved => 'कोई सहेजा गया प्रीसेट नहीं';
+
+  @override
+  String get printPresetSave => 'प्रीसेट के रूप में सहेजें…';
+
+  @override
+  String get printPresetDelete => 'प्रीसेट हटाएँ';
+
+  @override
+  String get printPresetModified =>
+      'सहेजने के बाद बदला गया। अपडेट करने के लिए फिर से सहेजें।';
+
+  @override
+  String get printPresetSaveTitle => 'प्रिंट प्रीसेट सहेजें';
+
+  @override
+  String get printPresetName => 'प्रीसेट का नाम';
+
+  @override
+  String get printPresetReplaces => 'इस नाम वाले प्रीसेट को बदल देता है।';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '$printer को उसके रंग, डुप्लेक्स और ट्रे के साथ भी चुनें';
+  }
+
+  @override
+  String get printPresetSaveAction => 'सहेजें';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'धारीदार किनारे प्रिंटर के प्रिंट योग्य क्षेत्र से बाहर हैं (बाएँ, ऊपर, दाएँ, नीचे: $left, $top, $right, $bottom pt)।';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'चुना गया प्रिंटर इस कागज़ के आकार पर प्रिंट नहीं कर सकता।';
 }

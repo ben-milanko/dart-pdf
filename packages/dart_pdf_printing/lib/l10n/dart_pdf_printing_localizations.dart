@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -681,6 +682,91 @@ abstract class DartPdfPrintingLocalizations {
   /// In en, this message translates to:
   /// **'Loading printers…'**
   String get printOptionsLoadingPrinters;
+
+  /// Heading for named, saved print settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get printPresets;
+
+  /// Label for the saved print preset selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset'**
+  String get printPresetLabel;
+
+  /// Preset selector entry meaning no preset is applied.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get printPresetNone;
+
+  /// Preset selector entry shown before any preset has been saved.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved presets'**
+  String get printPresetNoneSaved;
+
+  /// Tooltip for the button that saves the current print settings under a name.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as preset…'**
+  String get printPresetSave;
+
+  /// Tooltip for the button that deletes the selected print preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete preset'**
+  String get printPresetDelete;
+
+  /// Shown when the current print settings differ from the selected preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed since this preset was saved. Save it again to update it.'**
+  String get printPresetModified;
+
+  /// Title of the dialog that names a print preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Save print preset'**
+  String get printPresetSaveTitle;
+
+  /// Text field label for a print preset's name.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset name'**
+  String get printPresetName;
+
+  /// Helper text when the typed preset name already exists.
+  ///
+  /// In en, this message translates to:
+  /// **'Replaces the preset with this name.'**
+  String get printPresetReplaces;
+
+  /// Checkbox: also store the printer and its options in the preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Also select {printer} and its color, duplex and tray'**
+  String printPresetIncludePrinter(String printer);
+
+  /// Button that saves the print preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get printPresetSaveAction;
+
+  /// Legend for the hatched unprintable area in the print preview, with each edge's size in points.
+  ///
+  /// In en, this message translates to:
+  /// **'Hatched edges are outside this printer\'s printable area (left, top, right, bottom: {left}, {top}, {right}, {bottom} pt).'**
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom);
+
+  /// Warning that the chosen printer cannot use the previewed sheet's paper size.
+  ///
+  /// In en, this message translates to:
+  /// **'The selected printer can\'t print on this paper size.'**
+  String get printOptionsPaperUnsupported;
 }
 
 class _DartPdfPrintingLocalizationsDelegate

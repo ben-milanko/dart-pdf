@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -305,4 +307,53 @@ class DartPdfPrintingLocalizationsVi extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Đang tải máy in…';
+
+  @override
+  String get printPresets => 'Cài đặt sẵn';
+
+  @override
+  String get printPresetLabel => 'Cài đặt sẵn';
+
+  @override
+  String get printPresetNone => 'Không có';
+
+  @override
+  String get printPresetNoneSaved => 'Chưa lưu cài đặt sẵn nào';
+
+  @override
+  String get printPresetSave => 'Lưu thành cài đặt sẵn…';
+
+  @override
+  String get printPresetDelete => 'Xóa cài đặt sẵn';
+
+  @override
+  String get printPresetModified =>
+      'Đã thay đổi kể từ khi lưu. Lưu lại để cập nhật.';
+
+  @override
+  String get printPresetSaveTitle => 'Lưu cài đặt in sẵn';
+
+  @override
+  String get printPresetName => 'Tên cài đặt sẵn';
+
+  @override
+  String get printPresetReplaces => 'Thay thế cài đặt sẵn có tên này.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Chọn cả $printer cùng màu, in hai mặt và khay';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Lưu';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Viền gạch chéo nằm ngoài vùng in được của máy in (trái, trên, phải, dưới: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Máy in đã chọn không in được trên khổ giấy này.';
 }

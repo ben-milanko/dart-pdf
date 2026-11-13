@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -299,6 +301,53 @@ class DartPdfPrintingLocalizationsZh extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => '正在加载打印机…';
+
+  @override
+  String get printPresets => '预设';
+
+  @override
+  String get printPresetLabel => '预设';
+
+  @override
+  String get printPresetNone => '无';
+
+  @override
+  String get printPresetNoneSaved => '没有已保存的预设';
+
+  @override
+  String get printPresetSave => '另存为预设…';
+
+  @override
+  String get printPresetDelete => '删除预设';
+
+  @override
+  String get printPresetModified => '保存后已更改。再次保存即可更新。';
+
+  @override
+  String get printPresetSaveTitle => '保存打印预设';
+
+  @override
+  String get printPresetName => '预设名称';
+
+  @override
+  String get printPresetReplaces => '将替换同名预设。';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '同时选择 $printer 及其颜色、双面和纸盒设置';
+  }
+
+  @override
+  String get printPresetSaveAction => '保存';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return '斜线边缘位于打印机可打印区域之外（左、上、右、下：$left, $top, $right, $bottom pt）。';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported => '所选打印机无法在此纸张尺寸上打印。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -597,4 +646,51 @@ class DartPdfPrintingLocalizationsZhHant
 
   @override
   String get printOptionsLoadingPrinters => '正在載入印表機…';
+
+  @override
+  String get printPresets => '預設集';
+
+  @override
+  String get printPresetLabel => '預設集';
+
+  @override
+  String get printPresetNone => '無';
+
+  @override
+  String get printPresetNoneSaved => '沒有已儲存的預設集';
+
+  @override
+  String get printPresetSave => '另存為預設集…';
+
+  @override
+  String get printPresetDelete => '刪除預設集';
+
+  @override
+  String get printPresetModified => '儲存後已變更。再次儲存即可更新。';
+
+  @override
+  String get printPresetSaveTitle => '儲存列印預設集';
+
+  @override
+  String get printPresetName => '預設集名稱';
+
+  @override
+  String get printPresetReplaces => '將取代同名的預設集。';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '同時選取 $printer 及其色彩、雙面和紙匣設定';
+  }
+
+  @override
+  String get printPresetSaveAction => '儲存';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return '斜線邊緣位於印表機可列印範圍之外（左、上、右、下：$left, $top, $right, $bottom pt）。';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported => '所選印表機無法在此紙張大小上列印。';
 }

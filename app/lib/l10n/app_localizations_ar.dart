@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -293,6 +295,9 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'إغلاق علامة التبويب';
+
+  @override
+  String get editorSortTabsByName => 'ترتيب علامات التبويب حسب الاسم';
 
   @override
   String get editorCloseTabsToRight => 'إغلاق علامات التبويب على اليمين';

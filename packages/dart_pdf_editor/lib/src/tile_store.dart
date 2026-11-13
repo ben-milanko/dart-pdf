@@ -206,9 +206,18 @@ class PdfTileKey {
 /// A retained tile image plus the page-point region it covers and the bucket it
 /// belongs to. Owned by the store's cache; disposed on eviction.
 class PdfTile {
-  PdfTile(this.image, this.region, this.rung, this.pageFraction);
+  PdfTile(this.image, this.region, this.rung, this.pageFraction, {Rect? source})
+      : source = source ??
+            Rect.fromLTWH(
+                0, 0, image.width.toDouble(), image.height.toDouble());
 
+  /// The pixels to draw. Either the tile's own texture, or a [ui.Image.clone]
+  /// handle on the batch slab it was rastered in, with [source] picking this
+  /// tile's cell out of it (#1276): the slab lives as long as its last tile.
   final ui.Image image;
+
+  /// This tile's pixels within [image] (all of it for an own texture).
+  final Rect source;
 
   /// The tile's bounds in page points (clamped to the page at the edges).
   final Rect region;
@@ -219,7 +228,7 @@ class PdfTile {
   /// knowing the page size.
   final Rect pageFraction;
 
-  int get bytes => image.width * image.height * 4;
+  int get bytes => (source.width * source.height).round() * 4;
 }
 
 /// One `drawImageRect` a [PdfTileView] asks the painter to issue: [src] pixels
@@ -301,6 +310,7 @@ class PdfTileStore extends ChangeNotifier {
     this.maxFallbackDepth = 4,
     this.batchRasters = true,
     this.maxBatchTilesPerAxis = 8,
+    this.shareSlabs = true,
     bool registerForMemoryPressure = true,
   })  : assert(maxPrefetchInFlightTiles > 0),
         assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
@@ -362,6 +372,15 @@ class PdfTileStore extends ChangeNotifier {
   /// per-row runs so cached tiles are never re-rastered. False restores one
   /// raster call per tile.
   final bool batchRasters;
+
+  /// Land a batch's tiles as [ui.Image.clone] handles on the slab plus a
+  /// source rect, instead of copying each cell out with `toImageSync` (#1276).
+  /// Saves one offscreen pass and one texture per tile. Only a slab its new
+  /// tiles fully cover is shared, so the tiles still cost exactly their own
+  /// pixels (see `_landShared`); a slab stays resident until its last tile is
+  /// evicted. Off when a [PdfTilePersistence] is attached: the disk tier
+  /// stores each tile's own pixels.
+  final bool shareSlabs;
 
   /// Cap on a batch's tile extent per axis, bounding the slab under the
   /// engine's 2^14 px texture limit (8 × 512 = 4096) and bounding the latency
@@ -781,8 +800,7 @@ class PdfTileStore extends ChangeNotifier {
       if (tile != null) {
         placements.add(PdfTilePlacement(
           image: tile.image,
-          src: Rect.fromLTWH(
-              0, 0, tile.image.width.toDouble(), tile.image.height.toDouble()),
+          src: tile.source,
           destFraction: _fractionOf(tile.region, pageSize),
         ));
       } else {
@@ -901,13 +919,14 @@ class PdfTileStore extends ChangeNotifier {
         (overlap.right - tile.region.left) * cratio,
         (overlap.bottom - tile.region.top) * cratio,
       );
+      final cell = tile.source;
       return PdfTilePlacement(
         image: tile.image,
         src: Rect.fromLTRB(
-          src.left.clamp(0, tile.image.width.toDouble()),
-          src.top.clamp(0, tile.image.height.toDouble()),
-          src.right.clamp(0, tile.image.width.toDouble()),
-          src.bottom.clamp(0, tile.image.height.toDouble()),
+          (cell.left + src.left).clamp(cell.left, cell.right),
+          (cell.top + src.top).clamp(cell.top, cell.bottom),
+          (cell.left + src.right).clamp(cell.left, cell.right),
+          (cell.top + src.bottom).clamp(cell.top, cell.bottom),
         ),
         destFraction: _fractionOf(overlap, pageSize),
         isFallback: true,
@@ -1069,14 +1088,21 @@ class PdfTileStore extends ChangeNotifier {
       }
       final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       try {
-        for (final key in batch) {
-          final region = tileRegion(key);
-          if (_cache.containsKey(key)) continue;
-          final image = _sliceTile(slab, batchRegion, region, ratio);
-          _cache.put(key,
-              PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
-          debugTilesLanded++;
-          _storePersistentTile(key, image, region, ratio, persistence);
+        if (!(shareSlabs &&
+            persistence == null &&
+            _landShared(
+                batch, slab, batchRegion, tileRegion, ratio, pageSize))) {
+          for (final key in batch) {
+            final region = tileRegion(key);
+            if (_cache.containsKey(key)) continue;
+            final image = _sliceTile(slab, batchRegion, region, ratio);
+            _cache.put(
+                key,
+                PdfTile(
+                    image, region, key.rung, _fractionOf(region, pageSize)));
+            debugTilesLanded++;
+            _storePersistentTile(key, image, region, ratio, persistence);
+          }
         }
       } finally {
         slab.dispose();
@@ -1099,6 +1125,58 @@ class PdfTileStore extends ChangeNotifier {
       debugTilesDiscarded += batch.length;
       _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
+  }
+
+  /// [shareSlabs] landing: every new tile in [batch] gets its own clone of
+  /// [slab] (the caller disposes the original) and its cell as the source.
+  ///
+  /// Returns false, landing nothing, when any of the slab would be pixels no
+  /// new tile draws (cells already cached when the batch rastered). Those
+  /// pixels would stay alive with the slab, so the tiles would together cost
+  /// more than their nominal size - and the view's ring planning budgets by
+  /// nominal tile size, so even a small overshoot evicts ring tiles that the
+  /// next paint re-requests, forever. Only a fully used slab is shared; the
+  /// caller slices anything else exactly as before.
+  bool _landShared(
+    List<PdfTileKey> batch,
+    ui.Image slab,
+    Rect batchRegion,
+    Rect Function(PdfTileKey) tileRegion,
+    double ratio,
+    Size pageSize,
+  ) {
+    final bounds =
+        Rect.fromLTWH(0, 0, slab.width.toDouble(), slab.height.toDouble());
+    final landing = <(PdfTileKey, Rect, Rect)>[];
+    var covered = 0;
+    for (final key in batch) {
+      if (_cache.containsKey(key)) continue;
+      final region = tileRegion(key);
+      final size = _rasterSize(region, ratio);
+      final cell = Rect.fromLTWH(
+        (region.left - batchRegion.left) * ratio,
+        (region.top - batchRegion.top) * ratio,
+        size.width.toDouble(),
+        size.height.toDouble(),
+      ).intersect(bounds);
+      // A slab smaller than its batch region leaves a cell partly or wholly
+      // outside it; that tile still lands, drawing only the pixels the slab
+      // has (the copy path left the rest transparent too).
+      final source = cell.isEmpty ? Rect.zero : cell;
+      landing.add((key, region, source));
+      covered += (source.width * source.height).round() * 4;
+    }
+    if (landing.isEmpty || covered < slab.width * slab.height * 4) {
+      return false;
+    }
+    for (final (key, region, cell) in landing) {
+      _cache.put(
+          key,
+          PdfTile(slab.clone(), region, key.rung, _fractionOf(region, pageSize),
+              source: cell));
+      debugTilesLanded++;
+    }
+    return true;
   }
 
   /// Cuts one tile out of a batch slab: a 1:1 `drawImageRect` blit converted

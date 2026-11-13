@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -307,6 +309,55 @@ class DartPdfPrintingLocalizationsEn extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Loading printers…';
+
+  @override
+  String get printPresets => 'Presets';
+
+  @override
+  String get printPresetLabel => 'Preset';
+
+  @override
+  String get printPresetNone => 'None';
+
+  @override
+  String get printPresetNoneSaved => 'No saved presets';
+
+  @override
+  String get printPresetSave => 'Save as preset…';
+
+  @override
+  String get printPresetDelete => 'Delete preset';
+
+  @override
+  String get printPresetModified =>
+      'Changed since this preset was saved. Save it again to update it.';
+
+  @override
+  String get printPresetSaveTitle => 'Save print preset';
+
+  @override
+  String get printPresetName => 'Preset name';
+
+  @override
+  String get printPresetReplaces => 'Replaces the preset with this name.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Also select $printer and its color, duplex and tray';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Save';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Hatched edges are outside this printer\'s printable area (left, top, right, bottom: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'The selected printer can\'t print on this paper size.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -612,6 +663,55 @@ class DartPdfPrintingLocalizationsEnAu extends DartPdfPrintingLocalizationsEn {
 
   @override
   String get printOptionsLoadingPrinters => 'Loading printers…';
+
+  @override
+  String get printPresets => 'Presets';
+
+  @override
+  String get printPresetLabel => 'Preset';
+
+  @override
+  String get printPresetNone => 'None';
+
+  @override
+  String get printPresetNoneSaved => 'No saved presets';
+
+  @override
+  String get printPresetSave => 'Save as preset…';
+
+  @override
+  String get printPresetDelete => 'Delete preset';
+
+  @override
+  String get printPresetModified =>
+      'Changed since this preset was saved. Save it again to update it.';
+
+  @override
+  String get printPresetSaveTitle => 'Save print preset';
+
+  @override
+  String get printPresetName => 'Preset name';
+
+  @override
+  String get printPresetReplaces => 'Replaces the preset with this name.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Also select $printer and its colour, duplex and tray';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Save';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Hatched edges are outside this printer\'s printable area (left, top, right, bottom: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'The selected printer can\'t print on this paper size.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -917,4 +1017,53 @@ class DartPdfPrintingLocalizationsEnGb extends DartPdfPrintingLocalizationsEn {
 
   @override
   String get printOptionsLoadingPrinters => 'Loading printers…';
+
+  @override
+  String get printPresets => 'Presets';
+
+  @override
+  String get printPresetLabel => 'Preset';
+
+  @override
+  String get printPresetNone => 'None';
+
+  @override
+  String get printPresetNoneSaved => 'No saved presets';
+
+  @override
+  String get printPresetSave => 'Save as preset…';
+
+  @override
+  String get printPresetDelete => 'Delete preset';
+
+  @override
+  String get printPresetModified =>
+      'Changed since this preset was saved. Save it again to update it.';
+
+  @override
+  String get printPresetSaveTitle => 'Save print preset';
+
+  @override
+  String get printPresetName => 'Preset name';
+
+  @override
+  String get printPresetReplaces => 'Replaces the preset with this name.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Also select $printer and its colour, duplex and tray';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Save';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Hatched edges are outside this printer\'s printable area (left, top, right, bottom: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'The selected printer can\'t print on this paper size.';
 }

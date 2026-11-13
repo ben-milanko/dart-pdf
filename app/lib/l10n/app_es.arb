@@ -74,6 +74,7 @@
   "editorCloseOthers": "Cerrar las demás",
   "editorCloseTab": "Cerrar pestaña",
   "editorCloseTabsToRight": "Cerrar pestañas a la derecha",
+  "editorSortTabsByName": "Ordenar pestañas por nombre",
   "editorCompareFailedTitle": "Error en la comparación",
   "editorCompareTitle": "Comparar: {title}",
   "editorCopiedToClipboard": "Copiado al portapapeles",

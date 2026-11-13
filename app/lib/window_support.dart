@@ -1,4 +1,4 @@
-// Flutter's desktop windowing API remains experimental in 3.47. Keep every
+// Flutter's desktop windowing API remains experimental in 3.50. Keep every
 // internal import and lifecycle assumption quarantined in this file so the
 // rest of the app has a small, replaceable surface when Flutter publishes the
 // API. DartPDF enables it before binding initialization, and the desktop native
@@ -57,7 +57,7 @@ void runDartPdfApp(Widget root) {
 
   final registry = _DartPdfWindowRegistry();
   late final _RegisteredWindowDelegate delegate;
-  late final RegularWindowController controller;
+  late final WindowController controller;
   final closeCoordinator = DartPdfWindowCloseCoordinator(
     closeWindow: () => delegate.requestClose(controller),
   );
@@ -68,7 +68,7 @@ void runDartPdfApp(Widget root) {
     closeCoordinator: closeCoordinator,
     onDestroyed: _windowLifetime.closed,
   );
-  controller = RegularWindowController(
+  controller = WindowController(
     size: _defaultWindowSize,
     title: kProductDisplayName,
     delegate: delegate,
@@ -103,7 +103,7 @@ bool openRegularWindow(
   try {
     late final _DartPdfWindowEntry entry;
     late final _RegisteredWindowDelegate delegate;
-    late final RegularWindowController controller;
+    late final WindowController controller;
     final closeCoordinator = DartPdfWindowCloseCoordinator(
       closeWindow: () => delegate.requestClose(controller),
     );
@@ -113,7 +113,7 @@ bool openRegularWindow(
       closeCoordinator: closeCoordinator,
       onDestroyed: _windowLifetime.closed,
     );
-    controller = RegularWindowController(
+    controller = WindowController(
       size: size,
       title: title,
       delegate: delegate,
@@ -155,7 +155,7 @@ class _DartPdfWindowHost extends StatelessWidget {
         builder: (context, _) => ViewCollection(
           views: [
             for (final entry in registry.entries)
-              RegularWindow(
+              Window(
                 key: ObjectKey(entry.controller),
                 controller: entry.controller,
                 child: DartPdfNativeWindowScope(
@@ -191,10 +191,10 @@ class _DartPdfWindowEntry {
     required this.builder,
   });
 
-  final RegularWindowController controller;
+  final WindowController controller;
   final WidgetBuilder builder;
 
-  /// Flutter 3.47 exposes the platform controller's HWND, NSWindow, or
+  /// Flutter 3.50 exposes the platform controller's HWND, NSWindow, or
   /// GtkWindow as a pointer. Keep the platform casts quarantined here beside
   /// the rest of the experimental API: every desktop implementation exposes
   /// the same `windowHandle.address` shape even though the common controller
@@ -206,7 +206,7 @@ class _DartPdfWindowEntry {
   }
 }
 
-/// Supplies the direct native handle for the [RegularWindow] containing a
+/// Supplies the direct native handle for the [Window] containing a
 /// subtree. Tab dragging uses it to route a desktop pointer release back to the
 /// correct Flutter view.
 class DartPdfNativeWindowScope extends InheritedWidget {
@@ -295,7 +295,7 @@ class DartPdfWindowCloseScope extends InheritedWidget {
 /// The close-request path unregisters before destroying the controller, as the
 /// 3.47 API contract requests. [onWindowDestroyed] is a fallback for a window
 /// the platform destroys without first issuing a close request.
-class _RegisteredWindowDelegate with RegularWindowControllerDelegate {
+class _RegisteredWindowDelegate with WindowControllerDelegate {
   _RegisteredWindowDelegate({
     this.onUnregister,
     required this.closeCoordinator,
@@ -315,7 +315,7 @@ class _RegisteredWindowDelegate with RegularWindowControllerDelegate {
     onUnregister?.call();
   }
 
-  Future<void> requestClose(RegularWindowController controller) async {
+  Future<void> requestClose(WindowController controller) async {
     if (_closePending || _destroyed) return;
     _closePending = true;
     final allowed = await closeCoordinator.requestClose();
@@ -326,7 +326,7 @@ class _RegisteredWindowDelegate with RegularWindowControllerDelegate {
   }
 
   @override
-  void onWindowCloseRequested(RegularWindowController controller) {
+  void onWindowCloseRequested(WindowController controller) {
     unawaited(requestClose(controller));
   }
 

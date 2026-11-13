@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -285,6 +287,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Cerrar pestaña';
+
+  @override
+  String get editorSortTabsByName => 'Ordenar pestañas por nombre';
 
   @override
   String get editorCloseTabsToRight => 'Cerrar pestañas a la derecha';

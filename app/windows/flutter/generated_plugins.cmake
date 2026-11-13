@@ -8,8 +8,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   flutter_doc_scanner
   flutter_secure_storage_windows
-  share_plus
   url_launcher_windows
+  share_plus
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

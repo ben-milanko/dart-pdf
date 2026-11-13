@@ -340,10 +340,19 @@ void main() {
         findsOneWidget);
     expect(
         find.byKey(const ValueKey('pdf-replace-element-text')), findsOneWidget);
-    expect(
-        find.byKey(const ValueKey('pdf-reflow-element-text')), findsOneWidget);
     expect(swatch, findsNothing,
         reason: 'content element actions take precedence over swatches');
+
+    // reflow and convert-to-text-box share the dock's overflow menu
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-mobile-element-text-more')));
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('pdf-reflow-element-text')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-convert-element-text-to-free-text')),
+        findsOneWidget);
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('pdf-mobile-delete-element')));
     await tester.pump();

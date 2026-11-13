@@ -917,6 +917,57 @@ bool NativePrinter::PrinterSettings(HWND owner, const Options& options,
   return true;
 }
 
+bool NativePrinter::QueryPrintableArea(const Options& options, double width,
+                                       double height, PrintableArea* area) {
+  error_.clear();
+  PrinterDriver driver;
+  std::vector<uint8_t> mode;
+  if (!driver.Open(options.printer, &error_) ||
+      !LoadMode(driver, options.printer, &mode, &error_) ||
+      !ApplyOptions(driver, options, &mode, &error_))
+    return false;
+  // Mirror Begin + End's configure_sheet exactly, so the measured offsets are
+  // the ones the job will be spooled with (tray and duplex can change them).
+  std::vector<uint8_t> merged;
+  if (!driver.Merge(nullptr, mode, false, &merged, &error_)) return false;
+  if (!SetPreparedSheet(reinterpret_cast<DEVMODEW*>(merged.data()), width,
+                        height)) {
+    error_ = "The prepared sheet has an unsupported paper size.";
+    return false;
+  }
+  std::vector<uint8_t> sheet;
+  if (!driver.Merge(nullptr, merged, false, &sheet, &error_)) return false;
+  // An information context answers GetDeviceCaps without starting a job.
+  const HDC ic =
+      ::CreateICW(L"WINSPOOL", options.printer.c_str(), nullptr,
+                  reinterpret_cast<const DEVMODEW*>(sheet.data()));
+  if (ic == nullptr) return Fail(&error_, "Could not query the printer");
+  const int dpi_x = ::GetDeviceCaps(ic, LOGPIXELSX);
+  const int dpi_y = ::GetDeviceCaps(ic, LOGPIXELSY);
+  if (dpi_x <= 0 || dpi_y <= 0) {
+    ::DeleteDC(ic);
+    error_ = "The printer reported no resolution.";
+    return false;
+  }
+  const double sx = 72.0 / dpi_x;
+  const double sy = 72.0 / dpi_y;
+  const int physical_w = ::GetDeviceCaps(ic, PHYSICALWIDTH);
+  const int physical_h = ::GetDeviceCaps(ic, PHYSICALHEIGHT);
+  const int offset_x = ::GetDeviceCaps(ic, PHYSICALOFFSETX);
+  const int offset_y = ::GetDeviceCaps(ic, PHYSICALOFFSETY);
+  const int printable_w = ::GetDeviceCaps(ic, HORZRES);
+  const int printable_h = ::GetDeviceCaps(ic, VERTRES);
+  area->supported = MatchesPreparedSheet(ic, width, height);
+  ::DeleteDC(ic);
+  // The IC already reflects dmOrientation, so these are content-frame edges -
+  // the same frame RenderVectorPage maps prepared points into.
+  area->left = std::max(0, offset_x) * sx;
+  area->top = std::max(0, offset_y) * sy;
+  area->right = std::max(0, physical_w - printable_w - offset_x) * sx;
+  area->bottom = std::max(0, physical_h - printable_h - offset_y) * sy;
+  return true;
+}
+
 bool NativePrinter::Begin(const std::wstring& document_name,
                           bool use_document_page_size, const Options& options) {
   Cancel();

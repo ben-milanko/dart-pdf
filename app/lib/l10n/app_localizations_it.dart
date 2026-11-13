@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -285,6 +287,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Chiudi scheda';
+
+  @override
+  String get editorSortTabsByName => 'Ordina schede per nome';
 
   @override
   String get editorCloseTabsToRight => 'Chiudi le schede a destra';

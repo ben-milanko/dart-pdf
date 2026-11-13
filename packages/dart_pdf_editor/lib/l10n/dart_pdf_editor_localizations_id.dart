@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1866,6 +1868,13 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Pilih warna dari halaman';
 
   @override
+  String get tbRedactAsImages => 'Ganti halaman yang disensor dengan gambar';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Paling aman: hanya gambar dari setiap halaman yang disensor yang disimpan. Teks di halaman tersebut tidak dapat lagi dipilih atau dicari, dan ukuran file bertambah.';
+
+  @override
   String get tbRedactionsApplied => 'Redaksi diterapkan';
 
   @override
@@ -1874,6 +1883,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Tidak dapat mengalirkan ulang - ini bukan paragraf satu kolom yang dapat dibungkus ulang alat ini. Coba Ganti teks sebagai gantinya.';
+
+  @override
+  String get tbConvertToFreeText => 'Ubah menjadi kotak teks';
 
   @override
   String get tbReflowParagraph => 'Alir ulang paragraf';
