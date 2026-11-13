@@ -310,4 +310,53 @@ class DartPdfPrintingLocalizationsPl extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Wczytywanie drukarek…';
+
+  @override
+  String get printPresets => 'Ustawienia wstępne';
+
+  @override
+  String get printPresetLabel => 'Ustawienie wstępne';
+
+  @override
+  String get printPresetNone => 'Brak';
+
+  @override
+  String get printPresetNoneSaved => 'Brak zapisanych ustawień';
+
+  @override
+  String get printPresetSave => 'Zapisz jako ustawienie…';
+
+  @override
+  String get printPresetDelete => 'Usuń ustawienie';
+
+  @override
+  String get printPresetModified =>
+      'Zmieniono od zapisania. Zapisz ponownie, aby zaktualizować.';
+
+  @override
+  String get printPresetSaveTitle => 'Zapisz ustawienie drukowania';
+
+  @override
+  String get printPresetName => 'Nazwa ustawienia';
+
+  @override
+  String get printPresetReplaces => 'Zastępuje ustawienie o tej nazwie.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Wybierz też $printer z kolorem, drukiem dwustronnym i podajnikiem';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Zapisz';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Zakreskowane krawędzie leżą poza obszarem drukowania drukarki (lewo, góra, prawo, dół: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Wybrana drukarka nie drukuje na tym formacie papieru.';
 }

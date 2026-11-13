@@ -309,4 +309,53 @@ class DartPdfPrintingLocalizationsTr extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Yazıcılar yükleniyor…';
+
+  @override
+  String get printPresets => 'Hazır ayarlar';
+
+  @override
+  String get printPresetLabel => 'Hazır ayar';
+
+  @override
+  String get printPresetNone => 'Yok';
+
+  @override
+  String get printPresetNoneSaved => 'Kayıtlı hazır ayar yok';
+
+  @override
+  String get printPresetSave => 'Hazır ayar olarak kaydet…';
+
+  @override
+  String get printPresetDelete => 'Hazır ayarı sil';
+
+  @override
+  String get printPresetModified =>
+      'Kaydedildikten sonra değişti. Güncellemek için yeniden kaydedin.';
+
+  @override
+  String get printPresetSaveTitle => 'Yazdırma hazır ayarını kaydet';
+
+  @override
+  String get printPresetName => 'Hazır ayar adı';
+
+  @override
+  String get printPresetReplaces => 'Bu adlı hazır ayarın yerine geçer.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '$printer yazıcısını rengi, çift yüz ve tepsisiyle de seç';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Kaydet';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Taralı kenarlar yazıcının yazdırılabilir alanının dışında (sol, üst, sağ, alt: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'Seçili yazıcı bu kâğıt boyutuna yazdıramıyor.';
 }

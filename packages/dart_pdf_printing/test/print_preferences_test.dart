@@ -122,4 +122,80 @@ void main() {
         range: 'all', customRange: '1');
     expect((await PrintPreferences.load()).settingsFor([0]).copies, 3);
   });
+
+  test('named presets round-trip, sort, replace and delete', () async {
+    final preferences = await PrintPreferences.load();
+    expect(preferences.presetNames, isEmpty);
+    await preferences.savePreset(
+        'b plans',
+        PrintSettings(
+            pages: [3],
+            paperSize: PrintPaperSize.a1,
+            scaling: PrintScaling.fitPaper,
+            copies: 2,
+            region: const PdfRect(1, 2, 3, 4)),
+        destination: const PrintDestination(
+            printer: 'Plotter', color: false, duplex: PrintDuplex.longEdge));
+    await preferences.savePreset('A drafts',
+        PrintSettings(pages: [0], content: PrintContent.documentOnly));
+
+    final reloaded = await PrintPreferences.load();
+    expect(reloaded.presetNames, ['A drafts', 'b plans']);
+    expect(reloaded.activePreset, 'A drafts');
+    final plans = reloaded.preset('b plans')!;
+    final settings = plans.settingsFor([0, 1]);
+    expect(settings.pages, [0, 1]);
+    expect(settings.paperSize, PrintPaperSize.a1);
+    expect(settings.scaling, PrintScaling.fitPaper);
+    expect(settings.copies, 2);
+    expect(settings.region, isNull, reason: 'crop windows are per-document');
+    expect(plans.destination!.printer, 'Plotter');
+    expect(plans.destination!.color, isFalse);
+    expect(plans.destination!.duplex, PrintDuplex.longEdge);
+    expect(reloaded.preset('A drafts')!.destination, isNull);
+
+    // Saving under an existing name replaces it.
+    await reloaded.savePreset('b plans', PrintSettings(pages: const []));
+    expect(reloaded.preset('b plans')!.settingsFor(const []).paperSize,
+        PrintPaperSize.auto);
+    expect(reloaded.preset('b plans')!.destination, isNull);
+
+    await reloaded.selectPreset('b plans');
+    await reloaded.deletePreset('b plans');
+    final after = await PrintPreferences.load();
+    expect(after.presetNames, ['A drafts']);
+    expect(after.activePreset, isNull);
+    expect(after.preset('b plans'), isNull);
+  });
+
+  test('a preset matches settings regardless of pages and crop', () async {
+    final preferences = await PrintPreferences.load();
+    const plotter = PrintDestination(printer: 'Plotter', tray: 2);
+    await preferences.savePreset(
+        'Plans', PrintSettings(pages: [0], paperSize: PrintPaperSize.a3),
+        destination: plotter);
+    final preset = (await PrintPreferences.load()).preset('Plans')!;
+    final same = PrintSettings(
+        pages: [4, 5],
+        paperSize: PrintPaperSize.a3,
+        region: const PdfRect(0, 0, 9, 9));
+    expect(preset.matches(same), isTrue);
+    expect(preset.matches(same, current: plotter), isTrue);
+    expect(
+        preset.matches(same,
+            current: const PrintDestination(printer: 'Plotter', tray: 1)),
+        isFalse);
+    expect(preset.matches(same.copyWith(copies: 3)), isFalse);
+    expect(preset.matches(same.copyWith(customScale: 100.0)), isTrue);
+  });
+
+  test('printable areas are read defensively', () {
+    final area = PrintPrintableArea.fromMap(
+        {'supported': true, 'left': 12.5, 'top': 0, 'right': -3, 'bottom': 18});
+    expect(area.left, 12.5);
+    expect(area.right, 0, reason: 'negative edges are clamped');
+    expect(area.hasMargins, isTrue);
+    expect(PrintPrintableArea.fromMap({'supported': false}).supported, isFalse);
+    expect(PrintPrintableArea.fromMap(const {}).hasMargins, isFalse);
+  });
 }

@@ -97,5 +97,19 @@
   "printOptionsProperties": "Printereigenschappen…",
   "printOptionsDirectPrinter": "Afdrukken stuurt deze taak rechtstreeks naar de geselecteerde printer.",
   "printOptionsPropertiesError": "De printereigenschappen konden niet worden geopend.",
-  "printOptionsLoadingPrinters": "Printers laden…"
+  "printOptionsLoadingPrinters": "Printers laden…",
+  "printPresets": "Voorinstellingen",
+  "printPresetLabel": "Voorinstelling",
+  "printPresetNone": "Geen",
+  "printPresetNoneSaved": "Geen opgeslagen voorinstellingen",
+  "printPresetSave": "Opslaan als voorinstelling…",
+  "printPresetDelete": "Voorinstelling verwijderen",
+  "printPresetModified": "Gewijzigd sinds het opslaan. Sla opnieuw op om bij te werken.",
+  "printPresetSaveTitle": "Afdrukvoorinstelling opslaan",
+  "printPresetName": "Naam voorinstelling",
+  "printPresetReplaces": "Vervangt de voorinstelling met deze naam.",
+  "printPresetIncludePrinter": "Ook {printer} kiezen met kleur, dubbelzijdig en lade",
+  "printPresetSaveAction": "Opslaan",
+  "printOptionsPrinterMargins": "Gearceerde randen vallen buiten het afdrukbare gebied van de printer (links, boven, rechts, onder: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "De gekozen printer kan niet op dit papierformaat afdrukken."
 }

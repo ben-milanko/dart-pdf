@@ -426,5 +426,80 @@
   "printOptionsLoadingPrinters": "Loading printers…",
   "@printOptionsLoadingPrinters": {
     "description": "Status while Windows printers are being loaded."
+  },
+  "printPresets": "Presets",
+  "@printPresets": {
+    "description": "Heading for named, saved print settings."
+  },
+  "printPresetLabel": "Preset",
+  "@printPresetLabel": {
+    "description": "Label for the saved print preset selector."
+  },
+  "printPresetNone": "None",
+  "@printPresetNone": {
+    "description": "Preset selector entry meaning no preset is applied."
+  },
+  "printPresetNoneSaved": "No saved presets",
+  "@printPresetNoneSaved": {
+    "description": "Preset selector entry shown before any preset has been saved."
+  },
+  "printPresetSave": "Save as preset…",
+  "@printPresetSave": {
+    "description": "Tooltip for the button that saves the current print settings under a name."
+  },
+  "printPresetDelete": "Delete preset",
+  "@printPresetDelete": {
+    "description": "Tooltip for the button that deletes the selected print preset."
+  },
+  "printPresetModified": "Changed since this preset was saved. Save it again to update it.",
+  "@printPresetModified": {
+    "description": "Shown when the current print settings differ from the selected preset."
+  },
+  "printPresetSaveTitle": "Save print preset",
+  "@printPresetSaveTitle": {
+    "description": "Title of the dialog that names a print preset."
+  },
+  "printPresetName": "Preset name",
+  "@printPresetName": {
+    "description": "Text field label for a print preset's name."
+  },
+  "printPresetReplaces": "Replaces the preset with this name.",
+  "@printPresetReplaces": {
+    "description": "Helper text when the typed preset name already exists."
+  },
+  "printPresetIncludePrinter": "Also select {printer} and its color, duplex and tray",
+  "@printPresetIncludePrinter": {
+    "description": "Checkbox: also store the printer and its options in the preset.",
+    "placeholders": {
+      "printer": {
+        "type": "String"
+      }
+    }
+  },
+  "printPresetSaveAction": "Save",
+  "@printPresetSaveAction": {
+    "description": "Button that saves the print preset."
+  },
+  "printOptionsPrinterMargins": "Hatched edges are outside this printer's printable area (left, top, right, bottom: {left}, {top}, {right}, {bottom} pt).",
+  "@printOptionsPrinterMargins": {
+    "description": "Legend for the hatched unprintable area in the print preview, with each edge's size in points.",
+    "placeholders": {
+      "left": {
+        "type": "String"
+      },
+      "top": {
+        "type": "String"
+      },
+      "right": {
+        "type": "String"
+      },
+      "bottom": {
+        "type": "String"
+      }
+    }
+  },
+  "printOptionsPaperUnsupported": "The selected printer can't print on this paper size.",
+  "@printOptionsPaperUnsupported": {
+    "description": "Warning that the chosen printer cannot use the previewed sheet's paper size."
   }
 }

@@ -97,5 +97,19 @@
   "printOptionsProperties": "Yazıcı özellikleri…",
   "printOptionsDirectPrinter": "Yazdır, bu işi doğrudan seçili yazıcıya gönderir.",
   "printOptionsPropertiesError": "Yazıcı özellikleri açılamadı.",
-  "printOptionsLoadingPrinters": "Yazıcılar yükleniyor…"
+  "printOptionsLoadingPrinters": "Yazıcılar yükleniyor…",
+  "printPresets": "Hazır ayarlar",
+  "printPresetLabel": "Hazır ayar",
+  "printPresetNone": "Yok",
+  "printPresetNoneSaved": "Kayıtlı hazır ayar yok",
+  "printPresetSave": "Hazır ayar olarak kaydet…",
+  "printPresetDelete": "Hazır ayarı sil",
+  "printPresetModified": "Kaydedildikten sonra değişti. Güncellemek için yeniden kaydedin.",
+  "printPresetSaveTitle": "Yazdırma hazır ayarını kaydet",
+  "printPresetName": "Hazır ayar adı",
+  "printPresetReplaces": "Bu adlı hazır ayarın yerine geçer.",
+  "printPresetIncludePrinter": "{printer} yazıcısını rengi, çift yüz ve tepsisiyle de seç",
+  "printPresetSaveAction": "Kaydet",
+  "printOptionsPrinterMargins": "Taralı kenarlar yazıcının yazdırılabilir alanının dışında (sol, üst, sağ, alt: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Seçili yazıcı bu kâğıt boyutuna yazdıramıyor."
 }

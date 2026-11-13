@@ -137,5 +137,19 @@
   "printOptionsProperties": "Proprietà stampante…",
   "printOptionsDirectPrinter": "Stampa invia questo lavoro direttamente alla stampante selezionata.",
   "printOptionsPropertiesError": "Impossibile aprire le proprietà della stampante.",
-  "printOptionsLoadingPrinters": "Caricamento delle stampanti…"
+  "printOptionsLoadingPrinters": "Caricamento delle stampanti…",
+  "printPresets": "Preimpostazioni",
+  "printPresetLabel": "Preimpostazione",
+  "printPresetNone": "Nessuna",
+  "printPresetNoneSaved": "Nessuna preimpostazione salvata",
+  "printPresetSave": "Salva come preimpostazione…",
+  "printPresetDelete": "Elimina preimpostazione",
+  "printPresetModified": "Modificata dal salvataggio. Salvala di nuovo per aggiornarla.",
+  "printPresetSaveTitle": "Salva preimpostazione di stampa",
+  "printPresetName": "Nome preimpostazione",
+  "printPresetReplaces": "Sostituisce la preimpostazione con questo nome.",
+  "printPresetIncludePrinter": "Seleziona anche {printer} con colore, fronte-retro e cassetto",
+  "printPresetSaveAction": "Salva",
+  "printOptionsPrinterMargins": "I bordi tratteggiati sono fuori dall'area stampabile della stampante (sinistra, alto, destra, basso: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "La stampante selezionata non può stampare su questo formato carta."
 }

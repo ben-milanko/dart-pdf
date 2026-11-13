@@ -137,5 +137,19 @@
   "printOptionsProperties": "प्रिंटर गुण…",
   "printOptionsDirectPrinter": "प्रिंट दबाने पर यह कार्य सीधे चुने गए प्रिंटर को भेजा जाता है।",
   "printOptionsPropertiesError": "प्रिंटर गुण नहीं खोले जा सके।",
-  "printOptionsLoadingPrinters": "प्रिंटर लोड हो रहे हैं…"
+  "printOptionsLoadingPrinters": "प्रिंटर लोड हो रहे हैं…",
+  "printPresets": "प्रीसेट",
+  "printPresetLabel": "प्रीसेट",
+  "printPresetNone": "कोई नहीं",
+  "printPresetNoneSaved": "कोई सहेजा गया प्रीसेट नहीं",
+  "printPresetSave": "प्रीसेट के रूप में सहेजें…",
+  "printPresetDelete": "प्रीसेट हटाएँ",
+  "printPresetModified": "सहेजने के बाद बदला गया। अपडेट करने के लिए फिर से सहेजें।",
+  "printPresetSaveTitle": "प्रिंट प्रीसेट सहेजें",
+  "printPresetName": "प्रीसेट का नाम",
+  "printPresetReplaces": "इस नाम वाले प्रीसेट को बदल देता है।",
+  "printPresetIncludePrinter": "{printer} को उसके रंग, डुप्लेक्स और ट्रे के साथ भी चुनें",
+  "printPresetSaveAction": "सहेजें",
+  "printOptionsPrinterMargins": "धारीदार किनारे प्रिंटर के प्रिंट योग्य क्षेत्र से बाहर हैं (बाएँ, ऊपर, दाएँ, नीचे: {left}, {top}, {right}, {bottom} pt)।",
+  "printOptionsPaperUnsupported": "चुना गया प्रिंटर इस कागज़ के आकार पर प्रिंट नहीं कर सकता।"
 }

@@ -97,5 +97,19 @@
   "printOptionsProperties": "Свойства принтера…",
   "printOptionsDirectPrinter": "Кнопка «Печать» отправляет это задание прямо на выбранный принтер.",
   "printOptionsPropertiesError": "Не удалось открыть свойства принтера.",
-  "printOptionsLoadingPrinters": "Загрузка принтеров…"
+  "printOptionsLoadingPrinters": "Загрузка принтеров…",
+  "printPresets": "Наборы настроек",
+  "printPresetLabel": "Набор настроек",
+  "printPresetNone": "Нет",
+  "printPresetNoneSaved": "Нет сохранённых наборов",
+  "printPresetSave": "Сохранить как набор…",
+  "printPresetDelete": "Удалить набор",
+  "printPresetModified": "Изменено после сохранения. Сохраните снова, чтобы обновить.",
+  "printPresetSaveTitle": "Сохранить набор настроек печати",
+  "printPresetName": "Название набора",
+  "printPresetReplaces": "Заменит набор с этим названием.",
+  "printPresetIncludePrinter": "Также выбирать {printer} с цветом, двусторонней печатью и лотком",
+  "printPresetSaveAction": "Сохранить",
+  "printOptionsPrinterMargins": "Заштрихованные края вне области печати принтера (слева, сверху, справа, снизу: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Выбранный принтер не печатает на бумаге этого размера."
 }

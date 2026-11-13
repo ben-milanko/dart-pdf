@@ -307,4 +307,53 @@ class DartPdfPrintingLocalizationsTh extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'กำลังโหลดเครื่องพิมพ์…';
+
+  @override
+  String get printPresets => 'ค่าที่ตั้งไว้';
+
+  @override
+  String get printPresetLabel => 'ค่าที่ตั้งไว้';
+
+  @override
+  String get printPresetNone => 'ไม่มี';
+
+  @override
+  String get printPresetNoneSaved => 'ไม่มีค่าที่บันทึกไว้';
+
+  @override
+  String get printPresetSave => 'บันทึกเป็นค่าที่ตั้งไว้…';
+
+  @override
+  String get printPresetDelete => 'ลบค่าที่ตั้งไว้';
+
+  @override
+  String get printPresetModified =>
+      'มีการเปลี่ยนแปลงหลังบันทึก บันทึกอีกครั้งเพื่ออัปเดต';
+
+  @override
+  String get printPresetSaveTitle => 'บันทึกค่าการพิมพ์ที่ตั้งไว้';
+
+  @override
+  String get printPresetName => 'ชื่อค่าที่ตั้งไว้';
+
+  @override
+  String get printPresetReplaces => 'จะแทนที่ค่าที่ตั้งไว้ที่มีชื่อนี้';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'เลือก $printer พร้อมสี การพิมพ์สองหน้า และถาดด้วย';
+  }
+
+  @override
+  String get printPresetSaveAction => 'บันทึก';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'ขอบที่แรเงาอยู่นอกพื้นที่พิมพ์ได้ของเครื่องพิมพ์ (ซ้าย บน ขวา ล่าง: $left, $top, $right, $bottom pt)';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'เครื่องพิมพ์ที่เลือกพิมพ์บนกระดาษขนาดนี้ไม่ได้';
 }

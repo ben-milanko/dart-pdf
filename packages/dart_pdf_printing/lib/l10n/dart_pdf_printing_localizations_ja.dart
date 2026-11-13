@@ -304,4 +304,51 @@ class DartPdfPrintingLocalizationsJa extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'プリンターを読み込み中…';
+
+  @override
+  String get printPresets => 'プリセット';
+
+  @override
+  String get printPresetLabel => 'プリセット';
+
+  @override
+  String get printPresetNone => 'なし';
+
+  @override
+  String get printPresetNoneSaved => '保存済みのプリセットはありません';
+
+  @override
+  String get printPresetSave => 'プリセットとして保存…';
+
+  @override
+  String get printPresetDelete => 'プリセットを削除';
+
+  @override
+  String get printPresetModified => '保存後に変更されています。更新するにはもう一度保存してください。';
+
+  @override
+  String get printPresetSaveTitle => '印刷プリセットを保存';
+
+  @override
+  String get printPresetName => 'プリセット名';
+
+  @override
+  String get printPresetReplaces => 'この名前のプリセットを置き換えます。';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return '$printer とそのカラー・両面・トレイも選択する';
+  }
+
+  @override
+  String get printPresetSaveAction => '保存';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return '斜線の縁はプリンターの印刷可能領域外です（左、上、右、下: $left, $top, $right, $bottom pt）。';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported => '選択したプリンターはこの用紙サイズに印刷できません。';
 }

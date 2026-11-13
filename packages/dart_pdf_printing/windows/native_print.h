@@ -50,6 +50,18 @@ class NativePrinter {
     std::vector<Tray> trays;
   };
 
+  // The part of one prepared sheet the printer can physically mark, as the
+  // unprintable margin on each edge in PDF points, measured in the sheet's own
+  // (content-up) frame. |supported| is false when the driver substituted
+  // different media for this paper size; printing it would then fail.
+  struct PrintableArea {
+    bool supported = false;
+    double left = 0;
+    double top = 0;
+    double right = 0;
+    double bottom = 0;
+  };
+
   NativePrinter() = default;
 
   NativePrinter(const NativePrinter&) = delete;
@@ -67,6 +79,11 @@ class NativePrinter {
   // error. The whole DEVMODE, including its private tail, persists per printer.
   bool PrinterSettings(HWND owner, const Options& options, bool show_properties,
                        Settings* settings);
+
+  // Measures |area| for a |width| x |height| point sheet on options.printer,
+  // using the same DEVMODE a direct job would spool it with. Never prompts.
+  bool QueryPrintableArea(const Options& options, double width, double height,
+                          PrintableArea* area);
 
   const std::string& error() const { return error_; }
 

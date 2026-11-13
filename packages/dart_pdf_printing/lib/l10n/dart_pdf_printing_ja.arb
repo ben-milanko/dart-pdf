@@ -137,5 +137,19 @@
   "printOptionsProperties": "プリンターのプロパティ…",
   "printOptionsDirectPrinter": "「印刷」を押すと、選択したプリンターにこのジョブが直接送信されます。",
   "printOptionsPropertiesError": "プリンターのプロパティを開けませんでした。",
-  "printOptionsLoadingPrinters": "プリンターを読み込み中…"
+  "printOptionsLoadingPrinters": "プリンターを読み込み中…",
+  "printPresets": "プリセット",
+  "printPresetLabel": "プリセット",
+  "printPresetNone": "なし",
+  "printPresetNoneSaved": "保存済みのプリセットはありません",
+  "printPresetSave": "プリセットとして保存…",
+  "printPresetDelete": "プリセットを削除",
+  "printPresetModified": "保存後に変更されています。更新するにはもう一度保存してください。",
+  "printPresetSaveTitle": "印刷プリセットを保存",
+  "printPresetName": "プリセット名",
+  "printPresetReplaces": "この名前のプリセットを置き換えます。",
+  "printPresetIncludePrinter": "{printer} とそのカラー・両面・トレイも選択する",
+  "printPresetSaveAction": "保存",
+  "printOptionsPrinterMargins": "斜線の縁はプリンターの印刷可能領域外です（左、上、右、下: {left}, {top}, {right}, {bottom} pt）。",
+  "printOptionsPaperUnsupported": "選択したプリンターはこの用紙サイズに印刷できません。"
 }

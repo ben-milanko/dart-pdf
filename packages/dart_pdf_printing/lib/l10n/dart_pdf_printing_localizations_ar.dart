@@ -307,4 +307,53 @@ class DartPdfPrintingLocalizationsAr extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'جارٍ تحميل الطابعات…';
+
+  @override
+  String get printPresets => 'الإعدادات المسبقة';
+
+  @override
+  String get printPresetLabel => 'إعداد مسبق';
+
+  @override
+  String get printPresetNone => 'لا شيء';
+
+  @override
+  String get printPresetNoneSaved => 'لا توجد إعدادات محفوظة';
+
+  @override
+  String get printPresetSave => 'حفظ كإعداد مسبق…';
+
+  @override
+  String get printPresetDelete => 'حذف الإعداد المسبق';
+
+  @override
+  String get printPresetModified => 'تغيّر منذ حفظه. احفظه مجددًا لتحديثه.';
+
+  @override
+  String get printPresetSaveTitle => 'حفظ إعداد الطباعة المسبق';
+
+  @override
+  String get printPresetName => 'اسم الإعداد المسبق';
+
+  @override
+  String get printPresetReplaces =>
+      'يستبدل الإعداد المسبق الذي يحمل هذا الاسم.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'تحديد $printer أيضًا مع اللون والطباعة على الوجهين والدرج';
+  }
+
+  @override
+  String get printPresetSaveAction => 'حفظ';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'الحواف المظللة خارج المنطقة القابلة للطباعة في الطابعة (يسار، أعلى، يمين، أسفل: $left, $top, $right, $bottom نقطة).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'لا يمكن للطابعة المحددة الطباعة على حجم الورق هذا.';
 }

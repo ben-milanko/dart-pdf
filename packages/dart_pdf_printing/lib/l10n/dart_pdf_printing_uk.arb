@@ -97,5 +97,19 @@
   "printOptionsProperties": "Властивості принтера…",
   "printOptionsDirectPrinter": "Кнопка «Друк» надсилає це завдання безпосередньо на вибраний принтер.",
   "printOptionsPropertiesError": "Не вдалося відкрити властивості принтера.",
-  "printOptionsLoadingPrinters": "Завантаження принтерів…"
+  "printOptionsLoadingPrinters": "Завантаження принтерів…",
+  "printPresets": "Набори налаштувань",
+  "printPresetLabel": "Набір налаштувань",
+  "printPresetNone": "Немає",
+  "printPresetNoneSaved": "Немає збережених наборів",
+  "printPresetSave": "Зберегти як набір…",
+  "printPresetDelete": "Видалити набір",
+  "printPresetModified": "Змінено після збереження. Збережіть знову, щоб оновити.",
+  "printPresetSaveTitle": "Зберегти набір налаштувань друку",
+  "printPresetName": "Назва набору",
+  "printPresetReplaces": "Замінить набір із цією назвою.",
+  "printPresetIncludePrinter": "Також вибирати {printer} з кольором, двобічним друком і лотком",
+  "printPresetSaveAction": "Зберегти",
+  "printOptionsPrinterMargins": "Заштриховані краї поза областю друку принтера (ліворуч, угорі, праворуч, унизу: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Вибраний принтер не друкує на папері такого розміру."
 }
