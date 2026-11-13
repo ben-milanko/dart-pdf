@@ -794,7 +794,7 @@ jobs:
   snap:
     if: always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && ((inputs.destinations == '' && inputs.deliveries == '') || contains(format(',{0},', inputs.destinations), ',snap,')) && (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), ',snap,'))
     name: Snap Store
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: storeflight-production
     env:
