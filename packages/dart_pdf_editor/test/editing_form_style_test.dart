@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_cos/pdf_cos.dart';
+import 'package:dart_pdf_editor/src/editing/editing_form_style.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +15,84 @@ void main() {
     return PdfEditingController(buildAcroFormPdf());
   }
 
+  // Use arbitrary resource keys to exercise the /DA -> /DR lookup, not the
+  // old heuristic that guessed a family from a resource key's spelling.
+  void setFontResource(PdfFormField field, String baseFont,
+      {String resourceName = 'CustomFace'}) {
+    final cos = field.form.document.cos;
+    final fonts =
+        cos.resolve(field.form.defaultResources!['Font']) as CosDictionary;
+    fonts[resourceName] = CosDictionary({
+      'Type': CosName('Font'),
+      'Subtype': CosName('Type1'),
+      'BaseFont': CosName(baseFont),
+    });
+    field.dict['DA'] = CosString.fromText('/$resourceName 12 Tf 0 g');
+  }
+
   group('form field style controller API', () {
+    test('font family and style follow the /DR resource, not its alias', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      final field = editing.acroForm!.fieldNamed('name')!;
+      setFontResource(field, 'Times-BoldItalic');
+      final style = PdfFormFieldStyle.of(field);
+      expect(style.font, PdfStandardFont.timesBoldItalic);
+      expect(style.fontLabel, 'Serif');
+    });
+
+    test('custom and unavailable font names are not falsely labelled Sans', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      final field = editing.acroForm!.fieldNamed('name')!;
+      setFontResource(field, 'ABCDEF+Spectral-Regular');
+      expect(PdfFormFieldStyle.of(field).fontLabel, 'Spectral-Regular');
+      field.dict['DA'] = CosString.fromText('/MissingFont 12 Tf 0 g');
+      expect(PdfFormFieldStyle.of(field).fontLabel, 'MissingFont');
+    });
+
+    test('embedded font label survives style changes and save/reopen', () {
+      final editing = controller();
+      addTearDown(editing.dispose);
+      final embedded = PdfEmbeddedFont.parse(
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync());
+      expect(editing.setFormFieldStyle('name', font: embedded), isTrue);
+      expect(editing.selectFormFieldByName('name'), isTrue);
+      expect(
+          editing.selectedFormFieldStyle!.fontLabel, embedded.postScriptName);
+      expect(
+          editing.setSelectedFormFieldStyle(
+              color: 0x0000FF, align: PdfTextAlign.center),
+          isTrue);
+      final reopened = PdfEditingController(editing.bytes);
+      addTearDown(reopened.dispose);
+      expect(reopened.selectFormFieldByName('name'), isTrue);
+      expect(
+          reopened.selectedFormFieldStyle!.fontLabel, embedded.postScriptName);
+      final field = reopened.acroForm!.fieldNamed('name')!;
+      final cos = field.form.document.cos;
+      final fonts =
+          cos.resolve(field.form.defaultResources!['Font']) as CosDictionary;
+      final resourceName = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
+          .firstMatch(field.defaultAppearance!)!
+          .group(1)!;
+      final resource = cos.resolve(fonts[resourceName]) as CosDictionary;
+      final recovered =
+          PdfEmbeddedFont.fromFontDict(cos, resource, resourceName)!;
+      expect(recovered.fontBytes, embedded.fontBytes);
+    });
+
+    test('choice fields resolve custom font metadata too', () {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildListBoxFormPdf());
+      addTearDown(editing.dispose);
+      for (final name in ['toppings', 'size']) {
+        final field = editing.acroForm!.fieldNamed(name)!;
+        setFontResource(field, 'ABCDEF+Spectral-Regular');
+        expect(PdfFormFieldStyle.of(field).fontLabel, 'Spectral-Regular');
+      }
+    });
+
     test('selectedFormFieldStyle reflects a selected text field', () {
       final editing = controller();
       editing.tool = PdfEditTool.form;
@@ -84,6 +165,48 @@ void main() {
   });
 
   group('form tool UI', () {
+    testWidgets('both controls show the custom font and mixed fonts vary',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final editing = controller();
+      addTearDown(editing.dispose);
+      setFontResource(
+          editing.acroForm!.fieldNamed('name')!, 'ABCDEF+Spectral-Regular',
+          resourceName: 'SpectralFace');
+      expect(editing.selectFormFieldByName('name'), isTrue);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          PdfAnnotationPropertiesPanel(controller: editing),
+          SizedBox(
+              width: 320,
+              child: PdfFormFieldStyleControls(controller: editing)),
+        ])),
+      ));
+      await tester.pump();
+      for (final key in ['pdf-prop-form-font', 'pdf-form-style-font-menu']) {
+        final button = find.byKey(ValueKey(key));
+        expect(button, findsOneWidget);
+        expect(
+            find.descendant(
+                of: button, matching: find.text('Spectral-Regular')),
+            findsOneWidget);
+        expect(find.descendant(of: button, matching: find.text('Sans')),
+            findsNothing);
+      }
+      // Both custom faces map to the same standard fallback. Their names
+      // must still be compared so the panel does not claim a common font.
+      setFontResource(
+          editing.acroForm!.fieldNamed('address')!, 'UVWXYZ+Lobster-Regular');
+      expect(editing.selectFormWidgetAt(0, 186, 640, toggle: true), isTrue);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-form-font-varies')),
+          findsOneWidget);
+    });
+
     testWidgets('field-name labels show while the form tool is armed',
         (tester) async {
       SharedPreferences.setMockInitialValues({});

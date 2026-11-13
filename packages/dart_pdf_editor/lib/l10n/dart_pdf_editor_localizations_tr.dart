@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1860,6 +1862,13 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Sayfadan bir renk seç';
 
   @override
+  String get tbRedactAsImages => 'Karartılan sayfaları görüntülerle değiştir';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'En güvenlisi: Karartılan her sayfanın yalnızca bir görüntüsü kalır. Bu sayfalardaki metin artık seçilemez veya aranamaz ve dosya büyür.';
+
+  @override
   String get tbRedactionsApplied => 'Karartmalar uygulandı';
 
   @override
@@ -1868,6 +1877,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Yeniden akıtılamadı - bu, bu aracın yeniden sarabileceği tek sütunlu bir paragraf değil. Bunun yerine Metni değiştir\'i deneyin.';
+
+  @override
+  String get tbConvertToFreeText => 'Metin kutusuna dönüştür';
 
   @override
   String get tbReflowParagraph => 'Paragrafı yeniden akıt';

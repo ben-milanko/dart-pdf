@@ -74,6 +74,7 @@
   "editorCloseOthers": "अन्य बंद करें",
   "editorCloseTab": "टैब बंद करें",
   "editorCloseTabsToRight": "दाईं ओर के टैब बंद करें",
+  "editorSortTabsByName": "टैब को नाम से क्रमबद्ध करें",
   "editorCompareFailedTitle": "तुलना विफल",
   "editorCompareTitle": "तुलना: {title}",
   "editorCopiedToClipboard": "क्लिपबोर्ड पर कॉपी किया गया",

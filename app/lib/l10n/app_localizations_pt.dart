@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -285,6 +287,9 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Fechar aba';
+
+  @override
+  String get editorSortTabsByName => 'Ordenar abas por nome';
 
   @override
   String get editorCloseTabsToRight => 'Fechar abas à direita';

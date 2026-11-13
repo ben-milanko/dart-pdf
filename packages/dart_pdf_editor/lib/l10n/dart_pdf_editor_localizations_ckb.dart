@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1866,6 +1868,13 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'هەڵبژاردنی ڕەنگ لە پەڕەکەوە';
 
   @override
+  String get tbRedactAsImages => 'لاپەڕە سانسۆرکراوەکان بە وێنە بگۆڕە';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'پارێزراوترین: تەنها وێنەیەکی هەر لاپەڕەیەکی سانسۆرکراو دەمێنێتەوە. دەقی ئەو لاپەڕانە چیتر هەڵنابژێردرێت و ناگەڕێنرێت، و قەبارەی فایلەکە گەورەتر دەبێت.';
+
+  @override
   String get tbRedactionsApplied => 'سانسۆرکردنەکان جێبەجێ کران';
 
   @override
@@ -1874,6 +1883,9 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'ڕێکخستنەوەی دەق نەکرا - ئەمە بڕگەیەکی یەک ستوونی نییە. لەبری ئەوە گۆڕینی دەق تاقی بکەرەوە.';
+
+  @override
+  String get tbConvertToFreeText => 'گۆڕین بۆ سندوقی دەق';
 
   @override
   String get tbReflowParagraph => 'ڕێکخستنەوەی بڕگە';

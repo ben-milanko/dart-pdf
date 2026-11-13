@@ -137,5 +137,19 @@
   "printOptionsProperties": "خصائص الطابعة…",
   "printOptionsDirectPrinter": "يرسل زر الطباعة هذه المهمة مباشرة إلى الطابعة المحددة.",
   "printOptionsPropertiesError": "تعذّر فتح خصائص الطابعة.",
-  "printOptionsLoadingPrinters": "جارٍ تحميل الطابعات…"
+  "printOptionsLoadingPrinters": "جارٍ تحميل الطابعات…",
+  "printPresets": "الإعدادات المسبقة",
+  "printPresetLabel": "إعداد مسبق",
+  "printPresetNone": "لا شيء",
+  "printPresetNoneSaved": "لا توجد إعدادات محفوظة",
+  "printPresetSave": "حفظ كإعداد مسبق…",
+  "printPresetDelete": "حذف الإعداد المسبق",
+  "printPresetModified": "تغيّر منذ حفظه. احفظه مجددًا لتحديثه.",
+  "printPresetSaveTitle": "حفظ إعداد الطباعة المسبق",
+  "printPresetName": "اسم الإعداد المسبق",
+  "printPresetReplaces": "يستبدل الإعداد المسبق الذي يحمل هذا الاسم.",
+  "printPresetIncludePrinter": "تحديد {printer} أيضًا مع اللون والطباعة على الوجهين والدرج",
+  "printPresetSaveAction": "حفظ",
+  "printOptionsPrinterMargins": "الحواف المظللة خارج المنطقة القابلة للطباعة في الطابعة (يسار، أعلى، يمين، أسفل: {left}, {top}, {right}, {bottom} نقطة).",
+  "printOptionsPaperUnsupported": "لا يمكن للطابعة المحددة الطباعة على حجم الورق هذا."
 }

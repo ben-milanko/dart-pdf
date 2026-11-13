@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1865,6 +1867,13 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Eine Farbe von der Seite aufnehmen';
 
   @override
+  String get tbRedactAsImages => 'Geschwärzte Seiten durch Bilder ersetzen';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Am sichersten: Von jeder geschwärzten Seite bleibt nur ein Bild erhalten. Text auf diesen Seiten lässt sich danach nicht mehr markieren oder durchsuchen, und die Datei wird größer.';
+
+  @override
   String get tbRedactionsApplied => 'Schwärzungen angewendet';
 
   @override
@@ -1873,6 +1882,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Umbruch nicht möglich - dies ist kein einspaltiger Absatz, den dieses Werkzeug neu umbrechen kann. Verwenden Sie stattdessen Text ersetzen.';
+
+  @override
+  String get tbConvertToFreeText => 'In Textfeld umwandeln';
 
   @override
   String get tbReflowParagraph => 'Absatz umbrechen';

@@ -7,10 +7,10 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // editor bridges their theme and messenger; see legacy_host_bridge.dart).
 // migrate_design_widgets is an error repo-wide; these hosts are legacy on
 // purpose.
-// ignore: migrate_design_widgets
+// ignore: migrate_design_widgets, deprecated_member_use
 import 'package:flutter/cupertino.dart' as legacy_cupertino;
 import 'package:flutter/foundation.dart';
-// ignore: migrate_design_widgets
+// ignore: migrate_design_widgets, deprecated_member_use
 import 'package:flutter/material.dart' as legacy;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';

@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -308,4 +310,53 @@ class DartPdfPrintingLocalizationsPt extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Carregando impressoras…';
+
+  @override
+  String get printPresets => 'Predefinições';
+
+  @override
+  String get printPresetLabel => 'Predefinição';
+
+  @override
+  String get printPresetNone => 'Nenhuma';
+
+  @override
+  String get printPresetNoneSaved => 'Nenhuma predefinição salva';
+
+  @override
+  String get printPresetSave => 'Salvar como predefinição…';
+
+  @override
+  String get printPresetDelete => 'Excluir predefinição';
+
+  @override
+  String get printPresetModified =>
+      'Alterada desde que foi salva. Salve novamente para atualizá-la.';
+
+  @override
+  String get printPresetSaveTitle => 'Salvar predefinição de impressão';
+
+  @override
+  String get printPresetName => 'Nome da predefinição';
+
+  @override
+  String get printPresetReplaces => 'Substitui a predefinição com este nome.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Selecionar também $printer com cor, frente e verso e bandeja';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Salvar';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'As bordas hachuradas ficam fora da área imprimível da impressora (esquerda, topo, direita, base: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'A impressora selecionada não imprime neste tamanho de papel.';
 }

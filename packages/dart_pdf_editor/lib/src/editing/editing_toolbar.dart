@@ -424,6 +424,9 @@ typedef _ToolGroup = PdfToolGroup;
 
 typedef _ToolChoice = ({PdfEditTool? tool, PdfMarkupKind? markup});
 
+/// The page-content text actions behind the mobile dock's overflow menu.
+enum _ElementTextAction { reflow, convertToFreeText }
+
 enum _SelectedFormOverflowAction {
   edit,
   rename,
@@ -1312,6 +1315,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _applyRedactions(BuildContext context) async {
+    final asImages = ValueNotifier(false);
     final confirmed = await PdfEditorPresenter.of(context).confirm(
       context,
       PdfConfirmRequest(
@@ -1321,10 +1325,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         message: pdfL10n(context).tbApplyRedactionsMessage,
         confirmLabel: pdfL10n(context).apply,
         destructive: true,
+        option: PdfConfirmOption(
+          key: const ValueKey('pdf-redaction-as-images'),
+          label: pdfL10n(context).tbRedactAsImages,
+          detail: pdfL10n(context).tbRedactAsImagesDetail,
+          value: asImages,
+        ),
       ),
     );
+    final images = asImages.value;
+    asImages.dispose();
     if (!confirmed || !context.mounted) return;
-    final burned = controller.applyRedactions();
+    final burned = images
+        ? await controller.applyRedactionsAsImages()
+        : controller.applyRedactions();
+    if (!context.mounted) return;
     _flattenToast(
       context,
       burned
@@ -2285,6 +2300,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           tooltip: pdfL10n(context).tbReflowParagraph,
           onPressed: () => _reflowElementText(context),
         ),
+        IconButton(
+          key: const ValueKey('pdf-convert-element-text-to-free-text'),
+          icon: const Icon(Icons.text_fields),
+          tooltip: pdfL10n(context).tbConvertToFreeText,
+          onPressed: controller.convertSelectedElementTextToFreeText,
+        ),
       ],
       if (controller.canReplaceSelectedElementImage &&
           widget.onExportSelectedContentImage != null)
@@ -2867,12 +2888,38 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             visualDensity: VisualDensity.compact,
             onPressed: () => _editElementTextStyle(context),
           ),
-          IconButton(
-            key: const ValueKey('pdf-reflow-element-text'),
-            icon: const Icon(Icons.wrap_text),
-            tooltip: pdfL10n(context).tbReflowParagraph,
-            visualDensity: VisualDensity.compact,
-            onPressed: () => _reflowElementText(context),
+          // the less frequent text actions share one menu so the dock keeps
+          // its width on a narrow phone
+          PopupMenuButton<_ElementTextAction>(
+            key: const ValueKey('pdf-mobile-element-text-more'),
+            tooltip: pdfL10n(context).overlayMore,
+            icon: const Icon(Icons.more_vert),
+            onSelected: (action) {
+              switch (action) {
+                case _ElementTextAction.reflow:
+                  _reflowElementText(context);
+                case _ElementTextAction.convertToFreeText:
+                  controller.convertSelectedElementTextToFreeText();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                key: const ValueKey('pdf-reflow-element-text'),
+                value: _ElementTextAction.reflow,
+                child: ListTile(
+                  leading: const Icon(Icons.wrap_text),
+                  title: Text(pdfL10n(context).tbReflowParagraph),
+                ),
+              ),
+              PopupMenuItem(
+                key: const ValueKey('pdf-convert-element-text-to-free-text'),
+                value: _ElementTextAction.convertToFreeText,
+                child: ListTile(
+                  leading: const Icon(Icons.text_fields),
+                  title: Text(pdfL10n(context).tbConvertToFreeText),
+                ),
+              ),
+            ],
           ),
         ],
         if (controller.canReplaceSelectedElementImage &&

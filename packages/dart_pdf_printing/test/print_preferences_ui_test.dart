@@ -76,6 +76,11 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  void mock(FutureOr<Object?> Function(MethodCall) handler) {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, (call) async => handler(call));
+  }
+
   Future<void> cancel(WidgetTester tester) async {
     await tester.tap(find.byKey(const ValueKey('print-preview-cancel')));
     await tester.pumpAndSettle();
@@ -209,11 +214,6 @@ void main() {
   });
 
   group('Windows destinations', () {
-    void mock(FutureOr<Object?> Function(MethodCall) handler) {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(_channel, (call) async => handler(call));
-    }
-
     testWidgets('loading and stale settings cannot target the wrong printer',
         (tester) async {
       final office = Completer<Object?>();
@@ -303,8 +303,10 @@ void main() {
           calls.where((call) => call.method == 'printerProperties'), isEmpty);
       await tester.tap(find.byKey(const ValueKey('print-printer-properties')));
       await tester.pumpAndSettle();
-      expect(calls.last.method, 'printerProperties');
-      expect(calls.last.arguments, containsPair('duplex', 'longEdge'));
+      final properties =
+          calls.lastWhere((call) => call.method != 'printableArea');
+      expect(properties.method, 'printerProperties');
+      expect(properties.arguments, containsPair('duplex', 'longEdge'));
       await tester.tap(find.byKey(const ValueKey('print-preview-print')));
       await tester.pumpAndSettle();
       expect(result()!.destination!.printer, 'Plotter');
@@ -408,6 +410,181 @@ void main() {
       await choose(tester, 'tray', 'Bypass');
       await cancel(tester);
       expect((await PrintPreferences.load()).destinationFor('Office')!.tray, 2);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  });
+
+  testWidgets(
+      'switching printers keeps the controls in place but disabled until '
+      'the new driver answers', (tester) async {
+    final plotter = Completer<Object?>();
+    mock((call) {
+      if (call.method == 'listPrinters') return _printers;
+      if (call.method == 'printerSettings' &&
+          call.arguments['printer'] == 'Plotter') {
+        return plotter.future;
+      }
+      return _settings;
+    });
+    final result = await open(tester);
+    final color = find.byKey(const ValueKey('print-options-color'));
+    final top = tester.getTopLeft(color);
+    tester
+        .widget<PdfDropdown<String>>(
+            find.byKey(const ValueKey('print-options-printer')))
+        .onChanged!('Plotter');
+    await tester.pump();
+    expect(color, findsOneWidget, reason: 'no collapse while loading');
+    expect(tester.getTopLeft(color), top, reason: 'nothing shifts');
+    expect(
+        tester.getSemantics(find.byKey(const ValueKey('print-preview-print'))),
+        isSemantics(isEnabled: false));
+    plotter.complete({..._settings, 'color': false});
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(color), top);
+    await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+    await tester.pumpAndSettle();
+    expect(result()!.destination!.printer, 'Plotter');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
+  group('Presets', () {
+    Future<void> savePreset(WidgetTester tester, String name) async {
+      await tester.tap(find.byKey(const ValueKey('print-preset-save')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('print-preset-name')), name);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('print-preset-confirm')));
+      await tester.pumpAndSettle();
+    }
+
+    String copiesText(WidgetTester tester) => tester
+        .widget<TextField>(find.byKey(const ValueKey('print-options-copies')))
+        .controller!
+        .text;
+
+    testWidgets('save, modify, re-apply and delete a named preset',
+        (tester) async {
+      final result = await open(tester);
+      await choose(tester, 'paper', 'A3');
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('print-options-copies')));
+      await tester.enterText(
+          find.byKey(const ValueKey('print-options-copies')), '3');
+      await tester.pumpAndSettle();
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('print-preset-save')));
+      await savePreset(tester, '  A3 review  ');
+      expect(
+          tester
+              .widget<PdfDropdown<String>>(
+                  find.byKey(const ValueKey('print-options-preset')))
+              .value,
+          'A3 review',
+          reason: 'the name is trimmed and the new preset is selected');
+      expect(find.byKey(const ValueKey('print-preset-modified')), findsNothing);
+
+      // Drift from the preset, then pick it again to restore every field.
+      await choose(tester, 'paper', 'A5');
+      await tester
+          .ensureVisible(find.byKey(const ValueKey('print-options-copies')));
+      await tester.enterText(
+          find.byKey(const ValueKey('print-options-copies')), '9');
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('print-preset-modified')), findsOneWidget);
+      await choose(tester, 'preset', 'None');
+      await choose(tester, 'preset', 'A3 review');
+      expect(find.byKey(const ValueKey('print-preset-modified')), findsNothing);
+      expect(copiesText(tester), '3');
+
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      expect(result()!.settings.paperSize, PrintPaperSize.a3);
+      expect(result()!.settings.copies, 3);
+
+      // The preset and the selection survive reopening; delete removes it.
+      await open(tester);
+      expect(
+          tester
+              .widget<PdfDropdown<String>>(
+                  find.byKey(const ValueKey('print-options-preset')))
+              .value,
+          'A3 review');
+      await tester.tap(find.byKey(const ValueKey('print-preset-delete')));
+      await tester.pumpAndSettle();
+      expect((await PrintPreferences.load()).presetNames, isEmpty);
+      expect(
+          tester
+              .widget<PdfDropdown<String>>(
+                  find.byKey(const ValueKey('print-options-preset')))
+              .value,
+          '');
+    });
+
+    testWidgets('a preset with a printer selects it and its options',
+        (tester) async {
+      mock((call) => switch (call.method) {
+            'listPrinters' => _printers,
+            'printerSettings' => _settings,
+            _ => const <String, Object>{},
+          });
+      final preferences = await PrintPreferences.load();
+      await preferences.savePreset('Plotter A1',
+          PrintSettings(pages: const [], paperSize: PrintPaperSize.a1),
+          destination: const PrintDestination(
+              printer: 'Plotter', duplex: PrintDuplex.shortEdge, tray: 2));
+      await preferences.selectPreset(null);
+      final result = await open(tester);
+      expect(
+          tester
+              .widget<PdfDropdown<String>>(
+                  find.byKey(const ValueKey('print-options-printer')))
+              .value,
+          'Office');
+      await choose(tester, 'preset', 'Plotter A1');
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
+      expect(result()!.settings.paperSize, PrintPaperSize.a1);
+      expect(result()!.destination!.printer, 'Plotter');
+      expect(result()!.destination!.duplex, PrintDuplex.shortEdge);
+      expect(result()!.destination!.tray, 2);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  });
+
+  group('Printer margins', () {
+    testWidgets('the preview names the unprintable edges of the sheet',
+        (tester) async {
+      final asked = <Map<dynamic, dynamic>>[];
+      mock((call) {
+        if (call.method == 'printableArea') {
+          asked.add(call.arguments as Map);
+          return {
+            'supported': true,
+            'left': 12.0,
+            'top': 12.0,
+            'right': 12.0,
+            'bottom': 36.0
+          };
+        }
+        return call.method == 'listPrinters' ? _printers : _settings;
+      });
+      await open(tester);
+      expect(
+          find.byKey(const ValueKey('print-printer-margins')), findsOneWidget);
+      expect(find.textContaining('12, 12, 12, 36'), findsOneWidget);
+      expect(asked.single['printer'], 'Office');
+      expect(asked.single['width'], 612);
+      expect(asked.single['height'], 792);
+
+      // A size the driver can't take is called out before printing.
+      mock((call) => call.method == 'printableArea'
+          ? {'supported': false}
+          : call.method == 'listPrinters'
+              ? _printers
+              : _settings);
+      await choose(tester, 'paper', 'A0');
+      expect(find.byKey(const ValueKey('print-paper-unsupported')),
+          findsOneWidget);
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   });
 }

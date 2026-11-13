@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_printing_localizations.dart';
@@ -308,4 +310,53 @@ class DartPdfPrintingLocalizationsEs extends DartPdfPrintingLocalizations {
 
   @override
   String get printOptionsLoadingPrinters => 'Cargando impresoras…';
+
+  @override
+  String get printPresets => 'Ajustes preestablecidos';
+
+  @override
+  String get printPresetLabel => 'Ajuste preestablecido';
+
+  @override
+  String get printPresetNone => 'Ninguno';
+
+  @override
+  String get printPresetNoneSaved => 'No hay ajustes guardados';
+
+  @override
+  String get printPresetSave => 'Guardar como ajuste…';
+
+  @override
+  String get printPresetDelete => 'Eliminar ajuste';
+
+  @override
+  String get printPresetModified =>
+      'Ha cambiado desde que se guardó. Guárdelo de nuevo para actualizarlo.';
+
+  @override
+  String get printPresetSaveTitle => 'Guardar ajuste de impresión';
+
+  @override
+  String get printPresetName => 'Nombre del ajuste';
+
+  @override
+  String get printPresetReplaces => 'Sustituye el ajuste con este nombre.';
+
+  @override
+  String printPresetIncludePrinter(String printer) {
+    return 'Seleccionar también $printer con su color, dúplex y bandeja';
+  }
+
+  @override
+  String get printPresetSaveAction => 'Guardar';
+
+  @override
+  String printOptionsPrinterMargins(
+      String left, String top, String right, String bottom) {
+    return 'Los bordes rayados quedan fuera del área imprimible de la impresora (izquierda, arriba, derecha, abajo: $left, $top, $right, $bottom pt).';
+  }
+
+  @override
+  String get printOptionsPaperUnsupported =>
+      'La impresora seleccionada no puede imprimir en este tamaño de papel.';
 }

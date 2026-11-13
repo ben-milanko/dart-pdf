@@ -141,6 +141,22 @@ class DocumentTabs extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sorts the strip by file name (case-insensitive, with digit runs compared
+  /// by value so `sheet 2` precedes `sheet 10`), keeping the active document
+  /// active wherever it lands. Untitled tabs go last; equal names keep their
+  /// relative order.
+  void sortByName() {
+    if (_tabs.length < 2) return;
+    final active = this.active;
+    final order = {for (var i = 0; i < _tabs.length; i++) _tabs[i]: i};
+    _tabs.sort((a, b) {
+      final byName = compareTabTitles(a.title, b.title);
+      return byName != 0 ? byName : order[a]!.compareTo(order[b]!);
+    });
+    if (active != null) _activeIndex = _tabs.indexOf(active);
+    notifyListeners();
+  }
+
   /// Removes [targets] and disposes them after the frame that unmounts them.
   /// The previously active document stays active wherever it lands; if it
   /// was removed, the selection falls to a surviving neighbour.
@@ -182,3 +198,44 @@ class DocumentTabs extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// Orders two tab titles the way a file browser does: case-insensitive, digit
+/// runs by numeric value, and an empty (untitled) title after any name.
+int compareTabTitles(String a, String b) {
+  if (a.isEmpty || b.isEmpty) {
+    return a.isEmpty == b.isEmpty ? 0 : (a.isEmpty ? 1 : -1);
+  }
+  final x = a.toLowerCase();
+  final y = b.toLowerCase();
+  var i = 0;
+  var j = 0;
+  while (i < x.length && j < y.length) {
+    final cx = x.codeUnitAt(i);
+    final cy = y.codeUnitAt(j);
+    if (_isDigit(cx) && _isDigit(cy)) {
+      final si = i;
+      final sj = j;
+      while (i < x.length && _isDigit(x.codeUnitAt(i))) {
+        i++;
+      }
+      while (j < y.length && _isDigit(y.codeUnitAt(j))) {
+        j++;
+      }
+      // Compare by value without parsing (runs can exceed int range): strip
+      // leading zeros, then the longer run is larger, then lexically.
+      final nx = x.substring(si, i).replaceFirst(RegExp('^0+'), '');
+      final ny = y.substring(sj, j).replaceFirst(RegExp('^0+'), '');
+      if (nx.length != ny.length) return nx.length.compareTo(ny.length);
+      final byDigits = nx.compareTo(ny);
+      if (byDigits != 0) return byDigits;
+      continue;
+    }
+    if (cx != cy) return cx.compareTo(cy);
+    i++;
+    j++;
+  }
+  final byRest = (x.length - i).compareTo(y.length - j);
+  return byRest != 0 ? byRest : a.compareTo(b);
+}
+
+bool _isDigit(int c) => c >= 0x30 && c <= 0x39;

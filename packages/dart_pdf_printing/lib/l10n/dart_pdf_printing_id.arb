@@ -137,5 +137,19 @@
   "printOptionsProperties": "Properti printer…",
   "printOptionsDirectPrinter": "Cetak mengirim pekerjaan ini langsung ke printer yang dipilih.",
   "printOptionsPropertiesError": "Tidak dapat membuka properti printer.",
-  "printOptionsLoadingPrinters": "Memuat printer…"
+  "printOptionsLoadingPrinters": "Memuat printer…",
+  "printPresets": "Preset",
+  "printPresetLabel": "Preset",
+  "printPresetNone": "Tidak ada",
+  "printPresetNoneSaved": "Belum ada preset tersimpan",
+  "printPresetSave": "Simpan sebagai preset…",
+  "printPresetDelete": "Hapus preset",
+  "printPresetModified": "Berubah sejak disimpan. Simpan lagi untuk memperbarui.",
+  "printPresetSaveTitle": "Simpan preset cetak",
+  "printPresetName": "Nama preset",
+  "printPresetReplaces": "Menggantikan preset dengan nama ini.",
+  "printPresetIncludePrinter": "Pilih juga {printer} beserta warna, dupleks, dan bakinya",
+  "printPresetSaveAction": "Simpan",
+  "printOptionsPrinterMargins": "Tepi berarsir berada di luar area cetak printer (kiri, atas, kanan, bawah: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Printer yang dipilih tidak dapat mencetak pada ukuran kertas ini."
 }

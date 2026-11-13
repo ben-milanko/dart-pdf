@@ -97,5 +97,19 @@
   "printOptionsProperties": "Właściwości drukarki…",
   "printOptionsDirectPrinter": "Drukuj wysyła to zadanie bezpośrednio do wybranej drukarki.",
   "printOptionsPropertiesError": "Nie udało się otworzyć właściwości drukarki.",
-  "printOptionsLoadingPrinters": "Wczytywanie drukarek…"
+  "printOptionsLoadingPrinters": "Wczytywanie drukarek…",
+  "printPresets": "Ustawienia wstępne",
+  "printPresetLabel": "Ustawienie wstępne",
+  "printPresetNone": "Brak",
+  "printPresetNoneSaved": "Brak zapisanych ustawień",
+  "printPresetSave": "Zapisz jako ustawienie…",
+  "printPresetDelete": "Usuń ustawienie",
+  "printPresetModified": "Zmieniono od zapisania. Zapisz ponownie, aby zaktualizować.",
+  "printPresetSaveTitle": "Zapisz ustawienie drukowania",
+  "printPresetName": "Nazwa ustawienia",
+  "printPresetReplaces": "Zastępuje ustawienie o tej nazwie.",
+  "printPresetIncludePrinter": "Wybierz też {printer} z kolorem, drukiem dwustronnym i podajnikiem",
+  "printPresetSaveAction": "Zapisz",
+  "printOptionsPrinterMargins": "Zakreskowane krawędzie leżą poza obszarem drukowania drukarki (lewo, góra, prawo, dół: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "Wybrana drukarka nie drukuje na tym formacie papieru."
 }

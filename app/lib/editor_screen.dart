@@ -49,6 +49,7 @@ import 'recents.dart';
 import 'reduce_file_size.dart';
 import 'rename_document.dart';
 import 'session_store.dart';
+import 'window_sessions.dart';
 import 'settings_screen.dart';
 import 'page_drag.dart';
 import 'paced_read.dart';
@@ -162,6 +163,9 @@ class EditorScreen extends StatefulWidget {
     this.tabDragCoordinator,
     this.initialHandoff,
     this.ownsApplicationSession = true,
+    this.windowSessions,
+    this.sessionSlot,
+    this.onRestoreWindow,
     this.recentThumbnails,
     this.ocr,
     this.autoOcr,
@@ -310,6 +314,25 @@ class EditorScreen extends StatefulWidget {
   /// primary window's state.
   final bool ownsApplicationSession;
 
+  /// The process-wide multi-window session. When set, this window records
+  /// its open documents as one window of it (so a quit with several windows
+  /// open relaunches into several windows), and every window - not only the
+  /// primary - keeps it current. Null keeps the single-window session:
+  /// [sessionStore], written by the [ownsApplicationSession] window only.
+  final WindowSessions? windowSessions;
+
+  /// This window's place in [windowSessions], reserved by the primary window
+  /// while restoring the last session; its documents are reopened here. Null
+  /// opens a fresh place at the end of the session.
+  final WindowSessionSlot? sessionSlot;
+
+  /// Opens another native window that reopens the documents of [slot] - one
+  /// window of the last session. Returns whether the window was registered;
+  /// when it wasn't, the primary reopens those documents itself. Null (or no
+  /// [windowSessions]) restores every window's documents into this one.
+  final bool Function(BuildContext context, WindowSessionSlot slot)?
+      onRestoreWindow;
+
   /// The device-persisted first-page thumbnails shared by Recent files and
   /// the tab overview. Null builds the platform store; tests inject one.
   final RecentThumbnailCache? recentThumbnails;
@@ -362,12 +385,18 @@ class _EditorScreenState extends State<EditorScreen>
   /// The session, Recent files and snapshot persistence of the open tabs.
   late final DocumentLibrary _library;
 
+  /// This window's entry in the multi-window session, when there is one.
+  late final WindowSessionSlot? _sessionSlot =
+      widget.sessionSlot ?? widget.windowSessions?.open();
+
   DocumentLibrary _createLibrary() => DocumentLibrary(
         tabs: _tabsModel,
-        session: widget.sessionStore ?? SessionStore(),
+        session: _sessionSlot ?? widget.sessionStore ?? SessionStore(),
         recents: _recents,
         snapshots: widget.pdfSnapshots ?? const PlatformPdfSnapshots(),
-        persistsSession: widget.ownsApplicationSession,
+        // every window records itself in a multi-window session; without one
+        // only the application session's owner writes the restore list
+        persistsSession: _sessionSlot != null || widget.ownsApplicationSession,
         // every tab-set change is also where the crash-recovery mirror learns
         // which documents to watch; it runs ahead of the session-load gate, so a
         // document opened before the last session is read back is still covered
@@ -552,6 +581,15 @@ class _EditorScreenState extends State<EditorScreen>
       unawaited(_restoreSession().then((_) {
         if (mounted) _recoverOcr();
       }));
+    } else if (widget.sessionSlot case final slot?
+        when slot.documents.isNotEmpty) {
+      // One window of the last session, opened by the primary's restore.
+      unawaited(_restoreWindowSession(slot.documents));
+    } else {
+      // Nothing to read back: record this window's documents (a tab handed
+      // over from another window, above) from the start.
+      _library.sessionLoaded = true;
+      unawaited(_library.persist());
     }
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
@@ -801,6 +839,9 @@ class _EditorScreenState extends State<EditorScreen>
     _removeDestinationTabDragOverlay();
     _tabScrollController.dispose();
     _windowCloseCoordinator?.unregister(_windowCloseOwner);
+    // Torn down without the user closing it (the app is exiting): its
+    // documents stay in the session for the next launch.
+    _sessionSlot?.detach();
     WidgetsBinding.instance.removeObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
@@ -852,6 +893,9 @@ class _EditorScreenState extends State<EditorScreen>
       await _autosave.discardAll();
     }
     _nativeWindowCloseApproved = true;
+    // Closing one window of several forgets it; the last one stays in the
+    // session so the next launch resumes it.
+    _sessionSlot?.close();
     return true;
   }
 
@@ -884,47 +928,83 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Re-opens the file-backed documents that were open when the app last closed.
   /// Runs once at startup, then enables session persistence so this run's open
-  /// set is captured for next time. Documents whose file has since moved or been
-  /// deleted are dropped with a warning toast rather than an error tab, and the
-  /// rest of the session restores without waiting on them.
+  /// set is captured for next time. In a multi-window session the first
+  /// window's documents reopen here and every other window reopens as its own
+  /// native window ([EditorScreen.onRestoreWindow]). Documents whose file has
+  /// since moved or been deleted are dropped with a warning toast rather than
+  /// an error tab, and the rest of the session restores without waiting on them.
   Future<void> _restoreSession() async {
     // Unsaved work comes back first, so a document recovered with its edits
     // wins over the same file restored flat from disk below (the loop skips
     // paths already open).
     await _recoverUnsavedChanges();
     if (!mounted) return;
-    final documents = await _library.session.load();
+    final sessions = widget.windowSessions;
+    final windows = sessions != null
+        ? await sessions.load()
+        : [await _library.session.load()];
     if (mounted && !_hasExplicitLaunchTarget) {
-      // Suppress lazy materialization while restoring: each tab is briefly the
-      // active one as it is added, and we don't want every restored file to
-      // start opening. Only the tab left active when restore finishes should
-      // materialize (see _advanceActiveTab).
-      _restoringSession = true;
-      final unavailable = <String>[];
-      try {
-        for (final doc in documents) {
-          // Skip anything already open (e.g. an OS file-open that arrived first).
-          final key = doc.readPath;
-          if (key != null &&
-              _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
-            continue;
-          }
-          if (!await _reopenSessionDocument(doc)) unavailable.add(doc.title);
-          if (!mounted) return;
+      final own = [...?windows.firstOrNull];
+      // Every other window of the last session reopens as its own window, in
+      // order. One that can't be created brings its documents here instead.
+      for (final documents in windows.skip(1)) {
+        if (documents.isEmpty) continue;
+        final slot = sessions?.open(documents: documents);
+        final open = widget.onRestoreWindow;
+        if (slot == null || open == null || !open(context, slot)) {
+          slot?.discard();
+          own.addAll(documents);
         }
-      } finally {
-        _restoringSession = false;
       }
-      if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
-      // Let the tab left active materialize now that restore is done.
-      if (mounted) _advanceActiveTab();
+      await _reopenSessionDocuments(own);
     }
     if (mounted) {
       setState(() => _library.sessionLoaded = true);
     } else {
       _library.sessionLoaded = true;
     }
+    sessions?.markLoaded();
     unawaited(_library.persist());
+  }
+
+  /// Reopens one window of the last session in this (secondary) window, then
+  /// starts recording it.
+  Future<void> _restoreWindowSession(List<SessionDocument> documents) async {
+    await _reopenSessionDocuments(documents);
+    if (mounted) {
+      setState(() => _library.sessionLoaded = true);
+      unawaited(_library.persist());
+    }
+  }
+
+  /// Re-adds [documents] as tabs, skipping any already open. Documents whose
+  /// file has since moved or been deleted are dropped with a warning toast
+  /// rather than an error tab, and the rest restore without waiting on them.
+  Future<void> _reopenSessionDocuments(List<SessionDocument> documents) async {
+    if (!mounted) return;
+    // Suppress lazy materialization while restoring: each tab is briefly the
+    // active one as it is added, and we don't want every restored file to
+    // start opening. Only the tab left active when restore finishes should
+    // materialize (see _advanceActiveTab).
+    _restoringSession = true;
+    final unavailable = <String>[];
+    try {
+      for (final doc in documents) {
+        // Skip anything already open (e.g. an OS file-open that arrived first).
+        final key = doc.readPath;
+        if (key != null &&
+            _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
+          continue;
+        }
+        if (!await _reopenSessionDocument(doc)) unavailable.add(doc.title);
+        if (!mounted) return;
+      }
+    } finally {
+      _restoringSession = false;
+    }
+    if (unavailable.isNotEmpty) _warnFilesUnavailable(unavailable);
+    // Let the tab left active materialize now that restore is done.
+    if (mounted) _advanceActiveTab();
   }
 
   /// Re-opens the documents that had unsaved edits when the app last went
@@ -3019,6 +3099,14 @@ class _EditorScreenState extends State<EditorScreen>
         ),
         const PopupMenuDivider(),
         PopupMenuItem(
+          key: const ValueKey('tab-menu-sort-name'),
+          height: _appMenuItemHeight(),
+          value: _TabMenuAction.sortByName,
+          enabled: _tabs.length > 1,
+          child: Text(appL10n(context).editorSortTabsByName),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
           key: const ValueKey('tab-menu-close-all'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.closeAll,
@@ -3050,6 +3138,8 @@ class _EditorScreenState extends State<EditorScreen>
         await _closeTabs(_tabs.sublist(i + 1));
       case _TabMenuAction.closeAll:
         await _closeTabs(List.of(_tabs));
+      case _TabMenuAction.sortByName:
+        _tabsModel.sortByName();
     }
     onChanged?.call();
   }
@@ -5602,10 +5692,12 @@ class _EditorScreenState extends State<EditorScreen>
     final dragSource = _nativeTabDragging && tab.session != null
         ? _buildNativeTabDragSource(tab, chrome)
         : _TabDragStartListener(index: index, child: chrome);
+    // The active document is already on screen, so its hover card carries
+    // only the full file name the strip truncates.
     final hoverPreview = _TabHoverPreview(
       tab: tab,
       storedThumbnails: _recentThumbnails,
-      enabled: !selected,
+      titleOnly: selected,
       child: dragSource,
     );
     final coordinator = _registeredTabDragCoordinator;
@@ -5914,23 +6006,25 @@ enum _TabMenuAction {
   closeOthers,
   closeRight,
   closeAll,
+  sortByName,
 }
 
-/// Shows a non-interactive thumbnail card for an inactive desktop tab after a
-/// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab
+/// Shows a non-interactive card after a short hover over a desktop tab: the
+/// page thumbnail and full file name for an inactive tab, just the full file
+/// name for the active one ([titleOnly]). This uses a plain [OverlayEntry], not an OverlayPortal: the tab
 /// is a reorderable-list item, and portals must not be reactivated from that
 /// subtree while the list is laying out or moving its drag proxy.
 class _TabHoverPreview extends StatefulWidget {
   const _TabHoverPreview({
     required this.tab,
-    required this.enabled,
+    required this.titleOnly,
     required this.child,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
-  final bool enabled;
+  final bool titleOnly;
   final Widget child;
 
   @override
@@ -5949,22 +6043,21 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
     if (!identical(oldWidget.tab, widget.tab)) {
       _imageCache.clear();
     }
-    if (!widget.enabled || !identical(oldWidget.tab, widget.tab)) {
+    if (!identical(oldWidget.tab, widget.tab) ||
+        oldWidget.titleOnly != widget.titleOnly) {
+      // Activating a tab swaps its card's shape; clicks already dismissed it.
       _hide();
-    } else if (widget.enabled && !oldWidget.enabled && _hovering) {
-      _schedule();
     }
   }
 
   void _schedule() {
     _timer?.cancel();
-    if (!widget.enabled) return;
     _timer = Timer(_tabHoverPreviewDelay, _show);
   }
 
   void _show() {
     _timer = null;
-    if (!mounted || !widget.enabled || !_hovering || _entry != null) return;
+    if (!mounted || !_hovering || _entry != null) return;
     final target = context.findRenderObject();
     final overlay = Overlay.of(context, rootOverlay: true);
     final overlayBox = overlay.context.findRenderObject();
@@ -5978,20 +6071,25 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
           math.max(0.0, overlaySize.width - 16),
         )
         .toDouble();
-    final height = math
-        .min(
-          _tabHoverPreviewHeight,
-          math.max(0.0, overlaySize.height - 16),
-        )
-        .toDouble();
-    if (width <= 0 || height <= 0) return;
+    final titleOnly = widget.titleOnly;
+    final height = titleOnly
+        ? null
+        : math
+            .min(
+              _tabHoverPreviewHeight,
+              math.max(0.0, overlaySize.height - 16),
+            )
+            .toDouble();
+    if (width <= 0 || (height != null && height <= 0)) return;
 
     final maxLeft = math.max(8.0, overlaySize.width - width - 8);
     final left = (origin.dx + (target.size.width - width) / 2)
         .clamp(8.0, maxLeft)
         .toDouble();
     final below = origin.dy + target.size.height + 4;
-    final top = below + height <= overlaySize.height - 8
+    // The title-only card sizes to its text; the tab strip sits at the top of
+    // the window, so it always has room below.
+    final top = height == null || below + height <= overlaySize.height - 8
         ? below
         : math.max(8.0, origin.dy - height - 4);
 
@@ -6004,6 +6102,7 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
         child: IgnorePointer(
           child: _DesktopTabPreviewCard(
             tab: widget.tab,
+            titleOnly: titleOnly,
             imageCache: _imageCache,
             storedThumbnails: widget.storedThumbnails,
           ),
@@ -6052,10 +6151,12 @@ class _DesktopTabPreviewCard extends StatelessWidget {
   const _DesktopTabPreviewCard({
     required this.tab,
     required this.imageCache,
+    this.titleOnly = false,
     this.storedThumbnails,
   });
 
   final DocumentTab tab;
+  final bool titleOnly;
   final _TabPreviewImageCache imageCache;
   final RecentThumbnailCache? storedThumbnails;
 
@@ -6089,43 +6190,54 @@ class _DesktopTabPreviewCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
         child: Column(
+          mainAxisSize: titleOnly ? MainAxisSize.min : MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: _TabPreview(
-                tab: tab,
-                pageIndex: pageIndex,
-                imageCache: imageCache,
-                storedThumbnails: storedThumbnails,
-                previewKey: const ValueKey('tab-hover-preview-thumbnail'),
-                imageKey: const ValueKey('tab-hover-preview-image'),
+            if (!titleOnly) ...[
+              Expanded(
+                child: _TabPreview(
+                  tab: tab,
+                  pageIndex: pageIndex,
+                  imageCache: imageCache,
+                  storedThumbnails: storedThumbnails,
+                  previewKey: const ValueKey('tab-hover-preview-thumbnail'),
+                  imageKey: const ValueKey('tab-hover-preview-image'),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (tab.isDirty)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    // Centre the dot on the first line of the title.
+                    padding: const EdgeInsetsDirectional.only(end: 6, top: 6),
                     child: Icon(Icons.circle, size: 8, color: scheme.primary),
                   ),
                 Expanded(
-                  child: MiddleEllipsisText(
+                  // The strip truncates names, so the card spells the whole
+                  // file name out, wrapping instead of eliding.
+                  child: Text(
                     tab.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : tab.title,
-                    hidePdfExtension: tab.title.isNotEmpty,
                     key: const ValueKey('tab-hover-preview-title'),
+                    maxLines: titleOnly ? null : 6,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ),
-                if (tab.session != null)
-                  Text(
-                    appL10n(context).editorPageNumber(pageIndex + 1),
-                    key: const ValueKey('tab-hover-preview-page'),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                if (tab.session != null && !titleOnly)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 8, top: 2),
+                    child: Text(
+                      appL10n(context).editorPageNumber(pageIndex + 1),
+                      key: const ValueKey('tab-hover-preview-page'),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
                   ),
               ],
             ),

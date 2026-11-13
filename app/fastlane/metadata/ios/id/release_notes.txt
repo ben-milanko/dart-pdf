@@ -1,3 +1,3 @@
-DartPDF 15.0.0
+DartPDF 16.0.0
 
-Perbaikan penyamaran gambar, kolom formulir, dan teks tersembunyi yang tertutup. Penerapannya kini menghapus metadata dan lampiran secara bawaan; konten bersama juga dapat dihapus di tempat lain. Perubahan belum tersimpan tetap ada saat penyimpanan dibatalkan atau ada edit baru selama menyimpan. Peningkatan tempel, zoom, dan pengukuran.
+Pulihkan jendela dokumen saat membuka kembali aplikasi. Simpan preset cetak bernama dan lihat margin printer. Pertahankan tautan dalam cuplikan salinan. Ubah teks terpilih menjadi kotak teks yang dapat dipindahkan. Redaksi dapat mengganti halaman terkait dengan gambar; teksnya tidak lagi dapat dicari atau dipilih. Perbaikan font formulir dan zoom.

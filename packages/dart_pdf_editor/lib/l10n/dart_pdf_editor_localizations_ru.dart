@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1889,6 +1891,14 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Выбрать цвет со страницы';
 
   @override
+  String get tbRedactAsImages =>
+      'Заменить отредактированные страницы изображениями';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Самый надёжный вариант: от каждой отредактированной страницы остаётся только изображение. Текст на этих страницах больше нельзя будет выделить или найти, а файл станет больше.';
+
+  @override
   String get tbRedactionsApplied => 'Вымарывания применены';
 
   @override
@@ -1897,6 +1907,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Не удалось перекомпоновать — это не одноколоночный абзац, который этот инструмент может переформатировать. Попробуйте «Заменить текст».';
+
+  @override
+  String get tbConvertToFreeText => 'Преобразовать в текстовое поле';
 
   @override
   String get tbReflowParagraph => 'Перекомпоновать абзац';

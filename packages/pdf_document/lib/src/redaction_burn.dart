@@ -206,7 +206,11 @@ class _RedactionBurn {
     for (final part in _parts) {
       all.add(part);
     }
-    return all.takeBytes();
+    final bytes = all.takeBytes();
+    // what's left of a redacted stream shouldn't trace what was there
+    return changed
+        ? _tidyRedactedContent(bytes, leadingKnown: _parent == null)
+        : bytes;
   }
 
   /// The resource dictionary the rewritten stream needs, or null when the
@@ -496,7 +500,7 @@ class _RedactionBurn {
           _parts.add(_out.takeBytes());
           _dashPart = _parts.length;
           final piece = BytesBuilder();
-          ContentStreamSerializer.writeOperation(op, piece);
+          _serializeOp(op, piece);
           _parts.add(piece.takeBytes());
           _dashParts.add(_dashPart!);
           return;
@@ -551,7 +555,7 @@ class _RedactionBurn {
           _parts.add(_out.takeBytes());
           _patternSelections.add((_parts.length, name));
           final piece = BytesBuilder();
-          ContentStreamSerializer.writeOperation(op, piece);
+          _serializeOp(op, piece);
           _parts.add(piece.takeBytes());
           return;
         }
@@ -747,7 +751,7 @@ class _RedactionBurn {
       _marked.add(frame);
       if (raw is CosName) _namedMarks.add(frame);
       final piece = BytesBuilder();
-      ContentStreamSerializer.writeOperation(op, piece);
+      _serializeOp(op, piece);
       _parts.add(piece.takeBytes());
       return;
     }
@@ -790,7 +794,7 @@ class _RedactionBurn {
         replacement = ContentOperation('BDC', [frame.op.operands[0], stripped]);
       }
       final piece = BytesBuilder();
-      ContentStreamSerializer.writeOperation(replacement, piece);
+      _serializeOp(replacement, piece);
       _parts[frame.part] = piece.takeBytes();
     }
     _parent?._removedInChild();
@@ -1759,16 +1763,17 @@ class _RedactionBurn {
       }
     }
 
+    // First pass: place every glyph and decide which are covered.
+    final glyphs = <_RedGlyph>[];
+    final kerns = <int, double>{}; // glyph index -> kern displacement before it
+    var word = 0;
+    final em = (_tfs * _th).abs();
     for (final element in elements) {
       if (element is double) {
-        // existing TJ adjustment: advances the cursor, carry it through
         final disp = -element / 1000 * _tfs * _th;
-        if (current.length > 0) {
-          flushString();
-        }
-        // fold into the gap stream so spacing survives either way; both are
-        // forward advances, so a kern keeps its direction when re-emitted
-        pendingGap += disp;
+        kerns[glyphs.length] = (kerns[glyphs.length] ?? 0) + disp;
+        // a kern of a fifth of an em or more separates words
+        if (disp.abs() >= 0.2 * em) word++;
         _tm = _redMul((1, 0, 0, 1, disp, 0), _tm);
         continue;
       }
@@ -1782,23 +1787,82 @@ class _RedactionBurn {
         // word spacing applies to the single-byte code 32 only (§9.3.3)
         final wordSpace = codeLength == 1 && code == 32 ? _tw : 0;
         final advance = (w0 / 1000 * _tfs + _tc + wordSpace) * _th;
-
-        if (_glyphCovered(font, code, glyphWidth)) {
-          redactedAny = true;
-          flushString();
-          pendingGap += advance;
-          _span.write(font.textOf(code));
-          removedText.write(font.textOf(code));
-        } else {
-          _flushSpan();
-          flushGap();
-          if (current.length > 0 && currentHex != string.isHex) {
-            flushString();
-          }
-          currentHex = string.isHex;
-          current.add(Uint8List.sublistView(bytes, i, i + codeLength));
-        }
+        final text = font.textOf(code);
+        // a glyph with no Unicode is a letter as far as words go: treating
+        // it as a space would leave its neighbours standing
+        final space = (codeLength == 1 && code == 32) ||
+            (text.isNotEmpty && text.trim().isEmpty);
+        if (space) word++;
+        glyphs.add(_RedGlyph(
+          Uint8List.sublistView(bytes, i, i + codeLength),
+          string.isHex,
+          text,
+          advance,
+          glyphWidth,
+          _redMul(_tm, _ctm),
+          covered: _glyphCovered(font, code, glyphWidth),
+          word: space ? -1 : word,
+        ));
+        if (space) word++;
         _tm = _redMul((1, 0, 0, 1, advance, 0), _tm);
+      }
+    }
+
+    // A word that loses any letter loses them all: a fragment left standing
+    // ("rives") gives away what stood next to it. The fill grows over the
+    // letters taken this way.
+    if (_session.wholeWords) {
+      final hit = {
+        for (final g in glyphs)
+          if (g.covered && g.word >= 0) g.word,
+      };
+      // one fill per word, over the whole word: a box per letter would
+      // record each letter's width
+      final corners = <int, List<(double, double)>>{};
+      final grown = <int>{};
+      final lo = _trise - 0.25 * _tfs, hi = _trise + 0.95 * _tfs;
+      for (final g in glyphs) {
+        if (g.word < 0 || !hit.contains(g.word)) continue;
+        if (!g.covered) grown.add(g.word);
+        g.covered = true;
+        final points = corners.putIfAbsent(g.word, () => []);
+        points.addAll([
+          _redApply(g.matrix, 0, lo),
+          _redApply(g.matrix, g.width, lo),
+          _redApply(g.matrix, 0, hi),
+          _redApply(g.matrix, g.width, hi),
+        ]);
+      }
+      for (final word in grown) {
+        final box = _hullBounds(corners[word]!)!;
+        if (_finite(box)) _session.extraFills.add(box);
+      }
+    }
+
+    // Second pass: rebuild the show with the covered glyphs replaced by
+    // gaps.
+    for (var index = 0; index <= glyphs.length; index++) {
+      final kern = kerns[index];
+      if (kern != null) {
+        if (current.length > 0) flushString();
+        // fold into the gap stream so spacing survives either way; both are
+        // forward advances, so a kern keeps its direction when re-emitted
+        pendingGap += kern;
+      }
+      if (index == glyphs.length) break;
+      final g = glyphs[index];
+      if (g.covered) {
+        redactedAny = true;
+        flushString();
+        pendingGap += g.advance;
+        _span.write(g.text);
+        removedText.write(g.text);
+      } else {
+        _flushSpan();
+        flushGap();
+        if (current.length > 0 && currentHex != g.isHex) flushString();
+        currentHex = g.isHex;
+        current.add(g.bytes);
       }
     }
 
@@ -2045,7 +2109,7 @@ class _RedactionBurn {
 
   /// Re-serializes [op] verbatim (mirrors [PdfPageElements.serialize]).
   void _writeOp(ContentOperation op) {
-    ContentStreamSerializer.writeOperation(op, _out);
+    _serializeOp(op, _out);
   }
 }
 
@@ -2465,6 +2529,27 @@ class _RedFont {
   }
 }
 
+/// One glyph of a show, placed: what [_RedactionBurn._showText] needs to
+/// decide its fate and rebuild the run.
+class _RedGlyph {
+  _RedGlyph(
+      this.bytes, this.isHex, this.text, this.advance, this.width, this.matrix,
+      {required this.covered, required this.word});
+
+  final Uint8List bytes;
+  final bool isHex;
+  final String text;
+  final double advance;
+  final double width;
+
+  /// Text space to default user space at the glyph's origin.
+  final _RedMatrix matrix;
+  bool covered;
+
+  /// Index of the word the glyph belongs to, or -1 for a space.
+  final int word;
+}
+
 class _RedGraphicsState {
   _RedGraphicsState({
     required this.ctm,
@@ -2544,3 +2629,359 @@ PdfRect? _hullBounds(List<(double, double)> points) {
   }
   return PdfRect(minX, minY, maxX, maxY);
 }
+
+/// Writes [op] as a burn writes everything: reals with every digit they
+/// carry (rounding to six decimals collapses content drawn at tiny scales).
+void _serializeOp(ContentOperation op, BytesBuilder out) =>
+    ContentStreamSerializer.writeOperation(op, out,
+        preserveRealPrecision: true);
+
+/// Operators that put something on the page. Marked content is not among
+/// them: a group or text object holding only that changes nothing drawn.
+const _paintOperators = {
+  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', //
+  'Do', 'sh', 'BI', 'd0', 'd1', //
+};
+
+const _showOperators = {'Tj', 'TJ', "'", '"'};
+const _positionOperators = {'Td', 'TD', 'Tm', 'T*'};
+const _markedOpen = {'BMC', 'BDC'};
+const _markedPoint = {'MP', 'DP'};
+
+/// Rewrites a burned content stream so what's left doesn't trace what was
+/// removed, without changing what it draws:
+///  * text objects that show nothing keep only the state that outlives
+///    them (font, spacing, colour, graphics state), not the positions of
+///    the text they held;
+///  * in the others, a run of positioning operators collapses into one
+///    `Tm` in front of the next show, so the stops along the way (where
+///    removed lines stood) don't survive; positioning nothing uses goes,
+///    and so does a kern nothing after it relies on - a kern-only show, or
+///    the tail of a `TJ` - since it would only record a removed width;
+///  * `q`...`Q` groups that draw nothing (the colour and line state of a
+///    removed shape) go, and so does marked content left empty.
+///
+/// [leadingKnown] says the leading (`TL`) is known at the start - true for
+/// a page; a form inherits it, so a `T*` there folds only after a `TL`.
+Uint8List _tidyRedactedContent(Uint8List content,
+    {required bool leadingKnown}) {
+  final List<ContentOperation> ops;
+  try {
+    ops = ContentStreamParser.parse(content);
+  } on Object {
+    return content; // our own output; never expected, and safe as it is
+  }
+  var out = _tidyTextObjects(ops, leadingKnown: leadingKnown);
+  // dropping a group can empty marked content around it, and the other way
+  // round
+  for (var pass = 0; pass < 8; pass++) {
+    final next = _dropEmptyMarkedContent(_dropEmptyGroups(out));
+    if (next.length == out.length) break;
+    out = next;
+  }
+  return ContentStreamSerializer.serialize(out, preserveRealPrecision: true);
+}
+
+/// The text-object half of [_tidyRedactedContent].
+List<ContentOperation> _tidyTextObjects(List<ContentOperation> ops,
+    {required bool leadingKnown}) {
+  final out = <ContentOperation>[];
+  // the leading is graphics state: `q` saves it and `Q` brings it back
+  double? leading = leadingKnown ? 0 : null;
+  final saved = <double?>[];
+  var i = 0;
+  while (i < ops.length) {
+    final op = ops[i];
+    if (op.operator != 'BT') {
+      switch (op.operator) {
+        case 'q':
+          saved.add(leading);
+        case 'Q':
+          if (saved.isNotEmpty) leading = saved.removeLast();
+        case 'TL':
+          leading = op.operands.isEmpty ? null : _tidyNumber(op.operands.last);
+      }
+      out.add(op);
+      i++;
+      continue;
+    }
+    var end = i + 1;
+    while (end < ops.length && ops[end].operator != 'ET') {
+      end++;
+    }
+    if (end >= ops.length) {
+      out.addAll(ops.sublist(i)); // unterminated: left alone
+      break;
+    }
+    final body = ops.sublist(i + 1, end);
+    final shows = body.any((o) =>
+        (_showOperators.contains(o.operator) && !_isEmptyShow(o)) ||
+        _paintOperators.contains(o.operator) ||
+        o.operator == 'q' ||
+        o.operator == 'Q' ||
+        o.operator == 'BT');
+    if (!shows) {
+      // Nothing shown: keep what outlives the object - text state, colour,
+      // graphics state, and marked content that isn't closed in here.
+      final unmatched = _unmatchedMarkedContent(body);
+      for (var k = 0; k < body.length; k++) {
+        final o = body[k];
+        final name = o.operator;
+        if (_positionOperators.contains(name) && name != 'TD') continue;
+        if (_showOperators.contains(name)) continue; // all show nothing
+        if (_markedPoint.contains(name)) continue;
+        if ((_markedOpen.contains(name) || name == 'EMC') &&
+            !unmatched.contains(k)) {
+          continue;
+        }
+        if (name == 'TD') {
+          // what a TD leaves behind is its leading
+          final ty = o.operands.length == 2 ? _tidyNumber(o.operands[1]) : null;
+          leading = ty == null ? null : -ty;
+          if (ty != null) out.add(ContentOperation('TL', [_tidyOperand(-ty)]));
+          continue;
+        }
+        if (name == 'TL') {
+          leading = o.operands.isEmpty ? null : _tidyNumber(o.operands.last);
+        }
+        out.add(o);
+      }
+      i = end + 1;
+      continue;
+    }
+    out.add(op);
+    var tlm = _redIdentity;
+    // once a position can't be followed, no later run in this object folds
+    var tlmKnown = true;
+    var run = <ContentOperation>[];
+    var runFoldable = true;
+    var runSetsLeading = false;
+    void flushRun({required bool beforeShow}) {
+      if (run.isEmpty) return;
+      if (!runFoldable || !tlmKnown) {
+        tlmKnown = false;
+        out.addAll(run);
+      } else {
+        if (runSetsLeading) {
+          out.add(ContentOperation('TL', [_tidyOperand(leading!)]));
+        }
+        if (beforeShow) {
+          final (a, b, c, d, e, f) = tlm;
+          out.add(ContentOperation('Tm', [
+            for (final v in [a, b, c, d, e, f]) _tidyOperand(v),
+          ]));
+        }
+      }
+      run = [];
+      runFoldable = true;
+      runSetsLeading = false;
+    }
+
+    // Whether the pen position after the operator at [k] is never used:
+    // the next thing that cares about it is a new position (or the end of
+    // the object). State, marked content and shows of nothing in between
+    // don't use it.
+    final penUnused = List.filled(body.length, true);
+    var unused = true;
+    for (var j = body.length - 1; j >= 0; j--) {
+      penUnused[j] = unused;
+      final o = body[j];
+      final name = o.operator;
+      if (_positionOperators.contains(name) ||
+          name == "'" ||
+          name == '"' ||
+          name == 'BT' ||
+          name == 'ET') {
+        unused = true;
+      } else if ((name == 'Tj' || name == 'TJ') && !_isEmptyShow(o)) {
+        unused = false;
+      }
+    }
+
+    for (var k = 0; k < body.length; k++) {
+      final o = body[k];
+      final name = o.operator;
+      // a show that draws nothing - the kern a burn leaves for a removed
+      // run - only moves the pen; when nothing uses that, it would only
+      // record the removed run's width
+      if (_isEmptyShow(o) && penUnused[k]) continue;
+      if (_positionOperators.contains(name)) {
+        final v = [for (final x in o.operands) _tidyNumber(x)];
+        switch (name) {
+          case 'Td' || 'TD':
+            if (v.length == 2 && v[0] != null && v[1] != null) {
+              tlm = _redMul((1, 0, 0, 1, v[0]!, v[1]!), tlm);
+              if (name == 'TD') {
+                leading = -v[1]!;
+                runSetsLeading = true;
+              }
+            } else {
+              runFoldable = false;
+              if (name == 'TD') leading = null;
+            }
+          case 'Tm':
+            if (v.length == 6 && v.every((x) => x != null)) {
+              tlm = (v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!);
+            } else {
+              runFoldable = false;
+            }
+          case 'T*':
+            if (leading == null) {
+              runFoldable = false;
+            } else {
+              tlm = _redMul((1, 0, 0, 1, 0, -leading), tlm);
+            }
+        }
+        run.add(o);
+        continue;
+      }
+      if (_showOperators.contains(name)) {
+        flushRun(beforeShow: true);
+        if (name == "'" || name == '"') {
+          final l = leading;
+          if (l == null) {
+            tlmKnown = false;
+          } else {
+            tlm = _redMul((1, 0, 0, 1, 0, -l), tlm);
+          }
+        }
+        out.add(name == 'TJ' && penUnused[k] ? _withoutTrailingKern(o) : o);
+        continue;
+      }
+      if (name == 'TL') {
+        leading = o.operands.isEmpty ? null : _tidyNumber(o.operands.last);
+      }
+      if (name == 'BT' || name == 'ET') tlmKnown = false;
+      // State and marked content keep their place; a run in front of them
+      // carries on past them, since none of them moves the text. One that
+      // can't be followed is written out as it was, before them, so a TD's
+      // leading stays ahead of a later TL.
+      if (run.isNotEmpty && (!runFoldable || !tlmKnown)) {
+        flushRun(beforeShow: false);
+      }
+      out.add(o);
+    }
+    // positioning nothing follows is dropped (bar the leading it sets)
+    flushRun(beforeShow: false);
+    out.add(ops[end]);
+    i = end + 1;
+  }
+  return out;
+}
+
+/// The indices in [body] of marked-content operators whose partner is
+/// outside it.
+Set<int> _unmatchedMarkedContent(List<ContentOperation> body) {
+  final open = <int>[];
+  final unmatched = <int>{};
+  for (var k = 0; k < body.length; k++) {
+    final name = body[k].operator;
+    if (_markedOpen.contains(name)) {
+      open.add(k);
+    } else if (name == 'EMC') {
+      if (open.isEmpty) {
+        unmatched.add(k);
+      } else {
+        open.removeLast();
+      }
+    }
+  }
+  return unmatched..addAll(open);
+}
+
+/// Drops `q`...`Q` groups that draw nothing, unless they hold half of some
+/// marked content (dropping them would unbalance it).
+List<ContentOperation> _dropEmptyGroups(List<ContentOperation> ops) {
+  final stack = <List<ContentOperation>>[[]];
+  final keep = <bool>[true];
+  final marked = <int>[0]; // open marked content per group
+  for (final op in ops) {
+    final name = op.operator;
+    if (name == 'q') {
+      stack.add([op]);
+      keep.add(false);
+      marked.add(0);
+    } else if (name == 'Q' && stack.length > 1) {
+      final group = stack.removeLast()..add(op);
+      final drew = keep.removeLast() || marked.removeLast() != 0;
+      if (drew) {
+        stack.last.addAll(group);
+        keep[keep.length - 1] = true;
+      }
+    } else {
+      stack.last.add(op);
+      if (_paintOperators.contains(name) ||
+          (_showOperators.contains(name) && !_isEmptyShow(op)) ||
+          name == 'BT' ||
+          name == 'ET') {
+        keep[keep.length - 1] = true;
+      } else if (_markedOpen.contains(name)) {
+        marked[marked.length - 1]++;
+      } else if (name == 'EMC') {
+        // closing marked content opened outside the group pins it
+        if (--marked[marked.length - 1] < 0) keep[keep.length - 1] = true;
+      }
+    }
+  }
+  while (stack.length > 1) {
+    // unbalanced: what's left open stays
+    final group = stack.removeLast();
+    keep.removeLast();
+    marked.removeLast();
+    stack.last.addAll(group);
+  }
+  return stack.single;
+}
+
+/// Drops marked content that holds nothing (`BMC`/`BDC` straight before
+/// its `EMC`).
+List<ContentOperation> _dropEmptyMarkedContent(List<ContentOperation> ops) {
+  final out = <ContentOperation>[];
+  for (final op in ops) {
+    if (op.operator == 'EMC' &&
+        out.isNotEmpty &&
+        _markedOpen.contains(out.last.operator)) {
+      out.removeLast();
+      continue;
+    }
+    out.add(op);
+  }
+  return out;
+}
+
+/// [o] (a `TJ`) without the kerns after its last string: nothing uses the
+/// pen they move.
+ContentOperation _withoutTrailingKern(ContentOperation o) {
+  final a = o.operands.isEmpty ? null : o.operands.last;
+  if (a is! CosArray) return o;
+  var end = a.items.length;
+  while (end > 0 && a.items[end - 1] is! CosString) {
+    end--;
+  }
+  if (end == a.items.length) return o;
+  if (end == 1) return ContentOperation('Tj', [a.items.first]);
+  return ContentOperation('TJ', [CosArray(a.items.sublist(0, end))]);
+}
+
+/// A `Tj`/`TJ` that shows no glyph: only kerns, or empty strings.
+bool _isEmptyShow(ContentOperation o) {
+  if (o.operator == 'Tj') {
+    final s = o.operands.isEmpty ? null : o.operands.last;
+    return s is CosString && s.bytes.isEmpty;
+  }
+  if (o.operator != 'TJ') return false;
+  final a = o.operands.isEmpty ? null : o.operands.last;
+  return a is CosArray &&
+      a.items.every((i) => i is! CosString || i.bytes.isEmpty);
+}
+
+/// [v] as an operand: an integer when it is one.
+CosObject _tidyOperand(double v) => v == v.roundToDouble() && v.abs() < 1e15
+    ? CosInteger(v.toInt())
+    : CosReal(v);
+
+double? _tidyNumber(CosObject o) => switch (o) {
+      CosInteger(:final value) => value.toDouble(),
+      CosReal(:final value) => value.isFinite ? value : null,
+      _ => null,
+    };

@@ -137,5 +137,19 @@
   "printOptionsProperties": "Propiedades de la impresora…",
   "printOptionsDirectPrinter": "Imprimir envía este trabajo directamente a la impresora seleccionada.",
   "printOptionsPropertiesError": "No se pudieron abrir las propiedades de la impresora.",
-  "printOptionsLoadingPrinters": "Cargando impresoras…"
+  "printOptionsLoadingPrinters": "Cargando impresoras…",
+  "printPresets": "Ajustes preestablecidos",
+  "printPresetLabel": "Ajuste preestablecido",
+  "printPresetNone": "Ninguno",
+  "printPresetNoneSaved": "No hay ajustes guardados",
+  "printPresetSave": "Guardar como ajuste…",
+  "printPresetDelete": "Eliminar ajuste",
+  "printPresetModified": "Ha cambiado desde que se guardó. Guárdelo de nuevo para actualizarlo.",
+  "printPresetSaveTitle": "Guardar ajuste de impresión",
+  "printPresetName": "Nombre del ajuste",
+  "printPresetReplaces": "Sustituye el ajuste con este nombre.",
+  "printPresetIncludePrinter": "Seleccionar también {printer} con su color, dúplex y bandeja",
+  "printPresetSaveAction": "Guardar",
+  "printOptionsPrinterMargins": "Los bordes rayados quedan fuera del área imprimible de la impresora (izquierda, arriba, derecha, abajo: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "La impresora seleccionada no puede imprimir en este tamaño de papel."
 }

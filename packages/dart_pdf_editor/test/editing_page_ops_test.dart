@@ -1076,6 +1076,7 @@ void main() {
       int count = 4,
       bool allowPageEditing = true,
       void Function(Uint8List bytes)? onExportPages,
+      PdfPageMenuActionsBuilder? pageMenuActionsBuilder,
     }) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -1093,6 +1094,7 @@ void main() {
               viewerController: viewer,
               allowPageEditing: allowPageEditing,
               onExportPages: onExportPages,
+              pageMenuActionsBuilder: pageMenuActionsBuilder,
             ),
             const Expanded(child: SizedBox()),
           ]),
@@ -1282,6 +1284,124 @@ void main() {
       expect(labelsOf(PdfDocument.open(exported!)), ['Page 3']);
       // the document itself is untouched by an export
       expect(editing.document.pageCount, 4);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a host entry runs for the right-clicked page', (tester) async {
+      final calls = <(int, List<int>)>[];
+      var picked = <int>[];
+      await pumpStrip(
+        tester,
+        onExportPages: (_) {},
+        pageMenuActionsBuilder: (context, pageIndex, selected) {
+          calls.add((pageIndex, selected));
+          return [
+            PdfPageMenuAction(
+              key: 'host-copy-link',
+              label: 'Copy link to page ${pageIndex + 1}',
+              icon: Icons.link,
+              onSelected: () => picked = [...picked, pageIndex],
+            ),
+          ];
+        },
+      );
+
+      await rightClickTile(tester, 'Page 3');
+      expect(calls.single.$1, 2);
+      expect(calls.single.$2, [2]);
+      expect(find.text('Copy link to page 3'), findsOneWidget);
+
+      // it sits after the built-in insert rows and before Export
+      double topOf(String key) =>
+          tester.getTopLeft(find.byKey(ValueKey(key))).dy;
+      expect(topOf('pdf-thumbnail-menu-insert-after'),
+          lessThan(topOf('host-copy-link')));
+      expect(topOf('host-copy-link'),
+          lessThan(topOf('pdf-thumbnail-menu-export')));
+
+      await tester.tap(find.byKey(const ValueKey('host-copy-link')));
+      await tester.pumpAndSettle();
+      expect(picked, [2]);
+      expect(find.byKey(const ValueKey('host-copy-link')), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a host entry gets the selection it was opened on',
+        (tester) async {
+      List<int>? selection;
+      await pumpStrip(
+        tester,
+        count: 5,
+        pageMenuActionsBuilder: (context, pageIndex, selected) {
+          selection = selected;
+          return const [];
+        },
+      );
+
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+
+      await rightClickTile(tester, 'Page 2');
+      expect(selection, [0, 1, 2]);
+      // an empty list adds nothing, and the built-in menu still opens
+      expect(find.text('Delete 3 pages'), findsOneWidget);
+      await tester.tapAt(const Offset(700, 700));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a read-only strip opens the menu for host entries alone',
+        (tester) async {
+      var picked = false;
+      await pumpStrip(
+        tester,
+        allowPageEditing: false,
+        pageMenuActionsBuilder: (context, pageIndex, selected) => [
+          PdfPageMenuAction(
+            key: 'host-copy-link',
+            label: 'Copy link',
+            onSelected: () => picked = true,
+          ),
+        ],
+      );
+
+      await rightClickTile(tester, 'Page 2');
+      expect(find.byKey(const ValueKey('pdf-thumbnail-menu-rotate-right')),
+          findsNothing);
+      await tester.tap(find.byKey(const ValueKey('host-copy-link')));
+      await tester.pumpAndSettle();
+      expect(picked, isTrue);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a disabled host entry cannot be picked', (tester) async {
+      var picked = false;
+      await pumpStrip(
+        tester,
+        pageMenuActionsBuilder: (context, pageIndex, selected) => [
+          PdfPageMenuAction(
+            key: 'host-copy-link',
+            label: 'Copy link',
+            enabled: false,
+            onSelected: () => picked = true,
+          ),
+        ],
+      );
+
+      await rightClickTile(tester, 'Page 2');
+      final row = tester.widget(find.byKey(const ValueKey('host-copy-link')))
+          as PopupMenuItem;
+      expect(row.enabled, isFalse);
+      await tester.tap(find.byKey(const ValueKey('host-copy-link')),
+          warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(picked, isFalse);
+      await tester.tapAt(const Offset(700, 700));
+      await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 2));
     });
 

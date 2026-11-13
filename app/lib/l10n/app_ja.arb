@@ -74,6 +74,7 @@
   "editorCloseOthers": "他を閉じる",
   "editorCloseTab": "タブを閉じる",
   "editorCloseTabsToRight": "右側のタブを閉じる",
+  "editorSortTabsByName": "タブを名前順に並べ替え",
   "editorCompareFailedTitle": "比較に失敗しました",
   "editorCompareTitle": "比較: {title}",
   "editorCopiedToClipboard": "クリップボードにコピーしました",

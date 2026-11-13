@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1861,6 +1863,13 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Chọn màu từ trang';
 
   @override
+  String get tbRedactAsImages => 'Thay các trang đã che bằng hình ảnh';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'An toàn nhất: mỗi trang đã che chỉ giữ lại một hình ảnh. Văn bản trên các trang đó sẽ không thể chọn hay tìm kiếm được nữa và tệp sẽ lớn hơn.';
+
+  @override
   String get tbRedactionsApplied => 'Đã áp dụng che thông tin';
 
   @override
@@ -1869,6 +1878,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Không thể sắp xếp lại - đây không phải là đoạn văn một cột mà công cụ này có thể dàn lại. Hãy thử Thay thế văn bản.';
+
+  @override
+  String get tbConvertToFreeText => 'Chuyển thành hộp văn bản';
 
   @override
   String get tbReflowParagraph => 'Sắp xếp lại đoạn văn';

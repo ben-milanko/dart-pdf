@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -286,6 +288,9 @@ class AppLocalizationsNl extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Tabblad sluiten';
+
+  @override
+  String get editorSortTabsByName => 'Tabbladen sorteren op naam';
 
   @override
   String get editorCloseTabsToRight => 'Tabbladen rechts sluiten';

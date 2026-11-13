@@ -4,7 +4,7 @@
 // the thing the VM diff's header said "stays manual, not worth automating yet."
 //
 //   node bench.mjs --scenario <name> [--baseline <ref>] [--iterations N]
-//                  [--threshold R] [--keep] [--no-build-current]
+//                  [--threshold R] [--keep] [--no-build-current] [--no-build-baseline]
 //
 // Defaults: scenario scroll-plan, baseline main, iterations 3, threshold 1.10.
 //
@@ -42,6 +42,7 @@ const ITER = Number(opt('--iterations', '3'));
 const THRESHOLD = Number(opt('--threshold', '1.10'));
 const KEEP = has('--keep');
 const BUILD_CURRENT = !has('--no-build-current');
+const BUILD_BASELINE = !has('--no-build-baseline');
 
 // Structural/equality metrics: a change is informational, not a regression
 // (they should stay ~constant across revisions). `frames` (total captured) is
@@ -177,14 +178,30 @@ function main() {
   // bundle, its `_drive()` falls through to the default `scroll` case, and
   // the table silently compares two different workloads - the baseline column
   // simply has no rows for the new metrics. Build artefacts stay behind.
+  // Keep the ref's own Flutter constraint: today's harness pubspec names
+  // today's SDK floor, and a ref from before an SDK bump (built by its own
+  // .fvmrc) would otherwise fail version solving before measuring anything.
+  const refHarnessPubspec = join(wt, 'app', 'tool', 'perf_harness', 'pubspec.yaml');
+  const flutterConstraint = /^(\s+flutter:\s*)(['"][^'"\n]*['"])\s*$/m;
+  const refConstraint = existsSync(refHarnessPubspec)
+    ? readFileSync(refHarnessPubspec, 'utf8').match(flutterConstraint)?.[2]
+    : undefined;
   cpSync(join(APP_DIR, 'tool', 'perf_harness'),
       join(wt, 'app', 'tool', 'perf_harness'), {
     recursive: true,
     filter: (src) => !/[/\\](build|\.dart_tool)([/\\]|$)/.test(src),
   });
+  if (refConstraint) {
+    const copied = readFileSync(refHarnessPubspec, 'utf8');
+    writeFileSync(refHarnessPubspec,
+        copied.replace(flutterConstraint, (_, key) => `${key}${refConstraint}`));
+  }
   matchHarnessDesignLibrary(sha, wt);
-  build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
+  // A sweep over several scenarios against one ref builds the baseline once:
+  // the bundle switches workload from the URL, so later runs can reuse it.
+  if (BUILD_BASELINE || !existsSync(join(refWeb, 'index.html'))) build(wt);
+  else console.log(`▶ skipping baseline build (--no-build-baseline); using ${refWeb}`);
 
   // ---- interleaved runs ----
   const out = join(tmpdir(), 'dart-pdf-webperf-ab', `runs-${sha}-${process.pid}`);

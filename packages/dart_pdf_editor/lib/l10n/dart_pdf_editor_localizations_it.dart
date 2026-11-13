@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1865,6 +1867,13 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Scegli un colore dalla pagina';
 
   @override
+  String get tbRedactAsImages => 'Sostituisci le pagine oscurate con immagini';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'La scelta più sicura: di ogni pagina oscurata resta solo un\'immagine. Il testo di quelle pagine non potrà più essere selezionato né cercato e il file diventerà più grande.';
+
+  @override
   String get tbRedactionsApplied => 'Oscuramenti applicati';
 
   @override
@@ -1873,6 +1882,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Impossibile ridisporre - non è un paragrafo a colonna singola che questo strumento può riformattare. Prova invece Sostituisci testo.';
+
+  @override
+  String get tbConvertToFreeText => 'Converti in casella di testo';
 
   @override
   String get tbReflowParagraph => 'Ridisponi paragrafo';

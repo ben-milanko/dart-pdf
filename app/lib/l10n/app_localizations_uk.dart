@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
@@ -286,6 +288,9 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get editorCloseTab => 'Закрити вкладку';
+
+  @override
+  String get editorSortTabsByName => 'Сортувати вкладки за назвою';
 
   @override
   String get editorCloseTabsToRight => 'Закрити вкладки праворуч';

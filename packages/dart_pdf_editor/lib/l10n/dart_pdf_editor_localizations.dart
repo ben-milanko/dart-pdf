@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -3456,6 +3457,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Pick a color from the page'**
   String get tbPickColorFromPage;
 
+  /// Checkbox in the apply-redactions dialog: turn each page with a redaction into a picture of itself.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace redacted pages with images'**
+  String get tbRedactAsImages;
+
+  /// Explanation under the replace-pages-with-images checkbox in the apply-redactions dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Most secure: only a picture of each redacted page is kept. Text on those pages can no longer be selected or searched, and the file gets larger.'**
+  String get tbRedactAsImagesDetail;
+
   /// Snackbar confirming redactions were applied.
   ///
   /// In en, this message translates to:
@@ -3473,6 +3486,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t reflow - this isn\'t a single-column paragraph this tool can re-wrap. Try Replace text instead.'**
   String get tbReflowFailed;
+
+  /// Tooltip for the button that turns the selected page-content text into a movable free-text annotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to text box'**
+  String get tbConvertToFreeText;
 
   /// Title/tooltip for re-wrapping a whole paragraph of page content after an edit.
   ///

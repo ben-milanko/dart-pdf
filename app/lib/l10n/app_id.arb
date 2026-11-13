@@ -74,6 +74,7 @@
   "editorCloseOthers": "Tutup lainnya",
   "editorCloseTab": "Tutup tab",
   "editorCloseTabsToRight": "Tutup tab di sebelah kanan",
+  "editorSortTabsByName": "Urutkan tab menurut nama",
   "editorCompareFailedTitle": "Perbandingan gagal",
   "editorCompareTitle": "Bandingkan: {title}",
   "editorCopiedToClipboard": "Disalin ke papan klip",

@@ -74,6 +74,7 @@
   "editorCloseOthers": "다른 탭 닫기",
   "editorCloseTab": "탭 닫기",
   "editorCloseTabsToRight": "오른쪽 탭 닫기",
+  "editorSortTabsByName": "이름순으로 탭 정렬",
   "editorCompareFailedTitle": "비교 실패",
   "editorCompareTitle": "비교: {title}",
   "editorCopiedToClipboard": "클립보드에 복사됨",

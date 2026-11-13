@@ -74,6 +74,7 @@
   "editorCloseOthers": "Đóng các thẻ khác",
   "editorCloseTab": "Đóng thẻ",
   "editorCloseTabsToRight": "Đóng các thẻ bên phải",
+  "editorSortTabsByName": "Sắp xếp tab theo tên",
   "editorCompareFailedTitle": "So sánh không thành công",
   "editorCompareTitle": "So sánh: {title}",
   "editorCopiedToClipboard": "Đã sao chép vào bảng nhớ tạm",

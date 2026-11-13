@@ -24,7 +24,8 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Patrol 4.8 Playwright rejects Ubuntu 26.04; keep browser tests on its supported image.
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: read
@@ -36,7 +37,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           channel: stable
           cache: true
 

@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1888,6 +1890,13 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Вибрати колір зі сторінки';
 
   @override
+  String get tbRedactAsImages => 'Замінити відредаговані сторінки зображеннями';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Найнадійніше: від кожної відредагованої сторінки залишається лише зображення. Текст на цих сторінках більше не можна буде виділити чи знайти, а файл стане більшим.';
+
+  @override
   String get tbRedactionsApplied => 'Редагування застосовано';
 
   @override
@@ -1896,6 +1905,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Не вдалося переформатувати — це не одноколонковий абзац, який цей інструмент може переверстати. Спробуйте натомість «Замінити текст».';
+
+  @override
+  String get tbConvertToFreeText => 'Перетворити на текстове поле';
 
   @override
   String get tbReflowParagraph => 'Переформатувати абзац';

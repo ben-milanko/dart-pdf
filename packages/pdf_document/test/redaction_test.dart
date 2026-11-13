@@ -111,8 +111,8 @@ void main() {
       final text = pageText(out);
       expect(text, isNot(contains('SECRET')));
       expect(text, contains('PUBLIC'));
-      // survivors keep their place via a numeric TJ gap
-      expect(text, contains('TJ'));
+      // nothing after it uses the pen, so no gap records SECRET's width
+      expect(text, isNot(contains('TJ')));
     });
 
     test('existing TJ kerning keeps its direction after a split', () {
@@ -129,7 +129,7 @@ void main() {
       // flipped the original kerns, dragging CD back under the fill.
       final tj = RegExp(r'\[(.*)\] TJ').firstMatch(text)!.group(1)!;
       expect(tj, startsWith('(AB) -'));
-      expect(tj, endsWith('(CD) '));
+      expect(tj.trim(), endsWith('(CD)'));
       final gaps = RegExp(r'\)\s*(-?[\d.]+)\s*\(')
           .allMatches(tj)
           .map((m) => double.parse(m.group(1)!))
@@ -147,7 +147,10 @@ void main() {
       // cover only code 3 (x 90..96)
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(91, 695, 95, 715)]);
-      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      // letter by letter: the codes have no Unicode, so with whole words
+      // they are one word and all go
+      final text = pageText(PdfDocument.open(
+          editor.burnRedactions(pageIndex: 0, wholeWords: false)));
       expect(text, isNot(contains('0003')));
       // the rest of the line survives, code 4 shifted by code 3's advance
       expect(text, contains('<00010002> -500 <0004>'));
@@ -159,7 +162,8 @@ void main() {
       // code 1 at 72..78, kern 6pt, code 3 at 84..90, code 4 at 90..96
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(85, 695, 89, 715)]);
-      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      final text = pageText(PdfDocument.open(
+          editor.burnRedactions(pageIndex: 0, wholeWords: false)));
       expect(text, isNot(contains('0003')));
       expect(text, contains('<0001> -1000 <0004>'));
     });
@@ -171,7 +175,10 @@ void main() {
           type0Encoding: 'UniJIS-UCS2-H'));
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(91, 695, 95, 715)]);
-      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      // letter by letter: the codes have no Unicode, so with whole words
+      // they are one word and all go
+      final text = pageText(PdfDocument.open(
+          editor.burnRedactions(pageIndex: 0, wholeWords: false)));
       expect(text, isNot(contains('0003')));
       expect(text, isNot(contains('Tj')));
     });
@@ -195,7 +202,9 @@ void main() {
           buildRedactPdf('BT /F1 12 Tf 72 700 Td (AB) Tj ET\n'));
       final editor = PdfEditor(doc)
         ..addRedaction(0, [const PdfRect(71, 695, 80.2, 715)]);
-      final text = pageText(PdfDocument.open(editor.applyRedactions(0)));
+      // letter by letter: whole-word removal would take B along with A
+      final text = pageText(PdfDocument.open(
+          editor.burnRedactions(pageIndex: 0, wholeWords: false)));
       expect(text, contains('(B)'));
       expect(text, isNot(contains('(A')));
     });

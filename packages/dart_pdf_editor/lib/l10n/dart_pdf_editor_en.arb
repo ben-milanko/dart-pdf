@@ -2410,6 +2410,14 @@
   "@tbPickColorFromPage": {
     "description": "Tooltip for the eyedropper that samples a color from the page."
   },
+  "tbRedactAsImages": "Replace redacted pages with images",
+  "@tbRedactAsImages": {
+    "description": "Checkbox in the apply-redactions dialog: turn each page with a redaction into a picture of itself."
+  },
+  "tbRedactAsImagesDetail": "Most secure: only a picture of each redacted page is kept. Text on those pages can no longer be selected or searched, and the file gets larger.",
+  "@tbRedactAsImagesDetail": {
+    "description": "Explanation under the replace-pages-with-images checkbox in the apply-redactions dialog."
+  },
   "tbRedactionsApplied": "Redactions applied",
   "@tbRedactionsApplied": {
     "description": "Snackbar confirming redactions were applied."
@@ -2421,6 +2429,10 @@
   "tbReflowFailed": "Couldn't reflow - this isn't a single-column paragraph this tool can re-wrap. Try Replace text instead.",
   "@tbReflowFailed": {
     "description": "Snackbar shown when a paragraph cannot be reflowed because it is not a simple single-column paragraph."
+  },
+  "tbConvertToFreeText": "Convert to text box",
+  "@tbConvertToFreeText": {
+    "description": "Tooltip for the button that turns the selected page-content text into a movable free-text annotation."
   },
   "tbReflowParagraph": "Reflow paragraph",
   "@tbReflowParagraph": {

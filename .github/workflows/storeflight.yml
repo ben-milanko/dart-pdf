@@ -92,14 +92,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: 4822df73ac212c8ceb15cbb70352a22bdeccc625 # experiment preservation with bounded Apple reads
+          ref: 899b3641cf752e4cbc5a368bc59b30e6582d7413 # bounded preservation reads and JWT renewal
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -260,14 +260,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
         uses: actions/checkout@v7
         with:
           repository: ben-milanko/storeflight
-          ref: f0737999fc6a6634c2aab999e666a3546e057291 # experiment-preserving releases
+          ref: 899b3641cf752e4cbc5a368bc59b30e6582d7413 # bounded preservation reads and JWT renewal
           ssh-key: ${{ secrets.STOREFLIGHT_DEPLOY_KEY }}
           path: .storeflight-cli
       - name: Install Storeflight
@@ -424,7 +424,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -662,7 +662,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -807,7 +807,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -958,7 +958,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1099,7 +1099,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1318,7 +1318,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1470,7 +1470,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1623,7 +1623,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1757,7 +1757,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -1895,7 +1895,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -2033,7 +2033,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -2165,7 +2165,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight
@@ -2298,7 +2298,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.8
+          flutter-version: 3.50.0
           cache: true
           pub-cache: true
       - name: Check out Storeflight

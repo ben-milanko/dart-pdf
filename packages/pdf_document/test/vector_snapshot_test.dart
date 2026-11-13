@@ -873,4 +873,161 @@ void main() {
           isFalse);
     });
   });
+
+  group('PdfVectorSnapshot links', () {
+    /// Page 0 of a one-page document with a web link over (100,100)-(200,120)
+    /// and an in-document link over (100,200)-(200,220).
+    PdfDocument linked() {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(2)))
+        ..addLinkToUri(0, const [PdfRect(100, 100, 200, 120)],
+            uri: 'https://example.com/a')
+        ..addLinkToPage(0, const [PdfRect(100, 200, 200, 220)], targetPage: 1);
+      return PdfDocument.open(editor.save());
+    }
+
+    List<PdfAnnotation> linksOf(PdfDocument doc, [int page = 0]) => [
+          for (final a in doc.page(page).annotations)
+            if (a.subtype == 'Link') a,
+        ];
+
+    String? uriOf(PdfAnnotation link) => (link.action as PdfUriAction?)?.uri;
+
+    test('capture keeps web links in the box and drops in-document jumps', () {
+      final doc = linked();
+      final snap = PdfEditor(doc)
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      expect(snap.links, hasLength(1));
+      expect(snap.links.single.uri, 'https://example.com/a');
+      expect(snap.links.single.rect, const PdfRect(50, 50, 150, 70));
+    });
+
+    test('a link is clipped to the region and dropped outside it', () {
+      final doc = linked();
+      final editor = PdfEditor(doc);
+      expect(
+          editor
+              .captureVectorSnapshot(0, const PdfRect(150, 0, 300, 300))
+              .links
+              .single
+              .rect,
+          const PdfRect(0, 100, 50, 120));
+      expect(editor.captureVectorSnapshot(0, const PdfRect(0, 0, 90, 90)).links,
+          isEmpty);
+    });
+
+    test('a traced capture keeps only links reaching into the polygon', () {
+      final editor = PdfEditor(linked());
+      // a triangle over the bottom-left of the box, nowhere near the link
+      expect(
+          editor.captureVectorSnapshot(0, const PdfRect(0, 0, 300, 300),
+              clip: const [(0, 0), (60, 0), (0, 60)]).links,
+          isEmpty);
+      expect(
+          editor.captureVectorSnapshot(0, const PdfRect(0, 0, 300, 300),
+              clip: const [(0, 0), (300, 0), (0, 300)]).links,
+          hasLength(1));
+    });
+
+    test('paste re-creates the link over the stamp, the stamp last', () {
+      final source = linked();
+      final snap = PdfEditor(source)
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      // 200x200 region pasted at half size
+      editor.pasteVectorSnapshot(0, const PdfRect(300, 400, 400, 500), snap);
+      final out = PdfDocument.open(editor.save());
+      final annots = out.page(0).annotations;
+      expect(annots.last.subtype, 'Stamp');
+      final link = linksOf(out).single;
+      expect(uriOf(link), 'https://example.com/a');
+      expect(link.rect, const PdfRect(325, 425, 375, 435));
+      expect(link.isHidden, isFalse);
+    });
+
+    test('the link follows a move and a resize, and goes with a delete', () {
+      final snap = PdfEditor(linked())
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      var doc = PdfDocument.open(buildMultiPagePdf(1));
+      var editor = PdfEditor(doc)
+        ..pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+      doc = PdfDocument.open(editor.save());
+      editor = PdfEditor(doc)
+        ..moveAnnotation(0, doc.page(0).annotations.last, 10, 20);
+      doc = PdfDocument.open(editor.save());
+      expect(linksOf(doc).single.rect, const PdfRect(60, 70, 160, 90));
+      editor = PdfEditor(doc)
+        ..resizeAnnotation(
+            0, doc.page(0).annotations.last, const PdfRect(10, 20, 410, 220));
+      doc = PdfDocument.open(editor.save());
+      expect(linksOf(doc).single.rect, const PdfRect(110, 70, 310, 90));
+      editor = PdfEditor(doc)
+        ..removeAnnotation(0, doc.page(0).annotations.last);
+      doc = PdfDocument.open(editor.save());
+      expect(doc.page(0).annotations, isEmpty);
+    });
+
+    test('a crop hides a link it cuts away and an uncrop restores it', () {
+      final snap = PdfEditor(linked())
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      var doc = PdfDocument.open(buildMultiPagePdf(1));
+      var editor = PdfEditor(doc)
+        ..pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+      PdfDocument crop(PdfRect crop, PdfRect rect) {
+        doc = PdfDocument.open(editor.save());
+        editor = PdfEditor(doc)
+          ..cropVectorSnapshot(0, doc.page(0).annotations.last,
+              crop: crop, rect: rect);
+        return doc = PdfDocument.open(editor.save());
+      }
+
+      // keep the top half: the link (y 50-70 of 200) is cut away
+      expect(
+          linksOf(crop(
+                  const PdfRect(0, 0.5, 1, 1), const PdfRect(0, 100, 200, 200)))
+              .single
+              .isHidden,
+          isTrue);
+      // keep the bottom-left quarter, moved: the link is clipped to it
+      final clipped = linksOf(crop(
+              const PdfRect(0, 0, 0.5, 0.5), const PdfRect(300, 300, 400, 400)))
+          .single;
+      expect(clipped.isHidden, isFalse);
+      expect(clipped.rect, const PdfRect(350, 350, 400, 370));
+      final restored = linksOf(
+              crop(const PdfRect(0, 0, 1, 1), const PdfRect(0, 0, 200, 200)))
+          .single;
+      expect(restored.isHidden, isFalse);
+      expect(restored.rect, const PdfRect(50, 50, 150, 70));
+    });
+
+    test('a paste onto a rotated page lands the link where it shows', () {
+      final snap = PdfEditor(linked())
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      final doc = PdfDocument.open(buildNestedPageTreePdf());
+      expect(doc.page(0).rotation, 90);
+      final editor = PdfEditor(doc)
+        ..pasteVectorSnapshot(0, const PdfRect(0, 0, 200, 200), snap);
+      final out = PdfDocument.open(editor.save());
+      // the link is wide on screen, so tall in a 90° page's user space
+      final link = linksOf(out).single;
+      expect(link.rect.width, closeTo(20, 1e-9));
+      expect(link.rect.height, closeTo(100, 1e-9));
+      final stamp = out.page(0).annotations.last.rect;
+      expect(stamp.intersect(link.rect), link.rect);
+    });
+
+    test('toPdfBytes carries the link and fromPdfBytes reads it back', () {
+      final snap = PdfEditor(linked())
+          .captureVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      final bytes = snap.toPdfBytes();
+      final page = PdfDocument.open(bytes).page(0);
+      final link = page.annotations.single;
+      expect(link.subtype, 'Link');
+      expect(link.rect, const PdfRect(50, 50, 150, 70));
+      expect(uriOf(link), 'https://example.com/a');
+      final back = PdfVectorSnapshot.fromPdfBytes(bytes);
+      expect(back.links.single.uri, 'https://example.com/a');
+      expect(back.links.single.rect, const PdfRect(50, 50, 150, 70));
+    });
+  });
 }

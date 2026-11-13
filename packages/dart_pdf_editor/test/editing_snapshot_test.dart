@@ -50,6 +50,30 @@ void main() {
       expect(tab.document.page(0).annotations.single.subtype, 'Stamp');
     });
 
+    test('a snapshot keeps its web links; the pasted stamp stays selected', () {
+      final source = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)))
+        ..addLinkToUri(0, const [PdfRect(100, 100, 200, 120)],
+            uri: 'https://example.com/a');
+      final editing = PdfEditingController(source.save());
+      addTearDown(editing.dispose);
+      editing.copyVectorSnapshot(0, const PdfRect(50, 50, 250, 250));
+      expect(editing.pasteSnapshot(0, at: (400, 400)), isTrue);
+      final annots = editing.document.page(0).annotations;
+      expect(editing.selectedAnnotation?.subtype, 'Stamp');
+      final pasted = annots.where((a) => a.subtype == 'Link').last;
+      expect((pasted.action as PdfUriAction).uri, 'https://example.com/a');
+      // centred on (400, 400): the 200pt box spans 300-500
+      expect(pasted.rect, const PdfRect(350, 350, 450, 370));
+
+      editing.deleteSelected();
+      expect(
+          editing.document
+              .page(0)
+              .annotations
+              .where((a) => a.subtype == 'Link'),
+          hasLength(1));
+    });
+
     test('repeat PDF imports preserve the snapshot and position cascade', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);

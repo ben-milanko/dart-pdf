@@ -90,5 +90,19 @@
   "printOptionsProperties": "Printer properties…",
   "printOptionsDirectPrinter": "Print sends this job directly to the selected printer.",
   "printOptionsPropertiesError": "Could not open printer properties.",
-  "printOptionsLoadingPrinters": "Loading printers…"
+  "printOptionsLoadingPrinters": "Loading printers…",
+  "printPresets": "Presets",
+  "printPresetLabel": "Preset",
+  "printPresetNone": "None",
+  "printPresetNoneSaved": "No saved presets",
+  "printPresetSave": "Save as preset…",
+  "printPresetDelete": "Delete preset",
+  "printPresetModified": "Changed since this preset was saved. Save it again to update it.",
+  "printPresetSaveTitle": "Save print preset",
+  "printPresetName": "Preset name",
+  "printPresetReplaces": "Replaces the preset with this name.",
+  "printPresetIncludePrinter": "Also select {printer} and its colour, duplex and tray",
+  "printPresetSaveAction": "Save",
+  "printOptionsPrinterMargins": "Hatched edges are outside this printer's printable area (left, top, right, bottom: {left}, {top}, {right}, {bottom} pt).",
+  "printOptionsPaperUnsupported": "The selected printer can't print on this paper size."
 }

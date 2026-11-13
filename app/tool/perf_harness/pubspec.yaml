@@ -5,13 +5,13 @@ resolution: workspace
 
 environment:
   sdk: ^3.5.0
-  flutter: '>=3.47.0'
+  flutter: '>=3.50.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  dart_pdf_editor: ^15.0.0
-  pdf_document: ^15.0.0
+  dart_pdf_editor: ^16.0.0
+  pdf_document: ^16.0.0
   material_ui: ^1.9.0
 flutter:
   uses-material-design: true

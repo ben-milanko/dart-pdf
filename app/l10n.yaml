@@ -9,3 +9,8 @@ output-class: AppLocalizations
 # nothing; synchronous loading keeps the switch instant. tool/trim_locales.sh
 # controls which locales a release build compiles.
 use-deferred-loading: false
+# Flutter 3.50 deprecates flutter_localizations' GlobalMaterialLocalizations /
+# GlobalCupertinoLocalizations (moved to material_ui / cupertino_ui), but
+# gen-l10n still emits them in `localizationsDelegates`. The generated code is
+# the tool's to migrate, so silence the info rather than hand-edit the output.
+header: "// ignore_for_file: deprecated_member_use"

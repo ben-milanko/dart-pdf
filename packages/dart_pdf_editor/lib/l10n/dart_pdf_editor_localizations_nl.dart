@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'dart_pdf_editor_localizations.dart';
@@ -1865,6 +1867,14 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbPickColorFromPage => 'Een kleur van de pagina kiezen';
 
   @override
+  String get tbRedactAsImages =>
+      'Geredigeerde pagina\'s vervangen door afbeeldingen';
+
+  @override
+  String get tbRedactAsImagesDetail =>
+      'Het veiligst: van elke geredigeerde pagina blijft alleen een afbeelding over. Tekst op die pagina\'s kan daarna niet meer worden geselecteerd of doorzocht, en het bestand wordt groter.';
+
+  @override
   String get tbRedactionsApplied => 'Redacties toegepast';
 
   @override
@@ -1873,6 +1883,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   @override
   String get tbReflowFailed =>
       'Kan niet herschikken - dit is geen enkelkoloms alinea die deze tool opnieuw kan afbreken. Probeer in plaats daarvan Tekst vervangen.';
+
+  @override
+  String get tbConvertToFreeText => 'Omzetten naar tekstvak';
 
   @override
   String get tbReflowParagraph => 'Alinea herschikken';

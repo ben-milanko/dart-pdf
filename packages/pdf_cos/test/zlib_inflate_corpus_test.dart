@@ -44,24 +44,33 @@ void main() {
         streams++;
         final name = file.uri.pathSegments.last;
         expect(web.inflateZlib(input), native, reason: name);
-        expect(web.inflateZlib(input, strict: true), native, reason: name);
-        if (native.isNotEmpty && _archiveWebLoses(input)) trailing++;
+        if (native.isNotEmpty && _hasBytesAfterAdler(input)) trailing++;
+        // A wrong Adler-32 decodes leniently on both; strict compares only
+        // where native's own strict mode accepts the stream.
+        final Uint8List nativeStrict;
+        try {
+          nativeStrict = inflateZlib(input, strict: true);
+        } on Object {
+          continue;
+        }
+        expect(web.inflateZlib(input, strict: true), nativeStrict,
+            reason: name);
       }
     }
     expect(streams, greaterThan(1000));
-    // Streams archive's own web decoder loses to bytes after the Adler-32
-    // (rotation.pdf, devicen.pdf, GWG090, ...), all of which matched native
-    // above.
+    // Streams with bytes after the Adler-32 (rotation.pdf, devicen.pdf,
+    // GWG090, ...), all of which matched native above. archive's own web
+    // decoder lost these before 4.6; the floor keeps the case exercised.
     expect(trailing, greaterThanOrEqualTo(23));
   });
 }
 
-bool _archiveWebLoses(Uint8List input) {
-  try {
-    return const ZLibDecoderWeb().decodeBytes(input).isEmpty;
-  } on Object {
-    return true;
-  }
+/// Whether [input] carries bytes past the end of its zlib stream: the deflate
+/// body ends where `Inflate` stops reading, and the Adler-32 takes 4 more.
+bool _hasBytesAfterAdler(Uint8List input) {
+  final body = InputMemoryStream(input, offset: 2);
+  Inflate.stream(body, output: OutputMemoryStream());
+  return 2 + body.position + 4 < input.length;
 }
 
 /// Each Flate stage input (after decryption and any filters before it).
