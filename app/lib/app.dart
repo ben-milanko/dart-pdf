@@ -17,9 +17,11 @@ import 'l10n/app_delegates.dart';
 import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
+import 'session_store.dart';
 import 'tab_drag.dart';
 import 'trackpad_signature.dart';
 import 'web_safe_area.dart';
+import 'window_sessions.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -43,6 +45,12 @@ class DartPdfEditorApp extends StatefulWidget {
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
   final _tabDragCoordinator = TabDragCoordinator();
+
+  /// Which documents are open in which native window, so quitting with
+  /// several windows open relaunches into the same windows. Single-window
+  /// platforms keep the flat session each [EditorScreen] owns.
+  final WindowSessions? _windowSessions =
+      multiWindowSupported ? WindowSessions(SessionStore()) : null;
   late final AdaptiveMemoryBudgetController _memoryBudget =
       AdaptiveMemoryBudgetController();
 
@@ -151,6 +159,17 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   bool _openNewWindow(
     BuildContext context, {
     DocumentHandoff? document,
+  }) =>
+      _openWindow(context, document: document);
+
+  /// Reopens one window of the last session (see [EditorScreen.onRestoreWindow]).
+  bool _restoreWindow(BuildContext context, WindowSessionSlot slot) =>
+      _openWindow(context, sessionSlot: slot);
+
+  bool _openWindow(
+    BuildContext context, {
+    DocumentHandoff? document,
+    WindowSessionSlot? sessionSlot,
   }) {
     return openRegularWindow(
       context,
@@ -159,6 +178,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         prefs: _prefs,
         tabDragCoordinator: _tabDragCoordinator,
         onNewWindow: _openNewWindow,
+        windowSessions: _windowSessions,
+        sessionSlot: sessionSlot,
         initialHandoff: document,
         oidcTokenProvider: _oidcTokenProvider?.call,
         oidcSilentTokenProvider: _oidcTokenProvider == null
@@ -179,6 +200,8 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
       launchArgs: widget.launchArgs,
       autoCheckUpdates: true,
       onNewWindow: multiWindowSupported ? _openNewWindow : null,
+      windowSessions: _windowSessions,
+      onRestoreWindow: _windowSessions == null ? null : _restoreWindow,
       oidcTokenProvider: _oidcTokenProvider?.call,
       oidcSilentTokenProvider: _oidcTokenProvider == null
           ? null
@@ -202,10 +225,17 @@ class _DartPdfWindow extends StatelessWidget {
     this.oidcTokenProvider,
     this.oidcSilentTokenProvider,
     this.ownsApplicationSession = true,
+    this.windowSessions,
+    this.sessionSlot,
+    this.onRestoreWindow,
   });
 
   final PdfEditingPreferences prefs;
   final TabDragCoordinator tabDragCoordinator;
+  final WindowSessions? windowSessions;
+  final WindowSessionSlot? sessionSlot;
+  final bool Function(BuildContext context, WindowSessionSlot slot)?
+      onRestoreWindow;
   final List<String> launchArgs;
   final bool autoCheckUpdates;
   final bool ownsApplicationSession;
@@ -280,6 +310,9 @@ class _DartPdfWindow extends StatelessWidget {
             oidcTokenProvider: oidcTokenProvider,
             oidcSilentTokenProvider: oidcSilentTokenProvider,
             ownsApplicationSession: ownsApplicationSession,
+            windowSessions: windowSessions,
+            sessionSlot: sessionSlot,
+            onRestoreWindow: onRestoreWindow,
           ),
         ),
       ),
