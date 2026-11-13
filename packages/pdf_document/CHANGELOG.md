@@ -1,5 +1,11 @@
 # Changelog
 
+## 16.0.0
+
+- Preserve links in vector snapshots.
+- Add raster page replacement and improve redaction cleanup; whole-word removal is enabled by default.
+- Reuse embedded font programs across form appearances and resolve actual font names in style controls.
+
 ## 15.0.0
 
 - Fix #1255: burn covered image pixels, nested forms, form fields, annotations and hidden text copies, and remove metadata and attachments by default.

@@ -1,3 +1,3 @@
-DartPDF 15.0.0
+DartPDF 16.0.0
 
-Sửa việc che xóa ảnh, trường biểu mẫu và văn bản ẩn trong vùng được che. Khi áp dụng, siêu dữ liệu và tệp đính kèm bị xóa theo mặc định; nội dung dùng chung cũng có thể bị xóa ở nơi khác. Giữ các chỉnh sửa chưa lưu khi hủy lưu hoặc có chỉnh sửa mới trong lúc lưu. Cải thiện dán, thu phóng và đo lường.
+Khôi phục cửa sổ tài liệu khi mở lại ứng dụng. Lưu thiết lập in có tên và xem trước lề máy in. Giữ liên kết trong ảnh chụp được sao chép. Chuyển văn bản đã chọn thành hộp văn bản di chuyển được. Có thể thay trang đã biên tập che bằng ảnh; văn bản trên các trang đó không còn tìm kiếm hay chọn được. Cải thiện phông chữ biểu mẫu và thu phóng.

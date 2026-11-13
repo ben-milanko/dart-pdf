@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.0.0+53
+
+- Restore document windows when reopening the app and sort tabs by file name.
+- Save named print presets, preview printer margins and use a smoother print preview.
+- Keep links in copied snapshots and convert selected page text into a movable text box.
+- Optionally replace redacted pages with images; text on those pages is no longer selectable or searchable. Improve redaction cleanup and whole-word removal.
+- Improve form fonts and deep-zoom rendering.
+
 ## 15.0.0+52
 
 - Fix #1255: applying redactions removes covered image pixels, nested form content, form fields and hidden text copies. Metadata and attachments are removed by default; shared content may also be removed elsewhere.
