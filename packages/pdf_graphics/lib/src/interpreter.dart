@@ -215,6 +215,62 @@ PdfColor _colorFromValues(List<double> values, PdfColor current,
   return current;
 }
 
+/// One recorded Type3 glyph ([PdfInterpreter._drawType3Glyph]): the commands
+/// its CharProc produced, the state they were recorded under, and the
+/// page-space origin a later occurrence is translated from.
+final class _Type3Cell {
+  _Type3Cell(
+      this.code,
+      PdfMatrix ctm,
+      this.fillColor,
+      this.strokeColor,
+      this.fillAlpha,
+      this.strokeAlpha,
+      this.strokeWidth,
+      this.commands,
+      this.next)
+      : a = ctm.a,
+        b = ctm.b,
+        c = ctm.c,
+        d = ctm.d,
+        e = ctm.e,
+        f = ctm.f;
+
+  final int code;
+  final double a, b, c, d, e, f;
+  final PdfColor fillColor;
+  final PdfColor strokeColor;
+  final double fillAlpha;
+  final double strokeAlpha;
+  final double strokeWidth;
+  final List<PdfRenderCommand> commands;
+
+  /// The next cell recorded for the same code slot, or null.
+  final _Type3Cell? next;
+
+  /// Whether a glyph in this state replays this cell translated: the same
+  /// code, the same linear part of the CTM, the same inherited paint.
+  bool matches(
+          int code,
+          PdfMatrix ctm,
+          PdfColor fillColor,
+          PdfColor strokeColor,
+          double fillAlpha,
+          double strokeAlpha,
+          double strokeWidth) =>
+      code == this.code &&
+      ctm.a == a &&
+      ctm.b == b &&
+      ctm.c == c &&
+      ctm.d == d &&
+      fillAlpha == this.fillAlpha &&
+      strokeAlpha == this.strokeAlpha &&
+      strokeWidth == this.strokeWidth &&
+      (identical(fillColor, this.fillColor) || fillColor == this.fillColor) &&
+      (identical(strokeColor, this.strokeColor) ||
+          strokeColor == this.strokeColor);
+}
+
 class _ActiveSoftMask {
   _ActiveSoftMask(
     this.form,
@@ -473,13 +529,17 @@ class PdfInterpreter {
   bool _textClipPending = false;
   final List<PdfPathSegment> _textClipSegments = [];
 
-  // Reused across every [_showText] call to assemble the run's Unicode text -
-  // a page issues thousands of show operators, so a fresh buffer per call is
-  // pure allocation churn. Cleared at the start of each call; `toString()`
-  // yields the same text either way. A Type3 glyph's CharProc can re-enter
-  // _showText mid-loop, so the guard hands the nested call a private buffer
-  // and leaves the outer accumulation intact.
-  final StringBuffer _textBuffer = StringBuffer();
+  // Reused across every [_showText] call to assemble the run's Unicode text
+  // as UTF-16 code units - a page issues thousands of show operators, so a
+  // fresh buffer per call is pure allocation churn. A Type3 glyph's CharProc
+  // can re-enter _showText mid-loop, so the guard hands the nested call a
+  // private buffer and leaves the outer accumulation intact.
+  //
+  // A plain list, not a Uint16List: `String.fromCharCodes` has a fast path
+  // for one on the VM and on dart2js alike, while dart2js walks a Uint16List
+  // through an iterator - which measured slower than the StringBuffer this
+  // replaced.
+  List<int> _textUnits = List<int>.filled(256, 0);
   bool _textBufferInUse = false;
 
   // Reused unboxed buffer [_showText] collects a run's per-character offsets
@@ -2857,8 +2917,13 @@ class PdfInterpreter {
     if (font == null) return;
 
     final codes = font.codesOf(bytes);
+    // The run's text, as UTF-16 code units in a scratch buffer that outlives
+    // the call: one string is built from it at the end, instead of a
+    // StringBuffer part per glyph. A re-entrant show (a Type3 CharProc drawing
+    // text of its own) works on a private buffer.
     final reentrant = _textBufferInUse;
-    final buffer = reentrant ? StringBuffer() : (_textBuffer..clear());
+    var units = reentrant ? List<int>.filled(64, 0) : _textUnits;
+    var unitCount = 0;
     _textBufferInUse = true;
     final emScale = size * _state.horizontalScale;
     // a non-null (possibly empty-outlined) glyph list tells devices the font
@@ -2903,12 +2968,38 @@ class PdfInterpreter {
     var visibleAdvance = 0.0;
     var leadingAdv = 0.0;
     var sawVisible = false;
-    for (final code in codes) {
+    // Loop invariants, read once: this body runs per glyph. A Type3 CharProc
+    // runs on its own graphics state and restores this one, so they hold
+    // across [_drawType3Glyph] too.
+    final charSpacing = _state.charSpacing;
+    final wordSpacing = font.isCid ? 0.0 : _state.wordSpacing;
+    final horizontalScale = _state.horizontalScale;
+    final drawType3 = font.isType3 &&
+        _state.renderMode != 3 &&
+        _state.renderMode != 7 &&
+        size != 0;
+    final codeCount = codes.length;
+    for (var c = 0; c < codeCount; c++) {
+      final code = codes[c];
       final text = font.charFor(code);
-      buffer.write(text);
+      final textLength = text.length;
+      if (unitCount + textLength > units.length) {
+        final grown = List<int>.filled(
+            math.max(units.length * 2, unitCount + textLength), 0);
+        for (var i = 0; i < unitCount; i++) {
+          grown[i] = units[i];
+        }
+        units = grown;
+        if (!reentrant && grown.length <= 4096) _textUnits = grown;
+      }
       // Non-allocating equivalent of `text.trim().isNotEmpty` - this runs once
       // per glyph on the hot text path, so avoid the per-glyph String.trim().
-      final visible = !_isBlankText(text);
+      var visible = false;
+      for (var i = 0; i < textLength; i++) {
+        final unit = text.codeUnitAt(i);
+        units[unitCount++] = unit;
+        if (!visible && !_isTrimWhitespace(unit)) visible = true;
+      }
       if (visible && !sawVisible) {
         leadingAdv = advance;
         sawVisible = true;
@@ -2932,20 +3023,15 @@ class PdfInterpreter {
           ));
         }
       }
-      if (font.isType3 &&
-          _state.renderMode != 3 &&
-          _state.renderMode != 7 &&
-          size != 0) {
-        _drawType3Glyph(font, code, advance);
-      }
+      if (drawType3) _drawType3Glyph(font, code, advance);
       final advanceBefore = advance;
       if (vertical) {
         // Tc applies along the writing direction; Tw only to single-byte 0x20.
-        advance += font.verticalAdvanceOf(code) * size + _state.charSpacing;
+        advance += font.verticalAdvanceOf(code) * size + charSpacing;
       } else {
-        var tx = font.widthOf(code) * size + _state.charSpacing;
-        if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
-        advance += tx * _state.horizontalScale;
+        var tx = font.widthOf(code) * size + charSpacing;
+        if (code == 0x20) tx += wordSpacing;
+        advance += tx * horizontalScale;
       }
       if (collectOffsets && text.isNotEmpty) {
         // Consumers binary-search these, so keep them non-decreasing: a
@@ -3005,7 +3091,7 @@ class PdfInterpreter {
         0, size, //
         0, _state.rise,
       ).concat(_textMatrix).concat(_state.ctm);
-      final text = buffer.toString();
+      final text = String.fromCharCodes(units, 0, unitCount);
 
       // Text rendering modes (§9.4.3): 0 fill, 1 stroke, 2 fill+stroke,
       // 3 invisible, 4–6 = 0–2 plus clip, 7 clip only. Modes ≥4 add the
@@ -3028,7 +3114,8 @@ class PdfInterpreter {
           charOffsets == null || charOffsets.length == text.length + 1,
           'charOffsets must have one entry per character plus the closing '
           'boundary (${charOffsets.length} vs ${text.length + 1})');
-      if (text.trim().isNotEmpty || glyphs != null) {
+      // [sawVisible] is `text.trim().isNotEmpty`, already settled per glyph.
+      if (sawVisible || glyphs != null) {
         final fillText = mode == 0 || mode == 2 || mode == 4 || mode == 6;
         final strokeText = mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
@@ -3355,21 +3442,29 @@ class PdfInterpreter {
         // inherits). Pattern fills and soft masks are page-anchored, not
         // translation-invariant, so those (rare) states bypass the cache.
         if (_state.softMask == null && _state.fillPattern == null) {
-          final key = (
-            font,
-            code,
-            ctm.a,
-            ctm.b,
-            ctm.c,
-            ctm.d,
-            _state.fillColor,
-            _state.strokeColor,
-            _state.fillAlpha,
-            _state.strokeAlpha,
-            _state.stroke.width,
-          );
-          var cell = _type3Cells[key];
-          if (cell == null && _type3Cells.length < _maxType3Cells) {
+          final fillColor = _state.fillColor;
+          final strokeColor = _state.strokeColor;
+          final fillAlpha = _state.fillAlpha;
+          final strokeAlpha = _state.strokeAlpha;
+          final strokeWidth = _state.stroke.width;
+          // The cells recorded for this font's glyph, newest first. A page
+          // shows a glyph in a handful of states, so walking them and
+          // comparing fields beats hashing all eleven into a map key - which
+          // was a quarter of recording a Type3 page.
+          var cells = _type3LastCells;
+          if (!identical(font, _type3LastFont)) {
+            cells = _type3Cells[font] ??= List<_Type3Cell?>.filled(256, null);
+            _type3LastFont = font;
+            _type3LastCells = cells;
+          }
+          final slot = code & 0xFF;
+          var cell = cells[slot];
+          while (cell != null &&
+              !cell.matches(code, ctm, fillColor, strokeColor, fillAlpha,
+                  strokeAlpha, strokeWidth)) {
+            cell = cell.next;
+          }
+          if (cell == null && _type3CellCount < _maxType3Cells) {
             final recorder = RecordingPdfDevice();
             final outer = device;
             device = recorder;
@@ -3378,19 +3473,24 @@ class PdfInterpreter {
             } finally {
               device = outer;
             }
-            cell = (recorder.commands, ctm.e, ctm.f);
-            _type3Cells[key] = cell;
+            cell = _Type3Cell(code, ctm, fillColor, strokeColor, fillAlpha,
+                strokeAlpha, strokeWidth, recorder.commands, cells[slot]);
+            cells[slot] = cell;
+            _type3CellCount++;
           }
           if (cell != null) {
-            final dx = ctm.e - cell.$2, dy = ctm.f - cell.$3;
+            final dx = ctm.e - cell.e, dy = ctm.f - cell.f;
             final sink = device;
             if (sink is PdfTiledCellSink) {
               (sink as PdfTiledCellSink).drawTiledCell(PdfDrawTiledCellCommand(
-                  cell.$1, Float64List(1)..[0] = dx, Float64List(1)..[0] = dy));
+                  cell.commands,
+                  Float64List(1)..[0] = dx,
+                  Float64List(1)..[0] = dy));
             } else if (dx == 0 && dy == 0) {
-              replayCommands(cell.$1, device);
+              replayCommands(cell.commands, device);
             } else {
-              replayCommands(cell.$1, TranslatingPdfDevice(device, dx, dy));
+              replayCommands(
+                  cell.commands, TranslatingPdfDevice(device, dx, dy));
             }
             return;
           }
@@ -3404,7 +3504,15 @@ class PdfInterpreter {
   /// full non-translation state the recording depends on. Bounded so a
   /// pathological document (every glyph at a unique scale) degrades to the
   /// direct path instead of growing without limit.
-  final Map<Object, (List<PdfRenderCommand>, double, double)> _type3Cells = {};
+  ///
+  /// Per font (by identity - a [PdfFontInfo] has no value equality), one
+  /// chain of cells per character code; [_type3LastFont] remembers the font
+  /// the last glyph used so a run's glyphs skip even that lookup.
+  final Map<PdfFontInfo, List<_Type3Cell?>> _type3Cells =
+      Map<PdfFontInfo, List<_Type3Cell?>>.identity();
+  PdfFontInfo? _type3LastFont;
+  List<_Type3Cell?> _type3LastCells = const [];
+  int _type3CellCount = 0;
   static const _maxType3Cells = 1024;
 
   /// The direct Type3 CharProc execution behind [_drawType3Glyph]: fresh
@@ -4410,16 +4518,9 @@ class PdfInterpreter {
       _num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3), _num(o, 4), _num(o, 5));
 }
 
-/// Whether [s] is empty or entirely whitespace - a non-allocating equivalent of
-/// `s.trim().isEmpty` using Dart's own trim whitespace set (Unicode White_Space
-/// plus U+FEFF), so it matches the `String.trim()` a device applies to the run.
-bool _isBlankText(String s) {
-  for (var i = 0; i < s.length; i++) {
-    if (!_isTrimWhitespace(s.codeUnitAt(i))) return false;
-  }
-  return true;
-}
-
+/// Dart's own trim whitespace set (Unicode White_Space plus U+FEFF): a run
+/// whose code units all pass this is one `String.trim()` would empty, which is
+/// the test a device applies to it.
 bool _isTrimWhitespace(int c) =>
     c == 0x20 ||
     (c >= 0x09 && c <= 0x0D) ||

@@ -215,6 +215,20 @@ class CosLexer {
 
   CosToken _literalString(int start, CosTokenBuffer? reuse) {
     position++; // (
+    // Most strings - nearly every show-text operand - hold no escape, nested
+    // parenthesis or CR, so their value is the bytes between the delimiters:
+    // one exact-size copy, with no builder to grow and copy out of.
+    var end = position;
+    while (end < bytes.length) {
+      final c = bytes[end];
+      if (c == 0x29) {
+        final value = bytes.sublist(position, end);
+        position = end + 1;
+        return _token(reuse, CosTokenType.string, start, value);
+      }
+      if (c == 0x5C || c == 0x28 || c == 0x0D) break;
+      end++;
+    }
     var depth = 1;
     final out = BytesBuilder();
     while (true) {

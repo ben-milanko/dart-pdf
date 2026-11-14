@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -165,6 +166,35 @@ void main() {
       final text = String.fromCharCodes(doc.page(0).contentBytes());
       expect(text, contains('still here'));
       expect(text, isNot(contains('not-flate')));
+    });
+
+    test('a /Contents array joins its streams with a separator', () {
+      // adjacent streams form one logical stream; the LF keeps "q" and "Q"
+      // from fusing into one token. An empty stream adds nothing in front.
+      final doc = PdfDocument.open(build([
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 '
+            '/MediaBox [0 0 100 100] >>',
+        '<< /Type /Page /Parent 2 0 R /Contents [4 0 R 5 0 R 6 0 R] >>',
+        '<< /Length 0 >>\nstream\n\nendstream',
+        '<< /Length 1 >>\nstream\nq\nendstream',
+        '<< /Length 1 >>\nstream\nQ\nendstream',
+      ]));
+      expect(String.fromCharCodes(doc.page(0).contentBytes()), 'q\nQ');
+    });
+
+    test('a single content stream is not copied', () {
+      final doc = PdfDocument.open(build([
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 '
+            '/MediaBox [0 0 100 100] >>',
+        '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>',
+        '<< /Length 3 >>\nstream\nq Q\nendstream',
+      ]));
+      final page = doc.page(0);
+      final stream = doc.cos.resolve(page.dict['Contents']) as CosStream;
+      expect(page.contentBytes(), same(doc.cos.decodeStreamData(stream)));
+      expect(String.fromCharCodes(page.contentBytes()), 'q Q');
     });
 
     test('invalid page boxes fall back to visible page geometry', () {

@@ -7,6 +7,108 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('a Type3 glyph is recorded once per state it is shown in', () {
+    // Each occurrence stamps a recorded cell; occurrences that differ only by
+    // position share one, and anything the recording bakes in - the glyph,
+    // the font, the scale, the inherited paint - gets a cell of its own.
+    const content = 'BT /T3 20 Tf 72 700 Td 1 0 0 rg (AAB) Tj ' // 0 1 2
+        '0 0 1 rg (A) Tj ' // 3: another colour
+        '1 0 0 rg /T3 30 Tf (A) Tj ' // 4: another size
+        '/T4 20 Tf (A) Tj ' // 5: another font, same code
+        '/T3 20 Tf (A) Tj ET'; // 6: the first state again
+    const square = '1000 0 d0 0 0 1000 1000 re f';
+    const bar = '1000 0 d0 0 0 500 1000 re f';
+    String font(int a, int b) =>
+        '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] '
+        '/FontMatrix [0.001 0 0 0.001 0 0] '
+        '/CharProcs << /A $a 0 R /B $b 0 R >> '
+        '/Encoding << /Type /Encoding /Differences [65 /A /B] >> '
+        '/FirstChar 65 /LastChar 66 /Widths [1000 1000] /Resources << >> >>';
+    final doc = PdfDocument.open(_assemblePdf([
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+          '/Resources << /Font << /T3 5 0 R /T4 6 0 R >> >> >>',
+      '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+      font(7, 8),
+      font(8, 7),
+      '<< /Length ${square.length} >>\nstream\n$square\nendstream',
+      '<< /Length ${bar.length} >>\nstream\n$bar\nendstream',
+    ]));
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+    final stamps =
+        recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
+    expect(stamps, hasLength(7));
+    final cells = [for (final stamp in stamps) stamp.cellCommands];
+
+    expect(cells[1], same(cells[0]), reason: 'same glyph, moved along');
+    expect(cells[6], same(cells[0]), reason: 'the first state, revisited');
+    expect(stamps[0].originsX.single, 0);
+    expect(stamps[1].originsX.single, closeTo(20, 1e-9));
+    for (final other in [2, 3, 4, 5]) {
+      expect(cells[other], isNot(same(cells[0])), reason: 'stamp $other');
+    }
+    expect({for (final cell in cells) identityHashCode(cell)}, hasLength(5));
+
+    // ... and each cell holds what its own state draws.
+    PdfFillPathCommand fill(int i) =>
+        cells[i].whereType<PdfFillPathCommand>().single;
+    expect(fill(0).color, const PdfColor(1, 0, 0));
+    expect(fill(3).color, const PdfColor(0, 0, 1));
+    double width(int i) {
+      final xs = [
+        for (final s in fill(i).path.segments)
+          if (s is PdfMoveTo) s.x else if (s is PdfLineTo) s.x
+      ];
+      return xs.reduce((a, b) => a > b ? a : b) -
+          xs.reduce((a, b) => a < b ? a : b);
+    }
+
+    expect(width(0), closeTo(20, 1e-9));
+    expect(width(2), closeTo(10, 1e-9), reason: 'B is the half-width bar');
+    expect(width(4), closeTo(30, 1e-9));
+    expect(width(5), closeTo(10, 1e-9), reason: "T4's A is the bar");
+  });
+
+  test('a long mixed-width run keeps every code unit, through the wire', () {
+    // _showText assembles a run's text in a reused code-unit buffer. This run
+    // outgrows its initial size and mixes Latin-1, BMP, a ligature expansion
+    // (one code, two units) and an astral character (a surrogate pair).
+    const cycle = ['a', '\u00e9', 'fi', '\u65e5', '\u{1F600}', ' ', 'Z'];
+    final glyphs = [for (var i = 0; i < 230; i++) cycle[i % cycle.length]];
+    final expected = glyphs.join();
+    expect(expected.length, greaterThan(256));
+
+    final doc = PdfDocument.open(_buildArabicGlyphPdf(glyphs, embedded: false));
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+    PdfTextRun runOf(List<PdfRenderCommand> commands) =>
+        commands.whereType<PdfDrawTextCommand>().single.run;
+
+    final run = runOf(recorder.commands);
+    expect(run.text, expected);
+    expect(run.charOffsets, hasLength(expected.length + 1));
+
+    // ... and a second, short run right after must not see its leftovers.
+    final again = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: again)
+      ..drawPage(doc.page(0))
+      ..run(
+          ContentStreamParser.parse(
+              Uint8List.fromList('BT /F1 9 Tf <07> Tj ET'.codeUnits)),
+          doc.page(0).resources);
+    expect(again.commands.whereType<PdfDrawTextCommand>().last.run.text, 'Z');
+
+    // The worker codec carries the run - text and float64 offsets - intact.
+    final wire = serializeCommands(recorder.commands, cos: doc.cos)!;
+    final decoded = runOf(deserializeCommands(wire));
+    expect(decoded.text, expected);
+    expect(decoded.charOffsets, run.charOffsets);
+    expect(decoded.width, run.width);
+    expect(decoded.transform.e, run.transform.e);
+  });
+
   test('extracts the fixture page text', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);
