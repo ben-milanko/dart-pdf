@@ -59,10 +59,20 @@ most (plan-set interpret 131.6 -> 115.8 ms, diagram-dense 84.2 -> 74.0 ms).
 That run also reported peakRssBytes 1.054x - about +35 MB on **every** file,
 including a one-page 0.4 ms one. It is not this change: the same checkout with
 the change reverted measures the same ~545 MB, and the cached baseline
-worktree measures ~510 MB with identical library code. The child's peak RSS is
-dominated by the Dart front end compiling the sweep script, and the two
-checkouts differ in how they were resolved (`flutter pub get` here, `dart pub
-get` in the worktree perf_diff.sh creates). So a uniform RSS delta across all
-files in a `perf.sh diff` says the checkouts differ, not the code; compare
-within one checkout before believing it. (The earlier diff in this session
-showed 1.002x because its "current" tree had been resolved the same way.)
+worktree measures ~510 MB with identical library code.
+
+The cause is a file, not code: a checkout whose `.dart_tool/` holds a
+`native_assets.yaml` (dartdev writes one during `dart test` and builds, even
+with an empty mapping) compiles the sweep script about 30 MB heavier. Copying
+just that file into a clean worktree reproduces the whole difference;
+removing it undoes it. How the checkout was resolved (`dart pub get` or
+`flutter pub get`) makes no difference, and neither does
+`--disable-dart-dev`. A working checkout has usually run tests and the
+worktree `perf_diff.sh` creates never has, so the two sides differ.
+
+More broadly, the sweep child's peak RSS is mostly the Dart front end
+compiling the script: run from a precompiled kernel snapshot the same child
+peaks at 123-186 MB depending on the file, against a flat ~510 MB from source.
+So a uniform RSS delta across all files in a `perf.sh diff` says the
+checkouts differ, not the code. (The earlier diff in this session showed
+1.002x because that checkout had not yet run `dart test`.)
