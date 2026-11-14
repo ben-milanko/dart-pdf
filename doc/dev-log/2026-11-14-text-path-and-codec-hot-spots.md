@@ -74,11 +74,34 @@ best-of-3 cold runs understate:
 
 CAD/vector pages moved within noise: they are the number lexer and inflate.
 
+## Follow-up: the Type3 cell cache key
+
+`_drawType3Glyph` looked its recorded cell up in a map keyed by an 11-field
+record (font, code, the CTM's linear part, both colours, both alphas, stroke
+width). Hashing that per glyph - `_Record.hashCode`, `Object.hash` for each
+`PdfColor` - plus the record's allocation was about a quarter of recording a
+Type3 page. The cells now hang off the font (identity map, with a one-entry
+last-font memo) in one chain per character code (`_Type3Cell`), and a lookup
+walks the chain comparing fields. A page shows a glyph in a handful of states,
+so the chain is short; `_maxType3Cells` still bounds the total.
+
+Same cells, same sharing, byte-identical record (`buf` unchanged). Warm
+steady-state on `type3-text-6p`, against the commit before it:
+
+| stage | before | after |
+|---|---|---|
+| record | ~20 ms | ~8.8 ms |
+| extract | ~18.4 ms | ~8.3 ms |
+
+Encode/decode moved only within noise - they don't touch the key.
+
 ## Leads left on the table
 
-- **Type3**: `_drawType3Glyph` hashes an 11-field record key and allocates
-  two closures, a command and two one-element `Float64List`s per glyph
-  (`type3-text-6p`: record-key hashing alone ~10%).
+- **Type3, the rest**: the cell cache key is done (below); what remains per
+  glyph is two closures through `PdfFontInfo.renderGlyph`, four matrix
+  concats, and a `PdfDrawTiledCellCommand` with two one-element
+  `Float64List`s - and on the wire, one tiled-cell reference per glyph
+  (`type3-text-6p` still encodes in ~9 ms against ~9 ms to record).
 - **VM inflate**: archive's native `ZLibDecoder.decodeBytes` copies its output
   through a doubling `OutputMemoryStream` (~5% on CAD pages). Going around it
   needs `dart:io`, which `lib/` may not import.

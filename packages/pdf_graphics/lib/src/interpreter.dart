@@ -215,6 +215,62 @@ PdfColor _colorFromValues(List<double> values, PdfColor current,
   return current;
 }
 
+/// One recorded Type3 glyph ([PdfInterpreter._drawType3Glyph]): the commands
+/// its CharProc produced, the state they were recorded under, and the
+/// page-space origin a later occurrence is translated from.
+final class _Type3Cell {
+  _Type3Cell(
+      this.code,
+      PdfMatrix ctm,
+      this.fillColor,
+      this.strokeColor,
+      this.fillAlpha,
+      this.strokeAlpha,
+      this.strokeWidth,
+      this.commands,
+      this.next)
+      : a = ctm.a,
+        b = ctm.b,
+        c = ctm.c,
+        d = ctm.d,
+        e = ctm.e,
+        f = ctm.f;
+
+  final int code;
+  final double a, b, c, d, e, f;
+  final PdfColor fillColor;
+  final PdfColor strokeColor;
+  final double fillAlpha;
+  final double strokeAlpha;
+  final double strokeWidth;
+  final List<PdfRenderCommand> commands;
+
+  /// The next cell recorded for the same code slot, or null.
+  final _Type3Cell? next;
+
+  /// Whether a glyph in this state replays this cell translated: the same
+  /// code, the same linear part of the CTM, the same inherited paint.
+  bool matches(
+          int code,
+          PdfMatrix ctm,
+          PdfColor fillColor,
+          PdfColor strokeColor,
+          double fillAlpha,
+          double strokeAlpha,
+          double strokeWidth) =>
+      code == this.code &&
+      ctm.a == a &&
+      ctm.b == b &&
+      ctm.c == c &&
+      ctm.d == d &&
+      fillAlpha == this.fillAlpha &&
+      strokeAlpha == this.strokeAlpha &&
+      strokeWidth == this.strokeWidth &&
+      (identical(fillColor, this.fillColor) || fillColor == this.fillColor) &&
+      (identical(strokeColor, this.strokeColor) ||
+          strokeColor == this.strokeColor);
+}
+
 class _ActiveSoftMask {
   _ActiveSoftMask(
     this.form,
@@ -3386,21 +3442,29 @@ class PdfInterpreter {
         // inherits). Pattern fills and soft masks are page-anchored, not
         // translation-invariant, so those (rare) states bypass the cache.
         if (_state.softMask == null && _state.fillPattern == null) {
-          final key = (
-            font,
-            code,
-            ctm.a,
-            ctm.b,
-            ctm.c,
-            ctm.d,
-            _state.fillColor,
-            _state.strokeColor,
-            _state.fillAlpha,
-            _state.strokeAlpha,
-            _state.stroke.width,
-          );
-          var cell = _type3Cells[key];
-          if (cell == null && _type3Cells.length < _maxType3Cells) {
+          final fillColor = _state.fillColor;
+          final strokeColor = _state.strokeColor;
+          final fillAlpha = _state.fillAlpha;
+          final strokeAlpha = _state.strokeAlpha;
+          final strokeWidth = _state.stroke.width;
+          // The cells recorded for this font's glyph, newest first. A page
+          // shows a glyph in a handful of states, so walking them and
+          // comparing fields beats hashing all eleven into a map key - which
+          // was a quarter of recording a Type3 page.
+          var cells = _type3LastCells;
+          if (!identical(font, _type3LastFont)) {
+            cells = _type3Cells[font] ??= List<_Type3Cell?>.filled(256, null);
+            _type3LastFont = font;
+            _type3LastCells = cells;
+          }
+          final slot = code & 0xFF;
+          var cell = cells[slot];
+          while (cell != null &&
+              !cell.matches(code, ctm, fillColor, strokeColor, fillAlpha,
+                  strokeAlpha, strokeWidth)) {
+            cell = cell.next;
+          }
+          if (cell == null && _type3CellCount < _maxType3Cells) {
             final recorder = RecordingPdfDevice();
             final outer = device;
             device = recorder;
@@ -3409,19 +3473,24 @@ class PdfInterpreter {
             } finally {
               device = outer;
             }
-            cell = (recorder.commands, ctm.e, ctm.f);
-            _type3Cells[key] = cell;
+            cell = _Type3Cell(code, ctm, fillColor, strokeColor, fillAlpha,
+                strokeAlpha, strokeWidth, recorder.commands, cells[slot]);
+            cells[slot] = cell;
+            _type3CellCount++;
           }
           if (cell != null) {
-            final dx = ctm.e - cell.$2, dy = ctm.f - cell.$3;
+            final dx = ctm.e - cell.e, dy = ctm.f - cell.f;
             final sink = device;
             if (sink is PdfTiledCellSink) {
               (sink as PdfTiledCellSink).drawTiledCell(PdfDrawTiledCellCommand(
-                  cell.$1, Float64List(1)..[0] = dx, Float64List(1)..[0] = dy));
+                  cell.commands,
+                  Float64List(1)..[0] = dx,
+                  Float64List(1)..[0] = dy));
             } else if (dx == 0 && dy == 0) {
-              replayCommands(cell.$1, device);
+              replayCommands(cell.commands, device);
             } else {
-              replayCommands(cell.$1, TranslatingPdfDevice(device, dx, dy));
+              replayCommands(
+                  cell.commands, TranslatingPdfDevice(device, dx, dy));
             }
             return;
           }
@@ -3435,7 +3504,15 @@ class PdfInterpreter {
   /// full non-translation state the recording depends on. Bounded so a
   /// pathological document (every glyph at a unique scale) degrades to the
   /// direct path instead of growing without limit.
-  final Map<Object, (List<PdfRenderCommand>, double, double)> _type3Cells = {};
+  ///
+  /// Per font (by identity - a [PdfFontInfo] has no value equality), one
+  /// chain of cells per character code; [_type3LastFont] remembers the font
+  /// the last glyph used so a run's glyphs skip even that lookup.
+  final Map<PdfFontInfo, List<_Type3Cell?>> _type3Cells =
+      Map<PdfFontInfo, List<_Type3Cell?>>.identity();
+  PdfFontInfo? _type3LastFont;
+  List<_Type3Cell?> _type3LastCells = const [];
+  int _type3CellCount = 0;
   static const _maxType3Cells = 1024;
 
   /// The direct Type3 CharProc execution behind [_drawType3Glyph]: fresh
