@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/src/filters/zlib_inflate_io.dart' as io;
 import 'package:pdf_cos/src/filters/zlib_inflate_web.dart' as web;
 import 'package:test/test.dart';
 
@@ -184,6 +185,81 @@ void main() {
           _same(partial, Uint8List.sublistView(big, 0, partial.length)), isTrue,
           reason: 'what was recovered is a prefix of the data');
       expect(() => inflateZlib(truncated, strict: true), throwsFormatException);
+    });
+  });
+
+  // The VM decoder's output collector, driven directly: the native decoder
+  // only ever hands it whole lists, so the defensive branches need a caller
+  // of their own. (The file has no dart:io import, so this runs under node
+  // too.)
+  group('native inflateZlib (the VM implementation)', () {
+    test('agrees with the web implementation, well-formed or not', () {
+      final big = _text(1 << 20);
+      final zlib = _zlib(big);
+      final inputs = {
+        'text': encoded,
+        'megabyte': zlib,
+        'empty': _zlib(Uint8List(0)),
+        'stored': _zlib(_noise(50000), level: 0),
+        'trailing bytes': Uint8List.fromList([...encoded, 13, 10]),
+        'no Adler-32': Uint8List.sublistView(encoded, 0, encoded.length - 4),
+      };
+      for (final MapEntry(key: name, value: data) in inputs.entries) {
+        expect(_same(io.inflateZlib(data), web.inflateZlib(data)), isTrue,
+            reason: name);
+      }
+    }, testOn: 'vm');
+
+    test('a whole list of its own is held, not copied', () {
+      final chunk = Uint8List.fromList([1, 2, 3]);
+      final out = io.InflatedChunks()..writeBytes(chunk);
+      expect(out.length, 3);
+      expect(out.takeBytes(), same(chunk));
+    });
+
+    test('anything else is copied', () {
+      final backing = Uint8List.fromList([9, 1, 2, 3, 9]);
+      final view = Uint8List.sublistView(backing, 1, 4);
+      final viewed = io.InflatedChunks()..writeBytes(view);
+      expect(viewed.takeBytes(), [1, 2, 3]);
+      expect(viewed.takeBytes().buffer, isNot(same(backing.buffer)),
+          reason: 'a view would pin, and alias, the larger buffer');
+
+      final whole = Uint8List.fromList([1, 2, 3, 4]);
+      final partial = io.InflatedChunks()..writeBytes(whole, length: 2);
+      expect(partial.length, 2);
+      expect(partial.takeBytes(), [1, 2]);
+      expect(partial.takeBytes(), isNot(same(whole)));
+
+      final plain = io.InflatedChunks()..writeBytes(<int>[7, 8]);
+      expect(plain.takeBytes(), [7, 8]);
+
+      final nothing = io.InflatedChunks()..writeBytes(Uint8List(0));
+      expect(nothing.length, 0);
+      expect(nothing.takeBytes(), isEmpty);
+    });
+
+    test('pieces join once, in order, at their exact size', () {
+      final out = io.InflatedChunks()
+        ..writeBytes(Uint8List.fromList([1, 2]))
+        ..writeByte(3)
+        ..writeStream(InputMemoryStream(Uint8List.fromList([4, 5, 6])))
+        ..writeBytes(Uint8List.fromList([7]))
+        ..flush();
+      expect(out.length, 7);
+      final joined = out.takeBytes();
+      expect(joined, [1, 2, 3, 4, 5, 6, 7]);
+      expect(joined.buffer.lengthInBytes, 7);
+      expect(out.takeBytes(), same(joined), reason: 'no second join');
+
+      expect(out.subset(2), [3, 4, 5, 6, 7]);
+      expect(out.subset(1, 3), [2, 3]);
+      expect(out.subset(-2), [6, 7]);
+      expect(out.subset(0, -5), [1, 2]);
+
+      out.clear();
+      expect(out.length, 0);
+      expect(out.takeBytes(), isEmpty);
     });
   });
 

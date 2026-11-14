@@ -13,7 +13,7 @@ import 'package:archive/archive.dart';
 /// rejects a missing or truncated trailer, which is what [strict] means.
 ///
 /// The lenient path - every FlateDecode stream a page reads - goes through
-/// `decodeStream` into [_InflatedChunks] rather than `decodeBytes`. They run
+/// `decodeStream` into [InflatedChunks] rather than `decodeBytes`. They run
 /// the same native inflate under the same error rules; `decodeBytes` then
 /// copies each piece of output into a buffer that starts at 32 KB and doubles
 /// (copying again each time), and copies the result once more when that buffer
@@ -21,7 +21,7 @@ import 'package:archive/archive.dart';
 /// measured 10-30% off inflating a page's content or a scanned image.
 Uint8List inflateZlib(Uint8List data, {bool strict = false}) {
   if (strict) return const ZLibDecoder().decodeBytes(data, verify: true);
-  final output = _InflatedChunks();
+  final output = InflatedChunks();
   // Throws on damaged data, as decodeBytes(throwOnError: true) does, so a
   // false return never gets here.
   const ZLibDecoder()
@@ -37,8 +37,11 @@ Uint8List inflateZlib(Uint8List data, {bool strict = false}) {
 /// given), so a piece is held, not copied. A stream that inflates to a single
 /// piece - most content streams and nearly every small object - is returned
 /// as that piece, with no copy at all.
-class _InflatedChunks extends OutputStream {
-  _InflatedChunks() : super(byteOrder: ByteOrder.littleEndian);
+///
+/// Public only so the tests can reach the branches the native decoder never
+/// takes (a partial write, a view, a plain list); nothing exports this file.
+class InflatedChunks extends OutputStream {
+  InflatedChunks() : super(byteOrder: ByteOrder.littleEndian);
 
   final List<Uint8List> _chunks = [];
 
