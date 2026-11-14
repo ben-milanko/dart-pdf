@@ -35,5 +35,11 @@ Iteration notes:
 - A procedurally generated "cursive" signature looked like a spring. The
   current signature is hand-placed keypoints with Catmull-Rom smoothing.
 
+- The first phone capture was 390x600, cut short to hide the grey area
+  under the page, so the frame was much squatter than a phone. It is now
+  390x844, with a CSS status bar and camera cutout. The sample agreement
+  gained a second page (Schedule A), so the extra height shows that page
+  instead of grey.
+
 The pipeline is in `doc/marketing/hero/README.md`. `editor-screenshot.png`
 stays on the SDK page and the guides, where the renderer showcase fits.

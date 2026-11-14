@@ -6,7 +6,7 @@ const { chromium, devices } = require('playwright');
      isMobile: mobile==='1', hasTouch: mobile==='1' });
   const p = await ctx.newPage();
   await p.goto('http://localhost:8765/');
-  await p.waitForTimeout(8000);
+  await p.waitForTimeout(+(process.env.BOOT||8000));
   const fc = p.waitForEvent('filechooser', {timeout: 15000});
   // click "Open a PDF" - centered button left of center
   const [ox, oy] = (process.env.OPEN||'').split(',').map(Number);

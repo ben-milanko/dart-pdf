@@ -78,6 +78,29 @@ for i, (who, nm) in enumerate([("Client signature", "client_sig"), ("Studio sign
     c.setFont("Helvetica", 8); c.setFillColor(grey); c.drawString(x, sy-12, who.upper())
     geo[nm] = [x, sy, x+w, sy+44]
 c.setFont("Helvetica-Oblique", 7.5); c.setFillColor(grey)
-c.drawString(L, 60, "Northwind Studio · 14 Harbour Lane · Page 1 of 1")
+c.drawString(L, 60, "Northwind Studio · 14 Harbour Lane · Page 1 of 2")
+c.showPage()
+
+# Page 2: Schedule A, so a tall phone shows the next page under page 1.
+c.setFillColor(HexColor("#0f8fd6")); c.roundRect(L, H-56, 22, 22, 5, fill=1, stroke=0)
+c.setFillColor(ink); c.setFont("Helvetica-Bold", 11); c.drawString(L+30, H-49, "Northwind Studio")
+c.setFont("Helvetica", 8.5); c.setFillColor(grey); c.drawRightString(R, H-49, "Agreement No. NW-2026-118")
+c.setStrokeColor(rule); c.setLineWidth(0.8); c.line(L, H-68, R, H-68)
+c.setFillColor(ink); c.setFont("Helvetica-Bold", 16); c.drawString(L, H-96, "Schedule A: Deliverables")
+rows = [("Deliverable", "Format", "Due"),
+        ("Logo suite (primary, mark, mono)", "SVG, PNG, PDF", "Week 2"),
+        ("Colour palette", "ASE, PDF", "Week 3"),
+        ("Type system", "PDF", "Week 3"),
+        ("One-page style guide", "PDF, Figma", "Week 4"),
+        ("Editable source files", "Figma, AI", "Week 4")]
+y = H-130
+for i, (a, b, d) in enumerate(rows):
+    c.setFont("Helvetica-Bold" if i == 0 else "Helvetica", 9.6)
+    c.setFillColor(grey if i == 0 else HexColor("#2f3644"))
+    c.drawString(L, y, a); c.drawString(L+270, y, b); c.drawRightString(R, y, d)
+    c.setStrokeColor(rule); c.line(L, y-8, R, y-8)
+    y -= 26
+c.setFont("Helvetica-Oblique", 7.5); c.setFillColor(grey)
+c.drawString(L, 60, "Northwind Studio · 14 Harbour Lane · Page 2 of 2")
 c.showPage(); c.save()
 json.dump(geo, open(sys.argv[2], "w"), indent=1)
