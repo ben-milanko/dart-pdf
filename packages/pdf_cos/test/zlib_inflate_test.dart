@@ -111,6 +111,82 @@ void main() {
     });
   });
 
+  // The decoder every FlateDecode stream goes through on this platform: the
+  // native one on the VM (which collects zlib's output in pieces and joins
+  // them once), the pure-Dart one under dart2js.
+  group('inflateZlib', () {
+    test('decodes outputs far larger than one piece of native output', () {
+      final samples = {
+        'text': _text(3 << 20),
+        'noise': _noise(1 << 20),
+        'run': Uint8List(2 << 20)..fillRange(0, 2 << 20, 0x41),
+      };
+      for (final MapEntry(key: name, value: data) in samples.entries) {
+        for (final level in [0, 1, 6]) {
+          final inflated = inflateZlib(_zlib(data, level: level));
+          // length first: a mismatch should not print megabytes
+          expect(inflated.length, data.length, reason: '$name at $level');
+          expect(_same(inflated, data), isTrue, reason: '$name at $level');
+        }
+      }
+    });
+
+    test('returns a buffer of its own, no larger than it needs', () {
+      for (final data in [
+        Uint8List(0),
+        _text(10),
+        _text(20000),
+        _noise(50000),
+        _text(1 << 20),
+      ]) {
+        for (final level in [0, 6]) {
+          final zlib = _zlib(data, level: level);
+          final first = inflateZlib(zlib);
+          expect(first.buffer.lengthInBytes,
+              lessThanOrEqualTo(data.length * 17 ~/ 16),
+              reason: '${data.length} bytes at level $level');
+          // A decoded stream is cached and shared; a second decode must not
+          // hand out memory the first one still owns.
+          final second = inflateZlib(zlib);
+          if (first.isNotEmpty) {
+            first[0] ^= 0xff;
+            expect(second[0], data[0]);
+          }
+          expect(_same(second, data), isTrue);
+        }
+      }
+    });
+
+    test('is not confused by input that is a view into a larger buffer', () {
+      final padded = Uint8List.fromList([9, 9, 9, ...encoded, 7, 7, 7, 7]);
+      final view = Uint8List.sublistView(padded, 3, 3 + encoded.length);
+      expect(inflateZlib(view), text);
+    });
+
+    test('ignores bytes after the stream', () {
+      for (final tail in [
+        [0x0a],
+        [0x0d, 0x0a],
+        _noise(5000, seed: 3),
+      ]) {
+        final withTail = Uint8List.fromList([...encoded, ...tail]);
+        expect(inflateZlib(withTail), text, reason: '${tail.length} bytes');
+      }
+    });
+
+    test('keeps what a truncated stream decoded, unless strict', () {
+      final big = _text(1 << 20);
+      final zlib = _zlib(big);
+      final truncated = Uint8List.sublistView(zlib, 0, zlib.length ~/ 2);
+      final partial = inflateZlib(truncated);
+      expect(partial.length, inInclusiveRange(1, big.length - 1));
+      expect(
+          _same(partial, Uint8List.sublistView(big, 0, partial.length)), isTrue,
+          reason: 'what was recovered is a prefix of the data');
+      expect(() => inflateZlib(truncated, strict: true), throwsFormatException);
+    });
+  });
+
   group('FlateFilter', () {
     test('decodes a stream with a trailing EOL', () {
       final stream = CosStream(
@@ -189,6 +265,14 @@ void main() {
       expect(sampleOf(CosDocument.open(result.bytes)).rawBytes, payload);
     });
   });
+}
+
+bool _same(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 Uint8List _zlib(Uint8List data, {int level = 6}) =>
