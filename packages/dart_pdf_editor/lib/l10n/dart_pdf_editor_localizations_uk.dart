@@ -1178,6 +1178,18 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Очистити пошук';
 
   @override
+  String get sidebarFilter => 'Фільтр анотацій';
+
+  @override
+  String get sidebarFilterType => 'Тип';
+
+  @override
+  String get sidebarFilterAuthor => 'Автор';
+
+  @override
+  String get sidebarFilterClear => 'Скинути фільтри';
+
+  @override
   String get sidebarDeleteSelected => 'Видалити вибрані';
 
   @override

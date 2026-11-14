@@ -1160,6 +1160,18 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Aramayı temizle';
 
   @override
+  String get sidebarFilter => 'Ek açıklamaları filtrele';
+
+  @override
+  String get sidebarFilterType => 'Tür';
+
+  @override
+  String get sidebarFilterAuthor => 'Yazar';
+
+  @override
+  String get sidebarFilterClear => 'Filtreleri temizle';
+
+  @override
   String get sidebarDeleteSelected => 'Seçilenleri sil';
 
   @override

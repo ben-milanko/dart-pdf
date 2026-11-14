@@ -1152,6 +1152,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => '清除搜索';
 
   @override
+  String get sidebarFilter => '筛选注释';
+
+  @override
+  String get sidebarFilterType => '类型';
+
+  @override
+  String get sidebarFilterAuthor => '作者';
+
+  @override
+  String get sidebarFilterClear => '清除筛选';
+
+  @override
   String get sidebarDeleteSelected => '删除所选';
 
   @override
@@ -3719,6 +3731,18 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get sidebarClearSearch => '清除搜尋';
+
+  @override
+  String get sidebarFilter => '篩選註解';
+
+  @override
+  String get sidebarFilterType => '類型';
+
+  @override
+  String get sidebarFilterAuthor => '作者';
+
+  @override
+  String get sidebarFilterClear => '清除篩選';
 
   @override
   String get sidebarDeleteSelected => '刪除選取項目';

@@ -1158,6 +1158,18 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'खोज साफ़ करें';
 
   @override
+  String get sidebarFilter => 'एनोटेशन फ़िल्टर करें';
+
+  @override
+  String get sidebarFilterType => 'प्रकार';
+
+  @override
+  String get sidebarFilterAuthor => 'लेखक';
+
+  @override
+  String get sidebarFilterClear => 'फ़िल्टर साफ़ करें';
+
+  @override
   String get sidebarDeleteSelected => 'चयनित हटाएँ';
 
   @override

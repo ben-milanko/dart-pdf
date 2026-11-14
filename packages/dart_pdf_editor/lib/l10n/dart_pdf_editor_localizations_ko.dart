@@ -1154,6 +1154,18 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => '검색 지우기';
 
   @override
+  String get sidebarFilter => '주석 필터';
+
+  @override
+  String get sidebarFilterType => '유형';
+
+  @override
+  String get sidebarFilterAuthor => '작성자';
+
+  @override
+  String get sidebarFilterClear => '필터 지우기';
+
+  @override
   String get sidebarDeleteSelected => '선택 항목 삭제';
 
   @override
