@@ -1158,6 +1158,18 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Clear search';
 
   @override
+  String get sidebarFilter => 'Filter annotations';
+
+  @override
+  String get sidebarFilterType => 'Type';
+
+  @override
+  String get sidebarFilterAuthor => 'Author';
+
+  @override
+  String get sidebarFilterClear => 'Clear filters';
+
+  @override
   String get sidebarDeleteSelected => 'Delete selected';
 
   @override
@@ -3773,6 +3785,18 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
   String get sidebarClearSearch => 'Clear search';
 
   @override
+  String get sidebarFilter => 'Filter annotations';
+
+  @override
+  String get sidebarFilterType => 'Type';
+
+  @override
+  String get sidebarFilterAuthor => 'Author';
+
+  @override
+  String get sidebarFilterClear => 'Clear filters';
+
+  @override
   String get sidebarDeleteSelected => 'Delete selected';
 
   @override
@@ -6386,6 +6410,18 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get sidebarClearSearch => 'Clear search';
+
+  @override
+  String get sidebarFilter => 'Filter annotations';
+
+  @override
+  String get sidebarFilterType => 'Type';
+
+  @override
+  String get sidebarFilterAuthor => 'Author';
+
+  @override
+  String get sidebarFilterClear => 'Clear filters';
 
   @override
   String get sidebarDeleteSelected => 'Delete selected';

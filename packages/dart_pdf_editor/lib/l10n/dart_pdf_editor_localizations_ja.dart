@@ -1154,6 +1154,18 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => '検索をクリア';
 
   @override
+  String get sidebarFilter => '注釈を絞り込む';
+
+  @override
+  String get sidebarFilterType => '種類';
+
+  @override
+  String get sidebarFilterAuthor => '作成者';
+
+  @override
+  String get sidebarFilterClear => 'フィルターをクリア';
+
+  @override
   String get sidebarDeleteSelected => '選択項目を削除';
 
   @override
