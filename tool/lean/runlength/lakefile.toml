@@ -1,0 +1,11 @@
+name = "runlength"
+defaultTargets = ["RunLength"]
+
+[[lean_lib]]
+name = "RunLength"
+
+# `lake exe oracle` works with an elan-installed toolchain. check.sh runs the
+# same file through the interpreter (`lean --run`) so it needs no C toolchain.
+[[lean_exe]]
+name = "oracle"
+root = "Main"
