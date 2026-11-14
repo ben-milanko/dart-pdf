@@ -21,6 +21,30 @@ String findRepoRoot([String? from]) {
   }
 }
 
+/// This process's own peak resident set size, in bytes.
+///
+/// Not `ProcessInfo.maxRss` on Linux: that is `ru_maxrss`, which survives
+/// `exec`, so a child starts with its *parent's* peak and can only report a
+/// larger one. A sweep child would then report the sweep driver's memory.
+/// `VmHWM` in /proc/self/status is the high-water mark of this process's own
+/// address space, which is what a per-file measurement means. Elsewhere, and
+/// if /proc is unreadable, `ProcessInfo.maxRss` is the best available.
+int peakRssBytes() {
+  if (Platform.isLinux) {
+    try {
+      for (final line in File('/proc/self/status').readAsLinesSync()) {
+        if (!line.startsWith('VmHWM:')) continue;
+        final kb =
+            int.tryParse(line.substring(6).replaceAll(RegExp('[^0-9]'), ''));
+        if (kb != null && kb > 0) return kb * 1024;
+      }
+    } on FileSystemException {
+      // fall through
+    }
+  }
+  return ProcessInfo.maxRss;
+}
+
 String _git(String repoRoot, List<String> args) {
   final r = Process.runSync('git', args, workingDirectory: repoRoot);
   return r.exitCode == 0 ? (r.stdout as String).trim() : '';
