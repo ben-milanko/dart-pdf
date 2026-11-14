@@ -11,6 +11,7 @@ import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
+import 'editing/page_menu_action.dart';
 import 'l10n/pdf_l10n.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
@@ -156,6 +157,7 @@ class PdfReader extends StatefulWidget {
     this.textMenuEntries,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
+    this.pageMenuActionsBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -217,6 +219,7 @@ class PdfReader extends StatefulWidget {
     this.textMenuEntries,
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
+    this.pageMenuActionsBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -367,6 +370,12 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.onContextMenuRequested].
   final PdfContextMenuHost? onContextMenuRequested;
+
+  /// Adds host entries to the right-click menu on each page thumbnail in the
+  /// reader's sidebar strip. The reader allows no page edits, so these are the
+  /// only rows that menu shows, and it opens only when this is set. Called per
+  /// right-click with the clicked page; see [PdfPageMenuActionsBuilder].
+  final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
 
   /// See [PdfViewer.pageLayout].
   final PdfPageLayout pageLayout;
@@ -655,6 +664,7 @@ class _PdfReaderState extends State<PdfReader> {
                 showAnnotations: prefs.showAnnotations,
                 hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: false,
+                pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
                 // group the tiles into the same spreads the viewer shows
                 pageLayout: prefs.twoPageView
                     ? widget.pageLayout
@@ -829,6 +839,7 @@ class _PdfReaderState extends State<PdfReader> {
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,
         onLaunchUrl: widget.onLaunchUrl,
+        pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         pageLayout: widget.pageLayout,
         initialFit: widget.initialFit,

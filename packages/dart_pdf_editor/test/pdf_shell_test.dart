@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 import 'dart:ui' show SemanticsFlag;
 
-import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, kSecondaryMouseButton;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
@@ -220,6 +221,73 @@ void main() {
         ),
         findsNothing,
       );
+    });
+
+    testWidgets('a reader thumbnail menu carries only the host entries',
+        (tester) async {
+      // tall enough for every tile in the strip to be on screen
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final picked = <int>[];
+      List<int>? selection;
+      await pump(
+        tester,
+        PdfReader(
+          bytes: buildMultiPagePdf(3),
+          pageMenuActionsBuilder: (context, pageIndex, selected) {
+            selection = selected;
+            return [
+              PdfPageMenuAction(
+                key: 'host-copy-link',
+                label: 'Copy link to page ${pageIndex + 1}',
+                onSelected: () => picked.add(pageIndex),
+              ),
+            ];
+          },
+        ),
+      );
+
+      await tester.tap(
+          find.descendant(
+              of: find.byType(PdfThumbnailSidebar),
+              matching: find.text('Page 3')),
+          buttons: kSecondaryMouseButton,
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(selection, [2]);
+      expect(find.text('Copy link to page 3'), findsOneWidget);
+      // the reader allows no page edits, so none of the built-in rows show
+      expect(find.byKey(const ValueKey('pdf-thumbnail-menu-rotate-right')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-thumbnail-menu-delete')),
+          findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('host-copy-link')));
+      await tester.pumpAndSettle();
+      expect(picked, [2]);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('without host entries a reader thumbnail opens no menu',
+        (tester) async {
+      // tall enough for every tile in the strip to be on screen
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(tester, PdfReader(bytes: buildMultiPagePdf(3)));
+
+      await tester.tap(
+          find.descendant(
+              of: find.byType(PdfThumbnailSidebar),
+              matching: find.text('Page 2')),
+          buttons: kSecondaryMouseButton,
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PopupMenuItem), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
     });
 
     testWidgets('bookmarks panel navigates in reader mode', (tester) async {
