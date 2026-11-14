@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Extract PDF pages into a new file | DartPDF</title>
+  <meta name="description" content="Save selected PDF pages as a separate file in DartPDF. Keep the original, choose the pages, and check the exported copy. Free in the desktop browser." />
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+  <link rel="canonical" href="https://dart-pdf.com/guides/extract-pdf-pages" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="DartPDF" />
+  <meta property="og:title" content="Extract PDF pages into a new file | DartPDF" />
+  <meta property="og:description" content="Save selected PDF pages as a separate file in DartPDF. Keep the original, choose the pages, and check the exported copy. Free in the desktop browser." />
+  <meta property="og:url" content="https://dart-pdf.com/guides/extract-pdf-pages" />
+  <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Extract PDF pages into a new file | DartPDF" />
+  <meta name="twitter:description" content="Save selected PDF pages as a separate file in DartPDF. Keep the original, choose the pages, and check the exported copy. Free in the desktop browser." />
+  <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0169b4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #ffffff;
+      --bg: #fbfcfd;
+      --ink: #202124;
+      --ink-soft: #3c4043;
+      --grey: #6b7177;
+      --line: #e7ebee;
+      --line-soft: #eef2f5;
+      --tint: #c6e3f8;
+      --tint-soft: #eaf5fe;
+      --blue: #0169b4;
+      --blue-bright: #16bafd;
+      --amber: #ffc93c;
+      --dark: #1a1b1d;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --maxw: 1180px;
+      --article: 760px;
+      --grad: linear-gradient(135deg, #16bafd 0%, #0169b4 100%);
+      --shadow-sm: 0 1px 2px rgba(32, 33, 36, .06), 0 1px 3px rgba(32, 33, 36, .05);
+      --shadow-md: 0 12px 36px rgba(32, 33, 36, .09), 0 3px 10px rgba(32, 33, 36, .05);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 94px;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      line-height: 1.65;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -.025em;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 66px);
+      max-width: 900px;
+    }
+
+    h2 {
+      margin-top: 64px;
+      font-size: clamp(27px, 3.4vw, 38px);
+    }
+
+    h3 {
+      margin-top: 34px;
+      font-size: 21px;
+    }
+
+    p {
+      margin: 18px 0 0;
+      text-wrap: pretty;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      text-decoration-thickness: 2px;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    :not(pre)>code {
+      padding: .14em .38em;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f6f8fa;
+      font-size: .88em;
+    }
+
+    ::selection {
+      background: rgba(255, 201, 60, .55);
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 252, 253, .88);
+      backdrop-filter: saturate(180%) blur(14px);
+    }
+
+    .nav {
+      display: flex;
+      min-height: 70px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-size: 19px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .brand img {
+      width: 31px;
+      height: 31px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .nav-links a {
+      color: var(--ink-soft);
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--blue);
+    }
+
+    .nav-cta {
+      padding: 9px 14px;
+      border-radius: 9px;
+      background: var(--grad);
+      color: #fff !important;
+      box-shadow: 0 6px 16px -7px rgba(1, 105, 180, .7);
+    }
+
+    .hero {
+      padding: 74px 0 56px;
+      border-bottom: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 78% 6%, rgba(22, 186, 253, .13), transparent 30%),
+        linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+    }
+
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .crumbs a {
+      color: var(--grey);
+    }
+
+    .eyebrow {
+      margin: 0 0 16px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .dek {
+      max-width: 820px;
+      margin-top: 24px;
+      color: var(--ink-soft);
+      font-size: clamp(18px, 2.2vw, 23px);
+      line-height: 1.55;
+    }
+
+    .answer {
+      max-width: 860px;
+      margin-top: 32px;
+      padding: 22px 24px;
+      border: 1px solid var(--tint);
+      border-left: 5px solid var(--blue-bright);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+      font-size: 17px;
+    }
+
+    .answer p {
+      margin: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 16px;
+      margin-top: 24px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .meta a {
+      font-weight: 700;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: var(--shadow-sm);
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+      color: #fff;
+    }
+
+    .article-grid {
+      display: grid;
+      grid-template-columns: minmax(0, var(--article)) 250px;
+      gap: 70px;
+      align-items: start;
+      padding-top: 52px;
+      padding-bottom: 90px;
+    }
+
+    article {
+      min-width: 0;
+    }
+
+    article>p,
+    article>ul,
+    article>ol {
+      color: var(--ink-soft);
+      font-size: 16px;
+    }
+
+    article ul,
+    article ol {
+      margin: 18px 0 0;
+      padding-left: 24px;
+    }
+
+    article li+li {
+      margin-top: 8px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 98px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .toc a {
+      display: block;
+      padding: 7px 0;
+      color: var(--grey);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--blue);
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step span {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--grad);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .step h2 {
+      margin-top: 0;
+    }
+
+    pre {
+      position: relative;
+      margin: 22px 0 0;
+      padding: 20px 22px;
+      overflow-x: auto;
+      border: 1px solid #30333a;
+      border-radius: var(--radius);
+      background: var(--dark);
+      color: #e8eaed;
+      font-size: 13.5px;
+      line-height: 1.65;
+      tab-size: 2;
+    }
+
+    .comment {
+      color: #9aa0a6;
+    }
+
+    .keyword {
+      color: #6fd0ff;
+    }
+
+    .string {
+      color: #a5d6a7;
+    }
+
+    .callout {
+      margin-top: 24px;
+      padding: 19px 21px;
+      border: 1px solid var(--tint);
+      border-radius: var(--radius);
+      background: var(--tint-soft);
+      color: var(--ink-soft);
+      font-size: 15px;
+    }
+
+    .callout strong {
+      color: var(--ink);
+    }
+
+    .shot {
+      margin: 30px 0 0;
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .shot figcaption {
+      margin-top: 10px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      margin-top: 24px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f9fb;
+      color: var(--ink);
+      font-size: 12px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .choice-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .choice {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+
+    .choice strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .choice p {
+      margin: 0;
+      color: var(--grey);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .faq {
+      margin-top: 20px;
+      padding-top: 4px;
+      border-top: 1px solid var(--line);
+    }
+
+    .faq h3 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+
+    .faq p {
+      color: var(--ink-soft);
+    }
+
+    .next {
+      margin-top: 64px;
+      padding: 30px;
+      border-radius: var(--radius-lg);
+      background: var(--dark);
+      color: #fff;
+    }
+
+    .next h2 {
+      margin-top: 0;
+      color: #fff;
+    }
+
+    .next p {
+      color: #c9cdd2;
+    }
+
+    .next .btn {
+      margin-top: 20px;
+      border-color: rgba(255, 255, 255, .18);
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+    }
+
+    .next .btn-primary {
+      border-color: transparent;
+      background: var(--grad);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      background: #f3f5f7;
+    }
+
+    .foot {
+      display: flex;
+      min-height: 88px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--grey);
+      font-size: 13px;
+    }
+
+    .foot a {
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .article-grid {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .toc {
+        display: none;
+      }
+
+      .choice-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .wrap {
+        padding: 0 20px;
+      }
+
+      .nav-links a:not(.nav-cta) {
+        display: none;
+      }
+
+      .hero {
+        padding: 48px 0 42px;
+      }
+
+      h1 {
+        font-size: clamp(35px, 12vw, 50px);
+      }
+
+      h2 {
+        margin-top: 52px;
+      }
+
+      .answer,
+      pre {
+        margin-right: -4px;
+        margin-left: -4px;
+      }
+
+      .answer {
+        padding: 18px;
+      }
+
+      pre {
+        padding: 18px;
+        font-size: 12.5px;
+      }
+
+      th,
+      td {
+        padding: 12px;
+      }
+
+      .foot {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+    }
+  </style>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "mainEntityOfPage": "https://dart-pdf.com/guides/extract-pdf-pages",
+  "headline": "Extract PDF pages into a new file.",
+  "description": "Save selected PDF pages as a separate file in DartPDF. Keep the original, choose the pages, and check the exported copy. Free in the desktop browser.",
+  "author": {
+    "@type": "Organization",
+    "name": "DartPDF"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "DartPDF"
+  }
+}
+</script>
+</head>
+
+<body><header><div class="wrap nav"><a class="brand" href="/"><img src="/assets/favicon.svg" alt="" />DartPDF</a><nav class="nav-links" aria-label="Primary navigation"><a href="/#download">Downloads</a><a href="/support">Support</a><a class="nav-cta" href="https://app.dart-pdf.com">Open the editor</a></nav></div></header><main><section class="hero"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><a href="/">DartPDF</a><span aria-hidden="true">/</span><span>Extract PDF pages into a new file</span></nav><p class="eyebrow">PDF task guide</p><h1>Extract PDF pages into a new file.</h1><p class="dek">Send just the pages someone needs. Use the Pages panel in the desktop browser editor to export a selection while keeping the original PDF.</p><div class="hero-actions"><a class="btn btn-primary" href="https://app.dart-pdf.com">Open DartPDF in your browser</a><a class="btn" href="/#download">Get the desktop app</a></div></div></section><div class="wrap article-grid"><article><section><h2>Save selected pages</h2><ol><li>Open your PDF in DartPDF's desktop browser editor.</li><li>Open the <strong>Pages</strong> panel.</li><li>Click the first thumbnail you need, then Shift-click the last thumbnail in the range. To keep pages 2 and 3, click page 2 and Shift-click page 3.</li><li>Check that the selection count is correct, then choose <strong>Export selected pages</strong>.</li><li>Open the downloaded PDF. Check its page count, order and contents, then give it a distinct filename if needed.</li></ol></section><section><h2>Check the exported copy</h2><p>Printed page numbers can keep their original values. A two-page exported PDF may still display page labels 2 and 3 inside the document. Use the viewer's page count as well as the printed labels when checking the result.</p><p>The browser may add a number to the filename when you export more than once. Open the newest download rather than an earlier copy.</p></section><section><h2>What page extraction does not do</h2><p>Page extraction is not redaction or a metadata-cleaning tool. Do not use it as proof that sensitive information has been removed from a file.</p><p>Keep any digitally signed original separately. The extracted document is a new file, not the original signed PDF.</p></section><section><h2>Need to send the whole PDF?</h2><p><a href="/guides/compress-pdf">Reduce the PDF's file size</a> instead. Start lossless and inspect a separate saved copy before sharing it.</p></section><section class="next"><h2>Keep a copy you can check.</h2><p>Open the result and check the pages before sharing it. Your original file stays available.</p><a class="btn btn-primary" href="https://app.dart-pdf.com">Open the PDF editor</a></section><p>Related: <a href="/guides/fill-pdf-forms">fill a PDF form and save a copy</a>.</p></article></div></main><footer><div class="wrap foot"><span>© Ben Milanko · <a href="/">DartPDF</a> · <a href="/privacy">Privacy</a></span><span>AI-assisted guide by Alder, Ben Milanko's AI assistant.</span></div></footer></body></html>
