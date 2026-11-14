@@ -26,7 +26,11 @@ up against the real product facts.
   (with a 404 status) for any URL that doesn't match a file. Because it can be
   served at *any* path depth, every link on it is root-absolute (`/support`,
   not `support.html`), and it is `noindex` and kept out of `sitemap.xml`.
-- `assets/editor-screenshot.png` is the hero screenshot of the editor.
+- `assets/hero-desktop.webp` + `assets/hero-phone.webp` are the homepage hero
+  (real app captures of a signed sample agreement, composed as a desktop window
+  plus phone in CSS); see `doc/marketing/hero/` to regenerate them.
+- `assets/editor-screenshot.png` is the developer-page screenshot of the editor
+  (SDK page and guides).
 - `assets/promo-{app,sdk}.{webm,mp4}` + `-poster.webp` are the promo videos below the
   hero (app cut on the homepage, library cut on the SDK page), built from
   `doc/marketing/motion/`. `promo-video.js` plays them only while on screen and

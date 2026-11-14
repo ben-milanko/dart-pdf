@@ -278,8 +278,8 @@
     .hero-inner {
       position: relative;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
-      gap: 56px;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, min(620px, 46%));
+      gap: 48px;
       align-items: center;
     }
 
@@ -329,27 +329,65 @@
       display: inline-block;
     }
 
-    /* device frame */
+    /* hero visual: desktop window + phone, both real app captures */
+    .hero-visual {
+      position: relative;
+      padding: 0 0 56px 0;
+      margin-right: 28px;
+    }
+
     .device {
       position: relative;
-      border-radius: var(--radius-lg);
-      background: #000;
-      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 14px;
+      background: #fff;
+      border: 1px solid rgba(16, 42, 67, .10);
       box-shadow: var(--shadow-lg);
       overflow: hidden;
+    }
+
+    .device-bar {
+      display: flex;
+      gap: 6px;
+      padding: 9px 12px;
+      background: #eef1f6;
+      border-bottom: 1px solid rgba(16, 42, 67, .08);
+    }
+
+    .device-bar i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #cfd6e0;
     }
 
     .device-shot {
       display: block;
       width: 100%;
       height: auto;
-      background: #000;
+    }
+
+    .phone {
+      position: absolute;
+      right: -28px;
+      bottom: 0;
+      width: 30%;
+      padding: 6px;
+      border-radius: 26px;
+      background: #14171c;
+      box-shadow: 0 30px 60px -24px rgba(16, 42, 67, .55), 0 10px 24px -12px rgba(16, 42, 67, .35);
+    }
+
+    .phone img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 20px;
     }
 
     .device-tag {
       position: absolute;
-      right: -14px;
-      bottom: 26px;
+      left: -18px;
+      bottom: 22px;
       z-index: 3;
       background: var(--paper);
       border: 1px solid var(--line);
@@ -1116,8 +1154,14 @@
         grid-template-columns: repeat(2, 1fr);
       }
 
+      .hero-visual {
+        max-width: 640px;
+        margin: 0 auto;
+        width: calc(100% - 28px);
+      }
+
       .device-tag {
-        right: 14px;
+        left: -10px;
       }
 
       .nav-links {
@@ -1356,19 +1400,26 @@
         <p class="hero-note"><span class="dot"></span> <span data-i18n="hero_note">Free and open source. No account. No uploads.</span></p>
       </div>
       <div class="reveal" style="transition-delay:.08s;">
-        <div class="device">
-          <img class="device-shot" src="assets/editor-screenshot.png" width="2208" height="1552"
-            data-i18n-attr="alt:hero_shotAlt"
-            alt="The DartPDF editor showing a PDF with annotation tools, page thumbnails, and a color palette."
-            loading="eager" />
+        <div class="hero-visual">
+          <div class="device">
+            <div class="device-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <img class="device-shot" src="assets/hero-desktop.webp" width="1312" height="1184"
+              data-i18n-attr="alt:hero_shotAlt"
+              alt="The DartPDF editor with a signed agreement: filled form fields, highlighted clauses, a comment, and a handwritten signature."
+              loading="eager" fetchpriority="high" />
+          </div>
+          <div class="phone" aria-hidden="true">
+            <img src="assets/hero-phone.webp" width="585" height="900" alt="" loading="eager" />
+          </div>
           <div class="device-tag">
             <span class="swatch" aria-hidden="true">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
                 stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 6 9 17l-5-5" />
+                <rect x="5" y="11" width="14" height="10" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" />
               </svg>
             </span>
-            <span data-i18n="hero_deviceTag">Local</span>
+            <span data-i18n="hero_deviceTag">Stays on your device</span>
           </div>
         </div>
       </div>
