@@ -7,6 +7,41 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('a Type3 code with nothing to draw stays blank, and still advances', () {
+    // Code 32 has no CharProc and code 66's is empty: neither draws, on first
+    // sight or once the interpreter has learnt it, and the glyphs after them
+    // land where the widths put them.
+    const content = 'BT /T3 10 Tf 100 700 Td (A AB A) Tj (A B A) Tj ET';
+    const square = '1000 0 d0 0 0 1000 1000 re f';
+    const empty = '';
+    final doc = PdfDocument.open(_assemblePdf([
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+          '/Resources << /Font << /T3 5 0 R >> >> >>',
+      '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+      '<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] '
+          '/FontMatrix [0.001 0 0 0.001 0 0] '
+          '/CharProcs << /A 6 0 R /B 7 0 R >> '
+          '/Encoding << /Type /Encoding /Differences [65 /A /B] >> '
+          '/FirstChar 32 /LastChar 66 /Widths [500 ${List.filled(32, 0).join(' ')} '
+          '1000 1000] /Resources << >> >>',
+      '<< /Length ${square.length} >>\nstream\n$square\nendstream',
+      '<< /Length ${empty.length} >>\nstream\n$empty\nendstream',
+    ]));
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+    final stamps =
+        recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
+
+    // "A AB A" then "A B A": five A's, at pen 0, 15, 40 and then 50, 80 (A
+    // and B advance 10, the space 5), relative to the first.
+    expect([for (final s in stamps) s.originsX.single],
+        [0.0, 15.0, 40.0, 50.0, 80.0].map((x) => closeTo(x, 1e-9)));
+    expect({for (final s in stamps) identityHashCode(s.cellCommands)},
+        hasLength(1));
+  });
+
   test('a Type3 glyph is recorded once per state it is shown in', () {
     // Each occurrence stamps a recorded cell; occurrences that differ only by
     // position share one, and anything the recording bakes in - the glyph,
