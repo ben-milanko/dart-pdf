@@ -168,6 +168,55 @@ RecordingPdfDevice _record(CosDocument doc, String content) {
 }
 
 void main() {
+  test('strings of every shape cross the seam unchanged', () {
+    // ASCII strings are copied in without the UTF-8 encoder, and a one-byte
+    // glyph text is read back without the decoder; everything else takes the
+    // ordinary path. Each must read back exactly what was written.
+    const texts = <String?>[
+      'a', // one ASCII byte: the fast read
+      '\u007f', // the last ASCII code unit
+      '\u0080', // the first that needs two bytes
+      '\u00e9',
+      'fi', // a ligature's expansion
+      '', // a glyph that maps to nothing
+      null, // a glyph with no mapping at all
+      '\u65e5',
+      '\u{1F600}', // a surrogate pair
+      'plain ascii, longer than one byte',
+      'mixed: caf\u00e9 \u65e5\u672c',
+    ];
+    final run = PdfTextRun(
+      text: texts.whereType<String>().join(),
+      transform: const PdfMatrix(12, 0, 0, 12, 72, 700),
+      color: const PdfColor(0, 0, 0),
+      width: 9.5,
+      fontName: 'ABCDEF+Caf\u00e9Sans',
+      glyphs: [
+        for (var i = 0; i < texts.length; i++)
+          PdfGlyphPlacement(offset: i * 0.5, text: texts[i]),
+      ],
+    );
+    final plain = PdfTextRun(
+      text: 'ascii only',
+      transform: const PdfMatrix(12, 0, 0, 12, 72, 680),
+      color: const PdfColor(0, 0, 0),
+      width: 5,
+      fontName: 'Helvetica',
+    );
+    final restored = deserializeCommands(serializeCommands(
+            [PdfDrawTextCommand(run), PdfDrawTextCommand(plain)])!)
+        .cast<PdfDrawTextCommand>();
+
+    expect(restored[0].run.text, run.text);
+    expect(restored[0].run.fontName, run.fontName);
+    expect([for (final g in restored[0].run.glyphs!) g.text], texts);
+    expect([for (final g in restored[0].run.glyphs!) g.offset],
+        [for (final g in run.glyphs!) g.offset]);
+    expect(restored[1].run.text, plain.text);
+    expect(restored[1].run.fontName, plain.fontName);
+    expect(restored[1].run.glyphs, isNull);
+  });
+
   group('synthetic round-trip', () {
     final cases = <String, String>{
       'fills and strokes':

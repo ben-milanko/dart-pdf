@@ -162,6 +162,11 @@ class PdfFontInfo {
     execute(ops, _type3Resources ?? CosDictionary(), PdfMatrix.row(matrix));
   }
 
+  /// Glyph space -> text space for a Type3 font (its /FontMatrix, §9.6.5), or
+  /// null for any other font - the matrix [renderGlyph] hands its `execute`.
+  late final PdfMatrix? type3GlyphMatrix =
+      _type3Matrix == null ? null : PdfMatrix.row(_type3Matrix);
+
   /// True when embedded glyph outlines are available.
   bool get hasOutlines => _trueType != null || _cff != null || _type1 != null;
 

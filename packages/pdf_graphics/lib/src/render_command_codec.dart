@@ -1994,7 +1994,7 @@ PdfTextRun _readTextRun(_Reader r) {
     for (var i = 0; i < n; i++) {
       final offset = r.f64();
       final offsetY = r.f64();
-      final text = r.strOpt();
+      final text = r.glyphText();
       final outline = _readGlyphOutline(r);
       glyphs[i] = PdfGlyphPlacement(
           offset: offset, offsetY: offsetY, outline: outline, text: text);
@@ -2498,6 +2498,24 @@ class _Writer {
   void boolean(bool v) => u8(v ? 1 : 0);
 
   void str(String s) {
+    // ASCII - a glyph's own text, a font name, most of a Latin run - is its
+    // own UTF-8: copy the code units straight in. A text run writes one of
+    // these per glyph, and going through the encoder allocated two lists for
+    // each. The first unit that needs encoding abandons the attempt.
+    final n = s.length;
+    _ensure(4 + n);
+    final start = _len + 4;
+    var i = 0;
+    for (; i < n; i++) {
+      final unit = s.codeUnitAt(i);
+      if (unit >= 0x80) break;
+      _buf[start + i] = unit;
+    }
+    if (i == n) {
+      _view.setUint32(_len, n);
+      _len = start + n;
+      return;
+    }
     final encoded = utf8.encode(s);
     u32(encoded.length);
     _ensure(encoded.length);
@@ -2629,6 +2647,22 @@ class _Reader {
     final s = utf8.decode(Uint8List.sublistView(_bytes, _o, _o + n));
     _o += n;
     return s;
+  }
+
+  /// [strOpt] for a glyph's own text ([PdfGlyphPlacement.text]), which is
+  /// nearly always one ASCII byte and is read once per glyph: that case needs
+  /// no decoder, no view to hand it, and on the VM no string allocated.
+  /// Anything else is [str]'s.
+  String? glyphText() {
+    if (!boolean()) return null;
+    if (_data.getUint32(_o) == 1) {
+      final byte = _bytes[_o + 4];
+      if (byte < 0x80) {
+        _o += 5;
+        return String.fromCharCode(byte);
+      }
+    }
+    return str();
   }
 
   String? strOpt() => boolean() ? str() : null;
