@@ -7,6 +7,44 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('a long mixed-width run keeps every code unit, through the wire', () {
+    // _showText assembles a run's text in a reused code-unit buffer. This run
+    // outgrows its initial size and mixes Latin-1, BMP, a ligature expansion
+    // (one code, two units) and an astral character (a surrogate pair).
+    const cycle = ['a', '\u00e9', 'fi', '\u65e5', '\u{1F600}', ' ', 'Z'];
+    final glyphs = [for (var i = 0; i < 230; i++) cycle[i % cycle.length]];
+    final expected = glyphs.join();
+    expect(expected.length, greaterThan(256));
+
+    final doc = PdfDocument.open(_buildArabicGlyphPdf(glyphs, embedded: false));
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPage(doc.page(0));
+    PdfTextRun runOf(List<PdfRenderCommand> commands) =>
+        commands.whereType<PdfDrawTextCommand>().single.run;
+
+    final run = runOf(recorder.commands);
+    expect(run.text, expected);
+    expect(run.charOffsets, hasLength(expected.length + 1));
+
+    // ... and a second, short run right after must not see its leftovers.
+    final again = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: again)
+      ..drawPage(doc.page(0))
+      ..run(
+          ContentStreamParser.parse(
+              Uint8List.fromList('BT /F1 9 Tf <07> Tj ET'.codeUnits)),
+          doc.page(0).resources);
+    expect(again.commands.whereType<PdfDrawTextCommand>().last.run.text, 'Z');
+
+    // The worker codec carries the run - text and float64 offsets - intact.
+    final wire = serializeCommands(recorder.commands, cos: doc.cos)!;
+    final decoded = runOf(deserializeCommands(wire));
+    expect(decoded.text, expected);
+    expect(decoded.charOffsets, run.charOffsets);
+    expect(decoded.width, run.width);
+    expect(decoded.transform.e, run.transform.e);
+  });
+
   test('extracts the fixture page text', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);

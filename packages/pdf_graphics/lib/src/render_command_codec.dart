@@ -74,7 +74,12 @@ import 'text_extraction.dart';
 /// Version 13: a text run carries [PdfTextRun.overlaysDrawnText] after its
 /// invisible flag, so search over a worker recording bands CAD text layers
 /// the way a fresh extraction does.
-const int _formatVersion = 13;
+///
+/// Version 14: float64 values are little-endian. `ByteData` byte-swaps every
+/// big-endian value on the (little-endian) hosts this runs on, and a text
+/// run's per-character offsets made that swap a third of a text page's
+/// encode and half of its decode. The integer fields stay big-endian.
+const int _formatVersion = 14;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -2411,8 +2416,10 @@ class _Writer {
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
   // scalars straight into a [ByteData] view of it at a running offset - no
-  // per-value allocation. Scalars are big-endian (ByteData's default); path
-  // coordinates go through [_floats] instead (see [_writePath]).
+  // per-value allocation. Integers are big-endian (ByteData's default) and
+  // float64 values little-endian - the host order everywhere this runs, so
+  // they skip ByteData's byte swap; path coordinates go through [_floats]
+  // instead (see [_writePath]).
   Uint8List _buf = Uint8List(1 << 16);
   late ByteData _view = ByteData.view(_buf.buffer);
 
@@ -2470,7 +2477,7 @@ class _Writer {
   // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
     _ensure(8);
-    _view.setFloat64(_len, v.toDouble());
+    _view.setFloat64(_len, v.toDouble(), Endian.little);
     _len += 8;
   }
 
@@ -2484,7 +2491,7 @@ class _Writer {
 
   void f64(double v) {
     _ensure(8);
-    _view.setFloat64(_len, v);
+    _view.setFloat64(_len, v, Endian.little);
     _len += 8;
   }
 
@@ -2515,13 +2522,13 @@ class _Writer {
       // the VM - and per-character offsets and tiled-cell origins arrive as
       // Float64List.
       for (var i = 0; i < xs.length; i++) {
-        _view.setFloat64(_len, xs[i]);
+        _view.setFloat64(_len, xs[i], Endian.little);
         _len += 8;
       }
       return;
     }
     for (final x in xs) {
-      _view.setFloat64(_len, x);
+      _view.setFloat64(_len, x, Endian.little);
       _len += 8;
     }
   }
@@ -2590,7 +2597,7 @@ class _Reader {
   }
 
   int i64() {
-    final v = _data.getFloat64(_o); // see [_Writer.i64] - float64-encoded
+    final v = _data.getFloat64(_o, Endian.little); // see [_Writer.i64]
     _o += 8;
     return v.toInt();
   }
@@ -2610,7 +2617,7 @@ class _Reader {
   }
 
   double f64() {
-    final v = _data.getFloat64(_o);
+    final v = _data.getFloat64(_o, Endian.little);
     _o += 8;
     return v;
   }
@@ -2638,7 +2645,7 @@ class _Reader {
   Float64List f64s(int n) {
     final out = Float64List(n);
     for (var i = 0; i < n; i++) {
-      out[i] = _data.getFloat64(_o);
+      out[i] = _data.getFloat64(_o, Endian.little);
       _o += 8;
     }
     return out;

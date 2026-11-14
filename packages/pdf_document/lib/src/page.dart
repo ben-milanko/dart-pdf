@@ -72,7 +72,8 @@ class PdfPage {
     return value is T ? value : inherited;
   }
 
-  CosArray? get _mediaBoxArray => _own<CosArray>('MediaBox', _inheritedMediaBox);
+  CosArray? get _mediaBoxArray =>
+      _own<CosArray>('MediaBox', _inheritedMediaBox);
   CosArray? get _cropBoxArray => _own<CosArray>('CropBox', _inheritedCropBox);
 
   /// US Letter, the conventional fallback for broken pages with no MediaBox
@@ -177,33 +178,52 @@ class PdfPage {
     return total;
   }
 
+  /// The page's content: its /Contents stream, or the streams of a /Contents
+  /// array joined into the one logical stream they form (§7.8.2).
+  ///
+  /// Treat the result as read-only. A page with a single content stream - the
+  /// common case - gets the document's decoded-stream bytes themselves
+  /// ([CosDocument.decodeStreamData]), not a copy of them: a dense drawing's
+  /// content runs to megabytes, and copying it for every interpretation was
+  /// several percent of the pass.
   Uint8List contentBytes() {
     final contents = document.cos.resolve(dict['Contents']);
-    final streams = <CosStream>[];
-    if (contents is CosStream) streams.add(contents);
-    if (contents is CosArray) {
-      for (final item in contents.items) {
-        final stream = document.cos.resolve(item);
-        if (stream is CosStream) streams.add(stream);
-      }
-    }
-    final out = BytesBuilder();
-    for (final stream in streams) {
-      // streams in a /Contents array form one logical stream; the separator
-      // keeps tokens from adjacent streams apart
-      final Uint8List data;
+    final parts = <Uint8List>[];
+    void decode(CosStream stream) {
       try {
-        data = document.cos.decodeStreamData(stream);
+        parts.add(document.cos.decodeStreamData(stream));
       } on Exception {
         // a content stream whose filters reject the payload renders as
         // empty rather than failing the whole page (corrupt real-world
         // files; the rest of the /Contents array still draws)
-        continue;
       }
-      if (out.isNotEmpty) out.addByte(0x0A);
-      out.add(data);
     }
-    return out.takeBytes();
+
+    if (contents is CosStream) decode(contents);
+    if (contents is CosArray) {
+      for (final item in contents.items) {
+        final stream = document.cos.resolve(item);
+        if (stream is CosStream) decode(stream);
+      }
+    }
+    if (parts.isEmpty) return Uint8List(0);
+    if (parts.length == 1) return parts.first;
+    // streams in a /Contents array form one logical stream; the separator
+    // keeps tokens from adjacent streams apart. An empty leading stream
+    // contributes nothing, separator included.
+    var total = 0;
+    for (final part in parts) {
+      if (total > 0) total++;
+      total += part.length;
+    }
+    final out = Uint8List(total);
+    var at = 0;
+    for (final part in parts) {
+      if (at > 0) out[at++] = 0x0A;
+      out.setRange(at, at + part.length, part);
+      at += part.length;
+    }
+    return out;
   }
 
   PdfRect? _toRect(CosArray? array) {
