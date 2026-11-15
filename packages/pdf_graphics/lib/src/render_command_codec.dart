@@ -12,6 +12,7 @@ import 'image_decode_cache.dart';
 import 'image_pixels.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'cell_image_requests.dart';
 import 'recording_device.dart' show RecordingPdfDevice;
 import 'render_command.dart';
 import 'shading.dart';
@@ -2394,19 +2395,14 @@ class PdfStreamingCommandWriter
     _flushScopes();
     // As [RecordingPdfDevice.drawTiledCell]: the cell's images, depth-first,
     // once per occurrence.
-    void walk(List<PdfRenderCommand> commands) {
-      for (final c in commands) {
-        if (c is PdfDrawImageCommand) {
-          imageRequests.add(c.request);
-        } else if (c is PdfEndSoftMaskedCommand) {
-          walk(c.maskCommands);
-        } else if (c is PdfDrawTiledCellCommand) {
-          walk(c.cellCommands);
-        }
+    final images = command.cellImages;
+    if (images != null) {
+      for (var i = 0; i < images.length; i++) {
+        imageRequests.add(images[i]);
       }
+    } else {
+      addCellImageRequests(command.cellCommands, imageRequests);
     }
-
-    walk(command.cellCommands);
     _emit(command);
     if (_frames.length == 1) _text?.add(command);
   }
