@@ -1,6 +1,6 @@
 # Changelog
 
-## 17.0.0+54
+## 16.1.0+54
 
 - Save edits back to the original PDF on Android and iOS when the file provider supports writing.
 - Filter annotations by type and author.

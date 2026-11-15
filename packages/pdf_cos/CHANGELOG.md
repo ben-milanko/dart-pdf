@@ -1,6 +1,6 @@
 # Changelog
 
-## 17.0.0
+## 16.1.0
 
 - Reduce output-buffer copying in native zlib decompression and avoid unnecessary name-token copies.
 

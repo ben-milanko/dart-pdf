@@ -1,6 +1,6 @@
-# Migrating to 17.0.0
+# Migrating to 16.1.0
 
-Update the eight established packages together to 17.0.0. The CLI remains 0.12.0, printing 0.13.0 and the GPU companion 0.14.0. Flutter packages require Flutter 3.50.0.
+Update the eight established packages together to 16.1.0. The CLI remains 0.12.0, printing 0.13.0 and the GPU companion 0.14.0. Flutter packages require Flutter 3.50.0.
 
 ## Custom localizations
 

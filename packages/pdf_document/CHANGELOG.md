@@ -1,6 +1,6 @@
 # Changelog
 
-## 17.0.0
+## 16.1.0
 
 - Reduce copying when reading page content streams.
 

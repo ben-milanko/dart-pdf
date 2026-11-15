@@ -1,6 +1,6 @@
 # Changelog
 
-## 17.0.0
+## 16.1.0
 
 - Reuse Type 3 glyph cells and their image lists, reduce render-command codec buffer copies and speed up text extraction.
 
