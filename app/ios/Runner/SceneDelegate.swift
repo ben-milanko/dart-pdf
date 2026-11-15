@@ -177,6 +177,45 @@ class SceneDelegate: FlutterSceneDelegate {
           }
         }
       }
+    case "writeUri":
+      guard let args = call.arguments as? [String: Any],
+        let token = args["token"] as? String,
+        let bytes = args["bytes"] as? FlutterStandardTypedData
+      else {
+        result(FlutterError(code: "bad_args", message: "writeUri expects token/bytes", details: nil))
+        return
+      }
+      fileIoQueue.async { [weak self] in
+        guard let self = self else { return }
+        let outcome = self.writeWhole(token, data: bytes.data)
+        DispatchQueue.main.async {
+          switch outcome {
+          case .failure(let reason):
+            result(FlutterError(code: "write_failed", message: reason, details: nil))
+          case .success(let refreshed?):
+            // A refreshed bookmark replaces the stale one Dart holds.
+            result(refreshed)
+          case .success(nil):
+            result(true)
+          }
+        }
+      }
+    case "readUri":
+      guard let token = (call.arguments as? [String: Any])?["token"] as? String
+      else {
+        result(FlutterError(code: "bad_args", message: "readUri expects a token", details: nil))
+        return
+      }
+      fileIoQueue.async { [weak self] in
+        let data = self?.readWhole(token)
+        DispatchQueue.main.async {
+          if let data = data {
+            result(FlutterStandardTypedData(bytes: data))
+          } else {
+            result(FlutterError(code: "read_failed", message: "read failed", details: nil))
+          }
+        }
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -220,6 +259,7 @@ class SceneDelegate: FlutterSceneDelegate {
     let token = bookmark.base64EncodedString()
     let values = try? url.resourceValues(forKeys: [
       .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemContainerDisplayNameKey,
+      .isWritableKey,
     ])
     let size = values?.fileSize ?? -1
     // Apple doesn't expose a third-party File Provider's display name from a
@@ -232,16 +272,30 @@ class SceneDelegate: FlutterSceneDelegate {
       "name": url.lastPathComponent,
       "length": size,
       "provider": provider,
+      // Save writes back into the picked file (#1304) only when the provider
+      // says it's writable; a read-only File Provider keeps sharing a copy.
+      // `.open` mode's security scope itself grants read/write.
+      "writable": values?.isWritable ?? false,
     ]
   }
 
   /// Resolves a base64 bookmark [token] back to its security-scoped URL.
   private func resolveToken(_ token: String) -> URL? {
+    return resolveTokenNotingStale(token)?.url
+  }
+
+  /// [resolveToken], also reporting whether the bookmark is stale: the file
+  /// moved or was renamed, or the volume changed. A stale bookmark still
+  /// resolves, but it should be re-minted before it stops resolving.
+  private func resolveTokenNotingStale(_ token: String) -> (url: URL, stale: Bool)? {
     guard let data = Data(base64Encoded: token) else { return nil }
     var stale = false
-    return try? URL(
-      resolvingBookmarkData: data, options: [], relativeTo: nil,
-      bookmarkDataIsStale: &stale)
+    guard
+      let url = try? URL(
+        resolvingBookmarkData: data, options: [], relativeTo: nil,
+        bookmarkDataIsStale: &stale)
+    else { return nil }
+    return (url, stale)
   }
 
   private func probeSeekable(_ token: String) -> Bool {
@@ -295,6 +349,67 @@ class SceneDelegate: FlutterSceneDelegate {
       defer { try? handle.close() }
       handle.seek(toFileOffset: UInt64(offset))
       result = handle.readData(ofLength: length)
+    }
+    return result
+  }
+
+  /// What `writeWhole` reports back to the `writeUri` handler.
+  private enum WriteOutcome {
+    /// Written; carries a refreshed base64 bookmark when the old one was stale.
+    case success(String?)
+    /// Not written, with the reason.
+    case failure(String)
+  }
+
+  /// Replaces the token's file with [data] - Save writing a picked document
+  /// back in place (#1304). A coordinated write (`.forReplacing`) so iCloud and
+  /// other File Providers see the change and sync it. Deliberately not
+  /// `.atomic`: an atomic write renames a sibling temp file into place, and
+  /// the picker's security scope covers this one file, not its folder.
+  ///
+  /// When the bookmark has gone stale (the file was moved or renamed since it
+  /// was picked), a fresh one is minted after the write, while the security
+  /// scope is still held, and returned. The Dart side swaps it in wherever the
+  /// old token was stored, so the save destination keeps resolving.
+  private func writeWhole(_ token: String, data: Data) -> WriteOutcome {
+    guard let resolved = resolveTokenNotingStale(token) else {
+      return .failure("bookmark unresolvable")
+    }
+    let url = resolved.url
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    var failure: String?
+    var coordError: NSError?
+    NSFileCoordinator().coordinate(
+      writingItemAt: url, options: .forReplacing, error: &coordError
+    ) { writeURL in
+      do {
+        try data.write(to: writeURL)
+      } catch {
+        failure = error.localizedDescription
+      }
+    }
+    if let coordError = coordError { return .failure(coordError.localizedDescription) }
+    if let failure = failure { return .failure(failure) }
+    // The write already succeeded; failing to re-mint just keeps the old token.
+    guard resolved.stale, let fresh = try? url.bookmarkData() else {
+      return .success(nil)
+    }
+    return .success(fresh.base64EncodedString())
+  }
+
+  /// Reads the token's whole file through a coordinated read - how a document
+  /// that saves in place reopens from the file itself (see `writeWhole`).
+  private func readWhole(_ token: String) -> Data? {
+    guard let url = resolveToken(token) else { return nil }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    var result: Data?
+    var coordError: NSError?
+    NSFileCoordinator().coordinate(
+      readingItemAt: url, options: [], error: &coordError
+    ) { readURL in
+      result = try? Data(contentsOf: readURL)
     }
     return result
   }

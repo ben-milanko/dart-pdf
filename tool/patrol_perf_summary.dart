@@ -17,7 +17,8 @@ void main(List<String> arguments) {
     stdout.writeln(
       'Usage: dart tool/patrol_perf_summary.dart <patrol-log> '
       '--output <directory> [--markdown <file>] [--baseline <json>] '
-      '[--label <platform>] [--require-scenario-runs <name>=<count>]',
+      '[--baseline-history <json>]... [--label <platform>] '
+      '[--require-scenario-runs <name>=<count>]',
     );
     exit(arguments.contains('--help') ? 0 : 64);
   }
@@ -26,6 +27,7 @@ void main(List<String> arguments) {
   String? output;
   String? markdownOutput;
   String? baselineInput;
+  final baselineHistoryInputs = <String>[];
   var label = 'web';
   final requiredScenarioRuns = <String, int>{};
   for (var i = 1; i < arguments.length; i++) {
@@ -36,6 +38,9 @@ void main(List<String> arguments) {
         markdownOutput = _nextArgument(arguments, ++i, '--markdown');
       case '--baseline':
         baselineInput = _nextArgument(arguments, ++i, '--baseline');
+      case '--baseline-history':
+        baselineHistoryInputs
+            .add(_nextArgument(arguments, ++i, '--baseline-history'));
       case '--label':
         label = _nextArgument(arguments, ++i, '--label');
       case '--require-scenario-runs':
@@ -89,9 +94,25 @@ void main(List<String> arguments) {
       stderr.writeln('Patrol baseline is not a JSON object: $baselineInput');
       exit(65);
     }
+    // Earlier `main` artifacts only widen what counts as ordinary variation,
+    // so one that is missing or unreadable is skipped, never fatal.
+    final history = <Map<String, dynamic>>[];
+    for (final path in baselineHistoryInputs) {
+      try {
+        final older = jsonDecode(File(path).readAsStringSync());
+        if (older is Map<String, dynamic>) {
+          history.add(older);
+          continue;
+        }
+      } on Exception {
+        // Reported below.
+      }
+      stderr.writeln('Skipping unreadable Patrol baseline history: $path');
+    }
     final comparison = PatrolPerfComparison(
       baseline: decoded,
       current: current,
+      history: history,
     );
     headline = comparison.toHeadlineMarkdown(label: label);
     markdown += comparison.toMarkdown(label: label);
@@ -579,11 +600,61 @@ class PatrolPerfTrace {
 /// CanvasKit startup, and headless Chrome all add noise. Structural paths and
 /// outcomes sit beside the timings so a reviewer can distinguish a genuinely
 /// different render/reconcile route from ordinary wall-clock variance.
+///
+/// The `main` artifact was measured by a different run on a different
+/// machine, and runners differ by tens of percent - far more than the
+/// repeats inside one run do, so a tight sample set on each side says
+/// nothing about it. [history] holds earlier `main` artifacts for exactly
+/// that: where `main` alone has been across its recent runs is the yardstick
+/// for whether the PR's number is news ([mainRunRange]).
 class PatrolPerfComparison {
-  const PatrolPerfComparison({required this.baseline, required this.current});
+  const PatrolPerfComparison({
+    required this.baseline,
+    required this.current,
+    this.history = const [],
+  });
 
   final Map<String, dynamic> baseline;
   final Map<String, Object?> current;
+
+  /// Earlier `main` artifacts, each from a run (and a runner) of its own.
+  final List<Map<String, dynamic>> history;
+
+  /// The lowest and highest value `main` reported at [path] across
+  /// [baseline] and [history], or null when fewer than
+  /// [minMainRunsForRange] of them carry one.
+  PatrolMainRunRange? mainRunRange(List<String> path) =>
+      _mainRunRange(baseline, history, path);
+
+  /// The percentage change of a timing at [path], or [_withinMainRunRange]
+  /// when the PR's value is somewhere `main` itself has recently been.
+  String _timingDelta(num? before, num? after, List<String> path) {
+    final range = mainRunRange(path);
+    if (range != null && range.contains(after)) return _withinMainRunRange;
+    return _percentDelta(before, after);
+  }
+
+  /// One sentence per report on how the run-to-run label was arrived at,
+  /// with `main`'s own range for each scenario; null without enough history.
+  String? _mainRunRangeNote(List<String> scenarios) {
+    final ranges = <String>[];
+    var runs = 0;
+    for (final scenario in scenarios) {
+      final range =
+          mainRunRange(['scenarioMetrics', scenario, 'elapsedMs', 'p50']);
+      if (range == null) continue;
+      if (range.runs > runs) runs = range.runs;
+      ranges.add('${_code(scenario)} ${_timingText(range.low)} – '
+          '${_timingText(range.high)}');
+    }
+    if (ranges.isEmpty) return null;
+    return '`main` and the PR are measured by different runs on different '
+        'runners. A timing the PR lands inside the range `main` itself '
+        'covered over its last $runs runs is labelled '
+        '`$_withinMainRunRange` rather than given a percentage against one '
+        'of them. Scenario elapsed p50 on `main` over those runs: '
+        '${ranges.join('; ')}.';
+  }
 
   String toHeadlineMarkdown({String? label}) {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
@@ -609,7 +680,8 @@ class PatrolPerfComparison {
         ? '### Headline comparison with `main`'
         : '### $label comparison with `main`';
     final headline = _gpuTileSpeedupHeadline(current, baseline: baseline) ??
-        _scenarioElapsedHeadline(current, baseline: baseline);
+        _scenarioElapsedHeadline(current, baseline: baseline, history: history);
+    final runRangeNote = _mainRunRangeNote(measuredScenarios);
     final buffer = StringBuffer()..writeln(heading);
     if (headline != null) {
       buffer
@@ -669,6 +741,11 @@ class PatrolPerfComparison {
           'of showing a misleading percentage.',
         );
     }
+    if (runRangeNote != null) {
+      buffer
+        ..writeln()
+        ..writeln(runRangeNote);
+    }
     buffer
       ..writeln()
       ..writeln('| Signal | Main | PR | Change |')
@@ -690,7 +767,7 @@ class PatrolPerfComparison {
       final after = _jsonNumber(current, path);
       if (before == null && after == null) return;
       buffer.writeln('| $label | ${_timingText(before)} | '
-          '${_timingText(after)} | ${_percentDelta(before, after)} |');
+          '${_timingText(after)} | ${_timingDelta(before, after, path)} |');
     }
 
     for (final scenario in measuredScenarios) {
@@ -700,7 +777,7 @@ class PatrolPerfComparison {
       if (before == null && after == null) continue;
       buffer.writeln('| Scenario ${_code(scenario)} elapsed p50 | '
           '${_timingText(before)} | ${_timingText(after)} | '
-          '${_scenarioElapsedDelta(baseline, current, scenario)} |');
+          '${_scenarioElapsedDelta(baseline, current, scenario, history: history)} |');
     }
     timingRow('Jank total p95', const ['jank', 'totalMs', 'p95']);
     timingRow('Reconcile p95', const ['reconciliation', 'elapsedMs', 'p95']);
@@ -759,6 +836,11 @@ class PatrolPerfComparison {
         'ranges overlap.',
       )
       ..write(
+        _mainRunRangeNote(measuredScenarios) == null
+            ? ''
+            : '\n${_mainRunRangeNote(measuredScenarios)}\n',
+      )
+      ..write(
         sameCoverage
             ? ''
             : '\nCoverage differs between the artifacts; timing deltas are '
@@ -788,7 +870,7 @@ class PatrolPerfComparison {
       final after = _jsonNumber(current, path);
       buffer.writeln('| $label | ${_timingText(before)} | '
           '${_timingText(after)} | '
-          '${change ?? _percentDelta(before, after)} |');
+          '${change ?? _timingDelta(before, after, path)} |');
     }
 
     countRow('Journey segments', const ['journeys']);
@@ -852,7 +934,8 @@ class PatrolPerfComparison {
       timingRow(
         'Scenario $scenario elapsed p50',
         ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
-        change: _scenarioElapsedDelta(baseline, current, scenario),
+        change: _scenarioElapsedDelta(baseline, current, scenario,
+            history: history),
       );
       timingRow(
         'Scenario $scenario elapsed p95',
@@ -1396,11 +1479,52 @@ List<double> _jsonNumberList(Object? root, List<String> path) {
   ];
 }
 
+/// How a timing is labelled when the PR's value lies where `main` has
+/// itself been across its recent runs.
+const _withinMainRunRange = 'within main run-to-run range';
+
+/// `main` artifacts needed before their spread means anything: with two, the
+/// "range" is just the two numbers.
+const minMainRunsForRange = 3;
+
+/// The span of one timing across several `main` runs.
+class PatrolMainRunRange {
+  const PatrolMainRunRange(this.low, this.high, this.runs);
+
+  final double low;
+  final double high;
+
+  /// How many `main` artifacts reported the timing.
+  final int runs;
+
+  bool contains(num? value) => value != null && value >= low && value <= high;
+}
+
+PatrolMainRunRange? _mainRunRange(
+  Object? baseline,
+  List<Map<String, dynamic>> history,
+  List<String> path,
+) {
+  double? low;
+  double? high;
+  var runs = 0;
+  for (final run in [baseline, ...history]) {
+    final value = _jsonNumber(run, path)?.toDouble();
+    if (value == null) continue;
+    runs++;
+    if (low == null || value < low) low = value;
+    if (high == null || value > high) high = value;
+  }
+  if (runs < minMainRunsForRange || low == null || high == null) return null;
+  return PatrolMainRunRange(low, high, runs);
+}
+
 String _scenarioElapsedDelta(
   Object? baseline,
   Object? current,
-  String scenario,
-) {
+  String scenario, {
+  List<Map<String, dynamic>> history = const [],
+}) {
   final before = _jsonNumber(
     baseline,
     ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
@@ -1420,6 +1544,12 @@ String _scenarioElapsedDelta(
   if (_interquartileRangesOverlap(beforeSamples, afterSamples)) {
     return 'within run spread';
   }
+  final range = _mainRunRange(
+    baseline,
+    history,
+    ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+  );
+  if (range != null && range.contains(after)) return _withinMainRunRange;
   return _percentDelta(before, after);
 }
 
@@ -1443,6 +1573,7 @@ typedef _GpuTileSpeedup = ({
 String? _scenarioElapsedHeadline(
   Object? current, {
   Object? baseline,
+  List<Map<String, dynamic>> history = const [],
 }) {
   final scenarios = <String>{
     if (baseline != null) ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
@@ -1470,7 +1601,7 @@ String? _scenarioElapsedHeadline(
       values.add(
         '${_code(scenario)} **${_timingText(before)} → '
         '${_timingText(after)} '
-        '(${_scenarioElapsedDelta(baseline, current, scenario)})**',
+        '(${_scenarioElapsedDelta(baseline, current, scenario, history: history)})**',
       );
     }
     return values.isEmpty

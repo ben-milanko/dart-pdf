@@ -56,6 +56,22 @@ void main() {
     expect(info.widthOf(72), closeTo(1578 / 2048, 1e-9));
   });
 
+  test('simple font widths answer the same on every ask', () {
+    // widthOf memoizes per code: a declared width, a code the /Widths array
+    // does not cover (the default), and a zero width must all survive it.
+    final font = CosDictionary({
+      'Subtype': const CosName('Type3'),
+      'FirstChar': const CosInteger(65),
+      'Widths': CosArray([const CosInteger(722), const CosInteger(0)]),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    for (var pass = 0; pass < 2; pass++) {
+      expect(info.widthOf(65), closeTo(0.722, 1e-9));
+      expect(info.widthOf(66), 0);
+      expect(info.widthOf(200), 0);
+    }
+  });
+
   test('Type3 with a missing FontMatrix falls back to /1000', () {
     final font = CosDictionary({
       'Subtype': const CosName('Type3'),

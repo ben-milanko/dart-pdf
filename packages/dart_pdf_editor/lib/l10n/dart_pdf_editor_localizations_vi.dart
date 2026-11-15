@@ -1161,6 +1161,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Xóa tìm kiếm';
 
   @override
+  String get sidebarFilter => 'Lọc chú thích';
+
+  @override
+  String get sidebarFilterType => 'Loại';
+
+  @override
+  String get sidebarFilterAuthor => 'Tác giả';
+
+  @override
+  String get sidebarFilterClear => 'Xóa bộ lọc';
+
+  @override
   String get sidebarDeleteSelected => 'Xóa mục đã chọn';
 
   @override

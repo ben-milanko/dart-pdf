@@ -170,6 +170,38 @@ void main() {
     test('embedded CRLF normalizes to LF', () {
       expect(lex('(a\r\nb)').bytesValue, [0x61, 0x0A, 0x62]);
     });
+
+    test('empty', () {
+      expect(lex('()').bytesValue, isEmpty);
+    });
+
+    test('a plain string leaves the lexer just past its delimiter', () {
+      final tokens = lexAll('(one)(two) 3');
+      expect(String.fromCharCodes(tokens[0].bytesValue), 'one');
+      expect(String.fromCharCodes(tokens[1].bytesValue), 'two');
+      expect(tokens[2].intValue, 3);
+    });
+
+    test('a plain string is a copy, not a view of the source', () {
+      // The fast path for strings with nothing to unescape must not hand out
+      // a window onto the (cached, shared) stream bytes it lexed.
+      final source = ascii('(abc)');
+      final value = CosLexer(source).nextToken().bytesValue;
+      source[1] = 0x7A;
+      expect(String.fromCharCodes(value), 'abc');
+    });
+
+    test('a plain prefix before the first escape is kept', () {
+      expect(
+          String.fromCharCodes(lex(r'(plain\)tail)').bytesValue), 'plain)tail');
+      expect(String.fromCharCodes(lex('(plain(in)tail)').bytesValue),
+          'plain(in)tail');
+    });
+
+    test('unterminated', () {
+      expect(() => lex('(never closed'), throwsA(isA<CosParseException>()));
+      expect(() => lex(r'(never\) closed'), throwsA(isA<CosParseException>()));
+    });
   });
 
   group('hex strings', () {

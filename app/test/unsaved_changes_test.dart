@@ -235,7 +235,9 @@ void main() {
     final b = openTab(title: 'b.pdf', path: '/docs/b.pdf');
     addTearDown(a.dispose);
     addTearDown(b.dispose);
-    autosave..track(a)..track(b);
+    autosave
+      ..track(a)
+      ..track(b);
 
     a.session!.addBookmark('one');
     b.session!.addBookmark('one');
@@ -382,6 +384,26 @@ void main() {
     final decoded = UnsavedRecord.decode(record.encode())!;
     expect(decoded.sameAs(record), isTrue);
     expect(decoded.updatedAt, 1234);
+  });
+
+  test('a record keeps the picked file a mobile document saves into', () {
+    const record = UnsavedRecord(
+      id: 'abc-2',
+      title: 'report.pdf',
+      length: 4096,
+      originUri: 'content://docs/report',
+      cachePath: '/cache/r.pdf',
+    );
+    final decoded = UnsavedRecord.decode(record.encode())!;
+    expect(decoded.originUri, 'content://docs/report');
+    expect(decoded.sameAs(record), isTrue);
+    expect(
+        decoded.sameAs(const UnsavedRecord(
+            id: 'abc-2',
+            title: 'report.pdf',
+            length: 4096,
+            cachePath: '/cache/r.pdf')),
+        isFalse);
   });
 
   group('chunking (the web store\'s append arithmetic)', () {

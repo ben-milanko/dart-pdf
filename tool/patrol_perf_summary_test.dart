@@ -358,6 +358,124 @@ void main() {
     'missing headline metrics',
   );
 
+  // `main` is measured by another run on another runner. Its own recent
+  // spread, not one artifact, decides whether a PR timing is news.
+  Map<String, dynamic> mainRun(double p50, {double jank = 4.0}) => {
+        'scenarios': json['scenarios'],
+        'jank': {
+          'count': 2,
+          'totalMs': {'p95': jank},
+        },
+        'scenarioMetrics': {
+          'heavy-document': {
+            'runs': 1,
+            'elapsedMs': {'p50': p50, 'p95': p50},
+          },
+        },
+      };
+  // The PR measures 80 ms; the newest main says 100, older ones 70 and 95.
+  final ranged = summary.PatrolPerfComparison(
+    baseline: mainRun(100),
+    current: json,
+    history: [mainRun(70), mainRun(95)],
+  );
+  _expectEqual(
+    ranged.mainRunRange(
+        const ['scenarioMetrics', 'heavy-document', 'elapsedMs', 'p50'])?.runs,
+    3,
+    'main range counts every artifact',
+  );
+  final rangedHeadline = ranged.toHeadlineMarkdown();
+  _expectContains(
+    rangedHeadline,
+    '`heavy-document` **100.0 ms → 80.0 ms (within main run-to-run range)**',
+    'a PR timing inside main\'s own range is not a percentage',
+  );
+  _expectContains(
+    rangedHeadline,
+    '| Scenario `heavy-document` elapsed p50 | 100.0 ms | 80.0 ms | '
+        'within main run-to-run range |',
+    'headline table uses the range',
+  );
+  _expectContains(
+    rangedHeadline,
+    'over its last 3 runs',
+    'the note says how many runs',
+  );
+  _expectContains(
+    rangedHeadline,
+    '`heavy-document` 70.0 ms – 100.0 ms',
+    'the note shows main\'s range',
+  );
+  _expectContains(
+    ranged.toMarkdown(),
+    '| Scenario heavy-document elapsed p50 | 100.0 ms | 80.0 ms | '
+        'within main run-to-run range |',
+    'full report uses the range',
+  );
+  // Jank p95: main 4.0 in all three runs, the PR 3.0 - outside, so a number.
+  _expectContains(
+    rangedHeadline,
+    '| Jank total p95 | 4.0 ms | 3.0 ms | -25.0% |',
+    'a timing outside main\'s range keeps its percentage',
+  );
+  // Main jank between 2 and 4 covers the PR's 3.
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: mainRun(100),
+      current: json,
+      history: [mainRun(70, jank: 2.0), mainRun(95)],
+    ).toHeadlineMarkdown(),
+    '| Jank total p95 | 4.0 ms | 3.0 ms | within main run-to-run range |',
+    'phase timings use the range too',
+  );
+  // Outside the range the percentage is still against the newest artifact.
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: mainRun(100),
+      current: json,
+      history: [mainRun(90), mainRun(95)],
+    ).toHeadlineMarkdown(),
+    '`heavy-document` **100.0 ms → 80.0 ms (-20.0%)**',
+    'a PR timing outside main\'s range is a percentage',
+  );
+  // Two artifacts are two numbers, not a spread.
+  final thin = summary.PatrolPerfComparison(
+    baseline: mainRun(100),
+    current: json,
+    history: [mainRun(70)],
+  );
+  _expectEqual(
+    thin.mainRunRange(
+        const ['scenarioMetrics', 'heavy-document', 'elapsedMs', 'p50']),
+    null,
+    'two main runs are not a range',
+  );
+  _expectContains(
+    thin.toHeadlineMarkdown(),
+    '`heavy-document` **100.0 ms → 80.0 ms (-20.0%)**',
+    'too little history changes nothing',
+  );
+  _expectNotContains(
+    thin.toHeadlineMarkdown(),
+    'run-to-run',
+    'no note without a range',
+  );
+  // An older artifact without the scenario does not count towards it.
+  _expectEqual(
+    summary.PatrolPerfComparison(
+      baseline: mainRun(100),
+      current: json,
+      history: [
+        mainRun(70),
+        const {'scenarios': <String, Object?>{}},
+      ],
+    ).mainRunRange(
+        const ['scenarioMetrics', 'heavy-document', 'elapsedMs', 'p50']),
+    null,
+    'artifacts missing the timing are not runs of it',
+  );
+
   final resetTrace = summary.PatrolPerfTrace.parse(const [
     '[perf 0] scenario name=orphan phase=start',
     '[perf 5] JANK build=1ms raster=1ms total=2ms',

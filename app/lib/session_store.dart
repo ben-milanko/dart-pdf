@@ -15,6 +15,7 @@ class SessionDocument {
     required this.path,
     this.cachePath,
     this.bookmark,
+    this.uri,
   });
 
   /// The tab title (usually the file name) - shown while the file is read back.
@@ -31,6 +32,12 @@ class SessionDocument {
   /// macOS security-scoped bookmark for [path], when available.
   final String? bookmark;
 
+  /// The picked mobile file Save writes back into (#1304): an Android
+  /// `content://` Uri with a persisted write grant or an iOS security-scoped
+  /// bookmark (`DocumentTab.originUri`). A restored tab reads it
+  /// first (falling back to [cachePath]) and keeps saving into it.
+  final String? uri;
+
   /// Where to read the document back from - the real origin when present,
   /// otherwise the private snapshot. Null when neither is usable.
   String? get readPath {
@@ -44,6 +51,7 @@ class SessionDocument {
         'p': path,
         if (cachePath != null) 'c': cachePath,
         if (bookmark != null) 'b': bookmark,
+        if (uri != null) 'w': uri,
       };
 
   factory SessionDocument.fromJson(Map<String, dynamic> j) => SessionDocument(
@@ -51,6 +59,7 @@ class SessionDocument {
         path: (j['p'] as String?) ?? '',
         cachePath: j['c'] as String?,
         bookmark: j['b'] as String?,
+        uri: j['w'] as String?,
       );
 }
 
@@ -175,7 +184,9 @@ class SessionStore implements WindowSessionPersistence {
   static bool _sameDocuments(List<SessionDocument> a, List<SessionDocument> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i].path != b[i].path || a[i].cachePath != b[i].cachePath) {
+      if (a[i].path != b[i].path ||
+          a[i].cachePath != b[i].cachePath ||
+          a[i].uri != b[i].uri) {
         return false;
       }
     }
@@ -193,7 +204,8 @@ class SessionStore implements WindowSessionPersistence {
         title: doc.title,
         path: doc.path,
         cachePath: live,
-        bookmark: doc.bookmark);
+        bookmark: doc.bookmark,
+        uri: doc.uri);
   }
 
   /// Replaces the persisted open-document list with [documents] (tab order),

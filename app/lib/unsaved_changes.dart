@@ -17,6 +17,7 @@ class UnsavedRecord {
     required this.length,
     this.originPath = '',
     this.originBookmark,
+    this.originUri,
     this.cachePath,
     this.savedLength = -1,
     this.updatedAt = 0,
@@ -46,6 +47,11 @@ class UnsavedRecord {
   /// macOS security-scoped bookmark for [originPath], when available.
   final String? originBookmark;
 
+  /// The picked mobile file Save writes back into (`DocumentTab.originUri`:
+  /// an Android `content://` Uri or an iOS security-scoped bookmark), when it
+  /// has one.
+  final String? originUri;
+
   /// The app-private byte snapshot backing a mobile/web pick (pdf_cache.dart),
   /// carried so a recovered tab keeps its Recent entry reopenable.
   final String? cachePath;
@@ -69,6 +75,7 @@ class UnsavedRecord {
       length == other.length &&
       originPath == other.originPath &&
       originBookmark == other.originBookmark &&
+      originUri == other.originUri &&
       cachePath == other.cachePath &&
       savedLength == other.savedLength;
 
@@ -78,6 +85,7 @@ class UnsavedRecord {
         'n': length,
         if (originPath.isNotEmpty) 'p': originPath,
         if (originBookmark != null) 'b': originBookmark,
+        if (originUri != null) 'w': originUri,
         if (cachePath != null) 'c': cachePath,
         's': savedLength,
         'u': updatedAt,
@@ -93,6 +101,7 @@ class UnsavedRecord {
       length: length,
       originPath: (j['p'] as String?) ?? '',
       originBookmark: j['b'] as String?,
+      originUri: j['w'] as String?,
       cachePath: j['c'] as String?,
       savedLength: (j['s'] as num?)?.toInt() ?? -1,
       updatedAt: (j['u'] as num?)?.toInt() ?? 0,
@@ -194,8 +203,7 @@ class UnsavedChunking {
   /// The chunk holding the last stored byte is partial, so it has to be
   /// rewritten; every chunk before it is full and final. An exact multiple
   /// means the previous chunk was filled, so the new bytes start a fresh one.
-  int firstDirtyChunk(int flushed) =>
-      flushed <= 0 ? 0 : flushed ~/ chunkBytes;
+  int firstDirtyChunk(int flushed) => flushed <= 0 ? 0 : flushed ~/ chunkBytes;
 
   int chunkStart(int index) => index * chunkBytes;
 

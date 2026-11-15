@@ -1,5 +1,12 @@
 # Changelog
 
+## 16.1.0
+
+- Add `PdfReader.pageMenuActionsBuilder`, so the reader's thumbnail strip offers host entries on right-click too (for example "Copy link to page N"). The reader allows no page edits, so these are the only rows in its menu, and the menu opens only when the builder is set.
+- Custom localizations must implement four annotation-filter getters. See `doc/MIGRATING-16.1.0.md`.
+- Filter annotations by type and author.
+- Improve render-worker transcript encoding and expose thumbnail menu actions in PdfReader.
+
 ## 16.0.0
 
 - Add `PdfEditorView.pageMenuActionsBuilder` (also on `PdfThumbnailSidebar` and `PdfThumbnailView`) so a host can add its own entries to the page-thumbnail right-click menu. The builder is called per right-click with the clicked page and the selection the menu acts on, and returns `PdfPageMenuAction`s (label, icon, enabled, `onSelected`), which appear after the insert entries and before Export. A read-only strip with only host entries still opens the menu.

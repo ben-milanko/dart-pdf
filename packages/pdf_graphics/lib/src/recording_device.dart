@@ -1,5 +1,6 @@
 import 'package:pdf_document/pdf_document.dart';
 
+import 'cell_image_requests.dart';
 import 'color.dart';
 import 'device.dart';
 import 'mesh.dart';
@@ -32,6 +33,7 @@ class RecordingPdfDevice
   /// (including those inside soft-mask groups). The same list the device's
   /// [drawImage] calls produced - useful for decoding ahead of replay.
   final List<PdfImageRequest> imageRequests = [];
+  final ListedCells _listedCells = newListedCells();
 
   /// The list new commands append to. Normally [commands]; temporarily a
   /// soft mask's nested list while its `drawMask` closure runs.
@@ -43,22 +45,11 @@ class RecordingPdfDevice
   @override
   void drawTiledCell(PdfDrawTiledCellCommand command) {
     _target.add(command);
-    // The cell's images enter [imageRequests] once, in the depth-first order
-    // the wire codec serializes them, so consumers that pair the wire
-    // transcript's images with this list stay aligned.
-    void walk(List<PdfRenderCommand> cmds) {
-      for (final c in cmds) {
-        if (c is PdfDrawImageCommand) {
-          imageRequests.add(c.request);
-        } else if (c is PdfEndSoftMaskedCommand) {
-          walk(c.maskCommands);
-        } else if (c is PdfDrawTiledCellCommand) {
-          walk(c.cellCommands);
-        }
-      }
-    }
-
-    walk(command.cellCommands);
+    // The cell's images enter [imageRequests] the first time the cell is
+    // stamped, in the depth-first order the wire codec serializes them, so
+    // consumers that pair the wire transcript's images with this list stay
+    // aligned ([addStampedCellImageRequests]).
+    addStampedCellImageRequests(command, imageRequests, _listedCells);
   }
 
   @override

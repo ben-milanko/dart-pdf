@@ -1494,6 +1494,22 @@
   "@sidebarClearSearch": {
     "description": "Tooltip for the button that clears the annotation search field."
   },
+  "sidebarFilter": "Filter annotations",
+  "@sidebarFilter": {
+    "description": "Tooltip for the annotation panel's filter button, which narrows the list by annotation type and author."
+  },
+  "sidebarFilterType": "Type",
+  "@sidebarFilterType": {
+    "description": "Section heading in the annotation filter menu listing annotation types."
+  },
+  "sidebarFilterAuthor": "Author",
+  "@sidebarFilterAuthor": {
+    "description": "Section heading in the annotation filter menu listing annotation authors."
+  },
+  "sidebarFilterClear": "Clear filters",
+  "@sidebarFilterClear": {
+    "description": "Menu item that turns off every annotation type/author filter."
+  },
   "sidebarDeleteSelected": "Delete selected",
   "@sidebarDeleteSelected": {
     "description": "Tooltip that deletes all checked annotations as one undo step."

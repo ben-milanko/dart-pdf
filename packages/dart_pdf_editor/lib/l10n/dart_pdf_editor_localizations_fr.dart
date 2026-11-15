@@ -1164,6 +1164,18 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Effacer la recherche';
 
   @override
+  String get sidebarFilter => 'Filtrer les annotations';
+
+  @override
+  String get sidebarFilterType => 'Type';
+
+  @override
+  String get sidebarFilterAuthor => 'Auteur';
+
+  @override
+  String get sidebarFilterClear => 'Effacer les filtres';
+
+  @override
   String get sidebarDeleteSelected => 'Supprimer la sélection';
 
   @override

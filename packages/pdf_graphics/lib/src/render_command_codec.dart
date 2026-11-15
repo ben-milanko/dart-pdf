@@ -12,6 +12,7 @@ import 'image_decode_cache.dart';
 import 'image_pixels.dart';
 import 'mesh.dart';
 import 'path.dart';
+import 'cell_image_requests.dart';
 import 'recording_device.dart' show RecordingPdfDevice;
 import 'render_command.dart';
 import 'shading.dart';
@@ -74,7 +75,12 @@ import 'text_extraction.dart';
 /// Version 13: a text run carries [PdfTextRun.overlaysDrawnText] after its
 /// invisible flag, so search over a worker recording bands CAD text layers
 /// the way a fresh extraction does.
-const int _formatVersion = 13;
+///
+/// Version 14: float64 values are little-endian. `ByteData` byte-swaps every
+/// big-endian value on the (little-endian) hosts this runs on, and a text
+/// run's per-character offsets made that swap a third of a text page's
+/// encode and half of its decode. The integer fields stay big-endian.
+const int _formatVersion = 14;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1989,7 +1995,7 @@ PdfTextRun _readTextRun(_Reader r) {
     for (var i = 0; i < n; i++) {
       final offset = r.f64();
       final offsetY = r.f64();
-      final text = r.strOpt();
+      final text = r.glyphText();
       final outline = _readGlyphOutline(r);
       glyphs[i] = PdfGlyphPlacement(
           offset: offset, offsetY: offsetY, outline: outline, text: text);
@@ -2213,6 +2219,7 @@ class PdfStreamingCommandWriter
 
   /// Every image drawn so far, in [RecordingPdfDevice.imageRequests] order.
   final List<PdfImageRequest> imageRequests = [];
+  final ListedCells _listedCells = newListedCells();
 
   List<PdfRenderCommand>? _text = [];
 
@@ -2242,6 +2249,17 @@ class PdfStreamingCommandWriter
     final out = Uint8List.fromList(Uint8List.sublistView(_w._buf, 0, _w._len));
     // Big-endian, as [_Writer.u32].
     ByteData.sublistView(out).setUint32(_frames.first.countAt, commandCount);
+    return out;
+  }
+
+  /// The last [snapshot]: the finished record. The writer is spent afterwards
+  /// - its buffer is handed to the next record's writer, so nothing more may
+  /// be drawn into it and [length] reads 0. [imageRequests] and
+  /// [commandCount] stay valid. Use this, not [snapshot], for the buffer a
+  /// record ends with; [snapshot] is for the partials before it.
+  Uint8List finish() {
+    final out = snapshot();
+    _w._release();
     return out;
   }
 
@@ -2377,20 +2395,8 @@ class PdfStreamingCommandWriter
   void drawTiledCell(PdfDrawTiledCellCommand command) {
     _flushScopes();
     // As [RecordingPdfDevice.drawTiledCell]: the cell's images, depth-first,
-    // once per occurrence.
-    void walk(List<PdfRenderCommand> commands) {
-      for (final c in commands) {
-        if (c is PdfDrawImageCommand) {
-          imageRequests.add(c.request);
-        } else if (c is PdfEndSoftMaskedCommand) {
-          walk(c.maskCommands);
-        } else if (c is PdfDrawTiledCellCommand) {
-          walk(c.cellCommands);
-        }
-      }
-    }
-
-    walk(command.cellCommands);
+    // the first time the cell is stamped.
+    addStampedCellImageRequests(command, imageRequests, _listedCells);
     _emit(command);
     if (_frames.length == 1) _text?.add(command);
   }
@@ -2411,9 +2417,59 @@ class _Writer {
   // ByteData and a Uint8List view per scalar (and a `_b.add` per call), which
   // dominated the serialize cost. Instead grow one backing buffer and write
   // scalars straight into a [ByteData] view of it at a running offset - no
-  // per-value allocation. Scalars are big-endian (ByteData's default); path
-  // coordinates go through [_floats] instead (see [_writePath]).
-  Uint8List _buf = Uint8List(1 << 16);
+  // per-value allocation. Integers are big-endian (ByteData's default) and
+  // float64 values little-endian - the host order everywhere this runs, so
+  // they skip ByteData's byte swap; path coordinates go through [_floats]
+  // instead (see [_writePath]).
+  // Each writer used to start a fresh 64 KB buffer and double it as the record
+  // grew - for a drawing, megabytes allocated, zeroed and copied per page, and
+  // all of it garbage the moment the record was copied out. A finished writer
+  // now leaves its buffer for the next one ([_release]), which is how every
+  // record after the first is written without growing anything: a third off
+  // encoding a CAD page.
+  Uint8List _buf = _takeSpare();
+
+  /// The buffer the last finished writer left behind, if any. One per
+  /// isolate; a writer that starts while another is open (a streaming record
+  /// held across awaits) simply allocates its own.
+  static Uint8List? _spare;
+
+  /// The largest buffer worth keeping between records. A page that needs
+  /// more than this is rare enough to pay for its own growth, and a spare
+  /// this size is small beside the caches it sits next to.
+  static const _maxSpareBytes = 4 << 20;
+
+  /// Nothing is kept under dart2js: a browser allocates a typed array's
+  /// storage lazily, so there was little to save, and it measured as a wash
+  /// (CAD pages a few percent faster, a Type3 page a few slower). The web
+  /// build therefore allocates exactly as it always has.
+  static const bool _keepsSpare = !identical(0, 0.0);
+
+  static Uint8List _takeSpare() {
+    final spare = _spare;
+    if (spare == null) return Uint8List(1 << 16);
+    _spare = null;
+    return spare;
+  }
+
+  /// Hands the buffer on to the next writer and leaves this one empty, so a
+  /// stray write after the record was taken can never land in bytes another
+  /// writer now owns. Nothing reads a reused buffer's old contents: every
+  /// byte below `_len` is written before it is copied out, path padding
+  /// included ([_writePath]).
+  void _release() {
+    final buf = _buf;
+    if (_keepsSpare &&
+        buf.length <= _maxSpareBytes &&
+        buf.length >= (_spare?.length ?? 0)) {
+      _spare = buf;
+    }
+    _buf = Uint8List(0);
+    _view = ByteData.view(_buf.buffer);
+    _floats = _buf.buffer.asFloat32List();
+    _len = 0;
+  }
+
   late ByteData _view = ByteData.view(_buf.buffer);
 
   /// The same backing buffer as float32 words, for path coordinate blocks.
@@ -2443,7 +2499,8 @@ class _Writer {
   void _ensure(int extra) {
     final need = _len + extra;
     if (need <= _buf.length) return;
-    var cap = _buf.length * 2;
+    // A released writer's buffer is empty; start it over at the usual size.
+    var cap = _buf.isEmpty ? 1 << 16 : _buf.length * 2;
     while (cap < need) {
       cap *= 2;
     }
@@ -2470,7 +2527,7 @@ class _Writer {
   // integer we serialize (on the web a Dart int is already capped at 2^53).
   void i64(int v) {
     _ensure(8);
-    _view.setFloat64(_len, v.toDouble());
+    _view.setFloat64(_len, v.toDouble(), Endian.little);
     _len += 8;
   }
 
@@ -2484,13 +2541,31 @@ class _Writer {
 
   void f64(double v) {
     _ensure(8);
-    _view.setFloat64(_len, v);
+    _view.setFloat64(_len, v, Endian.little);
     _len += 8;
   }
 
   void boolean(bool v) => u8(v ? 1 : 0);
 
   void str(String s) {
+    // ASCII - a glyph's own text, a font name, most of a Latin run - is its
+    // own UTF-8: copy the code units straight in. A text run writes one of
+    // these per glyph, and going through the encoder allocated two lists for
+    // each. The first unit that needs encoding abandons the attempt.
+    final n = s.length;
+    _ensure(4 + n);
+    final start = _len + 4;
+    var i = 0;
+    for (; i < n; i++) {
+      final unit = s.codeUnitAt(i);
+      if (unit >= 0x80) break;
+      _buf[start + i] = unit;
+    }
+    if (i == n) {
+      _view.setUint32(_len, n);
+      _len = start + n;
+      return;
+    }
     final encoded = utf8.encode(s);
     u32(encoded.length);
     _ensure(encoded.length);
@@ -2515,13 +2590,13 @@ class _Writer {
       // the VM - and per-character offsets and tiled-cell origins arrive as
       // Float64List.
       for (var i = 0; i < xs.length; i++) {
-        _view.setFloat64(_len, xs[i]);
+        _view.setFloat64(_len, xs[i], Endian.little);
         _len += 8;
       }
       return;
     }
     for (final x in xs) {
-      _view.setFloat64(_len, x);
+      _view.setFloat64(_len, x, Endian.little);
       _len += 8;
     }
   }
@@ -2537,8 +2612,12 @@ class _Writer {
 
   /// The written bytes as a tight copy (the backing buffer is over-allocated by
   /// up to 2x and would otherwise pin that slack across the isolate transfer).
-  Uint8List takeBytes() =>
-      Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+  /// The writer is spent afterwards: its buffer goes to the next one.
+  Uint8List takeBytes() {
+    final out = Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+    _release();
+    return out;
+  }
 }
 
 class _Reader {
@@ -2590,7 +2669,7 @@ class _Reader {
   }
 
   int i64() {
-    final v = _data.getFloat64(_o); // see [_Writer.i64] - float64-encoded
+    final v = _data.getFloat64(_o, Endian.little); // see [_Writer.i64]
     _o += 8;
     return v.toInt();
   }
@@ -2610,7 +2689,7 @@ class _Reader {
   }
 
   double f64() {
-    final v = _data.getFloat64(_o);
+    final v = _data.getFloat64(_o, Endian.little);
     _o += 8;
     return v;
   }
@@ -2622,6 +2701,22 @@ class _Reader {
     final s = utf8.decode(Uint8List.sublistView(_bytes, _o, _o + n));
     _o += n;
     return s;
+  }
+
+  /// [strOpt] for a glyph's own text ([PdfGlyphPlacement.text]), which is
+  /// nearly always one ASCII byte and is read once per glyph: that case needs
+  /// no decoder, no view to hand it, and on the VM no string allocated.
+  /// Anything else is [str]'s.
+  String? glyphText() {
+    if (!boolean()) return null;
+    if (_data.getUint32(_o) == 1) {
+      final byte = _bytes[_o + 4];
+      if (byte < 0x80) {
+        _o += 5;
+        return String.fromCharCode(byte);
+      }
+    }
+    return str();
   }
 
   String? strOpt() => boolean() ? str() : null;
@@ -2638,7 +2733,7 @@ class _Reader {
   Float64List f64s(int n) {
     final out = Float64List(n);
     for (var i = 0; i < n; i++) {
-      out[i] = _data.getFloat64(_o);
+      out[i] = _data.getFloat64(_o, Endian.little);
       _o += 8;
     }
     return out;

@@ -1162,6 +1162,18 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'پاککردنەوەی گەڕان';
 
   @override
+  String get sidebarFilter => 'پاڵاوتنی تێبینییەکان';
+
+  @override
+  String get sidebarFilterType => 'جۆر';
+
+  @override
+  String get sidebarFilterAuthor => 'نووسەر';
+
+  @override
+  String get sidebarFilterClear => 'پاککردنەوەی پاڵاوتنەکان';
+
+  @override
   String get sidebarDeleteSelected => 'سڕینەوەی دیاریکراوەکان';
 
   @override

@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.1.0
+
+- Reduce copying when reading page content streams.
+
 ## 16.0.0
 
 - Preserve links in vector snapshots.
