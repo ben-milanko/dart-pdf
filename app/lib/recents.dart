@@ -40,7 +40,8 @@ class RecentFile {
   final String? bookmark;
 
   /// The picked mobile file Save writes back into (#1304) - an Android
-  /// `content://` Uri with a persisted write grant. The entry still reads back
+  /// `content://` Uri with a persisted write grant or an iOS security-scoped
+  /// bookmark (`DocumentTab.originUri`). The entry still reads back
   /// from [cachePath] when the Uri can't be read; this is what makes a
   /// reopened document save in place again.
   final String? uri;

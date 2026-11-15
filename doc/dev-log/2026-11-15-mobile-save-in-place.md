@@ -1,4 +1,4 @@
-# Android: Save writes back into the picked PDF (#1304)
+# Android + iOS: Save writes back into the picked PDF (#1304)
 
 Before this, an Android edit could only leave the app through the share
 sheet: the header button was "Share", and updating the original meant
@@ -51,6 +51,24 @@ in-app picker saves straight back into that file when its provider allows it.
   reopened from a stale snapshot, the next Save would overwrite edits another
   app made in the meantime.
 
+## iOS
+
+The iOS reference picker already ran in `.open` mode, so its token (a base64
+security-scoped bookmark) points at the original file and the security scope
+grants read/write access. `SceneDelegate.swift` now does three things:
+- `describePickedURL` reports `writable` from `URLResourceValues.isWritable`.
+- `writeUri` (`writeWhole`) resolves the bookmark, starts the scope and writes
+  through `NSFileCoordinator.coordinate(writingItemAt:options: .forReplacing)`,
+  so iCloud and other File Providers see the change and sync it. It
+  deliberately does **not** use `Data.write(options: .atomic)`: an atomic write
+  renames a sibling temp file into place, and the scope covers only the file,
+  not its folder.
+- `readUri` (`readWhole`) does a coordinated whole-file read.
+
+On the Dart side, `supportsMobileInPlaceSave` is now
+`supportsMobileProgressiveOpen` (Android or iOS); everything else was already
+platform-neutral. The widget tests run every journey on both platforms.
+
 ## Seams and tests
 
 `EditorScreen.saveDocumentToUri` / `readDocumentUri` (setting the first also
@@ -65,18 +83,24 @@ round-trips are covered in `session_store_test` / `recents_test` /
 
 ## Not done / follow-ups
 
-- **Native side unverified here.** There's no Android SDK in the container,
-  so the Kotlin changes were neither compiled nor run on a device. Check them
-  against local storage, Google Drive and OneDrive providers.
+- **Native side unverified here.** There's no Android SDK or Xcode in the
+  container, so neither the Kotlin nor the Swift changes were compiled or run
+  on a device. Check Android against local storage, Google Drive and OneDrive,
+  and iOS against On My iPad, iCloud Drive and a third-party File Provider.
+- iOS bookmark staleness: `resolveToken` ignores `bookmarkDataIsStale`. A
+  stale bookmark still resolves, but the saved token never gets refreshed. If
+  device testing shows saves failing after a file moves, return a refreshed
+  bookmark from `writeUri`.
 - Only files opened through the in-app picker save in place. A PDF opened
-  from a file manager's "Open with" (`ACTION_VIEW`, `IncomingPdfHandler`)
-  arrives with a temporary read-only grant, so it still shares. Supporting it
-  would need `ACTION_EDIT` handling or a "Save to original…" re-pick.
+  from a file manager's "Open with" (Android `ACTION_VIEW`,
+  `IncomingPdfHandler`) arrives with a temporary read-only grant, and one from
+  iOS "Open in…"/share arrives as a copy, so both still share. Supporting them
+  would need `ACTION_EDIT` handling on Android and
+  `LSSupportsOpeningDocumentsInPlace` + in-place URL handling on iOS.
 - An Android Save As that writes to a chosen location
   (`ACTION_CREATE_DOCUMENT`, with the tab adopting the new Uri) and an
   optional autosave-to-original setting were both asked for in the issue and
   are left for later. Crash recovery already mirrors unsaved edits.
-- iOS keeps sharing. A `.open`-mode security-scoped URL could be written the
-  same way.
-- Files picked before this change hold only a read grant, so they keep
-  sharing until they are re-picked.
+- Android files picked before this change hold only a read grant, so they
+  keep sharing until they are re-picked. (iOS picks were never persisted with
+  a save destination, so the same applies there.)

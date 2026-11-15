@@ -1,9 +1,9 @@
-// Android: Save writes edits straight back into the PDF the user picked (#1304)
-// when the Storage Access Framework grant the reference picker takes allows
-// writing, instead of sending a copy through the share sheet. Driven with the
-// native `mobile_file` channel mocked and Save As (the share sheet) seamed; the runner's
-// `takePersistableUriPermission` / `writeUri` themselves need on-device
-// verification.
+// Android and iOS: Save writes edits straight back into the PDF the user
+// picked (#1304) when the reference picker's token allows writing (a persisted
+// SAF write grant / an `.open`-mode security-scoped bookmark), instead of
+// sending a copy through the share sheet. Driven with the native `mobile_file`
+// channel mocked and Save As (the share sheet) seamed; the runners' `writeUri`
+// / `readUri` themselves need on-device verification.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -117,22 +117,26 @@ void main() {
     return tester.widget<PdfEditorView>(find.byType(PdfEditorView)).controller!;
   }
 
-  // The platform override must be cleared inside the test body, before the
-  // binding's invariant check.
-  void androidTest(
-          String description, Future<void> Function(WidgetTester) body) =>
-      testWidgets(description, (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+  // Each journey runs on both phone/tablet platforms. The platform override
+  // must be cleared inside the test body, before the binding's invariant
+  // check.
+  void mobileTest(
+      String description, Future<void> Function(WidgetTester) body) {
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      testWidgets('${platform.name}: $description', (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
         try {
           await body(tester);
         } finally {
           debugDefaultTargetPlatformOverride = null;
         }
       });
+    }
+  }
 
   for (final seekable in [true, false]) {
     final how = seekable ? 'progressive' : 'whole-read';
-    androidTest('Save writes a writable $how pick back into the picked file',
+    mobileTest('Save writes a writable $how pick back into the picked file',
         (tester) async {
       mockPick(writable: true, seekable: seekable);
       final controller = await openPicked(tester);
@@ -165,7 +169,7 @@ void main() {
     });
   }
 
-  androidTest('a read-only pick keeps sharing a copy', (tester) async {
+  mobileTest('a read-only pick keeps sharing a copy', (tester) async {
     mockPick(writable: false, seekable: false);
     final controller = await openPicked(tester);
     final view = tester.widget<PdfEditorView>(find.byType(PdfEditorView));
@@ -180,7 +184,7 @@ void main() {
     expect(shares, hasLength(1));
   });
 
-  androidTest('a write the provider refuses falls back to sharing a copy',
+  mobileTest('a write the provider refuses falls back to sharing a copy',
       (tester) async {
     mockPick(writable: true, seekable: false);
     writeError = PlatformException(code: 'permission_denied');
@@ -198,7 +202,7 @@ void main() {
         contains('in-place save failed: report.pdf'));
   });
 
-  androidTest(
+  mobileTest(
       'a restored document reopens from the picked file and saves back into it',
       (tester) async {
     // The file changed on disk since the snapshot was taken (another app

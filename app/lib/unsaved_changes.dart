@@ -47,8 +47,9 @@ class UnsavedRecord {
   /// macOS security-scoped bookmark for [originPath], when available.
   final String? originBookmark;
 
-  /// The picked mobile file Save writes back into (Android `content://` Uri
-  /// with a persisted write grant; `DocumentTab.originUri`), when it has one.
+  /// The picked mobile file Save writes back into (`DocumentTab.originUri`:
+  /// an Android `content://` Uri or an iOS security-scoped bookmark), when it
+  /// has one.
   final String? originUri;
 
   /// The app-private byte snapshot backing a mobile/web pick (pdf_cache.dart),

@@ -355,8 +355,9 @@ class DocumentTab {
   /// tab swaps to its complete, snapshotted bytes.
   String? originToken;
 
-  /// The picked mobile file Save writes back into (#1304): an Android
-  /// `content://` Uri the app holds a persisted *write* grant for. Unlike
+  /// The picked mobile file Save writes back into (#1304): the reference
+  /// picker's token (an Android `content://` Uri the app holds a persisted
+  /// *write* grant for, or an iOS security-scoped bookmark). Unlike
   /// [originToken] it outlives the progressive open - it is carried through
   /// promotion and persisted with the session and Recent files - and it is
   /// set only when the provider accepts writes; null means Save shares a copy

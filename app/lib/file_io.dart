@@ -152,8 +152,8 @@ class MobilePickedPdf {
 
   /// Whether Save can write edits back into the original file through
   /// [token] (#1304): the runner holds a persisted write grant and the
-  /// provider accepts writes. Only Android reports it; false elsewhere and for
-  /// read-only providers, where Save keeps sharing a copy.
+  /// provider accepts writes. The Android and iOS runners report it; it is
+  /// false for read-only providers, where Save keeps sharing a copy.
   final bool writable;
 }
 
@@ -198,14 +198,15 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
 }
 
 /// Whether Save can write a document back into the file it was picked from on
-/// a phone/tablet (#1304): Android, through the persisted Storage Access
-/// Framework grant the reference picker takes ([MobilePickedPdf.writable]).
-/// iOS picks keep sharing a copy.
-bool get supportsMobileInPlaceSave =>
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+/// a phone/tablet (#1304), through the reference picker's token
+/// ([MobilePickedPdf.writable]): on Android a persisted Storage Access
+/// Framework write grant, on iOS the security-scoped bookmark the `.open`
+/// mode picker hands back.
+bool get supportsMobileInPlaceSave => supportsMobileProgressiveOpen;
 
-/// Overwrites the picked file behind [uri] (an Android `content://` Uri the
-/// app holds a persisted write grant for) with [bytes] - Save writing back in
+/// Overwrites the picked file behind [uri] (an Android `content://` Uri with a
+/// persisted write grant, or an iOS security-scoped bookmark) with [bytes] -
+/// Save writing back in
 /// place (#1304). [name] is only for the toast. Never throws: a revoked grant,
 /// a provider gone offline or a runner without the method all come back as
 /// [SaveResult.failed], so the caller can fall back to sharing a copy.

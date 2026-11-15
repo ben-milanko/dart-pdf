@@ -33,7 +33,8 @@ class SessionDocument {
   final String? bookmark;
 
   /// The picked mobile file Save writes back into (#1304): an Android
-  /// `content://` Uri with a persisted write grant. A restored tab reads it
+  /// `content://` Uri with a persisted write grant or an iOS security-scoped
+  /// bookmark (`DocumentTab.originUri`). A restored tab reads it
   /// first (falling back to [cachePath]) and keeps saving into it.
   final String? uri;
 
