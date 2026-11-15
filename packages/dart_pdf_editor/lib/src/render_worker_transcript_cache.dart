@@ -103,8 +103,8 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
 ) {
   if (originalImages.isEmpty) return wireCommands;
   var imageIndex = 0;
-  final cellMemo = Map<List<PdfRenderCommand>,
-      (List<PdfRenderCommand>, int, int)>.identity();
+  final cellMemo =
+      Map<List<PdfRenderCommand>, List<PdfRenderCommand>>.identity();
 
   List<PdfRenderCommand> patch(List<PdfRenderCommand> commands) {
     List<PdfRenderCommand>? changed;
@@ -141,36 +141,16 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
           );
         }
       } else if (command is PdfDrawTiledCellCommand) {
-        // Cell images are serialized depth-first, matching the recorder's
-        // imageRequests order, which lists a cell's images again for every
-        // stamp. The wire codec keeps one list per shared cell (a Type3
-        // glyph), so patch it once and hand every stamp that same list: a
-        // fresh list per stamp would undo the sharing for every image-bearing
-        // cell, and the web worker and native detail records serialize from
-        // these source commands.
-        final List<PdfRenderCommand> cellCommands;
-        final memo = cellMemo[command.cellCommands];
-        if (memo != null) {
-          // A shared wire cell (Type3 stamp): the recorder listed its images
-          // again for this occurrence - the same request objects.
-          final (patchedCell, start, count) = memo;
-          if (imageIndex + count > originalImages.length) {
-            throw StateError('wire transcript has more images than its source');
-          }
-          for (var k = 0; k < count; k++) {
-            if (!identical(
-                originalImages[imageIndex + k], originalImages[start + k])) {
-              throw StateError('shared cell images diverge');
-            }
-          }
-          imageIndex += count;
-          cellCommands = patchedCell;
-        } else {
-          final start = imageIndex;
-          cellCommands = patch(command.cellCommands);
-          cellMemo[command.cellCommands] =
-              (cellCommands, start, imageIndex - start);
-        }
+        // A cell's images are serialized depth-first the first time the cell
+        // is stamped, and the recorder's imageRequests lists them at that
+        // same point - once, however often the cell is stamped again. The
+        // wire codec keeps one list per shared cell (a Type3 glyph), so patch
+        // it once and hand every stamp that same list: a fresh list per stamp
+        // would undo the sharing for every image-bearing cell, and the web
+        // worker and native detail records serialize from these source
+        // commands.
+        final cellCommands = cellMemo[command.cellCommands] ??=
+            patch(command.cellCommands);
         if (!identical(cellCommands, command.cellCommands)) {
           replacement = PdfDrawTiledCellCommand(
               cellCommands, command.originsX, command.originsY);

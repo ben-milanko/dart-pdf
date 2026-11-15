@@ -170,22 +170,25 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
 /// a hatched sheet's transcript from O(tiles x cell) to O(cell + tiles).
 class PdfDrawTiledCellCommand extends PdfRenderCommand {
   const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY,
-      {this.cellImages})
+      {this.share})
       : assert(originsX.length == originsY.length);
   final List<PdfRenderCommand> cellCommands;
 
-  /// Every image [cellCommands] draws, depth-first through soft masks and
-  /// nested cells, when whoever built the command already has that list.
-  ///
-  /// A recorder lists a cell's images again for every stamp, and finds them
-  /// by walking [cellCommands]. That is once for a tiling pattern but once
-  /// per glyph for Type3 text, where the interpreter stamps the same few
-  /// cells tens of thousands of times - so it flattens each cell once and
-  /// passes the result here. Null means "walk the cell", which is always
-  /// correct; a non-null list must be exactly what the walk would find.
-  final List<PdfImageRequest>? cellImages;
+  /// Set when [cellCommands] is one list stamped by many commands (a Type3
+  /// glyph): every stamp of that list carries the same [PdfTiledCellShare].
+  /// It changes nothing about what the command draws; it lets a recorder
+  /// recognise a cell it has already seen without looking the list up.
+  final PdfTiledCellShare? share;
   final Float64List originsX;
   final Float64List originsY;
+}
+
+/// What the stamps of one shared tiled cell have in common
+/// ([PdfDrawTiledCellCommand.share]).
+final class PdfTiledCellShare {
+  /// The recorder bookkeeping that last listed this cell's images, or null.
+  /// Owned by whoever is recording; not part of the command's meaning.
+  Object? listedIn;
 }
 
 /// Optional capability interface for devices that can consume a
