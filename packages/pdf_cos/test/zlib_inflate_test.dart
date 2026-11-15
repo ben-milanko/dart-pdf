@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/src/filters/zlib_inflate_io.dart' as io;
 import 'package:pdf_cos/src/filters/zlib_inflate_web.dart' as web;
 import 'package:test/test.dart';
 
@@ -111,6 +112,157 @@ void main() {
     });
   });
 
+  // The decoder every FlateDecode stream goes through on this platform: the
+  // native one on the VM (which collects zlib's output in pieces and joins
+  // them once), the pure-Dart one under dart2js.
+  group('inflateZlib', () {
+    test('decodes outputs far larger than one piece of native output', () {
+      final samples = {
+        'text': _text(3 << 20),
+        'noise': _noise(1 << 20),
+        'run': Uint8List(2 << 20)..fillRange(0, 2 << 20, 0x41),
+      };
+      for (final MapEntry(key: name, value: data) in samples.entries) {
+        for (final level in [0, 1, 6]) {
+          final inflated = inflateZlib(_zlib(data, level: level));
+          // length first: a mismatch should not print megabytes
+          expect(inflated.length, data.length, reason: '$name at $level');
+          expect(_same(inflated, data), isTrue, reason: '$name at $level');
+        }
+      }
+    });
+
+    test('returns a buffer of its own, no larger than it needs', () {
+      for (final data in [
+        Uint8List(0),
+        _text(10),
+        _text(20000),
+        _noise(50000),
+        _text(1 << 20),
+      ]) {
+        for (final level in [0, 6]) {
+          final zlib = _zlib(data, level: level);
+          final first = inflateZlib(zlib);
+          expect(first.buffer.lengthInBytes,
+              lessThanOrEqualTo(data.length * 17 ~/ 16),
+              reason: '${data.length} bytes at level $level');
+          // A decoded stream is cached and shared; a second decode must not
+          // hand out memory the first one still owns.
+          final second = inflateZlib(zlib);
+          if (first.isNotEmpty) {
+            first[0] ^= 0xff;
+            expect(second[0], data[0]);
+          }
+          expect(_same(second, data), isTrue);
+        }
+      }
+    });
+
+    test('is not confused by input that is a view into a larger buffer', () {
+      final padded = Uint8List.fromList([9, 9, 9, ...encoded, 7, 7, 7, 7]);
+      final view = Uint8List.sublistView(padded, 3, 3 + encoded.length);
+      expect(inflateZlib(view), text);
+    });
+
+    test('ignores bytes after the stream', () {
+      for (final tail in [
+        [0x0a],
+        [0x0d, 0x0a],
+        _noise(5000, seed: 3),
+      ]) {
+        final withTail = Uint8List.fromList([...encoded, ...tail]);
+        expect(inflateZlib(withTail), text, reason: '${tail.length} bytes');
+      }
+    });
+
+    test('keeps what a truncated stream decoded, unless strict', () {
+      final big = _text(1 << 20);
+      final zlib = _zlib(big);
+      final truncated = Uint8List.sublistView(zlib, 0, zlib.length ~/ 2);
+      final partial = inflateZlib(truncated);
+      expect(partial.length, inInclusiveRange(1, big.length - 1));
+      expect(
+          _same(partial, Uint8List.sublistView(big, 0, partial.length)), isTrue,
+          reason: 'what was recovered is a prefix of the data');
+      expect(() => inflateZlib(truncated, strict: true), throwsFormatException);
+    });
+  });
+
+  // The VM decoder's output collector, driven directly: the native decoder
+  // only ever hands it whole lists, so the defensive branches need a caller
+  // of their own. (The file has no dart:io import, so this runs under node
+  // too.)
+  group('native inflateZlib (the VM implementation)', () {
+    test('agrees with the web implementation, well-formed or not', () {
+      final big = _text(1 << 20);
+      final zlib = _zlib(big);
+      final inputs = {
+        'text': encoded,
+        'megabyte': zlib,
+        'empty': _zlib(Uint8List(0)),
+        'stored': _zlib(_noise(50000), level: 0),
+        'trailing bytes': Uint8List.fromList([...encoded, 13, 10]),
+        'no Adler-32': Uint8List.sublistView(encoded, 0, encoded.length - 4),
+      };
+      for (final MapEntry(key: name, value: data) in inputs.entries) {
+        expect(_same(io.inflateZlib(data), web.inflateZlib(data)), isTrue,
+            reason: name);
+      }
+    }, testOn: 'vm');
+
+    test('a whole list of its own is held, not copied', () {
+      final chunk = Uint8List.fromList([1, 2, 3]);
+      final out = io.InflatedChunks()..writeBytes(chunk);
+      expect(out.length, 3);
+      expect(out.takeBytes(), same(chunk));
+    });
+
+    test('anything else is copied', () {
+      final backing = Uint8List.fromList([9, 1, 2, 3, 9]);
+      final view = Uint8List.sublistView(backing, 1, 4);
+      final viewed = io.InflatedChunks()..writeBytes(view);
+      expect(viewed.takeBytes(), [1, 2, 3]);
+      expect(viewed.takeBytes().buffer, isNot(same(backing.buffer)),
+          reason: 'a view would pin, and alias, the larger buffer');
+
+      final whole = Uint8List.fromList([1, 2, 3, 4]);
+      final partial = io.InflatedChunks()..writeBytes(whole, length: 2);
+      expect(partial.length, 2);
+      expect(partial.takeBytes(), [1, 2]);
+      expect(partial.takeBytes(), isNot(same(whole)));
+
+      final plain = io.InflatedChunks()..writeBytes(<int>[7, 8]);
+      expect(plain.takeBytes(), [7, 8]);
+
+      final nothing = io.InflatedChunks()..writeBytes(Uint8List(0));
+      expect(nothing.length, 0);
+      expect(nothing.takeBytes(), isEmpty);
+    });
+
+    test('pieces join once, in order, at their exact size', () {
+      final out = io.InflatedChunks()
+        ..writeBytes(Uint8List.fromList([1, 2]))
+        ..writeByte(3)
+        ..writeStream(InputMemoryStream(Uint8List.fromList([4, 5, 6])))
+        ..writeBytes(Uint8List.fromList([7]))
+        ..flush();
+      expect(out.length, 7);
+      final joined = out.takeBytes();
+      expect(joined, [1, 2, 3, 4, 5, 6, 7]);
+      expect(joined.buffer.lengthInBytes, 7);
+      expect(out.takeBytes(), same(joined), reason: 'no second join');
+
+      expect(out.subset(2), [3, 4, 5, 6, 7]);
+      expect(out.subset(1, 3), [2, 3]);
+      expect(out.subset(-2), [6, 7]);
+      expect(out.subset(0, -5), [1, 2]);
+
+      out.clear();
+      expect(out.length, 0);
+      expect(out.takeBytes(), isEmpty);
+    });
+  });
+
   group('FlateFilter', () {
     test('decodes a stream with a trailing EOL', () {
       final stream = CosStream(
@@ -189,6 +341,14 @@ void main() {
       expect(sampleOf(CosDocument.open(result.bytes)).rawBytes, payload);
     });
   });
+}
+
+bool _same(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 Uint8List _zlib(Uint8List data, {int level = 6}) =>
