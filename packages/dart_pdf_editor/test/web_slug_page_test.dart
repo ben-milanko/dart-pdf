@@ -43,7 +43,7 @@ void main() {
     PdfPageView.webSlugGlyphLayer = true;
     PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
     addTearDown(() {
-      PdfPageView.webSlugGlyphLayer = true;
+      PdfPageView.webSlugGlyphLayer = false;
       PdfPageView.debugWebSlugGlyphLayerBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1;
@@ -89,7 +89,7 @@ void main() {
     PdfPageView.webSlugGlyphLayer = true;
     PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
     addTearDown(() {
-      PdfPageView.webSlugGlyphLayer = true;
+      PdfPageView.webSlugGlyphLayer = false;
       PdfPageView.debugWebSlugGlyphLayerBackendOverride = null;
     });
     final page = PdfDocument.open(buildClassicPdf()).page(0);
@@ -110,7 +110,7 @@ void main() {
     PdfPageView.debugStripZoomReplayBackendOverride = true;
     PdfPageView.retainedZoomReplayMaxCommands = 0;
     addTearDown(() {
-      PdfPageView.webSlugGlyphLayer = true;
+      PdfPageView.webSlugGlyphLayer = false;
       PdfPageView.debugWebSlugGlyphLayerBackendOverride = null;
       PdfPageView.debugStripZoomReplayBackendOverride = null;
       PdfPageView.retainedZoomReplayMaxCommands = 20000;

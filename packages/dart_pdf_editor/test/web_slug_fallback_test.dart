@@ -22,7 +22,7 @@ void main() {
     PdfPageView.webSlugGlyphLayer = true;
     PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
     addTearDown(() {
-      PdfPageView.webSlugGlyphLayer = true;
+      PdfPageView.webSlugGlyphLayer = false;
       PdfPageView.debugWebSlugGlyphLayerBackendOverride = null;
     });
     tester.view.devicePixelRatio = 1;
