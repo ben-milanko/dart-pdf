@@ -88,8 +88,8 @@ void main() {
     // its geometry into the still-live region path - the region rect showed
     // up merged into the first tile's stroke (and, once cells are recorded,
     // into every tile's replay).
-    final device = run(
-        '/Pattern cs /P1 scn 10 20 30 30 re f', hatchResources());
+    final device =
+        run('/Pattern cs /P1 scn 10 20 30 30 re f', hatchResources());
     for (final (path, _, _, _) in device.strokes) {
       expect(path.segments.whereType<PdfClosePath>(), isEmpty,
           reason: 'a cell stroke must never contain the region rect');
@@ -101,8 +101,8 @@ void main() {
     final doc = CosDocument.open(buildClassicPdf());
     final recorder = RecordingPdfDevice();
     PdfInterpreter(cos: doc, device: recorder).run(
-      ContentStreamParser.parse(Uint8List.fromList(
-          '/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
+      ContentStreamParser.parse(
+          Uint8List.fromList('/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
       hatchResources(),
     );
     final tiled = recorder.commands.whereType<PdfDrawTiledCellCommand>();
@@ -111,8 +111,8 @@ void main() {
     expect(command.originsX.length, greaterThanOrEqualTo(16));
     expect(command.originsX[0], 0);
     expect(command.originsY[0], 0);
-    expect(command.cellCommands.whereType<PdfStrokePathCommand>(),
-        hasLength(1));
+    expect(
+        command.cellCommands.whereType<PdfStrokePathCommand>(), hasLength(1));
 
     // Expanding the recorded transcript through a plain device must produce
     // exactly what direct interpretation produces.
@@ -132,13 +132,12 @@ void main() {
     final bytes = serializeCommands(recorder.commands, cos: doc);
     expect(bytes, isNotNull);
     final decoded = deserializeCommands(bytes!);
-    final decodedTiled =
-        decoded.whereType<PdfDrawTiledCellCommand>().toList();
+    final decodedTiled = decoded.whereType<PdfDrawTiledCellCommand>().toList();
     expect(decodedTiled, hasLength(1));
     expect(decodedTiled.single.originsX, command.originsX);
     expect(decodedTiled.single.originsY, command.originsY);
-    expect(decodedTiled.single.cellCommands.length,
-        command.cellCommands.length);
+    expect(
+        decodedTiled.single.cellCommands.length, command.cellCommands.length);
     final reencoded = serializeCommands(decoded, cos: doc);
     expect(reencoded, bytes, reason: 're-serialization is byte-stable');
 
@@ -210,6 +209,76 @@ void main() {
     final x0 = (expanded.fills[0].$1.segments[0] as PdfMoveTo).x;
     final x1 = (expanded.fills[1].$1.segments[0] as PdfMoveTo).x;
     expect(x1 - x0, closeTo(6, 1e-9));
+  });
+
+  test('a Type3 cell is reused only under the stroke colour it was drawn in',
+      () {
+    // A d0 glyph that strokes inherits the text state's stroke colour, so the
+    // colour is part of what a recorded cell stands for: setting it again to
+    // the same value keeps sharing the cell, changing it must record afresh.
+    final doc = CosDocument.open(buildClassicPdf());
+    final type3 = CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type3'),
+      'FontBBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosInteger(600),
+        const CosInteger(700),
+      ]),
+      'FontMatrix': CosArray([
+        const CosReal(0.001),
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(0.001),
+        const CosInteger(0),
+        const CosInteger(0),
+      ]),
+      'FirstChar': const CosInteger(0x58),
+      'LastChar': const CosInteger(0x58),
+      'Widths': CosArray([const CosInteger(600)]),
+      'Encoding': CosDictionary({
+        'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+      }),
+      'CharProcs': CosDictionary({
+        'X': CosStream(
+          CosDictionary({'Length': const CosInteger(0)}),
+          Uint8List.fromList('600 0 d0 40 w 50 50 m 450 550 l S'.codeUnits),
+        ),
+      }),
+    });
+    final resources = CosDictionary({
+      'Font': CosDictionary({'T3': type3}),
+    });
+    const content = 'BT /T3 10 Tf '
+        '0 0 1 RG (X) Tj '
+        '0 0 1 RG (X) Tj '
+        '1 0 0 RG (X) Tj ET';
+
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc, device: recorder).run(
+      ContentStreamParser.parse(Uint8List.fromList(content.codeUnits)),
+      resources,
+    );
+    final tiled =
+        recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
+    expect(tiled, hasLength(3));
+    expect(identical(tiled[1].cellCommands, tiled[0].cellCommands), isTrue,
+        reason: 'the same colour set twice is still the same cell');
+    expect(identical(tiled[2].cellCommands, tiled[0].cellCommands), isFalse,
+        reason: 'a new stroke colour must not replay the old cell');
+
+    // What reaches a device is what direct interpretation paints.
+    final expanded = RecordingDevice();
+    replayCommands(recorder.commands, expanded);
+    final direct = run(content, resources);
+    expect(expanded.strokes, hasLength(3));
+    expect(direct.strokes, hasLength(3));
+    for (var i = 0; i < 3; i++) {
+      expect(expanded.strokes[i].$2, direct.strokes[i].$2);
+    }
+    expect(expanded.strokes[0].$2, expanded.strokes[1].$2);
+    expect(expanded.strokes[2].$2, isNot(expanded.strokes[0].$2));
   });
 
   test('unpainted cell segments do not leak into later content', () {
