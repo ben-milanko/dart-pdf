@@ -1,5 +1,6 @@
 import 'package:pdf_document/pdf_document.dart';
 
+import 'cell_image_requests.dart';
 import 'color.dart';
 import 'device.dart';
 import 'mesh.dart';
@@ -46,19 +47,14 @@ class RecordingPdfDevice
     // The cell's images enter [imageRequests] once, in the depth-first order
     // the wire codec serializes them, so consumers that pair the wire
     // transcript's images with this list stay aligned.
-    void walk(List<PdfRenderCommand> cmds) {
-      for (final c in cmds) {
-        if (c is PdfDrawImageCommand) {
-          imageRequests.add(c.request);
-        } else if (c is PdfEndSoftMaskedCommand) {
-          walk(c.maskCommands);
-        } else if (c is PdfDrawTiledCellCommand) {
-          walk(c.cellCommands);
-        }
+    final images = command.cellImages;
+    if (images != null) {
+      for (var i = 0; i < images.length; i++) {
+        imageRequests.add(images[i]);
       }
+    } else {
+      addCellImageRequests(command.cellCommands, imageRequests);
     }
-
-    walk(command.cellCommands);
   }
 
   @override

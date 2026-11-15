@@ -169,9 +169,21 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
 /// Keeping the cell nested instead of flattening it per tile is what shrinks
 /// a hatched sheet's transcript from O(tiles x cell) to O(cell + tiles).
 class PdfDrawTiledCellCommand extends PdfRenderCommand {
-  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY)
+  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY,
+      {this.cellImages})
       : assert(originsX.length == originsY.length);
   final List<PdfRenderCommand> cellCommands;
+
+  /// Every image [cellCommands] draws, depth-first through soft masks and
+  /// nested cells, when whoever built the command already has that list.
+  ///
+  /// A recorder lists a cell's images again for every stamp, and finds them
+  /// by walking [cellCommands]. That is once for a tiling pattern but once
+  /// per glyph for Type3 text, where the interpreter stamps the same few
+  /// cells tens of thousands of times - so it flattens each cell once and
+  /// passes the result here. Null means "walk the cell", which is always
+  /// correct; a non-null list must be exactly what the walk would find.
+  final List<PdfImageRequest>? cellImages;
   final Float64List originsX;
   final Float64List originsY;
 }

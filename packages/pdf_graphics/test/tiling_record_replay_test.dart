@@ -88,8 +88,8 @@ void main() {
     // its geometry into the still-live region path - the region rect showed
     // up merged into the first tile's stroke (and, once cells are recorded,
     // into every tile's replay).
-    final device = run(
-        '/Pattern cs /P1 scn 10 20 30 30 re f', hatchResources());
+    final device =
+        run('/Pattern cs /P1 scn 10 20 30 30 re f', hatchResources());
     for (final (path, _, _, _) in device.strokes) {
       expect(path.segments.whereType<PdfClosePath>(), isEmpty,
           reason: 'a cell stroke must never contain the region rect');
@@ -101,8 +101,8 @@ void main() {
     final doc = CosDocument.open(buildClassicPdf());
     final recorder = RecordingPdfDevice();
     PdfInterpreter(cos: doc, device: recorder).run(
-      ContentStreamParser.parse(Uint8List.fromList(
-          '/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
+      ContentStreamParser.parse(
+          Uint8List.fromList('/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
       hatchResources(),
     );
     final tiled = recorder.commands.whereType<PdfDrawTiledCellCommand>();
@@ -111,8 +111,8 @@ void main() {
     expect(command.originsX.length, greaterThanOrEqualTo(16));
     expect(command.originsX[0], 0);
     expect(command.originsY[0], 0);
-    expect(command.cellCommands.whereType<PdfStrokePathCommand>(),
-        hasLength(1));
+    expect(
+        command.cellCommands.whereType<PdfStrokePathCommand>(), hasLength(1));
 
     // Expanding the recorded transcript through a plain device must produce
     // exactly what direct interpretation produces.
@@ -132,13 +132,12 @@ void main() {
     final bytes = serializeCommands(recorder.commands, cos: doc);
     expect(bytes, isNotNull);
     final decoded = deserializeCommands(bytes!);
-    final decodedTiled =
-        decoded.whereType<PdfDrawTiledCellCommand>().toList();
+    final decodedTiled = decoded.whereType<PdfDrawTiledCellCommand>().toList();
     expect(decodedTiled, hasLength(1));
     expect(decodedTiled.single.originsX, command.originsX);
     expect(decodedTiled.single.originsY, command.originsY);
-    expect(decodedTiled.single.cellCommands.length,
-        command.cellCommands.length);
+    expect(
+        decodedTiled.single.cellCommands.length, command.cellCommands.length);
     final reencoded = serializeCommands(decoded, cos: doc);
     expect(reencoded, bytes, reason: 're-serialization is byte-stable');
 
@@ -244,5 +243,154 @@ void main() {
     expect(segments, hasLength(2),
         reason: 'the trailing stroke must contain only its own two points');
     expect((segments[0] as PdfMoveTo).x, closeTo(40, 1e-6));
+  });
+
+  group('a stamped cell lists its images', () {
+    // A recorder lists a cell's images again for every stamp, in the order
+    // the wire codec writes them. A Type3 glyph cell carries that list with
+    // it instead of being walked per glyph.
+    CosDictionary bitmapFont() => CosDictionary({
+          'Type': const CosName('Font'),
+          'Subtype': const CosName('Type3'),
+          'FontBBox': CosArray([
+            const CosInteger(0),
+            const CosInteger(0),
+            const CosInteger(600),
+            const CosInteger(700),
+          ]),
+          'FontMatrix': CosArray([
+            const CosReal(0.001),
+            const CosInteger(0),
+            const CosInteger(0),
+            const CosReal(0.001),
+            const CosInteger(0),
+            const CosInteger(0),
+          ]),
+          'FirstChar': const CosInteger(0x58),
+          'LastChar': const CosInteger(0x59),
+          'Widths': CosArray([const CosInteger(600), const CosInteger(600)]),
+          'Encoding': CosDictionary({
+            'Differences': CosArray([
+              const CosInteger(0x58),
+              const CosName('X'),
+              const CosName('Y'),
+            ]),
+          }),
+          'CharProcs': CosDictionary({
+            // A 1-bit stencil, the shape of a TeX PK-font glyph.
+            'X': CosStream(
+              CosDictionary({'Length': const CosInteger(0)}),
+              Uint8List.fromList(('600 0 0 0 600 700 d1 '
+                      'q 400 0 0 500 50 50 cm '
+                      'BI /W 2 /H 2 /IM true /BPC 1 ID @A EI Q')
+                  .codeUnits),
+            ),
+            // A vector glyph: no images at all.
+            'Y': CosStream(
+              CosDictionary({'Length': const CosInteger(0)}),
+              Uint8List.fromList(
+                  '600 0 0 0 600 700 d1 50 50 400 500 re f'.codeUnits),
+            ),
+          }),
+        });
+
+    List<PdfImageRequest> walked(List<PdfRenderCommand> commands) {
+      final out = <PdfImageRequest>[];
+      void walk(List<PdfRenderCommand> list) {
+        for (final c in list) {
+          if (c is PdfDrawImageCommand) {
+            out.add(c.request);
+          } else if (c is PdfEndSoftMaskedCommand) {
+            walk(c.maskCommands);
+          } else if (c is PdfDrawTiledCellCommand) {
+            walk(c.cellCommands);
+          }
+        }
+      }
+
+      walk(commands);
+      return out;
+    }
+
+    void expectSameRequests(
+        List<PdfImageRequest> actual, List<PdfImageRequest> expected) {
+      expect(actual, hasLength(expected.length));
+      for (var i = 0; i < expected.length; i++) {
+        expect(identical(actual[i], expected[i]), isTrue, reason: 'image $i');
+      }
+    }
+
+    test('Type3 stamps carry the list, and it is what a walk finds', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final resources = CosDictionary({
+        'Font': CosDictionary({'T3': bitmapFont()}),
+      });
+      final content = ContentStreamParser.parse(
+          Uint8List.fromList('BT /T3 10 Tf (XYXXY) Tj ET'.codeUnits));
+
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc, device: recorder).run(content, resources);
+      final stamps =
+          recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
+      expect(stamps, hasLength(5));
+      for (final stamp in stamps) {
+        expect(stamp.cellImages, isNotNull);
+        expectSameRequests(stamp.cellImages!, walked(stamp.cellCommands));
+      }
+      expect(stamps[0].cellImages, hasLength(1), reason: 'the stencil glyph');
+      expect(stamps[1].cellImages, isEmpty, reason: 'the vector glyph');
+      expect(identical(stamps[0].cellImages, stamps[2].cellImages), isTrue,
+          reason: 'flattened once per cell, not per stamp');
+
+      // One listing per stamp, in drawing order - three stencil glyphs.
+      expect(recorder.imageRequests, hasLength(3));
+      expectSameRequests(recorder.imageRequests, walked(recorder.commands));
+
+      // The streaming writer lists exactly what the recorder does.
+      final writer = PdfStreamingCommandWriter(cos: doc);
+      PdfInterpreter(cos: doc, device: writer).run(content, resources);
+      expect(writer.imageRequests, hasLength(3));
+      expect(writer.snapshot(), serializeCommands(recorder.commands, cos: doc));
+    });
+
+    test('a stamp without the list is walked, with the same result', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final source = RecordingPdfDevice();
+      PdfInterpreter(cos: doc, device: source).run(
+          ContentStreamParser.parse(
+              Uint8List.fromList('BT /T3 10 Tf (XX) Tj ET'.codeUnits)),
+          CosDictionary({
+            'Font': CosDictionary({'T3': bitmapFont()}),
+          }));
+      final stamp = source.commands.whereType<PdfDrawTiledCellCommand>().first;
+
+      // What a decoded record or a rebuilt command looks like: no list.
+      final bare = PdfDrawTiledCellCommand(
+          stamp.cellCommands, stamp.originsX, stamp.originsY);
+      expect(bare.cellImages, isNull);
+      // A cell nested in a cell, so the walk has to descend.
+      final nested =
+          PdfDrawTiledCellCommand([bare, bare], Float64List(1), Float64List(1));
+
+      for (final command in [stamp, bare, nested]) {
+        final recorder = RecordingPdfDevice()..drawTiledCell(command);
+        expectSameRequests(recorder.imageRequests, walked([command]));
+        final writer = PdfStreamingCommandWriter(cos: doc)
+          ..drawTiledCell(command);
+        expectSameRequests(writer.imageRequests, walked([command]));
+      }
+    });
+
+    test('a tiling pattern stamp carries no list', () {
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: CosDocument.open(buildClassicPdf()), device: recorder)
+          .run(
+        ContentStreamParser.parse(
+            Uint8List.fromList('/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
+        hatchResources(),
+      );
+      final tiled = recorder.commands.whereType<PdfDrawTiledCellCommand>();
+      expect(tiled.single.cellImages, isNull);
+    });
   });
 }

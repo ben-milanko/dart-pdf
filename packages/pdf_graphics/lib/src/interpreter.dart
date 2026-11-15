@@ -7,6 +7,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'cell_image_requests.dart';
 import 'color.dart';
 import 'color_context.dart';
 import 'color_space.dart';
@@ -257,6 +258,15 @@ final class _Type3Cell {
 
   /// The next cell recorded for the same code slot, or null.
   final _Type3Cell? next;
+
+  /// The images [commands] draw, flattened once: a recorder lists them again
+  /// for every stamp ([PdfDrawTiledCellCommand.cellImages]), and walking the
+  /// cell per glyph was a tenth of recording a page of bitmap-font text.
+  late final List<PdfImageRequest> images = () {
+    final out = <PdfImageRequest>[];
+    addCellImageRequests(commands, out);
+    return List<PdfImageRequest>.of(out, growable: false);
+  }();
 
   /// Whether a glyph in this state replays this cell translated: the same
   /// code, the same linear part of the CTM, the same inherited paint.
@@ -3556,7 +3566,8 @@ class PdfInterpreter {
     final sink = device;
     if (sink is PdfTiledCellSink) {
       (sink as PdfTiledCellSink).drawTiledCell(PdfDrawTiledCellCommand(
-          cell.commands, Float64List(1)..[0] = dx, Float64List(1)..[0] = dy));
+          cell.commands, Float64List(1)..[0] = dx, Float64List(1)..[0] = dy,
+          cellImages: cell.images));
     } else if (dx == 0 && dy == 0) {
       replayCommands(cell.commands, device);
     } else {
