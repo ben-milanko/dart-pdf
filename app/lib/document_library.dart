@@ -72,7 +72,8 @@ List<SessionDocument> sessionDocumentsOf(Iterable<DocumentTab> tabs) {
         title: tab.title,
         path: path ?? '',
         cachePath: cachePath,
-        bookmark: tab.originBookmark));
+        bookmark: tab.originBookmark,
+        uri: tab.originUri));
   }
   return documents;
 }
@@ -137,7 +138,8 @@ class DocumentLibrary {
             title: tab.title,
             path: tab.originPath,
             cachePath: tab.cachePath,
-            bookmark: tab.originBookmark);
+            bookmark: tab.originBookmark,
+            uri: tab.originUri);
       case RecentRecording.afterSnapshot:
         return snapshot(tab, bytes);
     }
@@ -173,12 +175,16 @@ class DocumentLibrary {
     final key = await snapshots.store(bytes);
     if (_disposed || !tabs.contains(tab)) return;
     if (key == null) {
-      await recents.add(title: tab.title, bookmark: tab.originBookmark);
+      await recents.add(
+          title: tab.title, bookmark: tab.originBookmark, uri: tab.originUri);
       return;
     }
     tab.cachePath = key;
     await recents.add(
-        title: tab.title, cachePath: key, bookmark: tab.originBookmark);
+        title: tab.title,
+        cachePath: key,
+        bookmark: tab.originBookmark,
+        uri: tab.originUri);
     unawaited(persist());
   }
 

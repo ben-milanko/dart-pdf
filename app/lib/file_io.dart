@@ -127,6 +127,7 @@ class MobilePickedPdf {
     this.length,
     this.provider,
     this.seekable,
+    this.writable = false,
   });
 
   /// Opaque native reference (Android persisted `content://` Uri; iOS
@@ -148,6 +149,12 @@ class MobilePickedPdf {
   /// pick comes back without it and [probeMobileSeekable] asks once a loading
   /// tab is up.
   final bool? seekable;
+
+  /// Whether Save can write edits back into the original file through
+  /// [token] (#1304): the runner holds a persisted write grant and the
+  /// provider accepts writes. The Android and iOS runners report it; it is
+  /// false for read-only providers, where Save keeps sharing a copy.
+  final bool writable;
 }
 
 /// Whether this platform can pick a mobile file *by reference* (Android/iOS,
@@ -184,9 +191,58 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
       length: rawLength != null && rawLength >= 0 ? rawLength : null,
       provider: entry['provider'] as String?,
       seekable: entry['seekable'] as bool?,
+      writable: entry['writable'] == true,
     ));
   }
   return out;
+}
+
+/// Whether Save can write a document back into the file it was picked from on
+/// a phone/tablet (#1304), through the reference picker's token
+/// ([MobilePickedPdf.writable]): on Android a persisted Storage Access
+/// Framework write grant, on iOS the security-scoped bookmark the `.open`
+/// mode picker hands back.
+bool get supportsMobileInPlaceSave => supportsMobileProgressiveOpen;
+
+/// Overwrites the picked file behind [uri] (an Android `content://` Uri with a
+/// persisted write grant, or an iOS security-scoped bookmark) with [bytes] -
+/// Save writing back in
+/// place (#1304). [name] is only for the toast. Never throws: a revoked grant,
+/// a provider gone offline or a runner without the method all come back as
+/// [SaveResult.failed], so the caller can fall back to sharing a copy.
+///
+/// The runner answers `true`, or - when it had to re-mint a stale iOS bookmark
+/// to reach the file - the fresh token, carried back as
+/// [SaveResult.refreshedUri].
+Future<SaveResult> saveBytesToMobileUri(
+  Uint8List bytes,
+  String uri, {
+  required String name,
+}) async {
+  try {
+    final reply = await mobileFileChannel
+        .invokeMethod<Object>('writeUri', {'token': uri, 'bytes': bytes});
+    return switch (reply) {
+      true => SaveResult.savedInPlace(name),
+      final String fresh when fresh.isNotEmpty && fresh != uri =>
+        SaveResult.savedInPlace(name, refreshedUri: fresh),
+      String() => SaveResult.savedInPlace(name),
+      _ => SaveResult.failed('the file was not written'),
+    };
+  } catch (e) {
+    return SaveResult.failed(e);
+  }
+}
+
+/// Reads the whole file behind a mobile [uri] - how a restored or recent
+/// document that saves in place ([saveBytesToMobileUri]) reopens from the file
+/// itself, so edits another app made since are not overwritten by a stale
+/// private snapshot. Throws when the file can't be read.
+Future<Uint8List> readMobileUri(String uri) async {
+  final bytes = await mobileFileChannel
+      .invokeMethod<Uint8List>('readUri', {'token': uri});
+  if (bytes == null) throw StateError('No bytes read');
+  return bytes;
 }
 
 /// Whether ranged reads over a mobile pick's [token] are random-access. Can
@@ -389,7 +445,8 @@ String ensureJsonExtension(String path) =>
 /// The outcome of a save, with a message suitable for a toast (null = the
 /// user cancelled, so say nothing).
 class SaveResult {
-  const SaveResult._(this.message, {this.path, this.succeeded = false});
+  const SaveResult._(this.message,
+      {this.path, this.succeeded = false, this.refreshedUri});
 
   /// User-visible feedback, or null for a cancelled or unconfirmed handoff.
   final String? message;
@@ -403,6 +460,12 @@ class SaveResult {
   /// that the receiving app durably saved the file.
   final bool succeeded;
 
+  /// A replacement for the mobile save destination a [savedInPlace] write
+  /// went through, when the runner had to re-mint it (an iOS bookmark gone
+  /// stale because the file moved or was renamed). The caller stores it in
+  /// place of the old one. Null when the destination is unchanged.
+  final String? refreshedUri;
+
   static const cancelled = SaveResult._(null);
 
   /// The share sheet was presented, but the platform cannot report a selected
@@ -410,6 +473,11 @@ class SaveResult {
   static const unconfirmedShare = SaveResult._(null);
   factory SaveResult.saved(String path) =>
       SaveResult._('Saved to $path', path: path, succeeded: true);
+
+  /// Written back into a picked mobile file (no path to adopt: the tab keeps
+  /// its destination, swapped for [refreshedUri] when one is given).
+  factory SaveResult.savedInPlace(String name, {String? refreshedUri}) =>
+      SaveResult._('Saved $name', succeeded: true, refreshedUri: refreshedUri);
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
   factory SaveResult.savedCount(int count, String directory) =>

@@ -58,6 +58,19 @@ void main() {
     expect(restored.single.readPath, '/app/recent_pdfs/x.pdf');
   });
 
+  test('a mobile document keeps the picked file it saves into', () async {
+    await SessionStore().save(const [
+      SessionDocument(
+          title: 'report.pdf',
+          path: '',
+          cachePath: '/app/recent_pdfs/r.pdf',
+          uri: 'content://docs/report'),
+    ]);
+    final restored = (await SessionStore().load()).single;
+    expect(restored.uri, 'content://docs/report');
+    expect(restored.readPath, '/app/recent_pdfs/r.pdf');
+  });
+
   test('a document with neither path nor cache is dropped on load', () async {
     SharedPreferences.setMockInitialValues({
       'dart_pdf_editor_app.session': '[{"t":"orphan.pdf","p":""}]',

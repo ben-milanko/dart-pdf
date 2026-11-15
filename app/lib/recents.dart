@@ -15,6 +15,7 @@ class RecentFile {
     this.cachePath,
     this.cacheAvailable = true,
     this.bookmark,
+    this.uri,
     required this.openedAt,
   });
 
@@ -38,13 +39,21 @@ class RecentFile {
   /// macOS security-scoped bookmark for [path], when available.
   final String? bookmark;
 
+  /// The picked mobile file Save writes back into (#1304) - an Android
+  /// `content://` Uri with a persisted write grant or an iOS security-scoped
+  /// bookmark (`DocumentTab.originUri`). The entry still reads back
+  /// from [cachePath] when the Uri can't be read; this is what makes a
+  /// reopened document save in place again.
+  final String? uri;
+
   /// Epoch milliseconds of the most recent open - drives ordering.
   final int openedAt;
 
   /// Stable identity: the path when present (so the same file dedupes across
-  /// renames of the tab title), else the content-addressed cache path, else the
-  /// title.
-  String get id => path ?? cachePath ?? title;
+  /// renames of the tab title), else the writable mobile [uri] (which outlives
+  /// the snapshot each in-place save re-takes), else the content-addressed
+  /// cache path, else the title.
+  String get id => path ?? uri ?? cachePath ?? title;
 
   /// The path to read the document back from - the real origin when present,
   /// otherwise the private snapshot. Null when neither is available (web).
@@ -65,6 +74,7 @@ class RecentFile {
         if (cachePath != null) 'c': cachePath,
         if (!cacheAvailable) 'a': false,
         if (bookmark != null) 'b': bookmark,
+        if (uri != null) 'w': uri,
         'o': openedAt,
       };
 
@@ -74,6 +84,7 @@ class RecentFile {
         cachePath: j['c'] as String?,
         cacheAvailable: j['a'] != false,
         bookmark: j['b'] as String?,
+        uri: j['w'] as String?,
         openedAt: (j['o'] as num?)?.toInt() ?? 0,
       );
 }
@@ -91,7 +102,8 @@ abstract interface class RecentsLog {
       {required String title,
       String? path,
       String? cachePath,
-      String? bookmark});
+      String? bookmark,
+      String? uri});
 
   /// Marks which of the [checked] snapshot keys are still [available].
   Future<void> updateCachedAvailability(
@@ -151,6 +163,7 @@ class RecentsStore extends ChangeNotifier implements RecentsLog {
           path: entry.path,
           cachePath: live,
           bookmark: entry.bookmark,
+          uri: entry.uri,
           openedAt: entry.openedAt,
         );
         rebased = true;
@@ -174,12 +187,14 @@ class RecentsStore extends ChangeNotifier implements RecentsLog {
       {required String title,
       String? path,
       String? cachePath,
-      String? bookmark}) async {
+      String? bookmark,
+      String? uri}) async {
     final entry = RecentFile(
       title: title,
       path: path,
       cachePath: cachePath,
       bookmark: bookmark,
+      uri: uri,
       openedAt: DateTime.now().millisecondsSinceEpoch,
     );
     _items.removeWhere((e) => e.id == entry.id);
@@ -206,6 +221,7 @@ class RecentsStore extends ChangeNotifier implements RecentsLog {
       cachePath: entry.cachePath,
       cacheAvailable: entry.cacheAvailable,
       bookmark: entry.bookmark,
+      uri: entry.uri,
       openedAt: entry.openedAt,
     );
     notifyListeners();
@@ -236,6 +252,7 @@ class RecentsStore extends ChangeNotifier implements RecentsLog {
           cachePath: entry.cachePath,
           cacheAvailable: exists,
           bookmark: entry.bookmark,
+          uri: entry.uri,
           openedAt: entry.openedAt);
       changed = true;
     }
