@@ -72,6 +72,14 @@ Rules:
   `...MsPerPage` suffix.
 - Comparisons (`tool/perf/diff.dart`) pair rows by `file` and judge each
   metric by the **median ratio** across files with 3-MAD outlier exclusion.
+- vm-sweep `peakRssBytes` is the measuring child's own peak RSS, and
+  `params.child` says how that child was started. `kernel-snapshot` (the
+  default: the sweep compiles its child scripts once and runs children from
+  the snapshots) measures the workload. `source` - a sweep whose compile
+  failed, and every envelope written before `params.child` existed - also
+  includes the Dart front end compiling the script (~400 MB, and it varies
+  with the checkout's `.dart_tool/`), so the two are **not comparable**: a
+  trend that crosses the change steps down by that much.
 - vm-sweep `params.imageRatio` is the display ratio `decodeImagesAtTarget`
   decoded at; flutter-render `params.cold` is true when the text layout
   caches were cleared before every file (`PDF_BENCHMARK_COLD=1`), so

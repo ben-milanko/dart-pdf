@@ -39,6 +39,8 @@ import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'perf_run_context.dart';
+
 const _countedPhases = {
   'imageDecodeCalls': PdfPerfPhase.imageDecode,
   'imageDownsampleCalls': PdfPerfPhase.imageDownsample,
@@ -145,7 +147,7 @@ Map<String, Object?> _measure(
     if (best != null) 'decodeAtTargetMs': double.parse(best.toStringAsFixed(3)),
     if (best != null) 'imagesAtTarget': images,
     ...?calls,
-    'peakRssBytes': ProcessInfo.maxRss,
+    'peakRssBytes': peakRssBytes(),
     'error': error,
     if (phases) 'perfAtTarget': PdfPerf.snapshot().toJson(),
   };

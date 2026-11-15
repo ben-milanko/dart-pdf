@@ -19,7 +19,13 @@
 //                 the deterministic imageDecode/imageDownsample/
 //                 imageColorConvert/imageAlpha call counts (opt-in measure
 //                 `decodeImagesAtTarget`; tool/perf_record_images.dart)
-//   peakRssBytes  the child process's ProcessInfo.maxRss
+//   peakRssBytes  the child process's own peak RSS (peakRssBytes() in
+//                 perf_run_context.dart). The child runs from a kernel
+//                 snapshot the parent compiles once, so this is the
+//                 workload's memory and not the Dart front end's: compiling
+//                 the script inside each child used to put ~400 MB under
+//                 every file (and ~30 MB more in any checkout that had run
+//                 `dart test`), which drowned what the PDF itself cost.
 //
 // Each file is measured in its own killable child process (parent re-spawns
 // this script with --one), so a malformed or adversarial PDF that hangs or
@@ -277,7 +283,7 @@ Map<String, Object?> _measureOne(_Args args) {
     if (best.containsKey('saveMs')) 'saveMs': best['saveMs'],
     if (best.containsKey('decodeMs')) 'decodeMs': best['decodeMs'],
     if (best.containsKey('decodeMs')) 'imagesDecoded': images,
-    'peakRssBytes': ProcessInfo.maxRss,
+    'peakRssBytes': peakRssBytes(),
     'error': error,
     if (args.phases) 'perf': PdfPerf.snapshot().toJson(),
   };
@@ -393,14 +399,77 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
   return path;
 }
 
+/// Compiles the child scripts to kernel snapshots once per sweep, so each
+/// child starts from compiled code instead of compiling the script itself.
+///
+/// That is what makes `peakRssBytes` a measurement of the workload. Compiled
+/// in-process, the front end dominated every child's peak RSS and made it
+/// depend on the checkout's `.dart_tool/` state more than on the PDF. Timings
+/// are unaffected - both forms JIT the same kernel - and a sweep spends less
+/// wall time recompiling.
+///
+/// Falls back to running the source (the old behaviour, reported in the
+/// envelope's `params.child`) if the compile fails.
+class _ChildScripts {
+  _ChildScripts._(this._directory, this._sweepSource);
+
+  final Directory? _directory;
+  final String _sweepSource;
+  final Map<String, String> _compiled = {};
+
+  /// Whether children run from snapshots; false after a failed compile.
+  bool get snapshot => _directory != null && !_failed;
+  var _failed = false;
+
+  static _ChildScripts create(String sweepSource) {
+    Directory? directory;
+    try {
+      directory = Directory.systemTemp.createTempSync('pdf_perf_sweep_');
+    } on FileSystemException {
+      directory = null;
+    }
+    return _ChildScripts._(directory, sweepSource);
+  }
+
+  String get sweep => _resolve(_sweepSource);
+
+  String get recordImages =>
+      _resolve('${File(_sweepSource).parent.path}/perf_record_images.dart');
+
+  String _resolve(String source) {
+    final directory = _directory;
+    if (directory == null || _failed) return source;
+    return _compiled[source] ??= () {
+      final name = File(source).uri.pathSegments.last;
+      final out = '${directory.path}/$name.dill';
+      final r = Process.runSync(Platform.resolvedExecutable,
+          ['compile', 'kernel', source, '-o', out]);
+      if (r.exitCode == 0 && File(out).existsSync()) return out;
+      _failed = true;
+      stderr.writeln('note: could not compile $name to a kernel snapshot; '
+          'children will run from source and peakRssBytes will include the '
+          'compiler (${'${r.stderr}'.trim().split('\n').first})');
+      return source;
+    }();
+  }
+
+  void dispose() {
+    try {
+      _directory?.deleteSync(recursive: true);
+    } on FileSystemException {
+      // a leftover temp directory is not worth failing a sweep over
+    }
+  }
+}
+
 /// Measures [file] in killable children: this script for the classic
 /// measures, plus tool/perf_record_images.dart when `decodeImagesAtTarget` is
 /// asked for. Their rows merge into one; peakRssBytes is the larger child's.
 Future<Map<String, Object?>> _runChild(
-    _Args args, String scriptPath, File file) async {
+    _Args args, _ChildScripts scripts, File file) async {
   final classic = args.measures.difference({_atTargetMeasure});
   final row = await _runProcess(args, file, [
-    scriptPath,
+    scripts.sweep,
     '--one',
     file.path,
     '--max-pages',
@@ -413,7 +482,7 @@ Future<Map<String, Object?>> _runChild(
   ]);
   if (!args.measures.contains(_atTargetMeasure)) return row;
   final atTarget = await _runProcess(args, file, [
-    '${File(scriptPath).parent.path}/perf_record_images.dart',
+    scripts.recordImages,
     '--one',
     file.path,
     '--max-pages',
@@ -539,7 +608,7 @@ Future<void> main(List<String> argv) async {
   }
 
   final repoRoot = findRepoRoot();
-  final scriptPath = File.fromUri(Platform.script).path;
+  final scripts = _ChildScripts.create(File.fromUri(Platform.script).path);
 
   String? corpus = args.corpus;
   if (args.scenario != null) {
@@ -557,7 +626,7 @@ Future<void> main(List<String> argv) async {
   final corpusIsDir =
       FileSystemEntity.typeSync(corpus) == FileSystemEntityType.directory;
   for (final (i, file) in files.indexed) {
-    final r = await _runChild(args, scriptPath, file);
+    final r = await _runChild(args, scripts, file);
     // Relativize for stable cross-machine file keys.
     r['file'] = corpusIsDir
         ? file.path.substring(corpus.length).replaceAll(RegExp(r'^/'), '')
@@ -566,6 +635,8 @@ Future<void> main(List<String> argv) async {
     stderr.writeln('  [${i + 1}/${files.length}] ${r['file']} '
         '${r['error'] == null ? 'ok' : 'ERROR: ${r['error']}'}');
   }
+  final childForm = scripts.snapshot ? 'kernel-snapshot' : 'source';
+  scripts.dispose();
 
   final envelope = {
     'schema': 1,
@@ -581,6 +652,9 @@ Future<void> main(List<String> argv) async {
       if (args.measures.contains(_atTargetMeasure))
         'imageRatio': args.imageRatio,
       'phases': args.phases,
+      // How the children were started: peakRssBytes from a 'source' child
+      // includes the compiler and is not comparable with a snapshot one.
+      'child': childForm,
       'corpus': corpus.startsWith(repoRoot)
           ? corpus.substring(repoRoot.length + 1)
           : corpus,
