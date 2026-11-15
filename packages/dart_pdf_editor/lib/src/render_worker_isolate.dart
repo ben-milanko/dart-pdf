@@ -1278,7 +1278,7 @@ Future<Uint8List?> _recordPageAsync(
     if (token.cancelled) throw const PdfCancelledException();
     textCache.record(pageIndex, writer.takeTextCommands());
     annotations.drawOn(interpreter, page);
-    return writer.snapshot();
+    return writer.finish();
   }
   // A bounded prefix: its command limit counts recorded commands before scope
   // compaction, so it keeps the recorder.
@@ -1663,7 +1663,7 @@ Uint8List? _finishStreamedRecord(
     void Function(Uint8List)? onPartial}) {
   textCache.record(entry.pageIndex, writer.takeTextCommands());
   annotations.drawOn(entry.interpreter, entry.page);
-  final streamed = writer.snapshot();
+  final streamed = writer.finish();
   if (!decodeImages || writer.imageRequests.isEmpty) return streamed;
   onPartial?.call(streamed);
   // The wire transcript with the worker document's own image streams back
