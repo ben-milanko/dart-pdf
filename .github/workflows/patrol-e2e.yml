@@ -186,6 +186,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The newest usable artifact is the baseline. Up to four older ones
+          # ride along as history: each main run used a different runner, so
+          # their spread is what a PR timing is judged against.
+          history_file="$RUNNER_TEMP/patrol-android-baseline-history.txt"
+          : > "$history_file"
+          newest=""
+          kept=0
           for baseline_run in $(gh run list \
             --workflow patrol-e2e.yml \
             --branch main \
@@ -199,13 +206,24 @@ jobs:
               --dir "$destination"; then
               json="$destination/test-results/perf/android/patrol-perf.json"
               if [[ -f "$json" ]]; then
-                echo "json=$json" >> "$GITHUB_OUTPUT"
-                echo "Using Patrol Android baseline from run $baseline_run"
-                exit 0
+                if [[ -z "$newest" ]]; then
+                  newest="$json"
+                  echo "json=$json" >> "$GITHUB_OUTPUT"
+                  echo "Using Patrol Android baseline from run $baseline_run"
+                else
+                  echo "$json" >> "$history_file"
+                  echo "Using Patrol Android history from run $baseline_run"
+                fi
+                kept=$((kept + 1))
+                if ((kept >= 5)); then
+                  break
+                fi
               fi
             fi
           done
-          echo "::notice::No usable main Patrol Android artifact is available yet"
+          if [[ -z "$newest" ]]; then
+            echo "::notice::No usable main Patrol Android artifact is available yet"
+          fi
       - name: Collect Patrol Android performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
@@ -231,6 +249,14 @@ jobs:
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
             arguments+=(--baseline "$baseline")
+            history_file="$RUNNER_TEMP/patrol-android-baseline-history.txt"
+            if [[ -f "$history_file" ]]; then
+              while IFS= read -r older; do
+                if [[ -f "$older" ]]; then
+                  arguments+=(--baseline-history "$older")
+                fi
+              done < "$history_file"
+            fi
           fi
           dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
       - name: Upload Patrol Android report
@@ -288,6 +314,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The newest usable artifact is the baseline. Up to four older ones
+          # ride along as history: each main run used a different runner, so
+          # their spread is what a PR timing is judged against.
+          history_file="$RUNNER_TEMP/patrol-ios-baseline-history.txt"
+          : > "$history_file"
+          newest=""
+          kept=0
           for baseline_run in $(gh run list \
             --workflow patrol-e2e.yml \
             --branch main \
@@ -301,13 +334,24 @@ jobs:
               --dir "$destination"; then
               json="$destination/test-results/perf/ios/patrol-perf.json"
               if [[ -f "$json" ]]; then
-                echo "json=$json" >> "$GITHUB_OUTPUT"
-                echo "Using Patrol iOS baseline from run $baseline_run"
-                exit 0
+                if [[ -z "$newest" ]]; then
+                  newest="$json"
+                  echo "json=$json" >> "$GITHUB_OUTPUT"
+                  echo "Using Patrol iOS baseline from run $baseline_run"
+                else
+                  echo "$json" >> "$history_file"
+                  echo "Using Patrol iOS history from run $baseline_run"
+                fi
+                kept=$((kept + 1))
+                if ((kept >= 5)); then
+                  break
+                fi
               fi
             fi
           done
-          echo "::notice::No usable main Patrol iOS artifact is available yet"
+          if [[ -z "$newest" ]]; then
+            echo "::notice::No usable main Patrol iOS artifact is available yet"
+          fi
       - name: Collect Patrol iOS performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
@@ -333,6 +377,14 @@ jobs:
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
             arguments+=(--baseline "$baseline")
+            history_file="$RUNNER_TEMP/patrol-ios-baseline-history.txt"
+            if [[ -f "$history_file" ]]; then
+              while IFS= read -r older; do
+                if [[ -f "$older" ]]; then
+                  arguments+=(--baseline-history "$older")
+                fi
+              done < "$history_file"
+            fi
           fi
           dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
       - name: Upload Patrol iOS result bundle
