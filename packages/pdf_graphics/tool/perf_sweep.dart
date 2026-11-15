@@ -182,17 +182,16 @@ Map<String, Object?> _measureOne(_Args args) {
       error ??= 'open: $e';
       break;
     }
-    if (args.measures.contains('open'))
-      record('openMs', sw.elapsedMicroseconds);
+    if (args.measures.contains('open')) record('openMs', sw.elapsedMicroseconds);
 
-    final limit =
-        pages < args.maxPages || args.maxPages <= 0 ? pages : args.maxPages;
+    final limit = pages < args.maxPages || args.maxPages <= 0
+        ? pages
+        : args.maxPages;
 
     if (args.measures.contains('firstPage') && pages > 0) {
       sw.reset();
       try {
-        PdfInterpreter(cos: doc.cos, device: NullDevice())
-            .drawPage(doc.page(0));
+        PdfInterpreter(cos: doc.cos, device: NullDevice()).drawPage(doc.page(0));
         record('firstPageMs', sw.elapsedMicroseconds);
       } catch (e) {
         error ??= 'firstPage: $e';
@@ -346,16 +345,13 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
           File('$repoRoot/tool/perf/cache/cad-wide-$ops-$streams-$seed.pdf');
       if (!cache.existsSync()) {
         stderr.writeln('generating ${cache.path}...');
-        final r = await Process.run(
-            Platform.resolvedExecutable,
-            [
-              '$repoRoot/packages/pdf_test_fixtures/tool/gen_cad_wide_pdf.dart',
-              cache.path,
-              '$ops',
-              '$streams',
-              '$seed',
-            ],
-            workingDirectory: repoRoot);
+        final r = await Process.run(Platform.resolvedExecutable, [
+          '$repoRoot/packages/pdf_test_fixtures/tool/gen_cad_wide_pdf.dart',
+          cache.path,
+          '$ops',
+          '$streams',
+          '$seed',
+        ], workingDirectory: repoRoot);
         if (r.exitCode != 0) {
           stderr.writeln('generator failed: ${r.stderr}');
           exit(1);
@@ -365,19 +361,17 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
     }
     final pagesN = generate['pages'] as int? ?? 138;
     final ops = generate['opsPerPage'] as int? ?? 6000;
-    final cache = File('$repoRoot/tool/perf/cache/cad-$pagesN-$ops-$seed.pdf');
+    final cache =
+        File('$repoRoot/tool/perf/cache/cad-$pagesN-$ops-$seed.pdf');
     if (!cache.existsSync()) {
       stderr.writeln('generating ${cache.path}...');
-      final r = await Process.run(
-          Platform.resolvedExecutable,
-          [
-            '$repoRoot/packages/pdf_cos/tool/gen_cad_pdf.dart',
-            cache.path,
-            '$pagesN',
-            '$ops',
-            '$seed',
-          ],
-          workingDirectory: repoRoot);
+      final r = await Process.run(Platform.resolvedExecutable, [
+        '$repoRoot/packages/pdf_cos/tool/gen_cad_pdf.dart',
+        cache.path,
+        '$pagesN',
+        '$ops',
+        '$seed',
+      ], workingDirectory: repoRoot);
       if (r.exitCode != 0) {
         stderr.writeln('generator failed: ${r.stderr}');
         exit(1);
@@ -562,8 +556,7 @@ Future<Map<String, Object?>> _runProcess(
 Map<String, Object?> _aggregate(List<Map<String, Object?>> results) {
   List<double> values(String key, {bool perPage = false}) => [
         for (final r in results)
-          if (r[key] is num &&
-              (!perPage || (r['pagesRendered'] as int? ?? 0) > 0))
+          if (r[key] is num && (!perPage || (r['pagesRendered'] as int? ?? 0) > 0))
             perPage
                 ? (r[key] as num) / (r['pagesRendered'] as int)
                 : (r[key] as num).toDouble(),
