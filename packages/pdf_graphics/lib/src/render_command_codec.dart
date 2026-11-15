@@ -2250,6 +2250,17 @@ class PdfStreamingCommandWriter
     return out;
   }
 
+  /// The last [snapshot]: the finished record. The writer is spent afterwards
+  /// - its buffer is handed to the next record's writer, so nothing more may
+  /// be drawn into it and [length] reads 0. [imageRequests] and
+  /// [commandCount] stay valid. Use this, not [snapshot], for the buffer a
+  /// record ends with; [snapshot] is for the partials before it.
+  Uint8List finish() {
+    final out = snapshot();
+    _w._release();
+    return out;
+  }
+
   void _emit(PdfRenderCommand command) {
     _writeCommand(_w, command, _cos, imagePlaceholders: true, compact: true);
     _frames.last.count++;
@@ -2420,7 +2431,55 @@ class _Writer {
   // float64 values little-endian - the host order everywhere this runs, so
   // they skip ByteData's byte swap; path coordinates go through [_floats]
   // instead (see [_writePath]).
-  Uint8List _buf = Uint8List(1 << 16);
+  // Each writer used to start a fresh 64 KB buffer and double it as the record
+  // grew - for a drawing, megabytes allocated, zeroed and copied per page, and
+  // all of it garbage the moment the record was copied out. A finished writer
+  // now leaves its buffer for the next one ([_release]), which is how every
+  // record after the first is written without growing anything: a third off
+  // encoding a CAD page.
+  Uint8List _buf = _takeSpare();
+
+  /// The buffer the last finished writer left behind, if any. One per
+  /// isolate; a writer that starts while another is open (a streaming record
+  /// held across awaits) simply allocates its own.
+  static Uint8List? _spare;
+
+  /// The largest buffer worth keeping between records. A page that needs
+  /// more than this is rare enough to pay for its own growth, and a spare
+  /// this size is small beside the caches it sits next to.
+  static const _maxSpareBytes = 4 << 20;
+
+  /// Nothing is kept under dart2js: a browser allocates a typed array's
+  /// storage lazily, so there was little to save, and it measured as a wash
+  /// (CAD pages a few percent faster, a Type3 page a few slower). The web
+  /// build therefore allocates exactly as it always has.
+  static const bool _keepsSpare = !identical(0, 0.0);
+
+  static Uint8List _takeSpare() {
+    final spare = _spare;
+    if (spare == null) return Uint8List(1 << 16);
+    _spare = null;
+    return spare;
+  }
+
+  /// Hands the buffer on to the next writer and leaves this one empty, so a
+  /// stray write after the record was taken can never land in bytes another
+  /// writer now owns. Nothing reads a reused buffer's old contents: every
+  /// byte below `_len` is written before it is copied out, path padding
+  /// included ([_writePath]).
+  void _release() {
+    final buf = _buf;
+    if (_keepsSpare &&
+        buf.length <= _maxSpareBytes &&
+        buf.length >= (_spare?.length ?? 0)) {
+      _spare = buf;
+    }
+    _buf = Uint8List(0);
+    _view = ByteData.view(_buf.buffer);
+    _floats = _buf.buffer.asFloat32List();
+    _len = 0;
+  }
+
   late ByteData _view = ByteData.view(_buf.buffer);
 
   /// The same backing buffer as float32 words, for path coordinate blocks.
@@ -2450,7 +2509,8 @@ class _Writer {
   void _ensure(int extra) {
     final need = _len + extra;
     if (need <= _buf.length) return;
-    var cap = _buf.length * 2;
+    // A released writer's buffer is empty; start it over at the usual size.
+    var cap = _buf.isEmpty ? 1 << 16 : _buf.length * 2;
     while (cap < need) {
       cap *= 2;
     }
@@ -2562,8 +2622,12 @@ class _Writer {
 
   /// The written bytes as a tight copy (the backing buffer is over-allocated by
   /// up to 2x and would otherwise pin that slack across the isolate transfer).
-  Uint8List takeBytes() =>
-      Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+  /// The writer is spent afterwards: its buffer goes to the next one.
+  Uint8List takeBytes() {
+    final out = Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+    _release();
+    return out;
+  }
 }
 
 class _Reader {
