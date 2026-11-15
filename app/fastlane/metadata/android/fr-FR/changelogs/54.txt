@@ -1,0 +1,3 @@
+DartPDF 16.1.0
+
+Enregistrez les modifications dans le PDF original sur Android et iOS si le fournisseur autorise l’écriture. Filtrez les annotations par type et auteur. Performances de rendu et de décompression améliorées.

@@ -1,0 +1,3 @@
+DartPDF 16.1.0
+
+Lưu chỉnh sửa vào PDF gốc trên Android và iOS khi nhà cung cấp tệp hỗ trợ ghi. Lọc chú thích theo loại và tác giả. Cải thiện hiệu suất kết xuất và giải nén.
