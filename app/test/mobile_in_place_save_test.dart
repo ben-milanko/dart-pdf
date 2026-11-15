@@ -16,6 +16,7 @@ import 'package:dart_pdf_editor_app/devtools.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/pdf_mobile_source.dart';
+import 'package:dart_pdf_editor_app/recents.dart';
 import 'package:dart_pdf_editor_app/session_store.dart';
 
 class _Session implements SessionPersistence {
@@ -37,6 +38,8 @@ void main() {
   // Save As calls - on a phone, the share sheet.
   late List<String> shares;
   late Object? writeError;
+  // What successive `writeUri` calls answer; `true` once these run out.
+  late List<Object> writeReplies;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -45,6 +48,7 @@ void main() {
     writes = [];
     shares = [];
     writeError = null;
+    writeReplies = [];
     AppDevTools.instance.clearLog();
   });
 
@@ -93,7 +97,7 @@ void main() {
         case 'writeUri':
           writes.add(call);
           if (writeError case final error?) throw error;
-          return true;
+          return writeReplies.isEmpty ? true : writeReplies.removeAt(0);
         default:
           return null;
       }
@@ -251,5 +255,61 @@ void main() {
     expect(saved, hasLength(1));
     expect(saved.single.$1, 'content://docs/report');
     expect(saved.single.$2, controller.bytes);
+  });
+
+  mobileTest('a destination the runner re-mints on save replaces the stale one',
+      (tester) async {
+    mockPick(writable: true, seekable: false);
+    // The file moved since it was picked: the runner wrote it, then handed
+    // back a fresh bookmark for it.
+    writeReplies = ['content://docs/report-moved'];
+    final controller = await openPicked(tester);
+
+    controller.addBookmark('First save');
+    await tester.pump();
+    await settle(tester,
+        () async => tester.tap(find.byKey(const ValueKey('pdf-shell-save'))));
+    controller.addBookmark('Second save');
+    await tester.pump();
+    await settle(tester,
+        () async => tester.tap(find.byKey(const ValueKey('pdf-shell-save'))));
+
+    expect(shares, isEmpty);
+    expect([for (final w in writes) (w.arguments as Map)['token']],
+        ['content://docs/report', 'content://docs/report-moved']);
+    // Recent files follow the new destination, without a stale duplicate.
+    final recents = RecentsStore();
+    await tester.runAsync(recents.load);
+    expect([for (final e in recents.items) e.uri],
+        ['content://docs/report-moved']);
+  });
+
+  group('saveBytesToMobileUri reads the runner reply', () {
+    final bytes = Uint8List.fromList([1, 2, 3]);
+    Future<SaveResult> replying(Object? reply) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(mobileFileChannel, (call) async => reply);
+      return saveBytesToMobileUri(bytes, 'old-token', name: 'a.pdf');
+    }
+
+    test('true: written, destination unchanged', () async {
+      final result = await replying(true);
+      expect(result.succeeded, isTrue);
+      expect(result.refreshedUri, isNull);
+    });
+
+    test('a fresh token: written, destination refreshed', () async {
+      final result = await replying('new-token');
+      expect(result.succeeded, isTrue);
+      expect(result.refreshedUri, 'new-token');
+    });
+
+    test('the same token: written, nothing to refresh', () async {
+      expect((await replying('old-token')).refreshedUri, isNull);
+    });
+
+    test('no answer: not written', () async {
+      expect((await replying(null)).succeeded, isFalse);
+    });
   });
 }

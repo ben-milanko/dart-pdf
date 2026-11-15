@@ -187,12 +187,15 @@ class SceneDelegate: FlutterSceneDelegate {
       }
       fileIoQueue.async { [weak self] in
         guard let self = self else { return }
-        // nil means written; otherwise the reason it wasn't.
-        let error: String? = self.writeWhole(token, data: bytes.data)
+        let outcome = self.writeWhole(token, data: bytes.data)
         DispatchQueue.main.async {
-          if let error = error {
-            result(FlutterError(code: "write_failed", message: error, details: nil))
-          } else {
+          switch outcome {
+          case .failure(let reason):
+            result(FlutterError(code: "write_failed", message: reason, details: nil))
+          case .success(let refreshed?):
+            // A refreshed bookmark replaces the stale one Dart holds.
+            result(refreshed)
+          case .success(nil):
             result(true)
           }
         }
@@ -278,11 +281,21 @@ class SceneDelegate: FlutterSceneDelegate {
 
   /// Resolves a base64 bookmark [token] back to its security-scoped URL.
   private func resolveToken(_ token: String) -> URL? {
+    return resolveTokenNotingStale(token)?.url
+  }
+
+  /// [resolveToken], also reporting whether the bookmark is stale: the file
+  /// moved or was renamed, or the volume changed. A stale bookmark still
+  /// resolves, but it should be re-minted before it stops resolving.
+  private func resolveTokenNotingStale(_ token: String) -> (url: URL, stale: Bool)? {
     guard let data = Data(base64Encoded: token) else { return nil }
     var stale = false
-    return try? URL(
-      resolvingBookmarkData: data, options: [], relativeTo: nil,
-      bookmarkDataIsStale: &stale)
+    guard
+      let url = try? URL(
+        resolvingBookmarkData: data, options: [], relativeTo: nil,
+        bookmarkDataIsStale: &stale)
+    else { return nil }
+    return (url, stale)
   }
 
   private func probeSeekable(_ token: String) -> Bool {
@@ -340,14 +353,29 @@ class SceneDelegate: FlutterSceneDelegate {
     return result
   }
 
+  /// What `writeWhole` reports back to the `writeUri` handler.
+  private enum WriteOutcome {
+    /// Written; carries a refreshed base64 bookmark when the old one was stale.
+    case success(String?)
+    /// Not written, with the reason.
+    case failure(String)
+  }
+
   /// Replaces the token's file with [data] - Save writing a picked document
   /// back in place (#1304). A coordinated write (`.forReplacing`) so iCloud and
   /// other File Providers see the change and sync it. Deliberately not
   /// `.atomic`: an atomic write renames a sibling temp file into place, and
   /// the picker's security scope covers this one file, not its folder.
-  /// Returns nil on success, otherwise the reason.
-  private func writeWhole(_ token: String, data: Data) -> String? {
-    guard let url = resolveToken(token) else { return "bookmark unresolvable" }
+  ///
+  /// When the bookmark has gone stale (the file was moved or renamed since it
+  /// was picked), a fresh one is minted after the write, while the security
+  /// scope is still held, and returned. The Dart side swaps it in wherever the
+  /// old token was stored, so the save destination keeps resolving.
+  private func writeWhole(_ token: String, data: Data) -> WriteOutcome {
+    guard let resolved = resolveTokenNotingStale(token) else {
+      return .failure("bookmark unresolvable")
+    }
+    let url = resolved.url
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     var failure: String?
@@ -361,8 +389,13 @@ class SceneDelegate: FlutterSceneDelegate {
         failure = error.localizedDescription
       }
     }
-    if let coordError = coordError { return coordError.localizedDescription }
-    return failure
+    if let coordError = coordError { return .failure(coordError.localizedDescription) }
+    if let failure = failure { return .failure(failure) }
+    // The write already succeeded; failing to re-mint just keeps the old token.
+    guard resolved.stale, let fresh = try? url.bookmarkData() else {
+      return .success(nil)
+    }
+    return .success(fresh.base64EncodedString())
   }
 
   /// Reads the token's whole file through a coordinated read - how a document

@@ -3299,8 +3299,13 @@ class _EditorScreenState extends State<EditorScreen>
             ? null
             : (await securityBookmarkForPath(path)) ?? existingBookmark;
         if (!mounted || !_tabs.contains(tab)) return;
+        // The runner re-minted a stale destination (an iOS bookmark to a file
+        // that moved): adopt it before anything below records the tab, so the
+        // session, Recent files and the recovery mirror all carry the new one.
+        final refreshedUri = originUri == null ? null : result.refreshedUri;
         setState(() {
           tab.markSaved(length: savedLength);
+          if (refreshedUri != null) tab.originUri = refreshedUri;
           if (path != null) {
             tab.title = path.split(RegExp(r'[/\\]')).last;
             tab.originPath = path;
@@ -3314,6 +3319,13 @@ class _EditorScreenState extends State<EditorScreen>
         // the acknowledged revision; edits made since it stay protected.
         unawaited(_autosave.noteSaved(tab));
         if (originUri != null) {
+          if (refreshedUri != null) {
+            // Recent files are identified by the destination; retire the
+            // entry under the old one so the snapshot below doesn't leave a
+            // duplicate, and re-save the session with the new destination.
+            unawaited(_recents.remove(originUri));
+            unawaited(_library.persist());
+          }
           // Written back into the picked file: refresh the private snapshot
           // too, so Recent files and session restore fall back to the saved
           // revision (not the one first opened) when the file can't be read.

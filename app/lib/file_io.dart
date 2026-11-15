@@ -210,16 +210,25 @@ bool get supportsMobileInPlaceSave => supportsMobileProgressiveOpen;
 /// place (#1304). [name] is only for the toast. Never throws: a revoked grant,
 /// a provider gone offline or a runner without the method all come back as
 /// [SaveResult.failed], so the caller can fall back to sharing a copy.
+///
+/// The runner answers `true`, or - when it had to re-mint a stale iOS bookmark
+/// to reach the file - the fresh token, carried back as
+/// [SaveResult.refreshedUri].
 Future<SaveResult> saveBytesToMobileUri(
   Uint8List bytes,
   String uri, {
   required String name,
 }) async {
   try {
-    final ok = await mobileFileChannel
-        .invokeMethod<bool>('writeUri', {'token': uri, 'bytes': bytes});
-    if (ok != true) return SaveResult.failed('the file was not written');
-    return SaveResult.savedInPlace(name);
+    final reply = await mobileFileChannel
+        .invokeMethod<Object>('writeUri', {'token': uri, 'bytes': bytes});
+    return switch (reply) {
+      true => SaveResult.savedInPlace(name),
+      final String fresh when fresh.isNotEmpty && fresh != uri =>
+        SaveResult.savedInPlace(name, refreshedUri: fresh),
+      String() => SaveResult.savedInPlace(name),
+      _ => SaveResult.failed('the file was not written'),
+    };
   } catch (e) {
     return SaveResult.failed(e);
   }
@@ -436,7 +445,8 @@ String ensureJsonExtension(String path) =>
 /// The outcome of a save, with a message suitable for a toast (null = the
 /// user cancelled, so say nothing).
 class SaveResult {
-  const SaveResult._(this.message, {this.path, this.succeeded = false});
+  const SaveResult._(this.message,
+      {this.path, this.succeeded = false, this.refreshedUri});
 
   /// User-visible feedback, or null for a cancelled or unconfirmed handoff.
   final String? message;
@@ -450,6 +460,12 @@ class SaveResult {
   /// that the receiving app durably saved the file.
   final bool succeeded;
 
+  /// A replacement for the mobile save destination a [savedInPlace] write
+  /// went through, when the runner had to re-mint it (an iOS bookmark gone
+  /// stale because the file moved or was renamed). The caller stores it in
+  /// place of the old one. Null when the destination is unchanged.
+  final String? refreshedUri;
+
   static const cancelled = SaveResult._(null);
 
   /// The share sheet was presented, but the platform cannot report a selected
@@ -459,9 +475,9 @@ class SaveResult {
       SaveResult._('Saved to $path', path: path, succeeded: true);
 
   /// Written back into a picked mobile file (no path to adopt: the tab keeps
-  /// its existing destination).
-  factory SaveResult.savedInPlace(String name) =>
-      SaveResult._('Saved $name', succeeded: true);
+  /// its destination, swapped for [refreshedUri] when one is given).
+  factory SaveResult.savedInPlace(String name, {String? refreshedUri}) =>
+      SaveResult._('Saved $name', succeeded: true, refreshedUri: refreshedUri);
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
   factory SaveResult.savedCount(int count, String directory) =>

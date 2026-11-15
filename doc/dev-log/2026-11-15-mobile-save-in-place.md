@@ -64,6 +64,18 @@ grants read/write access. `SceneDelegate.swift` now does three things:
   renames a sibling temp file into place, and the scope covers only the file,
   not its folder.
 - `readUri` (`readWhole`) does a coordinated whole-file read.
+- **Stale bookmarks are refreshed on save.** `writeWhole` resolves through
+  `resolveTokenNotingStale`. When iOS reports `bookmarkDataIsStale` (the file
+  was moved or renamed), it mints a fresh bookmark after the write, while the
+  scope is still held, and `writeUri` answers with that token instead of
+  `true`. If re-minting fails, the save still counts and the old token is kept.
+  On the Dart side, `saveBytesToMobileUri` returns it as
+  `SaveResult.refreshedUri`. `_save` then swaps it into `tab.originUri` inside
+  the same `setState` as `markSaved`, so the autosave record, session and
+  snapshot all record the new destination. It also removes the Recent entry
+  under the old token, because `RecentFile.id` is the Uri and the snapshot
+  would otherwise leave a duplicate. Only Save refreshes; a reopen through
+  `readUri` reads a stale bookmark but does not re-mint it.
 
 On the Dart side, `supportsMobileInPlaceSave` is now
 `supportsMobileProgressiveOpen` (Android or iOS); everything else was already
@@ -87,10 +99,6 @@ round-trips are covered in `session_store_test` / `recents_test` /
   container, so neither the Kotlin nor the Swift changes were compiled or run
   on a device. Check Android against local storage, Google Drive and OneDrive,
   and iOS against On My iPad, iCloud Drive and a third-party File Provider.
-- iOS bookmark staleness: `resolveToken` ignores `bookmarkDataIsStale`. A
-  stale bookmark still resolves, but the saved token never gets refreshed. If
-  device testing shows saves failing after a file moves, return a refreshed
-  bookmark from `writeUri`.
 - Only files opened through the in-app picker save in place. A PDF opened
   from a file manager's "Open with" (Android `ACTION_VIEW`,
   `IncomingPdfHandler`) arrives with a temporary read-only grant, and one from
