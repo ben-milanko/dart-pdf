@@ -148,6 +148,8 @@ class EditorScreen extends StatefulWidget {
     this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
+    this.saveDocumentToUri,
+    this.readDocumentUri,
     this.shareDocuments,
     this.compressDocument,
     this.snapshotClipboardWriter,
@@ -233,6 +235,19 @@ class EditorScreen extends StatefulWidget {
     String path, {
     String? bookmark,
   })? saveDocumentToPath;
+
+  /// Overrides writing a document back into the picked mobile file it was
+  /// opened from ([saveBytesToMobileUri], #1304). Setting it also lets tests
+  /// exercise in-place mobile saves on a host platform that has none.
+  final Future<SaveResult> Function(
+    Uint8List bytes,
+    String uri, {
+    required String name,
+  })? saveDocumentToUri;
+
+  /// Overrides reading a writable mobile origin back on reopen
+  /// ([readMobileUri]).
+  final Future<Uint8List> Function(String uri)? readDocumentUri;
 
   /// Overrides the multi-document share/save-copies backend the tabs
   /// overview's selection uses (see [shareDocumentsAs]).
@@ -996,6 +1011,9 @@ class _EditorScreenState extends State<EditorScreen>
             _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
           continue;
         }
+        if (doc.uri != null && _tabs.any((t) => t.originUri == doc.uri)) {
+          continue;
+        }
         if (!await _reopenSessionDocument(doc)) unavailable.add(doc.title);
         if (!mounted) return;
       }
@@ -1066,13 +1084,37 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
+  /// Reads a session or Recent files document back for a reopen. One that
+  /// saves into a picked mobile file ([uri], #1304) reads that file first, so
+  /// whatever it holds now - including edits another app made since - is what
+  /// the next Save builds on, rather than a stale private snapshot; when it
+  /// can't be read (offline, grant revoked) the snapshot at [readPath] still
+  /// opens. Everything else reads [readPath] as before.
+  Future<Uint8List> _readReopened(String? readPath,
+      {String? bookmark, String? uri}) async {
+    final readUri = widget.readDocumentUri ??
+        (supportsMobileInPlaceSave ? readMobileUri : null);
+    if (uri != null && uri.isNotEmpty && readUri != null) {
+      try {
+        return await readUri(uri);
+      } catch (e) {
+        AppDevTools.instance.addLog(
+            'reopen: picked file unreadable, using snapshot - $e',
+            level: DevLogLevel.info);
+        if (readPath == null) rethrow;
+      }
+    }
+    if (readPath == null) throw StateError('No source to reopen');
+    return readPdfAtPath(readPath, bookmark: bookmark);
+  }
+
   /// Re-adds one session document. Returns false when its file could not be
   /// read (moved or deleted) so the caller can warn; a path-only tab reads
   /// nothing here, so its failure surfaces later, when it is first shown (see
   /// [_materializeDeferredPath]).
   Future<bool> _reopenSessionDocument(SessionDocument doc) async {
     final readPath = doc.readPath;
-    if (readPath == null) return true;
+    if (readPath == null && doc.uri == null) return true;
     // Desktop restores by its writable origin; a mobile pick has none and
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
@@ -1107,11 +1149,13 @@ class _EditorScreenState extends State<EditorScreen>
       doc.title,
       originPath: originPath,
       originBookmark: doc.bookmark,
+      originUri: doc.uri,
       cachePath: doc.cachePath,
       restored: true,
     );
     try {
-      final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
+      final bytes =
+          await _readReopened(readPath, bookmark: doc.bookmark, uri: doc.uri);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return true;
       // Reading the bytes already confirmed the file is still there (a gone
@@ -1133,7 +1177,8 @@ class _EditorScreenState extends State<EditorScreen>
             title: doc.title,
             path: originPath,
             cachePath: doc.cachePath,
-            bookmark: doc.bookmark);
+            bookmark: doc.bookmark,
+            uri: doc.uri);
       }
       return true;
     } catch (e) {
@@ -1207,6 +1252,7 @@ class _EditorScreenState extends State<EditorScreen>
         path: handoff.originPath,
         cachePath: handoff.cachePath,
         bookmark: handoff.originBookmark,
+        uri: handoff.originUri,
       );
       return true;
     } catch (error) {
@@ -1361,6 +1407,7 @@ class _EditorScreenState extends State<EditorScreen>
       {String? originPath,
       String? originBookmark,
       String? originToken,
+      String? originUri,
       String? cachePath,
       bool restored = false}) {
     final tab = DocumentTab.loading(
@@ -1368,6 +1415,7 @@ class _EditorScreenState extends State<EditorScreen>
         originPath: originPath,
         originBookmark: originBookmark,
         originToken: originToken,
+        originUri: originUri,
         cachePath: cachePath);
     _addTab(tab, restored: restored);
     return tab;
@@ -1377,8 +1425,15 @@ class _EditorScreenState extends State<EditorScreen>
   // the active tab already, and when it isn't - a session restore finishing
   // behind the file the OS launched us with - stealing focus here would undo
   // the ordering _addTab just got right.
-  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) =>
-      _tabsModel.replace(loading, replacement);
+  //
+  // The replacement inherits the placeholder's writable mobile destination
+  // (#1304): a mobile pick knows where Save writes before it knows which kind
+  // of tab (preview, deferred, document) its bytes will become, so this is the
+  // one place every open path hands it on.
+  bool _replaceLoadingTab(DocumentTab loading, DocumentTab replacement) {
+    replacement.originUri ??= loading.originUri;
+    return _tabsModel.replace(loading, replacement);
+  }
 
   Future<void> _openLoadedBytes(
     Future<Uint8List> bytesFuture, {
@@ -1408,6 +1463,7 @@ class _EditorScreenState extends State<EditorScreen>
         title = pdfTitleForXdp(title);
         originPath = null;
         originBookmark = null;
+        loading.originUri = null;
       }
       AppDevTools.instance
           .addLog('open-trace: "$title" bytes ready — ${bytes.length} B; '
@@ -2063,6 +2119,11 @@ class _EditorScreenState extends State<EditorScreen>
       final loading = placeholders[i];
       if (!mounted) return;
       if (!_tabs.contains(loading)) continue;
+      // Save writes straight back into a file the provider lets us write
+      // (#1304); the tab its bytes become inherits this from the placeholder.
+      if (pick.writable && supportsMobileInPlaceSave) {
+        loading.originUri = pick.token;
+      }
       // The probe can take as long as the whole download, so it runs here,
       // behind the placeholder, not in the picker reply. A batch never opens
       // progressively, so it doesn't need to know.
@@ -2636,7 +2697,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   Future<void> _openRecent(RecentFile entry) async {
     final readPath = entry.readPath;
-    if (readPath == null) {
+    if (readPath == null && entry.uri == null) {
       // No usable source (web): fall back to a fresh pick.
       await _pickAndOpen();
       return;
@@ -2666,10 +2727,12 @@ class _EditorScreenState extends State<EditorScreen>
       entry.title,
       originPath: originPath,
       originBookmark: entry.bookmark,
+      originUri: entry.uri,
       cachePath: entry.cachePath,
     );
     try {
-      final bytes = await readPdfAtPath(readPath, bookmark: entry.bookmark);
+      final bytes = await _readReopened(readPath,
+          bookmark: entry.bookmark, uri: entry.uri);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final opened = _replaceLoadingTab(
@@ -2688,7 +2751,8 @@ class _EditorScreenState extends State<EditorScreen>
             title: entry.title,
             path: originPath,
             cachePath: entry.cachePath,
-            bookmark: entry.bookmark);
+            bookmark: entry.bookmark,
+            uri: entry.uri);
       }
     } catch (e) {
       if (originPath == null && entry.cachePath != null) {
@@ -2724,10 +2788,11 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _openRecentInNewWindowAsync(RecentFile entry) async {
     final open = widget.onNewWindow;
     final readPath = entry.readPath;
-    if (open == null || readPath == null) return;
+    if (open == null || (readPath == null && entry.uri == null)) return;
     final Uint8List bytes;
     try {
-      bytes = await readPdfAtPath(readPath, bookmark: entry.bookmark);
+      bytes = await _readReopened(readPath,
+          bookmark: entry.bookmark, uri: entry.uri);
     } catch (e) {
       AppDevTools.instance.addLog(
         'recent open in new window failed: ${entry.title} - $e',
@@ -2754,6 +2819,7 @@ class _EditorScreenState extends State<EditorScreen>
         savedLength: bytes.length,
         originPath: entry.path,
         originBookmark: entry.bookmark,
+        originUri: entry.uri,
         cachePath: entry.cachePath,
       ),
     );
@@ -2767,7 +2833,8 @@ class _EditorScreenState extends State<EditorScreen>
         title: entry.title,
         path: entry.path,
         cachePath: entry.cachePath,
-        bookmark: entry.bookmark);
+        bookmark: entry.bookmark,
+        uri: entry.uri);
   }
 
   List<RecentFile> _recentMenuEntries() {
@@ -2778,6 +2845,8 @@ class _EditorScreenState extends State<EditorScreen>
         for (final tab in _tabs)
           if (tab.originPath != null && tab.originPath!.isNotEmpty)
             tab.originPath!
+          else if (tab.originUri != null && tab.originUri!.isNotEmpty)
+            tab.originUri!
           else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
             tab.cachePath!
           else
@@ -3169,10 +3238,12 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- saving --------------------------------------------------------------
 
-  /// Saves [tab]. A plain Save overwrites the document's on-disk origin when
-  /// there is one (desktop); otherwise, and for an explicit `saveAs`, it
-  /// prompts for a location (save dialog / browser download / share sheet).
-  /// An in-place write that fails (e.g. permissions) falls back to save-as.
+  /// Saves [tab]. A plain Save overwrites the document's origin when there is
+  /// one - its on-disk path (desktop) or the picked file it was opened from
+  /// (Android, [DocumentTab.originUri], #1304); otherwise, and for an explicit
+  /// `saveAs`, it prompts for a location (save dialog / browser download /
+  /// share sheet). An in-place write that fails (e.g. permissions) falls back
+  /// to save-as.
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     if (!_savingTabs.add(tab)) return;
     try {
@@ -3187,14 +3258,23 @@ class _EditorScreenState extends State<EditorScreen>
       final bytes =
           _withBakedPageColor(session.bytes, source: session.document);
       final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
-      final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
-      var result = inPlace
-          ? await saveToPath(
+      final originUri = saveAs ? null : _inPlaceUriOf(tab);
+      final inPlaceToPath =
+          !saveAs && tab.originPath != null && supportsInPlaceSave;
+      final inPlace = inPlaceToPath || originUri != null;
+      var result = originUri != null
+          ? await (widget.saveDocumentToUri ?? saveBytesToMobileUri)(
               bytes,
-              tab.originPath!,
-              bookmark: tab.originBookmark,
+              originUri,
+              name: tab.title,
             )
-          : await _saveAsDocument(context, bytes, tab.title);
+          : inPlaceToPath
+              ? await saveToPath(
+                  bytes,
+                  tab.originPath!,
+                  bookmark: tab.originBookmark,
+                )
+              : await _saveAsDocument(context, bytes, tab.title);
       if (!mounted || !_tabs.contains(tab)) return;
       if (inPlace && !result.succeeded) {
         // The origin couldn't be written (moved, read-only) - say so, then offer
@@ -3233,6 +3313,12 @@ class _EditorScreenState extends State<EditorScreen>
         // Saving does not notify the edit session. Reconcile the mirror with
         // the acknowledged revision; edits made since it stay protected.
         unawaited(_autosave.noteSaved(tab));
+        if (originUri != null) {
+          // Written back into the picked file: refresh the private snapshot
+          // too, so Recent files and session restore fall back to the saved
+          // revision (not the one first opened) when the file can't be read.
+          unawaited(_library.snapshot(tab, bytes));
+        }
         final thumbnailEntry = _tabThumbnailEntry(tab);
         if (thumbnailEntry != null) {
           // The stored thumbnail follows the file: a restored tab and the
@@ -3253,6 +3339,22 @@ class _EditorScreenState extends State<EditorScreen>
       _savingTabs.remove(tab);
     }
   }
+
+  /// The picked mobile file a plain Save writes [tab] back into (#1304), or
+  /// null when it has none (or this platform can't) and Save shares a copy.
+  String? _inPlaceUriOf(DocumentTab tab) {
+    final uri = tab.originUri;
+    if (uri == null || uri.isEmpty) return null;
+    if (widget.saveDocumentToUri == null && !supportsMobileInPlaceSave) {
+      return null;
+    }
+    return uri;
+  }
+
+  /// Whether [tab]'s plain Save shares a copy (phones/tablets without a
+  /// writable origin) rather than saving - what the Save button says.
+  bool _savesByShare(DocumentTab? tab) =>
+      _usesMobileShare && (tab == null || _inPlaceUriOf(tab) == null);
 
   /// [bytes] as they should reach a file: with the page colour painted
   /// behind every page when View options' "Save page color into file" is on,
@@ -3366,8 +3468,12 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Mobile picks are app-managed copies; their title is the share filename.
   /// Keep the live edit session and its saved baseline while renaming the copy.
+  ///
+  /// A tab that saves back into its picked file ([DocumentTab.originUri]) is
+  /// not a copy: its title is that file's name, which renaming the tab would
+  /// not change, so it isn't offered.
   Future<void> _renameDocument(DocumentTab tab) async {
-    if (!_usesMobileShare || tab.session == null) return;
+    if (!_savesByShare(tab) || tab.session == null) return;
     final name = await showRenameDocumentDialog(context, tab.title);
     if (!mounted || !_tabs.contains(tab) || name == null || name == tab.title) {
       return;
@@ -3379,7 +3485,8 @@ class _EditorScreenState extends State<EditorScreen>
     // Update existing metadata immediately. A pending initial snapshot reads
     // tab.title when it records its Recent entry, so it also gets the new name.
     unawaited(_recents.rename(
-        tab.originPath ?? tab.cachePath ?? oldTitle, tab.title));
+        tab.originPath ?? tab.originUri ?? tab.cachePath ?? oldTitle,
+        tab.title));
     // New scans have no source snapshot yet. Give the renamed copy a
     // reusable source for Recent files and session restoration too.
     if (await _library.snapshotIfUnbacked(tab, tab.session!.bytes) &&
@@ -4148,9 +4255,12 @@ class _EditorScreenState extends State<EditorScreen>
       _MenuAction(
         id: 'save-as',
         requiresDocument: true,
-        // On a phone the header's own Share button already does this.
-        sheet:
-            _usesMobileShare ? _SheetPlacement.hidden : _SheetPlacement.export,
+        // On a phone the header's own Share button already does this - unless
+        // the document saves back into its picked file (#1304), where the
+        // header button is Save and sharing a copy lives here.
+        sheet: _savesByShare(_active)
+            ? _SheetPlacement.hidden
+            : _SheetPlacement.export,
         icon: _usesMobileShare ? Icons.share_outlined : Icons.save_as_outlined,
         title: _usesMobileShare
             ? WidgetsLocalizations.of(context).shareButtonLabel
@@ -4673,11 +4783,11 @@ class _EditorScreenState extends State<EditorScreen>
                   if (parts.save case final save?) save,
                 ],
               );
-    // the compact bar's save/share button stays live without edits (sharing
-    // an unedited file is the phone's main action); ⌘S still saves only when
-    // there is something to save
+    // the compact bar's share button stays live without edits (sharing an
+    // unedited file is the phone's main action); a Save that writes back into
+    // the picked file (#1304), like ⌘S, only when there is something to save
     final save = parts != null && parts.compact
-        ? parts.saveButton(enabledWhenUnchanged: true)
+        ? parts.saveButton(enabledWhenUnchanged: _savesByShare(tab))
         : null;
     return AppBar(
       key: const ValueKey('editor-app-bar'),
@@ -4971,8 +5081,11 @@ class _EditorScreenState extends State<EditorScreen>
         if (_devToolsInEditor(tab, compact: _isCompactWidth(context)))
           _devToolsPanel(tab),
       ],
-      saveButtonIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
-      saveButtonLabel: _usesMobileShare
+      // A tab that writes back into its picked file (#1304) saves like a
+      // desktop document; the share sheet stays one menu entry away.
+      saveButtonIcon:
+          _savesByShare(tab) ? Icons.share_outlined : Icons.save_alt,
+      saveButtonLabel: _savesByShare(tab)
           ? WidgetsLocalizations.of(context).shareButtonLabel
           : null,
       // The shell enables Save off its *own* session history, which misses two
@@ -5172,7 +5285,7 @@ class _EditorScreenState extends State<EditorScreen>
       tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
       hidePdfExtension: tab?.title.isNotEmpty ?? false,
     );
-    if (_usesMobileShare && tab?.session != null) {
+    if (_savesByShare(tab) && tab?.session != null) {
       title = Semantics(
         button: true,
         child: Tooltip(
@@ -6946,6 +7059,7 @@ RecentFile? _tabThumbnailEntry(DocumentTab tab) {
     path: tab.originPath,
     cachePath: tab.cachePath,
     bookmark: tab.originBookmark,
+    uri: tab.originUri,
     openedAt: 0,
   );
 }

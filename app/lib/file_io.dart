@@ -127,6 +127,7 @@ class MobilePickedPdf {
     this.length,
     this.provider,
     this.seekable,
+    this.writable = false,
   });
 
   /// Opaque native reference (Android persisted `content://` Uri; iOS
@@ -148,6 +149,12 @@ class MobilePickedPdf {
   /// pick comes back without it and [probeMobileSeekable] asks once a loading
   /// tab is up.
   final bool? seekable;
+
+  /// Whether Save can write edits back into the original file through
+  /// [token] (#1304): the runner holds a persisted write grant and the
+  /// provider accepts writes. Only Android reports it; false elsewhere and for
+  /// read-only providers, where Save keeps sharing a copy.
+  final bool writable;
 }
 
 /// Whether this platform can pick a mobile file *by reference* (Android/iOS,
@@ -184,9 +191,48 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
       length: rawLength != null && rawLength >= 0 ? rawLength : null,
       provider: entry['provider'] as String?,
       seekable: entry['seekable'] as bool?,
+      writable: entry['writable'] == true,
     ));
   }
   return out;
+}
+
+/// Whether Save can write a document back into the file it was picked from on
+/// a phone/tablet (#1304): Android, through the persisted Storage Access
+/// Framework grant the reference picker takes ([MobilePickedPdf.writable]).
+/// iOS picks keep sharing a copy.
+bool get supportsMobileInPlaceSave =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+/// Overwrites the picked file behind [uri] (an Android `content://` Uri the
+/// app holds a persisted write grant for) with [bytes] - Save writing back in
+/// place (#1304). [name] is only for the toast. Never throws: a revoked grant,
+/// a provider gone offline or a runner without the method all come back as
+/// [SaveResult.failed], so the caller can fall back to sharing a copy.
+Future<SaveResult> saveBytesToMobileUri(
+  Uint8List bytes,
+  String uri, {
+  required String name,
+}) async {
+  try {
+    final ok = await mobileFileChannel
+        .invokeMethod<bool>('writeUri', {'token': uri, 'bytes': bytes});
+    if (ok != true) return SaveResult.failed('the file was not written');
+    return SaveResult.savedInPlace(name);
+  } catch (e) {
+    return SaveResult.failed(e);
+  }
+}
+
+/// Reads the whole file behind a mobile [uri] - how a restored or recent
+/// document that saves in place ([saveBytesToMobileUri]) reopens from the file
+/// itself, so edits another app made since are not overwritten by a stale
+/// private snapshot. Throws when the file can't be read.
+Future<Uint8List> readMobileUri(String uri) async {
+  final bytes = await mobileFileChannel
+      .invokeMethod<Uint8List>('readUri', {'token': uri});
+  if (bytes == null) throw StateError('No bytes read');
+  return bytes;
 }
 
 /// Whether ranged reads over a mobile pick's [token] are random-access. Can
@@ -410,6 +456,11 @@ class SaveResult {
   static const unconfirmedShare = SaveResult._(null);
   factory SaveResult.saved(String path) =>
       SaveResult._('Saved to $path', path: path, succeeded: true);
+
+  /// Written back into a picked mobile file (no path to adopt: the tab keeps
+  /// its existing destination).
+  factory SaveResult.savedInPlace(String name) =>
+      SaveResult._('Saved $name', succeeded: true);
   factory SaveResult.downloaded(String name) =>
       SaveResult._('Downloaded $name', succeeded: true);
   factory SaveResult.savedCount(int count, String directory) =>

@@ -41,7 +41,8 @@ class _Recents implements RecentsLog {
       {required String title,
       String? path,
       String? cachePath,
-      String? bookmark}) async {
+      String? bookmark,
+      String? uri}) async {
     items.insert(
         0,
         RecentFile(
@@ -49,6 +50,7 @@ class _Recents implements RecentsLog {
             path: path,
             cachePath: cachePath,
             bookmark: bookmark,
+            uri: uri,
             openedAt: items.length));
   }
 
