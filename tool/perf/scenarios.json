@@ -169,7 +169,7 @@
   },
   "hatch-sections-sweep": {
     "suite": "vm-sweep",
-    "note": "4 A1 sheets with ~70 tiling-pattern-hatched regions each (PatternType 1: diagonal/cross/dot + an uncolored rotated hatch; ~90k cell executions -> ~300k device commands per page under per-tile re-interpretation). The #524 record-once/replay-per-tile measurement anchor. Corpus file is checked in (gen_hatch_pdf.dart, seed 20260724).",
+    "note": "4 A1 sheets with ~70 tiling-pattern-hatched regions each (PatternType 1: diagonal/cross/dot + an uncolored rotated hatch; ~90k cell executions -> ~300k device commands per page under per-tile re-interpretation). The #524 record-once/replay-per-tile measurement anchor. Since 2026-11-15 the sweep's NullDevice takes a cell whole (PdfTiledCellSink), like every device an interpreter is pointed at, so interpretMs is the cell recording + tile origins and no longer a per-tile replay into the null device: expect a ~6x step down in the trend on that date that is the harness, not the code. Corpus file is checked in (gen_hatch_pdf.dart, seed 20260724).",
     "corpus": "test_corpora/dartpdf/hatch-sections-4p.pdf",
     "maxPages": 0,
     "repeat": 3,

@@ -46,7 +46,18 @@ import 'perf_run_context.dart';
 
 /// Swallows every device call; the interpreter still parses, shapes fonts,
 /// and computes geometry.
-class NullDevice implements PdfDevice {
+///
+/// It takes a tiled cell whole ([PdfTiledCellSink]), as every device the
+/// library points an interpreter at does - the recorder, the streaming
+/// writer, the canvas, the text extractor. Without it the interpreter falls
+/// back to replaying the recorded cell once per tile (and per Type3 glyph)
+/// through a translating wrapper, a path no product code takes from the
+/// interpreter: on hatch-sections that replay, half of it this class's own
+/// `noSuchMethod` dispatch, was 87% of `interpretMs`.
+class NullDevice implements PdfDevice, PdfTiledCellSink {
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {}
+
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
