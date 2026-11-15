@@ -2219,6 +2219,7 @@ class PdfStreamingCommandWriter
 
   /// Every image drawn so far, in [RecordingPdfDevice.imageRequests] order.
   final List<PdfImageRequest> imageRequests = [];
+  final ListedCells _listedCells = newListedCells();
 
   List<PdfRenderCommand>? _text = [];
 
@@ -2394,15 +2395,8 @@ class PdfStreamingCommandWriter
   void drawTiledCell(PdfDrawTiledCellCommand command) {
     _flushScopes();
     // As [RecordingPdfDevice.drawTiledCell]: the cell's images, depth-first,
-    // once per occurrence.
-    final images = command.cellImages;
-    if (images != null) {
-      for (var i = 0; i < images.length; i++) {
-        imageRequests.add(images[i]);
-      }
-    } else {
-      addCellImageRequests(command.cellCommands, imageRequests);
-    }
+    // the first time the cell is stamped.
+    addStampedCellImageRequests(command, imageRequests, _listedCells);
     _emit(command);
     if (_frames.length == 1) _text?.add(command);
   }

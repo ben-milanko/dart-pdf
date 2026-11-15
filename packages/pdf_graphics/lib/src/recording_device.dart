@@ -33,6 +33,7 @@ class RecordingPdfDevice
   /// (including those inside soft-mask groups). The same list the device's
   /// [drawImage] calls produced - useful for decoding ahead of replay.
   final List<PdfImageRequest> imageRequests = [];
+  final ListedCells _listedCells = newListedCells();
 
   /// The list new commands append to. Normally [commands]; temporarily a
   /// soft mask's nested list while its `drawMask` closure runs.
@@ -44,17 +45,11 @@ class RecordingPdfDevice
   @override
   void drawTiledCell(PdfDrawTiledCellCommand command) {
     _target.add(command);
-    // The cell's images enter [imageRequests] once, in the depth-first order
-    // the wire codec serializes them, so consumers that pair the wire
-    // transcript's images with this list stay aligned.
-    final images = command.cellImages;
-    if (images != null) {
-      for (var i = 0; i < images.length; i++) {
-        imageRequests.add(images[i]);
-      }
-    } else {
-      addCellImageRequests(command.cellCommands, imageRequests);
-    }
+    // The cell's images enter [imageRequests] the first time the cell is
+    // stamped, in the depth-first order the wire codec serializes them, so
+    // consumers that pair the wire transcript's images with this list stay
+    // aligned ([addStampedCellImageRequests]).
+    addStampedCellImageRequests(command, imageRequests, _listedCells);
   }
 
   @override

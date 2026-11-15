@@ -322,9 +322,9 @@ void main() {
   });
 
   test('a shared tiled cell patches once and keeps its image alignment', () {
-    // The recorder lists a cell's images again for every stamp, the codec
-    // (v11) keeps one wire list per cell. Patching must hand every stamp the
-    // one patched list and still step through the per-stamp image entries.
+    // The recorder lists a cell's images the first time it is stamped, and
+    // the codec (v11) keeps one wire list per cell. Patching must hand every
+    // stamp the one patched list and stay in step with the images after it.
     CosStream stream(int id) => CosStream(
         CosDictionary({'Id': CosInteger(id)}), Uint8List.fromList([id]));
     PdfImageRequest request(CosStream s, [double x = 0]) => PdfImageRequest(
@@ -353,13 +353,7 @@ void main() {
       stamp(12),
       wire(last),
     ];
-    final originals = [
-      top,
-      glyphA, glyphB, //
-      glyphA, glyphB, //
-      glyphA, glyphB, //
-      last,
-    ];
+    final originals = [top, glyphA, glyphB, last];
 
     final patched = compactTranscriptSourceCommands(wireCommands, originals)!;
     final stamps = _stamps(patched);
@@ -384,10 +378,13 @@ void main() {
         isTrue,
         reason: 'the images after the stamps still line up');
 
-    // A later stamp whose recorded images are not the first stamp's cannot
-    // share its patched list; the caller falls back to the source graph.
-    final diverged = [...originals]..[5] = request(stream(2));
-    expect(compactTranscriptSourceCommands(wireCommands, diverged), isNull);
+    // A listing that is not image for image what the wire holds - here the
+    // cell's images once per stamp - cannot be paired; the caller falls back
+    // to the source graph.
+    final perStamp = [top, glyphA, glyphB, glyphA, glyphB, last];
+    expect(compactTranscriptSourceCommands(wireCommands, perStamp), isNull);
+    expect(compactTranscriptSourceCommands(wireCommands, [top, glyphA, last]),
+        isNull);
   });
 
   test('a Type3 bitmap glyph keeps one cell through the worker transcript',

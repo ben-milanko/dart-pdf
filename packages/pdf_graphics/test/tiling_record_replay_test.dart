@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -364,15 +365,18 @@ void main() {
           }),
         });
 
-    List<PdfImageRequest> walked(List<PdfRenderCommand> commands) {
+    /// The images a wire transcript of [commands] carries, in order: each
+    /// distinct cell list contributes the first time it is stamped.
+    List<PdfImageRequest> wireOrder(List<PdfRenderCommand> commands) {
       final out = <PdfImageRequest>[];
+      final seen = Set<List<PdfRenderCommand>>.identity();
       void walk(List<PdfRenderCommand> list) {
         for (final c in list) {
           if (c is PdfDrawImageCommand) {
             out.add(c.request);
           } else if (c is PdfEndSoftMaskedCommand) {
             walk(c.maskCommands);
-          } else if (c is PdfDrawTiledCellCommand) {
+          } else if (c is PdfDrawTiledCellCommand && seen.add(c.cellCommands)) {
             walk(c.cellCommands);
           }
         }
@@ -390,7 +394,7 @@ void main() {
       }
     }
 
-    test('Type3 stamps carry the list, and it is what a walk finds', () {
+    test('a Type3 glyph is listed once, however often it is stamped', () {
       final doc = CosDocument.open(buildClassicPdf());
       final resources = CosDictionary({
         'Font': CosDictionary({'T3': bitmapFont()}),
@@ -403,27 +407,27 @@ void main() {
       final stamps =
           recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
       expect(stamps, hasLength(5));
-      for (final stamp in stamps) {
-        expect(stamp.cellImages, isNotNull);
-        expectSameRequests(stamp.cellImages!, walked(stamp.cellCommands));
-      }
-      expect(stamps[0].cellImages, hasLength(1), reason: 'the stencil glyph');
-      expect(stamps[1].cellImages, isEmpty, reason: 'the vector glyph');
-      expect(identical(stamps[0].cellImages, stamps[2].cellImages), isTrue,
-          reason: 'flattened once per cell, not per stamp');
+      expect(identical(stamps[0].cellCommands, stamps[2].cellCommands), isTrue);
+      // Stamps of one cell say so; different cells do not share a marker.
+      expect(stamps[0].share, isNotNull);
+      expect(identical(stamps[0].share, stamps[2].share), isTrue);
+      expect(identical(stamps[0].share, stamps[1].share), isFalse);
 
-      // One listing per stamp, in drawing order - three stencil glyphs.
-      expect(recorder.imageRequests, hasLength(3));
-      expectSameRequests(recorder.imageRequests, walked(recorder.commands));
+      // Three stencil glyphs drawn, one image listed - the first stamp's.
+      expect(recorder.imageRequests, hasLength(1));
+      expectSameRequests(recorder.imageRequests, wireOrder(recorder.commands));
 
-      // The streaming writer lists exactly what the recorder does.
+      // The streaming writer lists exactly what the recorder does, and the
+      // wire carries that one image once.
       final writer = PdfStreamingCommandWriter(cos: doc);
       PdfInterpreter(cos: doc, device: writer).run(content, resources);
-      expect(writer.imageRequests, hasLength(3));
-      expect(writer.snapshot(), serializeCommands(recorder.commands, cos: doc));
+      expect(writer.imageRequests, hasLength(1));
+      final bytes = writer.snapshot();
+      expect(bytes, serializeCommands(recorder.commands, cos: doc));
+      expect(wireOrder(deserializeCommands(bytes)), hasLength(1));
     });
 
-    test('a stamp without the list is walked, with the same result', () {
+    test('the listing follows the wire through nested and repeated cells', () {
       final doc = CosDocument.open(buildClassicPdf());
       final source = RecordingPdfDevice();
       PdfInterpreter(cos: doc, device: source).run(
@@ -432,35 +436,110 @@ void main() {
           CosDictionary({
             'Font': CosDictionary({'T3': bitmapFont()}),
           }));
-      final stamp = source.commands.whereType<PdfDrawTiledCellCommand>().first;
+      final glyph = source.commands.whereType<PdfDrawTiledCellCommand>().first;
+      PdfDrawTiledCellCommand stamp(List<PdfRenderCommand> cell) =>
+          PdfDrawTiledCellCommand(cell, Float64List(1), Float64List(1));
 
-      // What a decoded record or a rebuilt command looks like: no list.
+      // The glyph cell inside another cell, twice; that outer cell stamped
+      // twice; then the glyph cell on its own; then a second, distinct list
+      // holding the same image command - a different cell, listed again.
+      final outer = <PdfRenderCommand>[glyph, glyph];
+      final copy = List<PdfRenderCommand>.of(glyph.cellCommands);
+      final commands = <PdfRenderCommand>[
+        stamp(outer),
+        stamp(outer),
+        glyph,
+        stamp(copy),
+        stamp(copy),
+      ];
+
+      final recorder = RecordingPdfDevice();
+      final writer = PdfStreamingCommandWriter(cos: doc);
+      for (final command in commands.cast<PdfDrawTiledCellCommand>()) {
+        recorder.drawTiledCell(command);
+        writer.drawTiledCell(command);
+      }
+      expect(recorder.imageRequests, hasLength(2));
+      expectSameRequests(recorder.imageRequests, wireOrder(commands));
+      expectSameRequests(writer.imageRequests, recorder.imageRequests);
+
+      // And it is what the decoded wire holds, image for image.
+      final decoded = deserializeCommands(writer.snapshot());
+      expect(wireOrder(decoded), hasLength(recorder.imageRequests.length));
+    });
+
+    test('a recording replayed into a second recorder lists the same', () {
+      // The marker a stamp carries remembers the last recorder that listed
+      // it. A second recorder - or the first one again - must not be fooled.
+      final doc = CosDocument.open(buildClassicPdf());
+      final first = RecordingPdfDevice();
+      PdfInterpreter(cos: doc, device: first).run(
+          ContentStreamParser.parse(
+              Uint8List.fromList('BT /T3 10 Tf (XXYX) Tj ET'.codeUnits)),
+          CosDictionary({
+            'Font': CosDictionary({'T3': bitmapFont()}),
+          }));
+      expect(first.imageRequests, hasLength(1));
+
+      final second = RecordingPdfDevice();
+      replayCommands(first.commands, second);
+      expectSameRequests(second.imageRequests, first.imageRequests);
+
+      // Interleaved between two recorders, stamp by stamp.
+      final a = RecordingPdfDevice(), b = RecordingPdfDevice();
+      for (final c in first.commands.whereType<PdfDrawTiledCellCommand>()) {
+        a.drawTiledCell(c);
+        b.drawTiledCell(c);
+      }
+      expectSameRequests(a.imageRequests, first.imageRequests);
+      expectSameRequests(b.imageRequests, first.imageRequests);
+
+      // The same list stamped with and without its marker is still one cell.
+      final glyph = first.commands.whereType<PdfDrawTiledCellCommand>().first;
       final bare = PdfDrawTiledCellCommand(
-          stamp.cellCommands, stamp.originsX, stamp.originsY);
-      expect(bare.cellImages, isNull);
-      // A cell nested in a cell, so the walk has to descend.
-      final nested =
-          PdfDrawTiledCellCommand([bare, bare], Float64List(1), Float64List(1));
-
-      for (final command in [stamp, bare, nested]) {
-        final recorder = RecordingPdfDevice()..drawTiledCell(command);
-        expectSameRequests(recorder.imageRequests, walked([command]));
-        final writer = PdfStreamingCommandWriter(cos: doc)
-          ..drawTiledCell(command);
-        expectSameRequests(writer.imageRequests, walked([command]));
+          glyph.cellCommands, glyph.originsX, glyph.originsY);
+      for (final order in [
+        [glyph, bare, glyph],
+        [bare, glyph, bare],
+      ]) {
+        final recorder = RecordingPdfDevice();
+        order.forEach(recorder.drawTiledCell);
+        expect(recorder.imageRequests, hasLength(1));
       }
     });
 
-    test('a tiling pattern stamp carries no list', () {
-      final recorder = RecordingPdfDevice();
-      PdfInterpreter(cos: CosDocument.open(buildClassicPdf()), device: recorder)
-          .run(
-        ContentStreamParser.parse(
-            Uint8List.fromList('/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
-        hatchResources(),
-      );
-      final tiled = recorder.commands.whereType<PdfDrawTiledCellCommand>();
-      expect(tiled.single.cellImages, isNull);
+    test('an image behind a soft mask inside a cell is listed', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final source = RecordingPdfDevice();
+      PdfInterpreter(cos: doc, device: source).run(
+          ContentStreamParser.parse(
+              Uint8List.fromList('BT /T3 10 Tf (X) Tj ET'.codeUnits)),
+          CosDictionary({
+            'Font': CosDictionary({'T3': bitmapFont()}),
+          }));
+      final glyph = source.commands.whereType<PdfDrawTiledCellCommand>().first;
+      final image = glyph.cellCommands.whereType<PdfDrawImageCommand>().single;
+      // A cell whose only image sits in a soft mask's command list, next to
+      // a stamp of the glyph cell.
+      final masked = <PdfRenderCommand>[
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: const PdfRect(0, 0, 1, 1),
+          maskCommands: [image, glyph],
+          backdropLuminance: 0,
+          transferScale: 1,
+          transferOffset: 0,
+        ),
+      ];
+      final command =
+          PdfDrawTiledCellCommand(masked, Float64List(1), Float64List(1));
+      final recorder = RecordingPdfDevice()
+        ..drawTiledCell(command)
+        ..drawTiledCell(command)
+        ..drawTiledCell(glyph);
+      expect(recorder.imageRequests, hasLength(2));
+      expectSameRequests(
+          recorder.imageRequests, wireOrder([command, command, glyph]));
     });
   });
 }
