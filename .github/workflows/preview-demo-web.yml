@@ -160,6 +160,13 @@ jobs:
             --limit 10 \
             --json databaseId \
             --jq '.[].databaseId')
+          # The newest usable artifact is the baseline. Up to four older ones
+          # ride along as history: each main run used a different runner, so
+          # their spread is what a PR timing is judged against.
+          history_file="$RUNNER_TEMP/patrol-web-baseline-history.txt"
+          : > "$history_file"
+          newest=""
+          kept=0
           for baseline_run in "${baseline_runs[@]}"; do
             destination="$RUNNER_TEMP/patrol-baseline/$baseline_run"
             if gh run download "$baseline_run" \
@@ -167,13 +174,24 @@ jobs:
               --dir "$destination"; then
               json="$destination/test-results/perf/patrol-perf.json"
               if [[ -f "$json" ]]; then
-                echo "json=$json" >> "$GITHUB_OUTPUT"
-                echo "Using Patrol web baseline from run $baseline_run"
-                exit 0
+                if [[ -z "$newest" ]]; then
+                  newest="$json"
+                  echo "json=$json" >> "$GITHUB_OUTPUT"
+                  echo "Using Patrol web baseline from run $baseline_run"
+                else
+                  echo "$json" >> "$history_file"
+                  echo "Using Patrol web history from run $baseline_run"
+                fi
+                kept=$((kept + 1))
+                if ((kept >= 5)); then
+                  break
+                fi
               fi
             fi
           done
-          echo "::notice::No usable main Patrol web artifact is available yet"
+          if [[ -z "$newest" ]]; then
+            echo "::notice::No usable main Patrol web artifact is available yet"
+          fi
 
       - name: Collect Patrol performance trace
         if: always()
@@ -194,6 +212,14 @@ jobs:
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
             arguments+=(--baseline "$baseline")
+            history_file="$RUNNER_TEMP/patrol-web-baseline-history.txt"
+            if [[ -f "$history_file" ]]; then
+              while IFS= read -r older; do
+                if [[ -f "$older" ]]; then
+                  arguments+=(--baseline-history "$older")
+                fi
+              done < "$history_file"
+            fi
           fi
           dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
 
