@@ -1,0 +1,3 @@
+DartPDF 17.0.0
+
+Sla wijzigingen op in de oorspronkelijke PDF op Android en iOS als de bestandsprovider schrijven ondersteunt. Filter annotaties op type en auteur. Verbeterde rendering en decompressie.

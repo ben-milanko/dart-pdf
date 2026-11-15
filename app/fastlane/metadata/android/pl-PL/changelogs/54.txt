@@ -1,0 +1,3 @@
+DartPDF 17.0.0
+
+Zapisuj zmiany w oryginalnym PDF na Androidzie i iOS, jeśli dostawca plików umożliwia zapis. Filtruj adnotacje według typu i autora. Ulepszone renderowanie i dekompresja.

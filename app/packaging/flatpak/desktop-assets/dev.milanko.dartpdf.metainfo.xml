@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="17.0.0" date="2026-11-15">
+      <description><p>Filter annotations by type and author and improve rendering performance.</p></description>
+    </release>
     <release version="16.0.0" date="2026-11-13">
       <description><p>Restore document windows, save print presets, preserve snapshot links and improve redaction and zoom rendering.</p></description>
     </release>

@@ -1,5 +1,11 @@
 # Changelog
 
+## 17.0.0+54
+
+- Save edits back to the original PDF on Android and iOS when the file provider supports writing.
+- Filter annotations by type and author.
+- Improve rendering performance and reduce compressed-content buffer copying.
+
 ## 16.0.0+53
 
 - Restore document windows when reopening the app and sort tabs by file name.
