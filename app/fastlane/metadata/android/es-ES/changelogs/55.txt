@@ -1,0 +1,3 @@
+DartPDF 16.1.1
+
+Guarda los cambios en el PDF original en Android e iOS si el proveedor permite escribir. Filtra anotaciones por tipo y autor. Mejoras de rendimiento al renderizar y descomprimir.
