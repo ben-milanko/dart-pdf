@@ -76,7 +76,22 @@ void main() {
       final page = doc.page(pageIndex.clamp(0, doc.pageCount - 1));
       final useWorker = Platform.environment['RENDER_WORKER'] == '1';
       final ui.Image image;
-      if (useWorker) {
+      if (Platform.environment['RENDER_SLUG'] == '1') {
+        final scene = await PdfRetainedScene.record(page);
+        try {
+          final picture = await scene.replayStrips(
+              pixelRatio: pixelRatio, slugGlyphs: true);
+          try {
+            image = await picture.toImage(
+                scene.stripGeometry(pixelRatio: pixelRatio).width,
+                scene.stripGeometry(pixelRatio: pixelRatio).height);
+          } finally {
+            picture.dispose();
+          }
+        } finally {
+          scene.dispose();
+        }
+      } else if (useWorker) {
         final worker = PdfRenderWorker.start(bytes);
         try {
           final commands = await worker.record(

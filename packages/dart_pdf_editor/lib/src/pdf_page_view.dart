@@ -460,7 +460,11 @@ class PdfPageView extends StatefulWidget {
   /// capped deep zoom, a full-composite region raster supplies higher decode
   /// resolution while stationary and is removed during the next live
   /// transform so it cannot cover the sharp Slug base with stale raster text.
-  static bool webSlugGlyphLayer = true;
+  /// Disabled by default until browser retained-shader replay is validated:
+  /// real multi-page PDFs can paint glyph quads as solid blocks even though
+  /// thumbnails and ordinary page rasters are correct. Keep the normal page
+  /// raster path; hosts can still opt into the experimental shader layer.
+  static bool webSlugGlyphLayer = false;
 
   /// Presents a bounded completed page picture directly instead of first
   /// flattening it through `Picture.toImage`.
