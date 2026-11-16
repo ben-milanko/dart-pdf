@@ -1,0 +1,38 @@
+name: Publish retained Android release assets
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: retained-android-release-assets
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'ben-milanko/dart-pdf'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Test publication boundaries without credentials
+        run: python3 -m unittest discover -s .github/scripts -p 'test_retained_android_assets.py'
+      - name: Install pinned signing tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.1.0"'
+      - name: Verify and publish retained binaries without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/retained_android_assets.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: retained-android-publication-report
+          path: retained-android-report.json
+          if-no-files-found: error
+          retention-days: 90
