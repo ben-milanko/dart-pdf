@@ -1,0 +1,3 @@
+DartPDF 16.1.1
+
+Filter annotations by type and author. Improve rendering performance and reduce copying when decoding compressed content. Fix text appearing as solid blocks in some multi-page PDFs.
