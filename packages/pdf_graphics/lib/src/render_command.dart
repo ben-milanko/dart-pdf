@@ -169,11 +169,26 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
 /// Keeping the cell nested instead of flattening it per tile is what shrinks
 /// a hatched sheet's transcript from O(tiles x cell) to O(cell + tiles).
 class PdfDrawTiledCellCommand extends PdfRenderCommand {
-  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY)
+  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY,
+      {this.share})
       : assert(originsX.length == originsY.length);
   final List<PdfRenderCommand> cellCommands;
+
+  /// Set when [cellCommands] is one list stamped by many commands (a Type3
+  /// glyph): every stamp of that list carries the same [PdfTiledCellShare].
+  /// It changes nothing about what the command draws; it lets a recorder
+  /// recognise a cell it has already seen without looking the list up.
+  final PdfTiledCellShare? share;
   final Float64List originsX;
   final Float64List originsY;
+}
+
+/// What the stamps of one shared tiled cell have in common
+/// ([PdfDrawTiledCellCommand.share]).
+final class PdfTiledCellShare {
+  /// The recorder bookkeeping that last listed this cell's images, or null.
+  /// Owned by whoever is recording; not part of the command's meaning.
+  Object? listedIn;
 }
 
 /// Optional capability interface for devices that can consume a

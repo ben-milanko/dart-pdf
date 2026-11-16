@@ -16,6 +16,22 @@ void main() {
         ['/docs/a.pdf', '/docs/b.pdf']); // a moved to front, no dupe
   });
 
+  test('a picked file that saves in place is identified by its Uri', () async {
+    final store = RecentsStore();
+    // Each in-place save re-takes the snapshot under a new key; the entry
+    // still names one document.
+    await store.add(
+        title: 'report.pdf', cachePath: '/cache/1', uri: 'content://r');
+    await store.add(
+        title: 'report.pdf', cachePath: '/cache/2', uri: 'content://r');
+    expect(store.items.single.cachePath, '/cache/2');
+    expect(store.items.single.id, 'content://r');
+
+    final reloaded = RecentsStore();
+    await reloaded.load();
+    expect(reloaded.items.single.uri, 'content://r');
+  });
+
   test('entries without a path or cache are not reopenable', () async {
     final store = RecentsStore();
     await store.add(title: 'shared.pdf'); // web: no path, no snapshot

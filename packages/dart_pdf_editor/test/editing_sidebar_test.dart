@@ -880,4 +880,141 @@ void main() {
       expect(find.text('Circle'), findsNothing);
     });
   });
+
+  group('filter', () {
+    final filterButton = find.byKey(const ValueKey('pdf-annotation-filter'));
+
+    // the key reaches the inner MenuItemButton too; match the checkbox
+    Finder filterEntry(String key) => find.byWidgetPredicate(
+        (w) => w is CheckboxMenuButton && w.key == ValueKey(key));
+
+    Future<void> openFilter(WidgetTester tester) async {
+      await tester.tap(filterButton);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> closeFilter(WidgetTester tester) async {
+      await tester.tap(filterButton);
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxMenuButton), findsNothing);
+    }
+
+    PdfEditingController reviewed() {
+      final editing = PdfEditingController(buildMultiPagePdf(2))
+        ..preferences.author = 'Ada'
+        ..addNote(0, 100, 700, 'first')
+        ..addRectangle(0, const PdfRect(100, 100, 200, 150));
+      editing.preferences.author = 'Grace';
+      editing
+        ..addNote(1, 100, 700, 'second')
+        ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');
+      return editing;
+    }
+
+    testWidgets('narrows by type; the menu stays open across toggles',
+        (tester) async {
+      final editing = reviewed();
+      addTearDown(editing.dispose);
+      await pumpSidebarOnly(tester, editing);
+
+      await openFilter(tester);
+      // one entry per type and author present
+      expect(filterEntry('pdf-annotation-filter-type-Text'), findsOneWidget);
+      expect(filterEntry('pdf-annotation-filter-type-Square'), findsOneWidget);
+      expect(filterEntry('pdf-annotation-filter-type-Stamp'), findsOneWidget);
+      expect(filterEntry('pdf-annotation-filter-author-Ada'), findsOneWidget);
+      expect(filterEntry('pdf-annotation-filter-author-Grace'), findsOneWidget);
+
+      await tester.tap(filterEntry('pdf-annotation-filter-type-Text'));
+      await tester.pumpAndSettle();
+      // still open: a second type can be added in the same visit
+      await tester.tap(filterEntry('pdf-annotation-filter-type-Stamp'));
+      await tester.pumpAndSettle();
+      await closeFilter(tester);
+
+      expect(find.text('Note'), findsNWidgets(2));
+      expect(find.text('Stamp'), findsOneWidget);
+      expect(find.text('Square'), findsNothing);
+      expect(tester.widget<IconButton>(filterButton).isSelected, isTrue);
+    });
+
+    testWidgets('narrows by author and combines with the search',
+        (tester) async {
+      final editing = reviewed();
+      addTearDown(editing.dispose);
+      await pumpSidebarOnly(tester, editing);
+
+      await openFilter(tester);
+      await tester.tap(filterEntry('pdf-annotation-filter-author-Grace'));
+      await tester.pumpAndSettle();
+      await closeFilter(tester);
+
+      expect(find.text('Page 1'), findsNothing);
+      expect(find.text('Page 2'), findsOneWidget);
+      expect(find.text('Note'), findsOneWidget);
+      expect(find.text('Stamp'), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-annotation-search')), 'first');
+      await tester.pump();
+      // Ada's note matches the text but not the author filter
+      expect(find.text('No matching annotations'), findsOneWidget);
+    });
+
+    testWidgets('clear filters restores everything; filters survive an edit',
+        (tester) async {
+      final editing = reviewed();
+      addTearDown(editing.dispose);
+      await pumpSidebarOnly(tester, editing);
+
+      await openFilter(tester);
+      await tester.tap(filterEntry('pdf-annotation-filter-type-Square'));
+      await tester.pumpAndSettle();
+      await closeFilter(tester);
+      expect(find.text('Note'), findsNothing);
+
+      editing.addEllipse(0, const PdfRect(300, 100, 400, 150));
+      await tester.pump();
+      expect(find.text('Square'), findsOneWidget);
+      expect(find.text('Circle'), findsNothing);
+
+      await openFilter(tester);
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annotation-filter-clear')));
+      await tester.pumpAndSettle();
+      // clearing closes the menu
+      expect(find.byType(CheckboxMenuButton), findsNothing);
+      expect(find.text('Note'), findsNWidgets(2));
+      expect(find.text('Circle'), findsOneWidget);
+      expect(tester.widget<IconButton>(filterButton).isSelected, isFalse);
+    });
+
+    testWidgets('a checked type whose annotations are gone stays uncheckable',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addNote(0, 100, 700, 'keep')
+        ..addRectangle(0, const PdfRect(100, 100, 200, 150));
+      addTearDown(editing.dispose);
+      await pumpSidebarOnly(tester, editing);
+
+      await openFilter(tester);
+      await tester.tap(filterEntry('pdf-annotation-filter-type-Square'));
+      await tester.pumpAndSettle();
+      await closeFilter(tester);
+
+      final page = editing.pageAt(0).annotations;
+      editing.deleteAnnotation(
+          0, page.indexWhere((a) => a.subtype == 'Square'));
+      await tester.pump();
+      expect(find.text('No matching annotations'), findsOneWidget);
+
+      await openFilter(tester);
+      final square = filterEntry('pdf-annotation-filter-type-Square');
+      expect(square, findsOneWidget);
+      await tester.tap(square);
+      await tester.pumpAndSettle();
+      await closeFilter(tester);
+      expect(find.text('Note'), findsOneWidget);
+    });
+  });
 }

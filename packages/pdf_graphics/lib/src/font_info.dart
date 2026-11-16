@@ -162,6 +162,11 @@ class PdfFontInfo {
     execute(ops, _type3Resources ?? CosDictionary(), PdfMatrix.row(matrix));
   }
 
+  /// Glyph space -> text space for a Type3 font (its /FontMatrix, §9.6.5), or
+  /// null for any other font - the matrix [renderGlyph] hands its `execute`.
+  late final PdfMatrix? type3GlyphMatrix =
+      _type3Matrix == null ? null : PdfMatrix.row(_type3Matrix);
+
   /// True when embedded glyph outlines are available.
   bool get hasOutlines => _trueType != null || _cff != null || _type1 != null;
 
@@ -667,6 +672,25 @@ class PdfFontInfo {
   /// Glyph advance in em units (1.0 = the font size). Falls back to the
   /// embedded font's hmtx metrics before the default width.
   double widthOf(int code) {
+    if (!isCid && code >= 0 && code < 256) {
+      final cache =
+          _widthCache ??= Float64List(256)..fillRange(0, 256, double.nan);
+      final hit = cache[code];
+      // NaN (the only value unequal to itself) marks "not computed yet".
+      if (hit == hit) return hit;
+      return cache[code] = _computeWidthOf(code);
+    }
+    return _computeWidthOf(code);
+  }
+
+  /// Per-code advance memo for simple (non-CID) fonts - the [_charCache]
+  /// sibling. [widthOf] is a pure function of the code over this immutable
+  /// font, and it runs once per glyph shown: the memo turns a hash lookup in
+  /// the /Widths map (plus, for a code the map lacks, the embedded-font
+  /// fallback chain) into one typed-list read.
+  Float64List? _widthCache;
+
+  double _computeWidthOf(int code) {
     if (_legacyGbk && code > 0xFF) {
       final high = _widths[code >> 8] ?? _defaultWidth;
       final low = _widths[code & 0xFF] ?? _defaultWidth;

@@ -1162,6 +1162,18 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'Bersihkan pencarian';
 
   @override
+  String get sidebarFilter => 'Filter anotasi';
+
+  @override
+  String get sidebarFilterType => 'Jenis';
+
+  @override
+  String get sidebarFilterAuthor => 'Penulis';
+
+  @override
+  String get sidebarFilterClear => 'Hapus filter';
+
+  @override
   String get sidebarDeleteSelected => 'Hapus yang dipilih';
 
   @override

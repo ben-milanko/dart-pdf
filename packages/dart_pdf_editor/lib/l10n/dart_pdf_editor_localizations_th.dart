@@ -1157,6 +1157,18 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get sidebarClearSearch => 'ล้างการค้นหา';
 
   @override
+  String get sidebarFilter => 'กรองคำอธิบายประกอบ';
+
+  @override
+  String get sidebarFilterType => 'ประเภท';
+
+  @override
+  String get sidebarFilterAuthor => 'ผู้เขียน';
+
+  @override
+  String get sidebarFilterClear => 'ล้างตัวกรอง';
+
+  @override
   String get sidebarDeleteSelected => 'ลบที่เลือก';
 
   @override

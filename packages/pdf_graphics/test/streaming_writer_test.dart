@@ -179,6 +179,108 @@ void main() {
     expect(writer.commandCount, 5);
   });
 
+  // A finished writer hands its buffer to the next one, so records are
+  // written into memory that still holds an earlier record's bytes. Nothing
+  // of the earlier record may show through, and a writer that has given its
+  // buffer away must not be able to write into it.
+  group('writers reuse one buffer', () {
+    PdfPath zigzag(int seed, int points) => PdfPath([
+          PdfMoveTo(seed * 1.5, seed * 0.25),
+          for (var i = 1; i < points; i++)
+            PdfLineTo(seed * 1.5 + i * 3.25, (i * seed) % 97 + 0.125),
+        ]);
+    List<PdfRenderCommand> drawing(int seed, int paths) => [
+          for (var i = 0; i < paths; i++) ...[
+            const PdfSaveCommand(),
+            PdfFillPathCommand(zigzag(seed + i, 3 + (seed + i) % 9),
+                PdfColor(i % 2, seed % 2, 0.5), PdfFillRule.nonzero, 1),
+            PdfDrawTextCommand(PdfTextRun(
+              text: 'run $seed/$i',
+              transform: PdfMatrix(9, 0, 0, 9, i * 4.0, seed * 2.0),
+              color: PdfColor.black,
+              width: 4.5,
+              fontName: 'F$seed',
+            )),
+            const PdfRestoreCommand(),
+          ],
+        ];
+    void feed(PdfDevice device, List<PdfRenderCommand> commands) =>
+        replayCommands(commands, device);
+
+    test('a record is the same bytes whatever was written before it', () {
+      final small = drawing(3, 40);
+      final large = drawing(11, 6000); // grows the buffer well past 64 KB
+      final other = drawing(29, 900);
+
+      final first = serializeCommands(small)!;
+      expect(serializeCommands(large)!.length, greaterThan(1 << 18));
+      expect(serializeCommands(small), first,
+          reason: 'after a much larger record');
+      serializeCommands(other, compactStateScopes: true);
+      expect(serializeCommands(small), first,
+          reason: 'after a different record of a different size');
+      expect(_transcriptOf(deserializeCommands(serializeCommands(small)!)),
+          _transcriptOf(small));
+    });
+
+    test('finish is the last snapshot, and spends the writer', () {
+      final commands = drawing(5, 300);
+      final expected = serializeCommands(commands,
+          imagePlaceholders: true, compactStateScopes: true)!;
+
+      final writer = PdfStreamingCommandWriter();
+      feed(writer, commands);
+      final partial = writer.snapshot();
+      expect(writer.length, expected.length);
+      final finished = writer.finish();
+      expect(finished, expected);
+      expect(partial, expected, reason: 'a snapshot is a copy of its own');
+      expect(writer.length, 0);
+      expect(writer.commandCount, greaterThan(0));
+    });
+
+    test('a spent writer cannot write into the next record', () {
+      final commands = drawing(7, 200);
+      final spent = PdfStreamingCommandWriter();
+      feed(spent, commands);
+      spent.finish();
+
+      // The next record now owns the buffer `spent` wrote into.
+      final next = PdfStreamingCommandWriter();
+      feed(next, drawing(13, 150));
+      final expected = serializeCommands(drawing(13, 150),
+          imagePlaceholders: true, compactStateScopes: true)!;
+      // A stray draw into the spent writer lands in a buffer of its own.
+      feed(spent, drawing(17, 500));
+      expect(next.finish(), expected);
+    });
+
+    test('two open writers do not share a buffer', () {
+      final a = PdfStreamingCommandWriter();
+      final b = PdfStreamingCommandWriter();
+      feed(a, drawing(2, 120));
+      feed(b, drawing(4, 80));
+      feed(a, drawing(6, 40));
+      final expectA = serializeCommands([...drawing(2, 120), ...drawing(6, 40)],
+          imagePlaceholders: true, compactStateScopes: true)!;
+      final expectB = serializeCommands(drawing(4, 80),
+          imagePlaceholders: true, compactStateScopes: true)!;
+      expect(a.finish(), expectA);
+      expect(b.finish(), expectB);
+    });
+
+    test('a record larger than the kept buffer still round-trips', () {
+      final huge = drawing(19, 60000);
+      final bytes = serializeCommands(huge)!;
+      expect(bytes.length, greaterThan(4 << 20));
+      expect(deserializeCommands(bytes), hasLength(huge.length));
+      // ... and what follows it is unaffected.
+      final small = drawing(3, 40);
+      final again = serializeCommands(small)!;
+      expect(_transcriptOf(deserializeCommands(again)), _transcriptOf(small));
+    });
+  });
+
   test('a snapshot inside a soft mask throws instead of corrupting', () {
     // Release builds included: the nested list's count is still 0 and its
     // header half-written, so a prefix copy there would not replay.
@@ -209,3 +311,19 @@ void main() {
     ]);
   });
 }
+
+/// A printable form of [commands], enough to tell two records apart.
+List<String> _transcriptOf(List<PdfRenderCommand> commands) => [
+      for (final c in commands)
+        switch (c) {
+          PdfFillPathCommand() => 'fill ${c.path.segments.length} '
+              '${c.path.segments.map((s) => switch (s) {
+                    PdfMoveTo() => 'm${s.x},${s.y}',
+                    PdfLineTo() => 'l${s.x},${s.y}',
+                    _ => '?',
+                  }).join(' ')} ${c.color}',
+          PdfDrawTextCommand() =>
+            'text ${c.run.text} ${c.run.fontName} ${c.run.transform.e}',
+          _ => c.runtimeType.toString(),
+        },
+    ];

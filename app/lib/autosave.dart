@@ -237,6 +237,7 @@ class AutosaveController {
       length: session.bytes.length,
       originPath: tab.originPath ?? '',
       originBookmark: tab.originBookmark,
+      originUri: tab.originUri,
       cachePath: tab.cachePath,
       savedLength: tab.savedLength,
       updatedAt: DateTime.now().millisecondsSinceEpoch,

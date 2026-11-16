@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.system.ErrnoException
 import android.system.Os
@@ -220,6 +221,28 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
                     }
                 }
             }
+            "writeUri" -> {
+                val token = call.argument<String>("token")
+                val bytes = call.argument<ByteArray>("bytes")
+                if (token == null || bytes == null) {
+                    result.error("bad_args", "writeUri expects token/bytes", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    try {
+                        writeWhole(Uri.parse(token), bytes)
+                        runOnUiThread { result.success(true) }
+                    } catch (e: SecurityException) {
+                        runOnUiThread {
+                            result.error("permission_denied", e.message, null)
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error("write_failed", e.message, null)
+                        }
+                    }
+                }
+            }
             "readUri" -> {
                 val token = call.argument<String>("token")
                 if (token == null) {
@@ -257,6 +280,12 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
             // Keep cloud providers (OneDrive/Drive/iCloud) in the list - the
             // whole point of #364 - so don't set EXTRA_LOCAL_ONLY.
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Ask for write access too, persistably, so Save can write the
+            // edits back into the picked file itself (#1304). A provider that
+            // only serves reads still grants read; the pick then reports
+            // writable=false and Save keeps sharing a copy.
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
         pendingPick = result
         try {
@@ -291,8 +320,9 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
         }
     }
 
-    /// Persists read access to [uri], then builds the Dart-side descriptor
-    /// (token/name/length). Returns null if access can't be persisted.
+    /// Persists read (and, when granted, write) access to [uri], then builds
+    /// the Dart-side descriptor (token/name/length/writable). Returns null if
+    /// the document can't be described.
     ///
     /// Metadata only: no file descriptor is opened here. A cloud provider
     /// (OneDrive's, notably) downloads the whole file before it hands one
@@ -301,15 +331,19 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     /// file's loading tab is on screen.
     private fun describeOpenedDocument(uri: Uri, intentFlags: Int): Map<String, Any?>? {
         return try {
-            val persistable = intentFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
-            if (persistable != 0) {
+            val grantsWrite = (intentFlags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0
+            val modes = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                (if (grantsWrite) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+            try {
+                contentResolver.takePersistableUriPermission(uri, modes)
+            } catch (_: SecurityException) {
+                // Provider doesn't grant persistable permission (or not for
+                // writing) - fall back to read alone. Even without that the Uri
+                // is usable for this session, which is all the first pick needs.
                 try {
                     contentResolver.takePersistableUriPermission(
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 } catch (_: SecurityException) {
-                    // Provider doesn't grant persistable permission - the Uri is
-                    // still usable for this session, which is all the first pick
-                    // needs.
                 }
             }
             mapOf(
@@ -319,9 +353,37 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
                 // The authority identifies the DocumentsProvider without
                 // exposing the picked URI/path or its persisted access token.
                 "provider" to (uri.authority ?: "android-documents-provider"),
+                "writable" to (grantsWrite && canWriteBack(uri)),
             )
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /// Whether Save can write back into [uri]: the app holds a *persisted*
+    /// write grant (so the destination survives a restart, like a desktop
+    /// path) and the provider says the document accepts writes
+    /// (`FLAG_SUPPORTS_WRITE`). A metadata query only - never opens the file.
+    private fun canWriteBack(uri: Uri): Boolean {
+        val persisted = contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isWritePermission
+        }
+        if (!persisted) return false
+        return try {
+            contentResolver.query(
+                uri, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null
+            )?.use { cursor ->
+                if (!cursor.moveToFirst() || cursor.isNull(0)) {
+                    // No flags column: not a DocumentsProvider document we can
+                    // judge, so trust the grant and let a failed write fall
+                    // back to sharing.
+                    true
+                } else {
+                    (cursor.getInt(0) and DocumentsContract.Document.FLAG_SUPPORTS_WRITE) != 0
+                }
+            } ?: true
+        } catch (_: Exception) {
+            true
         }
     }
 
@@ -403,6 +465,49 @@ class MainActivity : FlutterActivity(), InputManager.InputDeviceListener {
     private fun readWhole(uri: Uri): ByteArray {
         return contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw FileNotFoundException("Cannot open $uri")
+    }
+
+    /// Replaces the contents of [uri] with [bytes] - Save writing a picked
+    /// document back in place (#1304). Prefers a truncating file descriptor
+    /// (`rwt`, then an explicit `ftruncate` because some providers ignore the
+    /// `t`), so a shorter file never keeps a tail of the old bytes; providers
+    /// that can only stream (cloud pipes) fall back to `openOutputStream("wt")`.
+    /// The descriptor is synced before it closes so a successful reply means
+    /// the provider has the bytes.
+    private fun writeWhole(uri: Uri, bytes: ByteArray) {
+        val viaDescriptor = try {
+            contentResolver.openFileDescriptor(uri, "rwt")
+        } catch (e: SecurityException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (viaDescriptor != null) {
+            viaDescriptor.use { pfd ->
+                val fd = pfd.fileDescriptor
+                // Not closed here: `use` closes the pfd that owns the fd.
+                val out = FileOutputStream(fd)
+                out.write(bytes)
+                out.flush()
+                try {
+                    Os.ftruncate(fd, bytes.size.toLong())
+                } catch (_: ErrnoException) {
+                    // A descriptor that can't be truncated was already opened
+                    // truncating ("rwt"); nothing more to do.
+                }
+                try {
+                    fd.sync()
+                } catch (_: Exception) {
+                }
+            }
+            return
+        }
+        val stream = contentResolver.openOutputStream(uri, "wt")
+            ?: throw FileNotFoundException("Cannot write $uri")
+        stream.use {
+            it.write(bytes)
+            it.flush()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

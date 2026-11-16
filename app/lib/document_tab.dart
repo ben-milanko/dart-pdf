@@ -21,6 +21,7 @@ class DocumentHandoff {
     this.originPath,
     this.originBookmark,
     this.originToken,
+    this.originUri,
     this.cachePath,
   });
 
@@ -39,6 +40,7 @@ class DocumentHandoff {
       originPath: tab.originPath,
       originBookmark: tab.originBookmark,
       originToken: tab.originToken,
+      originUri: tab.originUri,
       cachePath: tab.cachePath,
     );
   }
@@ -49,6 +51,7 @@ class DocumentHandoff {
   final String? originPath;
   final String? originBookmark;
   final String? originToken;
+  final String? originUri;
   final String? cachePath;
 
   bool get isDirty => bytes.length != savedLength;
@@ -95,6 +98,7 @@ class DocumentTab {
       this.originPath,
       this.originBookmark,
       this.originToken,
+      this.originUri,
       this.cachePath})
       : session = null,
         viewer = null,
@@ -111,6 +115,7 @@ class DocumentTab {
     this.originPath,
     this.originBookmark,
     this.originToken,
+    this.originUri,
     this.cachePath,
     bool initiallyDirty = false,
     int? savedLength,
@@ -130,7 +135,8 @@ class DocumentTab {
   /// becomes once its complete [bytes] are in hand, carrying its title and
   /// save destination forward. A mobile reference token is not carried: it
   /// only serves the progressive first paint, and the promoted tab is backed
-  /// by its snapshot ([cachePath]) instead.
+  /// by its snapshot ([cachePath]) instead. A writable [originUri] is carried:
+  /// it is where Save writes.
   DocumentTab.promoted(
     DocumentTab from, {
     required Uint8List bytes,
@@ -141,6 +147,7 @@ class DocumentTab {
           preferences: preferences,
           originPath: from.originPath,
           originBookmark: from.originBookmark,
+          originUri: from.originUri,
           cachePath: from.cachePath,
         );
 
@@ -157,6 +164,7 @@ class DocumentTab {
           originPath: handoff.originPath,
           originBookmark: handoff.originBookmark,
           originToken: handoff.originToken,
+          originUri: handoff.originUri,
           cachePath: handoff.cachePath,
           savedLength: handoff.savedLength,
         );
@@ -178,6 +186,7 @@ class DocumentTab {
               ? null
               : recovered.record.originPath,
           originBookmark: recovered.record.originBookmark,
+          originUri: recovered.record.originUri,
           cachePath: cachePath ?? recovered.record.cachePath,
           savedLength: recovered.record.savedLength,
         );
@@ -193,6 +202,7 @@ class DocumentTab {
     required Uint8List bytes,
     this.originPath,
     this.originBookmark,
+    this.originUri,
     this.cachePath,
   })  : session = null,
         viewer = null,
@@ -344,6 +354,16 @@ class DocumentTab {
   /// progressive first paint is on screen; null on desktop/web and after the
   /// tab swaps to its complete, snapshotted bytes.
   String? originToken;
+
+  /// The picked mobile file Save writes back into (#1304): the reference
+  /// picker's token (an Android `content://` Uri the app holds a persisted
+  /// *write* grant for, or an iOS security-scoped bookmark). Unlike
+  /// [originToken] it outlives the progressive open - it is carried through
+  /// promotion and persisted with the session and Recent files - and it is
+  /// set only when the provider accepts writes; null means Save shares a copy
+  /// instead. Reads still go through the private snapshot ([cachePath]) or,
+  /// on reopen, the Uri itself.
+  String? originUri;
 
   /// The app-private byte snapshot backing a mobile pick (see pdf_cache.dart),
   /// or null when the document has a real [originPath] (desktop) or can't be

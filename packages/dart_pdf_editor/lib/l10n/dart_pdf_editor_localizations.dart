@@ -2215,6 +2215,30 @@ abstract class DartPdfEditorLocalizations {
   /// **'Clear search'**
   String get sidebarClearSearch;
 
+  /// Tooltip for the annotation panel's filter button, which narrows the list by annotation type and author.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter annotations'**
+  String get sidebarFilter;
+
+  /// Section heading in the annotation filter menu listing annotation types.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get sidebarFilterType;
+
+  /// Section heading in the annotation filter menu listing annotation authors.
+  ///
+  /// In en, this message translates to:
+  /// **'Author'**
+  String get sidebarFilterAuthor;
+
+  /// Menu item that turns off every annotation type/author filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear filters'**
+  String get sidebarFilterClear;
+
   /// Tooltip that deletes all checked annotations as one undo step.
   ///
   /// In en, this message translates to:

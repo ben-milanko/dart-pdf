@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.1.0
+
+- Reuse Type 3 glyph cells and their image lists, reduce render-command codec buffer copies and speed up text extraction.
+
 ## 16.0.0
 
 See the [migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-16.0.0.md) for SDK compatibility details.
