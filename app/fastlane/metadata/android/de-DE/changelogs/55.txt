@@ -1,0 +1,3 @@
+DartPDF 16.1.1
+
+Änderungen unter Android und iOS direkt in der ursprünglichen PDF speichern, wenn der Dateianbieter Schreibzugriff erlaubt. Anmerkungen nach Typ und Autor filtern. Verbesserte Darstellung und Dekomprimierung.
