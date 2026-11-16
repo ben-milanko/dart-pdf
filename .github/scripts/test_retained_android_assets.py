@@ -3,11 +3,20 @@ import retained_android_assets as p
 
 class Boundaries(unittest.TestCase):
     def test_draft_source_identity(self):
-        good={'draft':True,'tag_name':p.TAG,'target_commitish':p.SOURCE}
+        good={'id':p.RELEASE_ID,'draft':True,'tag_name':p.TAG,'target_commitish':p.SOURCE}
         p.validate_release(good)
-        for field,value in [('draft',False),('tag_name','app-v16.0.0'),('target_commitish','wrong')]:
+        for field,value in [('id',0),('draft',False),('tag_name','app-v16.0.0'),('target_commitish','wrong')]:
             bad={**good,field:value}
             with self.assertRaises(ValueError):p.validate_release(bad)
+    def test_draft_lookup_uses_release_id(self):
+        from unittest.mock import patch
+        # GitHub's by-tag route can return 404 for a retained draft.
+        # Fail immediately after the initial lookup, before any SDK/network use.
+        class LookupComplete(Exception): pass
+        with patch.object(p, 'gh', side_effect=LookupComplete) as lookup:
+            with self.assertRaises(LookupComplete): p.main()
+        lookup.assert_called_once_with('api', f'repos/{p.REPO}/releases/{p.RELEASE_ID}')
+
     def test_artifact_provenance(self):
         good={'id':1,'expired':False,'digest':'sha256:abc','workflow_run':{'id':2,'head_sha':p.SOURCE}}
         p.validate_artifact(good,1,2,'abc')
