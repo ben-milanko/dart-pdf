@@ -5,6 +5,7 @@ import hashlib, json, os, re, subprocess, tempfile, zipfile
 REPO = 'ben-milanko/dart-pdf'
 SOURCE = '36a14db31bf2483378e5fde3591a46899146cd21'
 TAG = 'app-v16.1.1'
+RELEASE_ID = 446767344
 NATIVE_RUN = 43788575735
 NATIVE_ARTIFACT = 14191637652
 NATIVE_DIGEST = 'c24cb64ad70181312c38bd6bfcb3a9cec4e2e9cf5864f0e39f3755973dd1e5c2'
@@ -30,7 +31,7 @@ def command(args):
 def gh(*args): return json.loads(command(['gh', *args]))
 
 def validate_release(d):
-    if not (d.get('draft') is True and d.get('tag_name') == TAG
+    if not (d.get('id') == RELEASE_ID and d.get('draft') is True and d.get('tag_name') == TAG
             and d.get('target_commitish') == SOURCE):
         raise ValueError('Release must remain the exact source-bound draft')
 
@@ -84,7 +85,7 @@ def asset_action(assets, name, digest):
     raise ValueError('Conflicting remote asset; preserve it for reconciliation')
 
 def main():
-    release = gh('api', f'repos/{REPO}/releases/tags/{TAG}')
+    release = gh('api', f'repos/{REPO}/releases/{RELEASE_ID}')
     validate_release(release)
     report = {'source': SOURCE, 'tag': TAG, 'rebuilt': False, 'assets': []}
     sdk = Path(os.environ.get('ANDROID_SDK_ROOT') or os.environ['ANDROID_HOME']) / 'build-tools/36.1.0'
@@ -121,11 +122,11 @@ def main():
                 or command([aapt, 'dump', 'badging', str(signed)]) != badging):
             raise ValueError('Release APK identity or unchanged payload verification failed')
         for path in [aab_path, signed]:
-            current = gh('api', f'repos/{REPO}/releases/tags/{TAG}'); validate_release(current)
+            current = gh('api', f'repos/{REPO}/releases/{RELEASE_ID}'); validate_release(current)
             digest = sha(path.read_bytes()); action = asset_action(current['assets'], path.name, digest)
             if action == 'upload':
                 command(['gh', 'release', 'upload', TAG, str(path), '--repo', REPO])
-            after = gh('api', f'repos/{REPO}/releases/tags/{TAG}'); validate_release(after)
+            after = gh('api', f'repos/{REPO}/releases/{RELEASE_ID}'); validate_release(after)
             asset_action(after['assets'], path.name, digest)
             actual = next(a for a in after['assets'] if a['name'] == path.name)
             if actual['size'] != path.stat().st_size: raise ValueError('Uploaded asset size mismatch')
