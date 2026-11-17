@@ -1,3 +1,3 @@
-DartPDF 16.1.1
+DartPDF 16.1.2
 
-Filter anotasi menurut jenis dan penulis. Peningkatan kinerja render dan dekompresi.
+Memperbaiki pita abu-abu dan kotak teks terpotong saat papan ketik terbuka ketika mengedit PDF yang diperbesar. Zoom dan fokus teks tetap terjaga.

@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Naprawiono szary pasek i przycięte pole tekstowe po otwarciu klawiatury podczas edycji powiększonego PDF. Powiększenie i fokus tekstu zostają zachowane.

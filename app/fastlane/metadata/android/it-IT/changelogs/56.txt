@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Corregge la fascia grigia e la casella di testo tagliata quando si apre la tastiera in un PDF ingrandito. Zoom e messa a fuoco del testo restano invariati.
