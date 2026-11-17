@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="16.1.2" date="2026-11-17">
+      <description><p>Fix zoomed PDF positioning when the keyboard opens or the window resizes.</p></description>
+    </release>
     <release version="16.1.1" date="2026-11-16">
       <description><p>Filter annotations by type and author, improve rendering performance and fix text appearing as solid blocks in multi-page PDFs on the web.</p></description>
     </release>

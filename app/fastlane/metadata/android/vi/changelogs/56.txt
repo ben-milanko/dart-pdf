@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Sửa dải màu xám và hộp văn bản bị cắt khi mở bàn phím lúc chỉnh sửa PDF đã phóng to. Giữ nguyên mức thu phóng và tiêu điểm văn bản.

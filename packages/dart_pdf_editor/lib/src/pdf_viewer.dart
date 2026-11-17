@@ -8568,6 +8568,31 @@ class _PdfViewerState extends State<PdfViewer>
     return matrix;
   }
 
+  /// A keyboard/window resize changes the size of the list underneath the
+  /// zoom transform. Its old translation can then expose the canvas beyond
+  /// that list. Re-clamp after layout, when the new scroll extents exist,
+  /// transferring the main-axis correction into scroll so the text being
+  /// edited stays in place whenever the document has room to scroll.
+  void _clampZoomAfterResize() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _viewWidth <= 0 || _viewHeight <= 0) return;
+      final before = _transform.value;
+      final scale = before.getMaxScaleOnAxis();
+      // Sub-fit transforms belong to a live pinch, not the zoom window.
+      if (scale <= 1.01) return;
+      final clamped = _clampedTransform(before.clone());
+      if (clamped == before) return;
+      final delta =
+          clamped.storage[_mainTranslate] - before.storage[_mainTranslate];
+      if (delta != 0 && _scroll.hasClients) {
+        final position = _scroll.position;
+        position.jumpTo((position.pixels + delta / scale)
+            .clamp(position.minScrollExtent, position.maxScrollExtent));
+      }
+      _transform.value = clamped;
+    });
+  }
+
   /// Like [_clampedTransform] but only clamps the main (scroll) axis,
   /// leaving the cross translation untouched (for rubber-band over-scroll).
   Matrix4 _clampedTransformMainOnly(Matrix4 matrix) {
@@ -8754,6 +8779,10 @@ class _PdfViewerState extends State<PdfViewer>
     // test view reports no touch slop and both sides fell back to 36.
     final gestureSettings = MediaQuery.maybeGestureSettingsOf(context);
     return LayoutBuilder(builder: (context, constraints) {
+      final resized = _viewWidth > 0 &&
+          _viewHeight > 0 &&
+          (_viewWidth != constraints.maxWidth ||
+              _viewHeight != constraints.maxHeight);
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
       // change to the cross (fit) dimension rescales every page, so pin the
       // reading position before adopting it (skips the very first layout, where
@@ -8810,6 +8839,7 @@ class _PdfViewerState extends State<PdfViewer>
             if (mounted && _onScreenSpan.first < 0) _updateCurrentPage();
           });
         }
+        if (resized) _clampZoomAfterResize();
       }
       // no implicit desktop scrollbar: it would attach here, inside the
       // zoom transform - thin, low-contrast, and scaled or translated out

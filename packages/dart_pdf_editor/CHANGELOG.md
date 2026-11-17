@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.1.1
+
+- Fix the grey band and clipped text editor when the keyboard resizes a zoomed PDF. Preserve zoom, focus and the reading position.
+
 ## 16.1.0
 
 - Add `PdfReader.pageMenuActionsBuilder`, so the reader's thumbnail strip offers host entries on right-click too (for example "Copy link to page N"). The reader allows no page edits, so these are the only rows in its menu, and the menu opens only when the builder is set.

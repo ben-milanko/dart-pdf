@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Corrige a faixa cinza e a caixa de texto cortada ao abrir o teclado durante a edição de um PDF ampliado. O zoom e o foco do texto são mantidos.

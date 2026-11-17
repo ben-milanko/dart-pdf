@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Behebt den grauen Streifen und abgeschnittene Textfelder beim Öffnen der Tastatur in einem vergrößerten PDF. Zoom und Textfokus bleiben erhalten.
