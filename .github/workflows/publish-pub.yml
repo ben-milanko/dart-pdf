@@ -159,7 +159,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_cos
@@ -170,7 +170,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_test_fixtures
@@ -181,7 +181,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_document
@@ -192,7 +192,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_graphics
@@ -203,7 +203,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_cli
@@ -214,7 +214,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
@@ -258,7 +258,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor_flutter_gpu
@@ -269,7 +269,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_vlm
@@ -280,7 +280,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_ondevice
@@ -291,7 +291,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_printing
