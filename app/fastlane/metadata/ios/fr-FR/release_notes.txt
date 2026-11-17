@@ -1,3 +1,3 @@
-DartPDF 16.1.1
+DartPDF 16.1.2
 
-Filtrez les annotations par type et auteur. Performances de rendu et de décompression améliorées.
+Corrige la bande grise et le champ de texte tronqué à l’ouverture du clavier dans un PDF agrandi. Le zoom et le focus du texte sont conservés.

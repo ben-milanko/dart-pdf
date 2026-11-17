@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Yakınlaştırılmış PDF düzenlenirken klavye açıldığında oluşan gri şerit ve kesilen metin kutusu düzeltildi. Yakınlaştırma ve metin odağı korunur.

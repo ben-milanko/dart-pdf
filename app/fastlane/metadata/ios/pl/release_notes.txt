@@ -1,3 +1,3 @@
-DartPDF 16.1.1
+DartPDF 16.1.2
 
-Filtruj adnotacje według typu i autora. Ulepszone renderowanie i dekompresja.
+Naprawiono szary pasek i przycięte pole tekstowe po otwarciu klawiatury podczas edycji powiększonego PDF. Powiększenie i fokus tekstu zostają zachowane.

@@ -1,3 +1,3 @@
-DartPDF 16.1.1
+DartPDF 16.1.2
 
-Filtra le annotazioni per tipo e autore. Migliorate le prestazioni di rendering e decompressione.
+Corregge la fascia grigia e la casella di testo tagliata quando si apre la tastiera in un PDF ingrandito. Zoom e messa a fuoco del testo restano invariati.

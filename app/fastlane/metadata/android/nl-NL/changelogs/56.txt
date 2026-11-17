@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Verhelpt de grijze balk en het afgesneden tekstvak wanneer het toetsenbord opent bij het bewerken van een ingezoomde PDF. Zoom en tekstfocus blijven behouden.

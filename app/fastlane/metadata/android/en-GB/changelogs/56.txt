@@ -1,0 +1,3 @@
+DartPDF 16.1.2
+
+Fix the grey band and clipped text box when the keyboard opens while editing a zoomed PDF. Keep your zoom and text focus.
