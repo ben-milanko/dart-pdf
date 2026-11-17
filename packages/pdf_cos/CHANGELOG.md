@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.1.1
+
+- See `doc/MIGRATING-16.1.1.md` for release compatibility.
+
 ## 16.1.0
 
 - Reduce output-buffer copying in native zlib decompression and avoid unnecessary name-token copies.
