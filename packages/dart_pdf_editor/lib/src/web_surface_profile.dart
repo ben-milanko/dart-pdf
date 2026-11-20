@@ -192,12 +192,13 @@ bool _canvas2dTrimWhitespace(int codeUnit) =>
 
 /// Canvas2D equivalent of Skia's zero-width hairline policy.
 ///
-/// [hairlineWidth] is one device pixel expressed in PDF page units. This
-/// mirrors [CanvasPdfDevice]: any PDF stroke below one page unit is recorded as
-/// Skia's transform-invariant zero-width hairline. Leaving those widths literal
-/// makes Canvas2D attenuate them at fit scale and thicken them at deep zoom.
+/// [hairlineWidth] is one device pixel expressed in PDF page units. A stroke
+/// narrower than that is widened to it - left literal, Canvas2D attenuates it
+/// to a pale sub-pixel line - and anything wider keeps its width, so a
+/// 0.72 pt line grows with the zoom like it does in [CanvasPdfDevice]
+/// (whose picture is replayed at many scales, so it floors with an overlay).
 double pdfCanvas2dStrokeWidth(double width, double hairlineWidth) =>
-    width < 1 ? hairlineWidth : width;
+    width < hairlineWidth ? hairlineWidth : width;
 
 /// Highest full-page backing ratio used by the worker-owned DOM surface.
 ///
