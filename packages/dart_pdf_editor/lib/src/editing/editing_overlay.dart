@@ -978,6 +978,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _autoScrollGlobal;
   Offset? _autoScrollLastLocal;
 
+  /// Whether the edge auto-scroll fed the viewer's viewport pan during the
+  /// current drag, so the drag's end must close that pan.
+  bool _autoScrollPanned = false;
+
   // A resize: a rotated selection resizes in its local frame, so
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect the
   // painter spins by _resizeAngle), not page-axis view rects. A handle
@@ -1849,7 +1853,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // keep the rubber band on it. The event's local position is pinned to
       // where the page sat at the press; re-derive it from the global one.
       // The hover's edge auto-scroll stands down while the hand pans.
-      _stopAutoScroll();
+      _stopAutoScroll(endPan: false);
       final box = context.findRenderObject();
       if (box is RenderBox && box.hasSize) {
         setState(() => _polyHover = box.globalToLocal(event.position));
@@ -3016,6 +3020,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _activeStrokeRepaint.dispose();
     _cursorRepaint.dispose();
     _autoScrollTicker.dispose();
+    // the drag that auto-scrolled never reaches its end: close the viewer's
+    // pan here, or its render hold stays up after this page leaves the tree
+    _endAutoScrollPan();
     _controller.setPlacementDraftUndo(this, null);
     if (_interaction.isActive &&
         _interaction.state.pageIndex == widget.pageIndex) {
@@ -4359,10 +4366,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_autoScrollTicker.isActive) _autoScrollTicker.start();
   }
 
-  void _stopAutoScroll() {
+  /// Stops the edge auto-scroll ticker. With [endPan] it also closes the
+  /// viewer's viewport pan the auto-scroll fed; a caller whose own pan is
+  /// still running (the middle-button hand pan) passes false, and the pan
+  /// is closed when the drag or the poly path ends.
+  void _stopAutoScroll({bool endPan = true}) {
     if (_autoScrollTicker.isActive) _autoScrollTicker.stop();
     _autoScrollGlobal = null;
     _autoScrollLastLocal = null;
+    if (endPan) _endAutoScrollPan();
+  }
+
+  /// Ends the viewer's viewport pan once if the edge auto-scroll fed it,
+  /// which lets the viewer release its render hold.
+  void _endAutoScrollPan() {
+    if (!_autoScrollPanned) return;
+    _autoScrollPanned = false;
+    _host.endViewportPan?.call(Velocity.zero);
   }
 
   void _onAutoScrollTick(Duration _) {
@@ -4385,7 +4405,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     // Keep scrolling while the pointer rests in the viewport's edge band.
     final delta = _host.edgeAutoScroll!(global);
-    if (delta != Offset.zero) _host.panViewport!(delta);
+    if (delta != Offset.zero) {
+      _autoScrollPanned = true;
+      _host.panViewport!(delta);
+    }
   }
 
   void _panEnd(DragEndDetails details) {

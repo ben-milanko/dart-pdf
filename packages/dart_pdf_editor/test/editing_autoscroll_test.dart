@@ -14,7 +14,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  Future<PdfEditingController> pumpViewer(WidgetTester tester) async {
+  Future<PdfEditingController> pumpViewer(WidgetTester tester,
+      {PdfViewerController? controller}) async {
     final editing = PdfEditingController(buildMultiPagePdf(6));
     addTearDown(editing.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -22,6 +23,7 @@ void main() {
         body: ListenableBuilder(
           listenable: editing,
           builder: (context, _) => PdfViewer(
+            controller: controller,
             initialFit: PdfViewerFit.width,
             document: editing.document,
             editing: editing,
@@ -118,4 +120,39 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 400));
   });
+
+  // The auto-scroll pans through the viewer's touch pan, which raises the
+  // render hold like a finger pan does. Lifting the drag must close that pan
+  // too, or the hold stays up and page renders and thumbnails stay deferred
+  // until the next viewport gesture.
+  for (final kind in [PointerDeviceKind.mouse, PointerDeviceKind.touch]) {
+    testWidgets(
+        'lifting an auto-scrolled drag releases the render hold ($kind)',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      final editing = await pumpViewer(tester, controller: controller);
+      editing.tool = PdfEditTool.snapshot;
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(controller.debugRenderHold, isFalse);
+
+      final gesture =
+          await tester.startGesture(const Offset(400, 300), kind: kind);
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 290)); // into the bottom edge band
+      await tester.pump();
+      final atEdge = scrollPosition(tester).pixels;
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(scrollPosition(tester).pixels, greaterThan(atEdge + 10));
+      expect(controller.debugRenderHold, isTrue);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(controller.debugRenderHold, isFalse);
+    });
+  }
 }
