@@ -122,6 +122,25 @@ class _PdfReflowViewState extends State<PdfReflowView>
     }
   }
 
+  /// Whether the element is in the tree. Between [deactivate] and [dispose]
+  /// (the rest of the frame in which the view leaves) the controller still
+  /// holds this backend, and a panel rebuilt in that frame may ask it for
+  /// geometry - which must answer "nothing laid out" rather than read the
+  /// render objects of an inactive element.
+  bool _active = true;
+
+  @override
+  void activate() {
+    super.activate();
+    _active = true;
+  }
+
+  @override
+  void deactivate() {
+    _active = false;
+    super.deactivate();
+  }
+
   @override
   void dispose() {
     widget.controller?.detachReflowBackend(this);
@@ -161,15 +180,17 @@ class _PdfReflowViewState extends State<PdfReflowView>
 
   // --- scroll math -----------------------------------------------------------
 
-  RenderBox? get _viewportBox =>
-      _listKey.currentContext?.findRenderObject() as RenderBox?;
+  RenderBox? get _viewportBox => _active
+      ? _listKey.currentContext?.findRenderObject() as RenderBox?
+      : null;
 
   /// Item [index]'s top edge, in pixels below the viewport's top edge; null
   /// when the item is not currently built.
   double? _itemTop(int index) {
     final viewport = _viewportBox;
+    if (viewport == null) return null;
     final box = _keyFor(index).currentContext?.findRenderObject() as RenderBox?;
-    if (viewport == null || box == null || !box.attached) return null;
+    if (box == null || !box.attached) return null;
     return box.localToGlobal(Offset.zero).dy -
         viewport.localToGlobal(Offset.zero).dy;
   }
@@ -260,7 +281,8 @@ class _PdfReflowViewState extends State<PdfReflowView>
   double _averageExtent() {
     var sum = 0.0;
     var n = 0;
-    for (final index in _itemKeys.keys) {
+    // inactive (leaving this frame), nothing is laid out to measure
+    for (final index in _active ? _itemKeys.keys : const <int>[]) {
       final box =
           _keyFor(index).currentContext?.findRenderObject() as RenderBox?;
       if (box == null || !box.attached) continue;
@@ -325,8 +347,9 @@ class _PdfReflowViewState extends State<PdfReflowView>
   Rect? reflowVisibleFraction(int index) {
     final viewport = _viewportBox;
     final top = _itemTop(index);
+    if (viewport == null || top == null) return null;
     final box = _keyFor(index).currentContext?.findRenderObject() as RenderBox?;
-    if (viewport == null || top == null || box == null) return null;
+    if (box == null) return null;
     final height = box.size.height;
     if (height <= 0) return null;
     final bottom = top + height;

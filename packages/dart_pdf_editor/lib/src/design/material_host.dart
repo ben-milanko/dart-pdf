@@ -390,6 +390,7 @@ class PdfDropdown<T> extends StatefulWidget {
     this.isExpanded = false,
     this.underline,
     this.decoration,
+    this.selectedItemBuilder,
   });
 
   /// The options, in menu order.
@@ -416,6 +417,12 @@ class PdfDropdown<T> extends StatefulWidget {
 
   /// Draws the button as a form field with this decoration (a label, say).
   final InputDecoration? decoration;
+
+  /// How the closed button draws each option, one widget per entry of
+  /// [items] in the same order - a compact form (an arrowhead's drawing,
+  /// say) where the menu rows carry a name too. Null draws the item's own
+  /// child or label, as the menu does.
+  final List<Widget> Function(BuildContext context)? selectedItemBuilder;
 
   @override
   State<PdfDropdown<T>> createState() => _PdfDropdownState<T>();
@@ -481,10 +488,16 @@ class _PdfDropdownState<T> extends State<PdfDropdown<T>> {
     final decoration = widget.decoration;
     final dense = widget.isDense || decoration != null;
     final selected = _selectedIndex;
+    final closed = widget.selectedItemBuilder?.call(context);
+    assert(closed == null || closed.length == widget.items.length,
+        'selectedItemBuilder must return one widget per item');
     final children = <Widget>[
-      for (final item in widget.items)
+      for (var i = 0; i < widget.items.length; i++)
         _PdfDropdownItemBox(
-            dense: dense, child: item.child ?? Text(item.label)),
+            dense: dense,
+            child: closed?[i] ??
+                widget.items[i].child ??
+                Text(widget.items[i].label)),
       if (widget.hint != null)
         DefaultTextStyle(
           style: textStyle.copyWith(color: theme.hintColor),
