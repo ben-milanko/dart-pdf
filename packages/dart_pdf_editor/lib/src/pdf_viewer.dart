@@ -7993,6 +7993,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// (list-space px/s - drag velocity trackers run on local positions,
   /// so the zoom transform is already divided out).
   void _flingViewport(Velocity velocity) {
+    if (!mounted) return;
     _touchPanning = true;
     _work.beginMotion();
     _hBounceController.stop();
