@@ -2955,7 +2955,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// Zooms to [target] (fit multiples) holding the content under [focal]
   /// still. [focal] is a **list-space** point: every gesture that calls this
   /// - wheel, touch pinch, trackpad pinch - is received inside the zoom
-  /// transform, so that is the space its local position arrives in.
+  /// transform, so that is the space its local position arrives in. (A touch
+  /// pinch maps its own through the live matrix instead - its local positions
+  /// go stale as it zooms; see [_onPinchUpdate].)
   ///
   /// Two spaces meet here, which is what makes zoom-to-cursor subtle. The
   /// pointer is fixed in *viewport* space, but the content under it lives in
@@ -8277,11 +8279,42 @@ class _PdfViewerState extends State<PdfViewer>
   // (the same _zoomTo the wheel and trackpad use, so pinching out below
   // fit-width crosses into layout zoom) and pans by the focal point's
   // drift, spilling into the scroll position like grab panning.
+  //
+  // The recognizer sits inside the zoom transform, but its local positions
+  // can't be trusted past the first frame: Flutter routes every move event
+  // through the transform captured when that finger touched down, and a
+  // pinch changes that transform on every update. Using them anchored the
+  // zoom on content that *used to be* under the fingers and panned by
+  // start-zoom pixels, so the page slid away from the fingers by the zoom
+  // ratio - the further the pinch went, the further the content got from
+  // what the reader grabbed. So the pinch works from the global focal point
+  // instead, mapped into the viewport from outside the transform
+  // ([_zoomViewportKey]) and into list space through the live matrix
+  // ([_sceneOf]). (A trackpad pinch's position is fixed for the whole
+  // gesture, so the stale mapping is consistent there and harmless.)
 
   /// Cumulative scale of the touch pinch in progress.
   double _pinchScale = 1;
 
-  void _onPinchStart(ScaleStartDetails details) {
+  /// The pinch's global focal point as of the last update. Tracked here
+  /// because the details' `focalPointDelta` is in the same stale local space.
+  Offset _pinchFocal = Offset.zero;
+
+  /// On the InteractiveViewer: its render box is the viewport, outside the
+  /// zoom transform, so it maps global points into untransformed view space.
+  final GlobalKey _zoomViewportKey = GlobalKey();
+
+  /// The viewport point under [global], or null before layout.
+  Offset? _viewOf(Offset global) {
+    final box = _zoomViewportKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box.globalToLocal(global);
+  }
+
+  /// [origin] is [_EagerPinchRecognizer.origin]: where the fingers' midpoint
+  /// was when the current set of fingers formed, which is what the updates'
+  /// `scale` is measured from. `details.focalPoint` is a move later.
+  void _onPinchStart(ScaleStartDetails details, Offset? origin) {
     pdfLogGesture(
         'eager-pinch START', () => 'pointers=${details.pointerCount}');
     _panFlinger.stop();
@@ -8290,20 +8323,27 @@ class _PdfViewerState extends State<PdfViewer>
     _touchPanning = true;
     _work.beginMotion();
     _pinchScale = 1;
+    _pinchFocal = origin ?? details.focalPoint;
   }
 
   void _onPinchUpdate(ScaleUpdateDetails details) {
     // a lone finger left over after a pinch shouldn't keep panning; the
     // gesture stays claimed but goes quiet until lift-off
     if (details.pointerCount < 2) return;
+    // where the fingers' midpoint was last update and is now, in view space
+    final before = _viewOf(_pinchFocal);
+    final now = _viewOf(details.focalPoint);
+    _pinchFocal = details.focalPoint;
+    if (before == null || now == null) return;
+    // zoom about the content under the previous midpoint (it holds still)...
     if (details.scale > 0 && details.scale != _pinchScale) {
-      _zoomTo(
-          _currentZoom * details.scale / _pinchScale, details.localFocalPoint);
+      _zoomTo(_currentZoom * details.scale / _pinchScale, _sceneOf(before));
       _pinchScale = details.scale;
     }
-    // focalPointDelta is local to the receiver, which sits inside the
-    // zoom transform - list-space pixels, exactly what _grabPanBy takes
-    final delta = details.focalPointDelta;
+    // ...then carry it to the new midpoint. _touchGrabPanBy takes list-space
+    // pixels, so divide out the zoom just applied.
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final delta = (now - before) / (scale > 0 ? scale : 1);
     if (delta != Offset.zero) _touchGrabPanBy(delta);
   }
 
@@ -9090,6 +9130,7 @@ class _PdfViewerState extends State<PdfViewer>
                   onMove: _temporaryPanMove,
                   onEnd: _temporaryPanEnd,
                   child: InteractiveViewer(
+                    key: _zoomViewportKey,
                     transformationController: _transform,
                     maxScale: _effectiveMaxZoom,
                     // wheel zoom is handled in _onPointerSignal; e^(-dy/∞) = 1
@@ -9151,7 +9192,8 @@ class _PdfViewerState extends State<PdfViewer>
                           () => _EagerPinchRecognizer(debugOwner: this),
                           (recognizer) => recognizer
                             ..gestureSettings = gestureSettings
-                            ..onStart = _onPinchStart
+                            ..onStart = ((details) =>
+                                _onPinchStart(details, recognizer.origin))
                             ..onUpdate = _onPinchUpdate
                             ..onEnd = _onPinchEnd,
                         ),
@@ -10894,8 +10936,30 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
 
   final Set<int> _pointers = {};
 
+  /// Each tracked touch's global position.
+  final Map<int, Offset> _positions = {};
+
+  /// The touches' global midpoint as of the last time a finger landed or
+  /// lifted - where [ScaleGestureRecognizer] measures `scale` from (its own
+  /// copy is private). `onStart` only fires on the first move after that,
+  /// with that move's focal point, so anchoring the pinch there would drop
+  /// the first move's drift - and the zoom then multiplies the miss.
+  Offset? get origin => _origin;
+  Offset? _origin;
+
+  void _reorigin() {
+    if (_positions.isEmpty) return;
+    var sum = Offset.zero;
+    for (final position in _positions.values) {
+      sum += position;
+    }
+    _origin = sum / _positions.length.toDouble();
+  }
+
   @override
   void addAllowedPointer(PointerDownEvent event) {
+    _positions[event.pointer] = event.position;
+    _reorigin();
     super.addAllowedPointer(event);
     _pointers.add(event.pointer);
     if (_pointers.length == 2) resolve(GestureDisposition.accepted);
@@ -10918,6 +10982,10 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
   void handleEvent(PointerEvent event) {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       _pointers.remove(event.pointer);
+      if (_positions.remove(event.pointer) != null) _reorigin();
+    } else if (event is PointerMoveEvent &&
+        _positions.containsKey(event.pointer)) {
+      _positions[event.pointer] = event.position;
     }
     super.handleEvent(event);
   }
@@ -10925,6 +10993,7 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
   @override
   void rejectGesture(int pointer) {
     _pointers.remove(pointer);
+    _positions.remove(pointer);
     super.rejectGesture(pointer);
   }
 
