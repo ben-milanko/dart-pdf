@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Toolbar groups remember your last tool. Pinch to zoom without losing your place. Fixes for editing near page edges, text editing with the keyboard open, and colors in printed PDFs.

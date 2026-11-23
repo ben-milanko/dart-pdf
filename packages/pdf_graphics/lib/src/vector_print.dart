@@ -430,10 +430,18 @@ class _EncodingDevice implements PdfDevice {
   void drawImage(PdfImageRequest request) {
     final pixels = _images[request];
     if (pixels == null) return; // undecodable image - skip rather than blank
+    // An /ImageMask decodes to *white* coverage; the fill colour is the
+    // device's to apply (§8.9.6.2). The op stream has no tint, so paint it
+    // in here - untinted, a scanned drawing stored as stencil strips prints
+    // white on white paper.
+    final source = request.isStencil
+        ? tintVectorPrintStencil(
+            pixels, request.stencilColor, _flattenAlpha(request.alpha))
+        : pixels;
     // The image transform maps the unit square (image space, y-up) to page
     // space; fold in the page transform so the quad is in device points.
     final placed =
-        uprightVectorPrintImage(request.transform.concat(_toDevice), pixels);
+        uprightVectorPrintImage(request.transform.concat(_toDevice), source);
     _w.u8(_opImage);
     _w.matrix(placed.matrix);
     _w.u32(placed.pixels.width);
@@ -519,6 +527,28 @@ class VectorPrintImagePlacement {
   VectorPrintImagePlacement(this.matrix, this.pixels);
   final PdfMatrix matrix;
   final PdfDecodedPixels pixels;
+}
+
+/// A stencil mask's [coverage] (only its alpha channel is read, so straight
+/// and premultiplied white decode alike) painted in [color] at [alpha]: a new
+/// straight-alpha buffer, never the input, because decoders share one pixel
+/// buffer between draws of the same image and two draws can tint differently.
+PdfDecodedPixels tintVectorPrintStencil(
+    PdfDecodedPixels coverage, PdfColor color, double alpha) {
+  int channel(double v) => (v.clamp(0.0, 1.0) * 255).round();
+  final r = channel(color.red), g = channel(color.green);
+  final b = channel(color.blue), a = alpha.clamp(0.0, 1.0);
+  final src = coverage.rgba;
+  final out = Uint8List(src.length);
+  for (var i = 0; i + 3 < src.length; i += 4) {
+    final cover = src[i + 3];
+    if (cover == 0) continue; // transparent black, as the decoders emit
+    out[i] = r;
+    out[i + 1] = g;
+    out[i + 2] = b;
+    out[i + 3] = (cover * a).round();
+  }
+  return PdfDecodedPixels(out, coverage.width, coverage.height);
 }
 
 /// Rewrites an image placement whose unit-square->device [matrix] is a

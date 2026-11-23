@@ -1,6 +1,15 @@
 name: Publish retained Android release assets
 on:
   workflow_dispatch:
+    inputs:
+      manifest_json:
+        description: 'Schema v1 source-bound retained Android manifest JSON (see doc/releasing.md)'
+        required: true
+        type: string
+      manifest_sha256:
+        description: 'Lowercase SHA-256 of the exact UTF-8 manifest_json bytes'
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:

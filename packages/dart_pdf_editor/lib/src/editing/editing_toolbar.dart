@@ -675,8 +675,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   void _activateSelectMode() => _commands.activateSelectMode();
 
-  /// Opens [group]'s strip and, when arming is side-effect-free, arms its
-  /// default tool - so its settings are live immediately. Re-tapping the
+  /// Opens [group]'s strip and, when arming is side-effect-free, arms the
+  /// tool last used in it (else its default tool) - so its settings are
+  /// live immediately. Re-tapping the
   /// open group collapses back to the resting Select dock.
   void _openGroupTap(_ToolGroup group) => _commands.openGroup(group);
 

@@ -978,6 +978,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _autoScrollGlobal;
   Offset? _autoScrollLastLocal;
 
+  /// Whether the edge auto-scroll currently holds the viewer's viewport pan
+  /// open, so leaving the edge band, stopping auto-scroll, or disposing the
+  /// overlay must close it.
+  bool _autoScrollPanned = false;
+
   // A resize: a rotated selection resizes in its local frame, so
   // _resizeFrom/_resizeRect are then the chrome's local box (the rect the
   // painter spins by _resizeAngle), not page-axis view rects. A handle
@@ -3016,6 +3021,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _activeStrokeRepaint.dispose();
     _cursorRepaint.dispose();
     _autoScrollTicker.dispose();
+    // The drag that auto-scrolled never reaches its end: close the viewer's
+    // pan after this frame so the render hold comes down without mutating
+    // the viewer's transform while the widget tree is locked in finalizeTree.
+    _endAutoScrollPan(defer: true);
     _controller.setPlacementDraftUndo(this, null);
     if (_interaction.isActive &&
         _interaction.state.pageIndex == widget.pageIndex) {
@@ -4359,10 +4368,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_autoScrollTicker.isActive) _autoScrollTicker.start();
   }
 
+  /// Stops the edge auto-scroll ticker and closes any viewport pan it opened.
   void _stopAutoScroll() {
     if (_autoScrollTicker.isActive) _autoScrollTicker.stop();
     _autoScrollGlobal = null;
     _autoScrollLastLocal = null;
+    _endAutoScrollPan();
+  }
+
+  /// Ends the viewer's viewport pan once if the edge auto-scroll fed it,
+  /// which lets the viewer release its render hold. Callers inside [dispose]
+  /// pass [defer] so the viewer's spring-back never mutates its transform
+  /// while the widget tree is locked.
+  void _endAutoScrollPan({bool defer = false}) {
+    if (!_autoScrollPanned) return;
+    _autoScrollPanned = false;
+    final endPan = _host.endViewportPan;
+    if (endPan == null) return;
+    if (defer) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        endPan(Velocity.zero);
+      });
+    } else {
+      endPan(Velocity.zero);
+    }
   }
 
   void _onAutoScrollTick(Duration _) {
@@ -4383,9 +4412,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _interaction.sample();
       _applyDragPosition(local);
     }
-    // Keep scrolling while the pointer rests in the viewport's edge band.
+    // Keep scrolling while the pointer rests in the viewport's edge band;
+    // once it moves back inside, close the pan so newly revealed pages can
+    // render while the user aims.
     final delta = _host.edgeAutoScroll!(global);
-    if (delta != Offset.zero) _host.panViewport!(delta);
+    if (delta != Offset.zero) {
+      _autoScrollPanned = true;
+      _host.panViewport!(delta);
+    } else {
+      _endAutoScrollPan();
+    }
   }
 
   void _panEnd(DragEndDetails details) {

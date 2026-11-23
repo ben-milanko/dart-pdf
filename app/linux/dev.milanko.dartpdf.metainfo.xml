@@ -85,6 +85,9 @@
   </screenshots>
 
   <releases>
+    <release version="16.2.0" date="2026-11-23">
+      <description><p>Toolbar groups remember your last tool. Pinch to zoom without losing your place. Fixes for editing near page edges, text editing with the keyboard open, and colors in printed PDFs.</p></description>
+    </release>
     <release version="16.1.2" date="2026-11-17">
       <description><p>Fix zoomed PDF positioning when the keyboard opens or the window resizes.</p></description>
     </release>

@@ -56,7 +56,9 @@ class PdfToolEntry {
 /// [defaultTool] is armed when the group opens, when arming it is
 /// side-effect-free (shapes → rectangle, draw → ink); groups whose first
 /// tool has a prerequisite (Measure needs a scale, Insert's signature needs
-/// a drawing) leave it null and wait for an explicit tap.
+/// a drawing) leave it null and wait for an explicit tap. Once a tool in the
+/// group has been used, opening it re-arms that tool instead (see
+/// `PdfEditorCommands.toolOnOpen`).
 ///
 /// What a group does beyond listing its tools is data on it: [kind] says
 /// which stock group's behaviour it has (the Select navigation cluster, the

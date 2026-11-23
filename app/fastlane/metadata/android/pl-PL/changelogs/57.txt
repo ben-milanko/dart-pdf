@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Grupy paska narzędzi zapamiętują ostatnie narzędzie. Powiększaj dwoma palcami bez utraty pozycji. Poprawki edycji przy krawędziach, edycji tekstu przy otwartej klawiaturze i kolorów wydruku.

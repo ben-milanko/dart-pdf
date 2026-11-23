@@ -329,10 +329,11 @@ class PdfEditorCommands extends ChangeNotifier {
     return null;
   }
 
-  /// Opens [group] and, when arming is side-effect-free, arms its
-  /// [PdfToolGroup.defaultTool] so its settings are live immediately.
-  /// Opening the open group again collapses back to Select; opening Select
-  /// while Select is armed drops to plain-reader mode.
+  /// Opens [group] and, when arming is side-effect-free, arms [toolOnOpen] -
+  /// the tool last used in it, else its [PdfToolGroup.defaultTool] - so its
+  /// settings are live immediately. Opening the open group again collapses
+  /// back to Select; opening Select while Select is armed drops to
+  /// plain-reader mode.
   void openGroup(PdfToolGroup group) {
     final navigation = group.kind == PdfEditToolGroup.select;
     if (currentGroupId == group.id && !navigation) {
@@ -347,7 +348,7 @@ class PdfEditorCommands extends ChangeNotifier {
     }
     openGroupId = group.id;
     if (groupForTool(_controller.tool)?.id == group.id) return;
-    _controller.tool = group.defaultTool;
+    _controller.tool = toolOnOpen(group);
     if (_controller.tool != null) viewerController.clearSelection();
     // markup arms no tool, so its style scope is set explicitly (after the
     // tool reset above, which would otherwise clear it) - this is what lets
@@ -356,6 +357,48 @@ class PdfEditorCommands extends ChangeNotifier {
       _controller.useMarkupStyleScope();
     }
   }
+
+  /// The tool opening [group] arms: the one last used in it
+  /// ([PdfEditingPreferences.lastToolInGroup] - remembered across sessions),
+  /// so switching from Shapes to Insert and back returns to the line tool
+  /// rather than the rectangle; else [PdfToolGroup.defaultTool].
+  ///
+  /// The remembered tool is only re-armed when that needs no prompt and
+  /// changes nothing: a measure tool once a scale is set, the signature tool
+  /// once a signature is drawn, and never a tool the group no longer lists
+  /// or [tools] leaves out. Groups that wait for an explicit tap (Edit,
+  /// whose tools change the document) still arm nothing; Measure does
+  /// re-arm, since its only reason to wait is the scale prompt.
+  PdfEditTool? toolOnOpen(PdfToolGroup group) {
+    final fallback = group.defaultTool;
+    final remembers =
+        fallback != null || group.kind == PdfEditToolGroup.measure;
+    if (!remembers) return fallback;
+    final last = _prefs.lastToolInGroup(group.id);
+    if (last == null ||
+        !(tools?.contains(last) ?? true) ||
+        !group.tools.any((entry) => entry.tool == last) ||
+        !_armsWithoutPrompt(last)) {
+      return fallback;
+    }
+    return last;
+  }
+
+  /// Whether arming [tool] directly skips nothing [toggleTool] would ask
+  /// for first.
+  bool _armsWithoutPrompt(PdfEditTool tool) => switch (tool) {
+        PdfEditTool.measureDistance ||
+        PdfEditTool.measurePerimeter ||
+        PdfEditTool.measureArea ||
+        PdfEditTool.measureVolume ||
+        PdfEditTool.measureSlope ||
+        PdfEditTool.measureAngle ||
+        PdfEditTool.measureArc =>
+          _controller.hasMeasurementScale,
+        PdfEditTool.signature => _controller.activeSavedSignature != null,
+        PdfEditTool.calibrate => false,
+        _ => true,
+      };
 
   /// Hand mode: no tool, pages pan.
   void activateHandMode() {
@@ -636,6 +679,15 @@ class PdfEditorCommands extends ChangeNotifier {
   /// starts it afresh.
   ValueListenable<List<PdfToolChoice>> get recentTools => _recent;
 
+  /// Records [tool] as its group's last-used tool, however it was armed
+  /// (strip, shortcut, palette, recent-tools chip), for [toolOnOpen].
+  void _rememberGroupTool(PdfEditTool? tool) {
+    if (tool == null || tool == PdfEditTool.select) return;
+    final group = groupForTool(tool);
+    if (group == null || group.kind == PdfEditToolGroup.select) return;
+    _prefs.setLastToolInGroup(group.id, tool);
+  }
+
   void _resetRecentTools({bool notify = true}) {
     final choice = activeTool;
     _lastObservedTool = choice;
@@ -648,6 +700,7 @@ class PdfEditorCommands extends ChangeNotifier {
     final choice = activeTool;
     if (choice == _lastObservedTool) return;
     _lastObservedTool = choice;
+    _rememberGroupTool(choice.tool);
     // Null is Hand/reader mode rather than Select. Temporary null transitions
     // while changing tools must not displace genuine history.
     if (choice.tool == null && choice.markup == null) return;

@@ -144,6 +144,73 @@ void main() {
       expect(viewer.visiblePageRegion(0)!.bottom,
           moreOrLessEquals(1, epsilon: 0.02));
     });
+
+    // The page point under global [at] right now (page 0, no /Rotate).
+    (double, double) pagePointUnder(PdfViewerController viewer, Offset at) {
+      final page = viewer.globalRectOf(0, const PdfRect(0, 0, 612, 792))!;
+      return (
+        (at.dx - page.left) / page.width * 612,
+        792 - (at.dy - page.top) / page.height * 792,
+      );
+    }
+
+    // Where page point [p] sits on screen right now.
+    Offset screenOf(PdfViewerController viewer, (double, double) p) => viewer
+        .globalRectOf(0, PdfRect(p.$1 - 1, p.$2 - 1, p.$1 + 1, p.$2 + 1))!
+        .center;
+
+    // Spreads two fingers about [focal] while the pair drifts by [drift] per
+    // step - a real pinch never holds its midpoint still - and checks, with
+    // the fingers still down, that the content first under the midpoint is
+    // still under it.
+    Future<void> expectContentFollowsFingers(
+        WidgetTester tester, PdfViewerController viewer, Offset focal,
+        {Offset drift = const Offset(8, 5)}) async {
+      const half = Offset(80, 80);
+      final g1 = await tester.startGesture(focal - half);
+      final g2 = await tester.startGesture(focal + half);
+      await tester.pump();
+      final grabbed = pagePointUnder(viewer, focal);
+      final zoomBefore = viewer.zoom;
+      var mid = focal;
+      // the span triples - an ordinary "zoom into that" pinch
+      for (var i = 0; i < 8; i++) {
+        await g1.moveBy(const Offset(-20, -20) + drift);
+        await g2.moveBy(const Offset(20, 20) + drift);
+        mid += drift;
+        await tester.pump();
+      }
+      final zoomAfter = viewer.zoom;
+      final at = screenOf(viewer, grabbed);
+      // lift before judging, so a failure can't leak pointers into later tests
+      await g1.up();
+      await g2.up();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(zoomAfter, greaterThan(zoomBefore * 2.5));
+      expect((at - mid).distance, lessThan(3),
+          reason: 'page point $grabbed was under the fingers at $focal; '
+              'the fingers are now at $mid but it sits at $at');
+    }
+
+    testWidgets('a pinch from fit keeps the content under the fingers',
+        (tester) async {
+      final (_, viewer) = await pumpViewer(tester, pages: 3);
+      await expectContentFollowsFingers(tester, viewer, const Offset(380, 260));
+    });
+
+    testWidgets('a pinch from an already zoomed view keeps its content',
+        (tester) async {
+      // the recognizer sits inside the zoom transform, and Flutter maps every
+      // move through the transform captured at finger-down - so once a pinch
+      // starts from a zoomed view (or changes the zoom) the local focal point
+      // is in the wrong space unless the viewer maps it itself
+      final (_, viewer) = await pumpViewer(tester, pages: 3);
+      viewer.setZoom(scale * 2);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await expectContentFollowsFingers(tester, viewer, const Offset(300, 220),
+          drift: const Offset(-6, 9));
+    });
   });
 
   group('draw tool zoom suppression', () {

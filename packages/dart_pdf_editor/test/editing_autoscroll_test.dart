@@ -14,7 +14,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  Future<PdfEditingController> pumpViewer(WidgetTester tester) async {
+  Future<PdfEditingController> pumpViewer(WidgetTester tester,
+      {PdfViewerController? controller}) async {
     final editing = PdfEditingController(buildMultiPagePdf(6));
     addTearDown(editing.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -22,6 +23,7 @@ void main() {
         body: ListenableBuilder(
           listenable: editing,
           builder: (context, _) => PdfViewer(
+            controller: controller,
             initialFit: PdfViewerFit.width,
             document: editing.document,
             editing: editing,
@@ -117,5 +119,142 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  // The auto-scroll pans through the viewer's touch pan, which raises the
+  // render hold like a finger pan does. Lifting the drag must close that pan
+  // too, or the hold stays up and page renders and thumbnails stay deferred
+  // until the next viewport gesture.
+  for (final kind in [PointerDeviceKind.mouse, PointerDeviceKind.touch]) {
+    testWidgets(
+        'lifting an auto-scrolled drag releases the render hold ($kind)',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      final editing = await pumpViewer(tester, controller: controller);
+      editing.tool = PdfEditTool.snapshot;
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(controller.debugRenderHold, isFalse);
+
+      final gesture =
+          await tester.startGesture(const Offset(400, 300), kind: kind);
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 290)); // into the bottom edge band
+      await tester.pump();
+      final atEdge = scrollPosition(tester).pixels;
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(scrollPosition(tester).pixels, greaterThan(atEdge + 10));
+      expect(controller.debugRenderHold, isTrue);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 550));
+      expect(controller.debugRenderHold, isFalse);
+    });
+  }
+
+  testWidgets('moving back out of the edge band mid-drag releases the hold',
+      (tester) async {
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    final editing = await pumpViewer(tester, controller: controller);
+    editing.tool = PdfEditTool.snapshot;
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
+
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await gesture.moveTo(const Offset(400, 590)); // into the bottom edge band
+    await tester.pump();
+    final atEdge = scrollPosition(tester).pixels;
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(scrollPosition(tester).pixels, greaterThan(atEdge + 10));
+    expect(controller.debugRenderHold, isTrue);
+
+    // Move back inside the viewport without lifting: newly revealed pages
+    // should be allowed to render while the user aims.
+    await gesture.moveTo(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets(
+      'disposing the overlay mid-auto-scroll while zoomed releases the hold cleanly',
+      (tester) async {
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    final editing = await pumpViewer(tester, controller: controller);
+    controller.setZoom(3.0);
+    await tester.pumpAndSettle();
+    // Pan all the way to the left edge (clamped at t_x == 0) via middle-button
+    // hand pan so the very first left-edge auto-scroll tick overscrolls by
+    // < 0.5 px and exercises _springBackCross's synchronous _transform clamp.
+    final pan = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.mouse, buttons: kMiddleMouseButton);
+    await pan.moveBy(const Offset(1000, 0));
+    await pan.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
+
+    editing.tool = PdfEditTool.snapshot;
+    await tester.pump();
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await gesture.moveTo(const Offset(59, 300)); // 1 px inside the 60 px band
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(controller.debugRenderHold, isTrue);
+
+    // Clearing the tool unmounts the editing overlay mid-drag (finalizeTree).
+    editing.tool = null;
+    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('disposing the viewer mid-auto-scroll completes cleanly',
+      (tester) async {
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    final editing = await pumpViewer(tester, controller: controller);
+    editing.tool = PdfEditTool.snapshot;
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 550));
+
+    final gesture = await tester.startGesture(const Offset(400, 300),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await gesture.moveTo(const Offset(400, 590));
+    await tester.pump();
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(controller.debugRenderHold, isTrue);
+
+    // Unmounting the whole viewer must not touch disposed controllers or leave
+    // pending timers behind when the deferred pan-end callback fires.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await gesture.up();
+    await tester.pump();
   });
 }
