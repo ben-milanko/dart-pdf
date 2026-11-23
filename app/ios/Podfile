@@ -30,6 +30,8 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
+  # The Flutter FFI plugin pins this pod name, but only uses the ONNX C API.
+  pod 'onnxruntime-objc', :podspec => 'onnxruntime-objc.podspec'
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
