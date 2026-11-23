@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+I gruppi della barra ricordano l’ultimo strumento usato. Ingrandisci con due dita senza perdere il punto. Correzioni per le modifiche ai bordi, il testo con la tastiera aperta e i colori di stampa.

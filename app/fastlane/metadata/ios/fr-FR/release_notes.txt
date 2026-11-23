@@ -1,3 +1,3 @@
-DartPDF 16.1.2
+DartPDF 16.2.0
 
-Corrige la bande grise et le champ de texte tronqué à l’ouverture du clavier dans un PDF agrandi. Le zoom et le focus du texte sont conservés.
+Les groupes d’outils mémorisent le dernier outil utilisé. Zoomez à deux doigts sans perdre votre place. Corrections de l’édition près des bords, de la saisie avec le clavier affiché et des couleurs à l’impression.

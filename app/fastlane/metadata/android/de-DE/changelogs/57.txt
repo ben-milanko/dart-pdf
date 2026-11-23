@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Werkzeuggruppen merken sich das zuletzt verwendete Werkzeug. Beim Zoomen mit zwei Fingern bleibt die Stelle im Blick. Korrekturen beim Bearbeiten am Seitenrand, bei geöffneter Tastatur und bei Farben im PDF-Druck.

@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Los grupos de la barra recuerdan la última herramienta usada. Amplía con dos dedos sin perder tu posición. Se corrigen problemas al editar cerca del borde de la página, con el teclado abierto y al imprimir colores.

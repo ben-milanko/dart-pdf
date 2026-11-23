@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Araç çubuğu grupları son kullanılan aracı hatırlar. İki parmakla yakınlaştırırken yerinizi kaybetmeyin. Sayfa kenarında düzenleme, klavye açıkken metin düzenleme ve baskı renkleri düzeltildi.

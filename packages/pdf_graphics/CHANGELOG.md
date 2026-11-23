@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.2.0
+
+- Vector printing preserves the paint colour of PDF stencil images (/ImageMask).
+
 ## 16.1.1
 
 - See `doc/MIGRATING-16.1.1.md` for release compatibility.

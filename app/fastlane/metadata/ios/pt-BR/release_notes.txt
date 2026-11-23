@@ -1,3 +1,3 @@
-DartPDF 16.1.2
+DartPDF 16.2.0
 
-Corrige a faixa cinza e a caixa de texto cortada ao abrir o teclado durante a edição de um PDF ampliado. O zoom e o foco do texto são mantidos.
+Os grupos da barra lembram a última ferramenta usada. Amplie com dois dedos sem perder o ponto na página. Correções na edição perto das bordas, no texto com o teclado aberto e nas cores de impressão.

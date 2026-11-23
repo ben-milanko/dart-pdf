@@ -466,6 +466,76 @@ void main() {
     expect(images.single.rgba, hasLength(2 * 1 * 4)); // premultiplied RGBA
   });
 
+  group('stencil masks', () {
+    // A 2x1 /ImageMask, data 0x40 = 0b01...: sample 0 (bit 0) paints under the
+    // default /Decode, sample 1 (bit 1) is a hole.
+    Uint8List stencilPdf(String fill, {String gs = ''}) {
+      final content = '$fill q 200 0 0 100 20 30 cm /Im0 Do Q';
+      final extGState = gs.isEmpty ? '' : '/ExtGState << /GS0 $gs >> ';
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R '
+            '/Resources << $extGState/XObject << /Im0 5 0 R >> >> >>',
+        '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+        '<< /Type /XObject /Subtype /Image /Width 2 /Height 1 /ImageMask true '
+            '/BitsPerComponent 1 /Length 1 >>\nstream\n\x40\nendstream',
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xrefOffset = buffer.length;
+      buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+      for (final offset in offsets) {
+        buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer
+        ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+        ..write('startxref\n$xrefOffset\n%%EOF\n');
+      return Uint8List.fromList(buffer.toString().codeUnits);
+    }
+
+    test('paints in the fill colour, not the decoder\'s white coverage',
+        () async {
+      // A scanned drawing stored as black CCITT stencil strips printed blank:
+      // the white coverage went out untinted, white on white paper.
+      final page = await encodeAndDecode(stencilPdf('0 0 0 rg'));
+      final image = page.ops.whereType<VpImage>().single;
+      expect(image.rgba.sublist(0, 4), [0, 0, 0, 255]);
+      expect(image.rgba[7], 0, reason: 'unpainted sample stays a hole');
+
+      final red = await encodeAndDecode(stencilPdf('1 0 0 rg'));
+      expect(red.ops.whereType<VpImage>().single.rgba.sublist(0, 4),
+          [255, 0, 0, 255]);
+    });
+
+    test('carries the fill alpha', () async {
+      final page = await encodeAndDecode(
+          stencilPdf('/GS0 gs 0 0 1 rg', gs: '<< /ca 0.5 >>'));
+      final rgba = page.ops.whereType<VpImage>().single.rgba;
+      expect(rgba.sublist(0, 3), [0, 0, 255]);
+      expect(rgba[3], closeTo(128, 1));
+    });
+
+    test('tinting reads only coverage and leaves the shared input alone', () {
+      // Premultiplied white (what a dart:ui readback yields) and straight
+      // white tint the same; the input buffer may back other draws.
+      final input = PdfDecodedPixels(
+          Uint8List.fromList(
+              [255, 255, 255, 255, 0, 0, 0, 0, 128, 128, 128, 128]),
+          3,
+          1);
+      final before = Uint8List.fromList(input.rgba);
+      final tinted =
+          tintVectorPrintStencil(input, const PdfColor(0, 0.5, 1), 1);
+      expect(tinted.rgba, [0, 128, 255, 255, 0, 0, 0, 0, 0, 128, 255, 128]);
+      expect(input.rgba, before);
+    });
+  });
+
   group('image placement', () {
     // A 2x3 image whose pixels are all distinct, so any mis-mapping shows.
     final source = PdfDecodedPixels(
