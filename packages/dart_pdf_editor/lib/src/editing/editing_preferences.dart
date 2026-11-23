@@ -14,6 +14,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextVerticalAlign;
 
 import '../viewport.dart';
+import 'editing_controller.dart' show PdfEditTool;
 import 'line_style.dart';
 import 'models/color_format.dart';
 import 'models/custom_stamp.dart';
@@ -285,6 +286,13 @@ class PdfEditingPreferences extends ChangeNotifier
 
   static const _viewportsKey = '${_prefix}documentViewports';
 
+  /// The tool last armed in each dock group, keyed by [PdfToolGroup.id]
+  /// (see [lastToolInGroup]).
+  final Map<String, PdfEditTool> _groupTools = {};
+  bool _groupToolsDirty = false;
+
+  static const _groupToolsKey = '${_prefix}groupTools';
+
   Future<void> _load() async {
     final PdfPreferencesStore store;
     try {
@@ -551,9 +559,15 @@ class PdfEditingPreferences extends ChangeNotifier
     for (final entry in _decodeViewports(store.getString(_viewportsKey))) {
       _viewports.putIfAbsent(entry.$1, () => entry.$2);
     }
+    // the same for each group's last tool: one armed before the read landed
+    // is newer than the stored one
+    _decodeGroupTools(store.getString(_groupToolsKey)).forEach((group, tool) {
+      _groupTools.putIfAbsent(group, () => tool);
+    });
     _store = store;
     if (migratedLegacySignature) _writeSignatureLibrary();
     if (_viewportsDirty) _writeViewports();
+    if (_groupToolsDirty) _writeGroupTools();
     notifyListeners();
   }
 
@@ -620,6 +634,50 @@ class PdfEditingPreferences extends ChangeNotifier
       }
     }
     _writeViewports();
+  }
+
+  static Map<String, PdfEditTool> _decodeGroupTools(String? source) {
+    if (source == null) return const {};
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! Map) return const {};
+      final tools = PdfEditTool.values.asNameMap();
+      return {
+        for (final entry in decoded.entries)
+          if (entry.key is String && tools[entry.value] != null)
+            entry.key as String: tools[entry.value]!,
+      };
+    } catch (_) {
+      return const {}; // corrupt blob - every group opens on its default
+    }
+  }
+
+  void _writeGroupTools() {
+    final store = _store;
+    if (store == null) {
+      _groupToolsDirty = true; // flush once storage is ready
+      return;
+    }
+    _groupToolsDirty = false;
+    unawaited(store.setString(
+        _groupToolsKey,
+        jsonEncode(
+            {for (final e in _groupTools.entries) e.key: e.value.name})));
+  }
+
+  /// The tool last armed in the dock group [groupId] (a [PdfToolGroup.id]),
+  /// or null when none has been - what opening that group re-arms in place
+  /// of its [PdfToolGroup.defaultTool], so switching from Shapes to Insert
+  /// and back lands on the line tool the user left rather than rectangle.
+  PdfEditTool? lastToolInGroup(String groupId) => _groupTools[groupId];
+
+  /// Records [tool] as the last one armed in [groupId]. Persisted but
+  /// silent, like [setViewport]: it is written on every tool change and
+  /// nothing renders from it until the group is next opened.
+  void setLastToolInGroup(String groupId, PdfEditTool tool) {
+    if (_groupTools[groupId] == tool) return;
+    _groupTools[groupId] = tool;
+    _writeGroupTools();
   }
 
   void _write(Future<Object?> Function(PdfPreferencesStore store) write) {
