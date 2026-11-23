@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Werkbalkgroepen onthouden het laatst gebruikte gereedschap. Zoom met twee vingers zonder je plek kwijt te raken. Verbeteringen bij bewerken rond paginaranden, tekstbewerking met open toetsenbord en afdrukkleuren.

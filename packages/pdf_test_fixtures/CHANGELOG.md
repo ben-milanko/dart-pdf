@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.2.0
+
+- See the [16.2.0 migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-16.2.0.md) for compatibility.
+
 ## 16.1.1
 
 - See `doc/MIGRATING-16.1.1.md` for release compatibility.

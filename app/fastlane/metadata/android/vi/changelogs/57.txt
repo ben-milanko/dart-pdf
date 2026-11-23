@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Nhóm trên thanh công cụ ghi nhớ công cụ dùng gần nhất. Chụm hai ngón tay để thu phóng mà không mất vị trí. Sửa lỗi chỉnh sửa sát mép trang, nhập chữ khi mở bàn phím và màu sắc bản in PDF.

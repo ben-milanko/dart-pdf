@@ -1,0 +1,3 @@
+DartPDF 16.2.0
+
+Grup bilah alat mengingat alat terakhir. Cubit untuk memperbesar tanpa kehilangan posisi. Perbaikan untuk penyuntingan di dekat tepi halaman, teks saat papan ketik terbuka, dan warna cetakan PDF.

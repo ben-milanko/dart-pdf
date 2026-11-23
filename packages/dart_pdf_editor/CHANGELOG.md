@@ -1,5 +1,9 @@
 # Changelog
 
+## 16.2.0
+
+- Toolbar groups reopen on the last tool used, including saved choices across sessions. Pinch zoom keeps the content under the fingers. Rendering resumes after an edge-scrolled edit drag, and the keyboard no longer clips editing on zoomed pages.
+
 ## 16.1.1
 
 - Fix the grey band and clipped text editor when the keyboard resizes a zoomed PDF. Preserve zoom, focus and the reading position.
