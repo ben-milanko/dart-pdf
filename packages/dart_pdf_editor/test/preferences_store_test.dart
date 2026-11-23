@@ -56,4 +56,31 @@ void main() {
     await store.remove('s');
     expect(store.containsKey('s'), isFalse);
   });
+
+  test('each group\'s last tool persists, and a pre-load pick wins', () async {
+    final store = PdfMemoryPreferencesStore();
+    final first = PdfEditingPreferences(store: store);
+    addTearDown(first.dispose);
+    first.setLastToolInGroup('shapes', PdfEditTool.line); // before the read
+    await first.ready;
+    first.setLastToolInGroup('insert', PdfEditTool.stamp);
+
+    final second = PdfEditingPreferences(store: store);
+    addTearDown(second.dispose);
+    second.setLastToolInGroup('insert', PdfEditTool.note);
+    await second.ready;
+    expect(second.lastToolInGroup('shapes'), PdfEditTool.line);
+    expect(second.lastToolInGroup('insert'), PdfEditTool.note);
+    expect(second.lastToolInGroup('draw'), isNull);
+
+    // a corrupt or renamed entry is dropped, not fatal
+    final third = PdfEditingPreferences(
+        store: PdfMemoryPreferencesStore({
+      'dart_pdf_editor.editing.groupTools': '{"shapes":"gone","draw":"ink"}',
+    }));
+    addTearDown(third.dispose);
+    await third.ready;
+    expect(third.lastToolInGroup('shapes'), isNull);
+    expect(third.lastToolInGroup('draw'), PdfEditTool.ink);
+  });
 }

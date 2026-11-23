@@ -67,6 +67,65 @@ void main() {
       expect(commands.currentGroupId, 'measure');
     });
 
+    test('reopening a group re-arms the tool last used in it', () {
+      commands.openGroup(stockGroup('shapes'));
+      editing.tool = PdfEditTool.line;
+      commands.openGroup(stockGroup('insert'));
+      expect(editing.tool, PdfEditTool.freeText);
+      editing.tool = PdfEditTool.stamp;
+      commands.openGroup(stockGroup('draw'));
+      editing.tool = PdfEditTool.eraser;
+
+      commands.openGroup(stockGroup('shapes'));
+      expect(editing.tool, PdfEditTool.line);
+      commands.openGroup(stockGroup('insert'));
+      expect(editing.tool, PdfEditTool.stamp);
+      commands.openGroup(stockGroup('draw'));
+      expect(editing.tool, PdfEditTool.eraser);
+
+      // however the tool was armed (a shortcut here), it is remembered
+      editing.tool = PdfEditTool.arrow;
+      commands.openGroup(stockGroup('draw'));
+      commands.openGroup(stockGroup('shapes'));
+      expect(editing.tool, PdfEditTool.arrow);
+      expect(editing.preferences.lastToolInGroup('shapes'), PdfEditTool.arrow);
+    });
+
+    test('a remembered tool that needs a prompt is not re-armed', () {
+      // no measuring scale: Measure still waits for an explicit tap
+      editing.preferences
+          .setLastToolInGroup('measure', PdfEditTool.measureArea);
+      commands.openGroup(stockGroup('measure'));
+      expect(editing.tool, isNull);
+
+      // with one set, it comes back
+      editing.preferences.measurementScale =
+          const PdfMeasurementScale(unitsPerPoint: 1, unitLabel: 'in');
+      commands.openGroup(stockGroup('shapes'));
+      commands.openGroup(stockGroup('measure'));
+      expect(editing.tool, PdfEditTool.measureArea);
+
+      // no drawn signature: Insert falls back to its default
+      editing.preferences.setLastToolInGroup('insert', PdfEditTool.signature);
+      commands.openGroup(stockGroup('insert'));
+      expect(editing.tool, PdfEditTool.freeText);
+
+      // a tool the host hides is never armed by reopening
+      editing.tool = PdfEditTool.polygon;
+      commands.tools = PdfEditTool.values.toSet()..remove(PdfEditTool.polygon);
+      commands.openGroup(stockGroup('insert'));
+      commands.openGroup(stockGroup('shapes'));
+      expect(editing.tool, PdfEditTool.rectangle);
+    });
+
+    test('Edit keeps waiting for an explicit tap', () {
+      editing.tool = PdfEditTool.redact;
+      commands.openGroup(stockGroup('shapes'));
+      commands.openGroup(stockGroup('edit'));
+      expect(editing.tool, isNull);
+      expect(commands.currentGroupId, 'edit');
+    });
+
     test('a controller swap restarts recent tools but keeps the open group',
         () async {
       commands.openGroup(stockGroup('measure'));
