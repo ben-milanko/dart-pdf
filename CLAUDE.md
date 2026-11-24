@@ -141,6 +141,10 @@ Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
 the page tree (materializing inherited attributes), `appendPagesFrom`
 deep-copies pages across documents, `extractPages` splits into a fresh
 file via `CosDocumentBuilder` (pdf_cos's from-scratch writer).
+`resizePages` (`page_resize.dart`) changes paper size as displayed -
+scale-to-fit or keep-size, content wrapped in `q cm … Q` (never rewritten),
+annotations mapped; the strip's right-click "Resize page…" drives it via
+`showPdfPageResizeDialog`.
 Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` - asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`

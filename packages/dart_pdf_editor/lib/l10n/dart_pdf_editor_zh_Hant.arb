@@ -768,5 +768,17 @@
   "tableRowHeight": "列高",
   "tableSelectionHint": "點擊儲存格進行編輯；按住 Shift 點擊可選取範圍。複製和貼上可與 Excel 交換儲存格值。",
   "tableClipboardError": "剪貼簿表格無效，或超過 500 列、100 欄或 20,000 個儲存格。",
-  "duplicate": "製作副本"
+  "duplicate": "製作副本",
+  "thumbResizePages": "{count, plural, one{調整頁面大小…} other{調整 {count} 頁的大小…}}",
+  "pageResizeTitle": "{count, plural, one{調整頁面大小} other{調整 {count} 頁的大小}}",
+  "pageResizeSize": "頁面大小",
+  "pageResizeCustom": "自訂",
+  "pageResizePortrait": "直向",
+  "pageResizeLandscape": "橫向",
+  "pageResizeWidth": "寬度",
+  "pageResizeHeight": "高度",
+  "pageResizeScaleToFit": "縮放內容以符合頁面",
+  "pageResizeKeepSize": "保留內容大小",
+  "pageResizeConfirm": "調整大小",
+  "pageResizeInvalid": "請輸入 0 到 200 英吋之間的寬度和高度。"
 }

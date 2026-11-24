@@ -30,6 +30,7 @@ import 'page_menu_action.dart';
 import 'thumbnail_cache.dart';
 import '../design/editor_presenter.dart';
 import '../insert_pages_dialog.dart';
+import '../page_resize_dialog.dart';
 
 /// A panel of page thumbnails: tap one to jump there, drag a tile up or
 /// down to reorder pages (with a mouse just drag; on touch, long-press
@@ -3683,6 +3684,7 @@ enum _PageTileAction {
   rotateLeft,
   rotateRight,
   rotate180,
+  resize,
   duplicate,
   copy,
   cut,
@@ -3700,8 +3702,8 @@ enum _PageTileAction {
 /// acts on it alone. Resolves when the menu closes, after the picked
 /// action ran.
 ///
-/// [allowPageEditing] gates the structural entries (rotate, duplicate,
-/// insert, delete); [onExportPages] gates Export - each is omitted when
+/// [allowPageEditing] gates the structural entries (rotate, resize,
+/// duplicate, insert, delete); [onExportPages] gates Export - each is omitted when
 /// unavailable, so a read-only strip with no export handler never opens a
 /// menu at all.
 Future<void> _showPageTileMenu({
@@ -3749,6 +3751,10 @@ Future<void> _showPageTileMenu({
           tileKey: 'pdf-thumbnail-menu-rotate-180',
           icon: Icons.cached,
           label: l10n.thumbRotate180),
+      _pageMenuRow(context, _PageTileAction.resize,
+          tileKey: 'pdf-thumbnail-menu-resize',
+          icon: Icons.aspect_ratio,
+          label: l10n.thumbResizePages(count)),
       _pageMenuRow(context, _PageTileAction.duplicate,
           tileKey: 'pdf-thumbnail-menu-duplicate',
           icon: Icons.copy_all_outlined,
@@ -3812,6 +3818,20 @@ Future<void> _showPageTileMenu({
       controller.rotatePages(targets, 90);
     case _PageTileAction.rotate180:
       controller.rotatePages(targets, 180);
+    case _PageTileAction.resize:
+      // seeded with the right-clicked page's size as displayed
+      final page = controller.document.page(pageIndex);
+      final size = PdfPageRenderer.pageSize(page, rotation: page.rotation);
+      if (!context.mounted) return;
+      final request = await showPdfPageResizeDialog(
+        context,
+        width: size.width,
+        height: size.height,
+        pageCount: targets.length,
+      );
+      if (request == null) return;
+      controller.resizePages(targets, request.width, request.height,
+          mode: request.mode);
     case _PageTileAction.duplicate:
       controller.duplicatePages(targets);
     case _PageTileAction.copy:

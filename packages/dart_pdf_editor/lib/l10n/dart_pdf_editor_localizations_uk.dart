@@ -2690,4 +2690,61 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Дублювати';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Змінити розмір $count сторінки…',
+      many: 'Змінити розмір $count сторінок…',
+      few: 'Змінити розмір $count сторінок…',
+      one: 'Змінити розмір $count сторінки…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Змінити розмір $count сторінки',
+      many: 'Змінити розмір $count сторінок',
+      few: 'Змінити розмір $count сторінок',
+      one: 'Змінити розмір $count сторінки',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Розмір сторінки';
+
+  @override
+  String get pageResizeCustom => 'Власний';
+
+  @override
+  String get pageResizePortrait => 'Книжкова';
+
+  @override
+  String get pageResizeLandscape => 'Альбомна';
+
+  @override
+  String get pageResizeWidth => 'Ширина';
+
+  @override
+  String get pageResizeHeight => 'Висота';
+
+  @override
+  String get pageResizeScaleToFit => 'Масштабувати вміст за розміром';
+
+  @override
+  String get pageResizeKeepSize => 'Зберегти розмір вмісту';
+
+  @override
+  String get pageResizeConfirm => 'Змінити розмір';
+
+  @override
+  String get pageResizeInvalid =>
+      'Введіть ширину й висоту від 0 до 200 дюймів.';
 }

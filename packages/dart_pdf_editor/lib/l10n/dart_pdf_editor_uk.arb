@@ -768,5 +768,17 @@
   "tableRowHeight": "Висота рядка",
   "tableSelectionHint": "Натисніть клітинку для редагування; Shift і клацання виділяють діапазон. Копіювання та вставлення обмінюються значеннями клітинок з Excel.",
   "tableClipboardError": "Таблиця в буфері обміну некоректна або перевищує 500 рядків, 100 стовпців чи 20 000 клітинок.",
-  "duplicate": "Дублювати"
+  "duplicate": "Дублювати",
+  "thumbResizePages": "{count, plural, one{Змінити розмір {count} сторінки…} few{Змінити розмір {count} сторінок…} many{Змінити розмір {count} сторінок…} other{Змінити розмір {count} сторінки…}}",
+  "pageResizeTitle": "{count, plural, one{Змінити розмір {count} сторінки} few{Змінити розмір {count} сторінок} many{Змінити розмір {count} сторінок} other{Змінити розмір {count} сторінки}}",
+  "pageResizeSize": "Розмір сторінки",
+  "pageResizeCustom": "Власний",
+  "pageResizePortrait": "Книжкова",
+  "pageResizeLandscape": "Альбомна",
+  "pageResizeWidth": "Ширина",
+  "pageResizeHeight": "Висота",
+  "pageResizeScaleToFit": "Масштабувати вміст за розміром",
+  "pageResizeKeepSize": "Зберегти розмір вмісту",
+  "pageResizeConfirm": "Змінити розмір",
+  "pageResizeInvalid": "Введіть ширину й висоту від 0 до 200 дюймів."
 }

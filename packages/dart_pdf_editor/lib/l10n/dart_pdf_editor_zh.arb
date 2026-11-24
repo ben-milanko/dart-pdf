@@ -768,5 +768,17 @@
   "tableRowHeight": "行高",
   "tableSelectionHint": "点击单元格进行编辑；按住 Shift 点击可选择区域。复制和粘贴可与 Excel 交换单元格值。",
   "tableClipboardError": "剪贴板表格无效，或超过 500 行、100 列或 20,000 个单元格。",
-  "duplicate": "复制副本"
+  "duplicate": "复制副本",
+  "thumbResizePages": "{count, plural, one{调整页面大小…} other{调整 {count} 页的大小…}}",
+  "pageResizeTitle": "{count, plural, one{调整页面大小} other{调整 {count} 页的大小}}",
+  "pageResizeSize": "页面大小",
+  "pageResizeCustom": "自定义",
+  "pageResizePortrait": "纵向",
+  "pageResizeLandscape": "横向",
+  "pageResizeWidth": "宽度",
+  "pageResizeHeight": "高度",
+  "pageResizeScaleToFit": "缩放内容以适合页面",
+  "pageResizeKeepSize": "保持内容大小",
+  "pageResizeConfirm": "调整大小",
+  "pageResizeInvalid": "请输入 0 到 200 英寸之间的宽度和高度。"
 }

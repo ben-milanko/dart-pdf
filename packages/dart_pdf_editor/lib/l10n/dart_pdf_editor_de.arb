@@ -768,5 +768,17 @@
   "tableRowHeight": "Zeilenhöhe",
   "tableSelectionHint": "Zelle zum Bearbeiten anklicken; mit Umschalt-Klick einen Bereich auswählen. Kopieren und Einfügen tauschen Zellwerte mit Excel aus.",
   "tableClipboardError": "Die Tabelle in der Zwischenablage ist ungültig oder überschreitet 500 Zeilen, 100 Spalten oder 20.000 Zellen.",
-  "duplicate": "Duplizieren"
+  "duplicate": "Duplizieren",
+  "thumbResizePages": "{count, plural, one{Seitengröße ändern…} other{Größe von {count} Seiten ändern…}}",
+  "pageResizeTitle": "{count, plural, one{Seitengröße ändern} other{Größe von {count} Seiten ändern}}",
+  "pageResizeSize": "Seitengröße",
+  "pageResizeCustom": "Benutzerdefiniert",
+  "pageResizePortrait": "Hochformat",
+  "pageResizeLandscape": "Querformat",
+  "pageResizeWidth": "Breite",
+  "pageResizeHeight": "Höhe",
+  "pageResizeScaleToFit": "Inhalt passend skalieren",
+  "pageResizeKeepSize": "Inhaltsgröße beibehalten",
+  "pageResizeConfirm": "Größe ändern",
+  "pageResizeInvalid": "Geben Sie eine Breite und Höhe zwischen 0 und 200 Zoll ein."
 }

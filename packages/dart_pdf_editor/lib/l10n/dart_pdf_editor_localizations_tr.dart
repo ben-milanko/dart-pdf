@@ -2639,4 +2639,57 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Çoğalt';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sayfayı yeniden boyutlandır…',
+      one: 'Sayfayı yeniden boyutlandır…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sayfayı yeniden boyutlandır',
+      one: 'Sayfayı yeniden boyutlandır',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Sayfa boyutu';
+
+  @override
+  String get pageResizeCustom => 'Özel';
+
+  @override
+  String get pageResizePortrait => 'Dikey';
+
+  @override
+  String get pageResizeLandscape => 'Yatay';
+
+  @override
+  String get pageResizeWidth => 'Genişlik';
+
+  @override
+  String get pageResizeHeight => 'Yükseklik';
+
+  @override
+  String get pageResizeScaleToFit => 'İçeriği sığacak şekilde ölçekle';
+
+  @override
+  String get pageResizeKeepSize => 'İçerik boyutunu koru';
+
+  @override
+  String get pageResizeConfirm => 'Yeniden boyutlandır';
+
+  @override
+  String get pageResizeInvalid =>
+      '0 ile 200 inç arasında bir genişlik ve yükseklik girin.';
 }

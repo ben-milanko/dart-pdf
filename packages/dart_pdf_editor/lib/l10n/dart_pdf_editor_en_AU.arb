@@ -768,5 +768,17 @@
   "tableRowHeight": "Row height",
   "tableSelectionHint": "Click a cell to edit; Shift-click to select a range. Copy and Paste exchange cell values with Excel.",
   "tableClipboardError": "The clipboard table is invalid or exceeds 500 rows, 100 columns or 20,000 cells.",
-  "duplicate": "Duplicate"
+  "duplicate": "Duplicate",
+  "thumbResizePages": "{count, plural, one{Resize page…} other{Resize {count} pages…}}",
+  "pageResizeTitle": "{count, plural, one{Resize page} other{Resize {count} pages}}",
+  "pageResizeSize": "Page size",
+  "pageResizeCustom": "Custom",
+  "pageResizePortrait": "Portrait",
+  "pageResizeLandscape": "Landscape",
+  "pageResizeWidth": "Width",
+  "pageResizeHeight": "Height",
+  "pageResizeScaleToFit": "Scale content to fit",
+  "pageResizeKeepSize": "Keep content size",
+  "pageResizeConfirm": "Resize",
+  "pageResizeInvalid": "Enter a width and height between 0 and 200 inches."
 }

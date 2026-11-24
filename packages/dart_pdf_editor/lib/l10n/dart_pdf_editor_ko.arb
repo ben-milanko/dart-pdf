@@ -768,5 +768,17 @@
   "tableRowHeight": "행 높이",
   "tableSelectionHint": "셀을 클릭하여 편집하고 Shift 키를 누른 채 클릭하여 범위를 선택하세요. 복사와 붙여넣기로 Excel과 셀 값을 주고받을 수 있습니다.",
   "tableClipboardError": "클립보드 표가 잘못되었거나 500행, 100열 또는 20,000셀을 초과합니다.",
-  "duplicate": "복제"
+  "duplicate": "복제",
+  "thumbResizePages": "{count, plural, one{페이지 크기 조정…} other{{count}개 페이지 크기 조정…}}",
+  "pageResizeTitle": "{count, plural, one{페이지 크기 조정} other{{count}개 페이지 크기 조정}}",
+  "pageResizeSize": "페이지 크기",
+  "pageResizeCustom": "사용자 지정",
+  "pageResizePortrait": "세로",
+  "pageResizeLandscape": "가로",
+  "pageResizeWidth": "너비",
+  "pageResizeHeight": "높이",
+  "pageResizeScaleToFit": "내용을 크기에 맞게 조정",
+  "pageResizeKeepSize": "내용 크기 유지",
+  "pageResizeConfirm": "크기 조정",
+  "pageResizeInvalid": "너비와 높이를 0~200인치 사이로 입력하세요."
 }
