@@ -10487,6 +10487,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       PdfPageView(
         page: widget.page,
         tileCacheNamespace: widget.tileCacheNamespace,
+        viewportFraction: widget.visibleRegion,
         rotation: widget.effectiveRotation,
         scale: widget.scale,
         // Keep one fit-size backing image and sharpen only the visible slice
