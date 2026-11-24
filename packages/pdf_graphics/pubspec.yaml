@@ -19,7 +19,7 @@ dependencies:
   bidi: ^2.0.13
   pdf_cos: ^16.2.0
   pdf_document: ^16.2.0
-  image: ^4.12.0
+  image: ^4.13.1
 
 dev_dependencies:
   pdf_test_fixtures: ^16.2.0
