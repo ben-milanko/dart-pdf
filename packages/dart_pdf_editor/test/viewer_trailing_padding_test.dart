@@ -61,6 +61,51 @@ void main() {
     return view.height - rect.bottom;
   }
 
+  for (final layout in const [
+    PdfPageLayout.verticalContinuous(),
+    PdfPageLayout.horizontalContinuous(),
+  ]) {
+    testWidgets(
+        'zooming in at the end shortens the range and keeps the scroll on it '
+        '(${layout.scrollAxis.name})', (tester) async {
+      // At fit the scroll can sit at the full tail's far end; zooming in there
+      // shrinks the tail on settle, which must not strand the position past
+      // the new maxScrollExtent. A horizontal layout pads its right edge.
+      tester.view.physicalSize = view;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            document: drawingPack(),
+            controller: controller,
+            initialFit: PdfViewerFit.width,
+            pageLayout: layout,
+            pageSpacing: spacing,
+            trailingPadding: trailing,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      // zooming can swap the list's ScrollPosition, so read it fresh each time
+      ScrollPosition position() =>
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      position().jumpTo(position().maxScrollExtent);
+      await tester.pumpAndSettle();
+      final fullRange = position().maxScrollExtent;
+
+      controller.setZoom(controller.zoom * 4);
+      await tester.pumpAndSettle();
+      expect(position().maxScrollExtent,
+          closeTo(fullRange - (spacing + trailing) * 3 / 4, 1),
+          reason: 'the settled 4x zoom window keeps a quarter of the tail');
+      expect(position().pixels, closeTo(position().maxScrollExtent, 0.5),
+          reason: 'a position left past the shorter range is pulled back to '
+              'its end');
+    });
+  }
+
   for (final multiple in [1.0, 2.0, 5.0]) {
     testWidgets('the tail after the last page stays nominal at ${multiple}x',
         (tester) async {

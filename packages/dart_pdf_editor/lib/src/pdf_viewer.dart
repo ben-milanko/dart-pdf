@@ -3086,7 +3086,6 @@ class _PdfViewerState extends State<PdfViewer>
     // here
     final zoomed = target > 1.01;
     final trailingScale = zoomed ? target : 1.0;
-    final trailingChanged = trailingScale != _trailingScale;
     setState(() {
       if (zoomed != _zoomed) _zoomed = zoomed;
       _trailingScale = trailingScale;
@@ -3100,18 +3099,6 @@ class _PdfViewerState extends State<PdfViewer>
       // any settled transform change moves the deep-zoom detail patch
       _settleGeneration++;
     });
-    // A smaller tail shortens the scroll range; once it has laid out, pull a
-    // position left past the new end back onto it (an armed tool's
-    // NeverScrollable physics would otherwise leave it stranded there).
-    if (trailingChanged) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scroll.hasClients) return;
-        final position = _scroll.position;
-        if (position.pixels > position.maxScrollExtent) {
-          position.jumpTo(position.maxScrollExtent);
-        }
-      });
-    }
     _work.settleAfterBuild();
   }
 

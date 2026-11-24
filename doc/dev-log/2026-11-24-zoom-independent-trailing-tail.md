@@ -20,14 +20,21 @@ transform change reaches. The list's trailing padding is
 `_trailingExtent = (pageSpacing + trailingPadding) / _trailingScale`, so it
 shows as 156 px on screen at any zoom. While a gesture is still moving, the
 tail keeps its previous size until the settle. A smaller tail shortens the
-scroll range, so the settle clamps a position stranded past the new end
-post-frame. Under an armed tool's `NeverScrollableScrollPhysics`, the
-position is not corrected on its own. A layout-axis flip resets it to 1
-together with the transform.
+scroll range. No clamp is needed for that: `Scrollable` applies the
+viewer's `NeverScrollableScrollPhysics` (the list's physics while zoomed)
+on top of the platform's clamping or bouncing physics, and those pull an
+out-of-range position back after the relayout. A test pins this behaviour.
+A layout-axis flip resets `_trailingScale` to 1 together with the
+transform.
 
 Spacing *between* pages still magnifies with zoom on purpose. It is part of
 the zoomed content.
 
 **Test.** `test/viewer_trailing_padding_test.dart`: a landscape-A3 pack
 ending in a portrait sheet, wheeled to the end at 1x/2x/5x fit. Without the
-fix the gap reads 312 / 780 px at 2x / 5x; with it, 156 px everywhere.
+fix the gap reads 312 / 780 px at 2x / 5x; with it, 156 px everywhere. A
+second case zooms to 4x while already at the end, in both vertical and
+horizontal layouts: the range must shrink by 3/4 of the tail and the
+scroll must stay on its end. A `ScrollPosition` held across that zoom is
+stale, because the physics flip swaps the position, so the test reads it
+fresh each time.
