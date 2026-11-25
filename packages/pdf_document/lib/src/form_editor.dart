@@ -1196,9 +1196,14 @@ extension PdfFormFilling on PdfEditor {
   /// signature box on several pages).
   CosReference _setNormalAppearance(CosDictionary widget, CosStream form) {
     final ref = _updater.addObject(form);
-    final ap = document.cos.resolve(widget['AP']);
+    final apEntry = widget['AP'];
+    final ap = document.cos.resolve(apEntry);
     if (ap is CosDictionary) {
       ap['N'] = ref;
+      // Staging the widget alone cannot serialize a separately indirect /AP.
+      if (apEntry is CosReference) {
+        _updater.replaceObject(apEntry.objectNumber, ap);
+      }
     } else {
       widget['AP'] = CosDictionary({'N': ref});
     }
