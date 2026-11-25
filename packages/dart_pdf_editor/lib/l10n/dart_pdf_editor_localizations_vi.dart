@@ -2632,4 +2632,57 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Nhân bản';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đổi kích thước $count trang…',
+      one: 'Đổi kích thước trang…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Đổi kích thước $count trang',
+      one: 'Đổi kích thước trang',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Kích thước trang';
+
+  @override
+  String get pageResizeCustom => 'Tùy chỉnh';
+
+  @override
+  String get pageResizePortrait => 'Dọc';
+
+  @override
+  String get pageResizeLandscape => 'Ngang';
+
+  @override
+  String get pageResizeWidth => 'Chiều rộng';
+
+  @override
+  String get pageResizeHeight => 'Chiều cao';
+
+  @override
+  String get pageResizeScaleToFit => 'Co giãn nội dung cho vừa';
+
+  @override
+  String get pageResizeKeepSize => 'Giữ nguyên kích thước nội dung';
+
+  @override
+  String get pageResizeConfirm => 'Đổi kích thước';
+
+  @override
+  String get pageResizeInvalid =>
+      'Nhập chiều rộng và chiều cao từ 0 đến 200 inch.';
 }

@@ -768,5 +768,17 @@
   "tableRowHeight": "Hauteur de ligne",
   "tableSelectionHint": "Cliquez sur une cellule pour la modifier ; Maj-clic sélectionne une plage. Copier et Coller échangent les valeurs avec Excel.",
   "tableClipboardError": "Le tableau du presse-papiers est invalide ou dépasse 500 lignes, 100 colonnes ou 20 000 cellules.",
-  "duplicate": "Dupliquer"
+  "duplicate": "Dupliquer",
+  "thumbResizePages": "{count, plural, one{Redimensionner la page…} other{Redimensionner {count} pages…}}",
+  "pageResizeTitle": "{count, plural, one{Redimensionner la page} other{Redimensionner {count} pages}}",
+  "pageResizeSize": "Format de page",
+  "pageResizeCustom": "Personnalisé",
+  "pageResizePortrait": "Portrait",
+  "pageResizeLandscape": "Paysage",
+  "pageResizeWidth": "Largeur",
+  "pageResizeHeight": "Hauteur",
+  "pageResizeScaleToFit": "Mettre le contenu à l'échelle",
+  "pageResizeKeepSize": "Conserver la taille du contenu",
+  "pageResizeConfirm": "Redimensionner",
+  "pageResizeInvalid": "Saisissez une largeur et une hauteur comprises entre 0 et 200 pouces."
 }

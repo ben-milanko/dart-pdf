@@ -2636,4 +2636,57 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'डुप्लिकेट बनाएँ';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count पृष्ठों का आकार बदलें…',
+      one: 'पृष्ठ का आकार बदलें…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count पृष्ठों का आकार बदलें',
+      one: 'पृष्ठ का आकार बदलें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'पृष्ठ का आकार';
+
+  @override
+  String get pageResizeCustom => 'कस्टम';
+
+  @override
+  String get pageResizePortrait => 'पोर्ट्रेट';
+
+  @override
+  String get pageResizeLandscape => 'लैंडस्केप';
+
+  @override
+  String get pageResizeWidth => 'चौड़ाई';
+
+  @override
+  String get pageResizeHeight => 'ऊंचाई';
+
+  @override
+  String get pageResizeScaleToFit => 'सामग्री को फ़िट करने के लिए स्केल करें';
+
+  @override
+  String get pageResizeKeepSize => 'सामग्री का आकार बनाए रखें';
+
+  @override
+  String get pageResizeConfirm => 'आकार बदलें';
+
+  @override
+  String get pageResizeInvalid =>
+      '0 से 200 इंच के बीच चौड़ाई और ऊंचाई दर्ज करें।';
 }

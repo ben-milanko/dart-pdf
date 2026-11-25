@@ -768,5 +768,17 @@
   "tableRowHeight": "Tinggi baris",
   "tableSelectionHint": "Klik sel untuk mengedit; Shift-klik untuk memilih rentang. Salin dan Tempel menukar nilai sel dengan Excel.",
   "tableClipboardError": "Tabel papan klip tidak valid atau melebihi 500 baris, 100 kolom, atau 20.000 sel.",
-  "duplicate": "Duplikat"
+  "duplicate": "Duplikat",
+  "thumbResizePages": "{count, plural, one{Ubah ukuran halaman…} other{Ubah ukuran {count} halaman…}}",
+  "pageResizeTitle": "{count, plural, one{Ubah ukuran halaman} other{Ubah ukuran {count} halaman}}",
+  "pageResizeSize": "Ukuran halaman",
+  "pageResizeCustom": "Kustom",
+  "pageResizePortrait": "Potret",
+  "pageResizeLandscape": "Lanskap",
+  "pageResizeWidth": "Lebar",
+  "pageResizeHeight": "Tinggi",
+  "pageResizeScaleToFit": "Skalakan konten agar pas",
+  "pageResizeKeepSize": "Pertahankan ukuran konten",
+  "pageResizeConfirm": "Ubah ukuran",
+  "pageResizeInvalid": "Masukkan lebar dan tinggi antara 0 dan 200 inci."
 }

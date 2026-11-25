@@ -768,5 +768,17 @@
   "tableRowHeight": "ความสูงแถว",
   "tableSelectionHint": "คลิกเซลล์เพื่อแก้ไข กด Shift พร้อมคลิกเพื่อเลือกช่วง คัดลอกและวางเพื่อแลกเปลี่ยนค่าเซลล์กับ Excel",
   "tableClipboardError": "ตารางในคลิปบอร์ดไม่ถูกต้อง หรือเกิน 500 แถว 100 คอลัมน์ หรือ 20,000 เซลล์",
-  "duplicate": "ทำสำเนา"
+  "duplicate": "ทำสำเนา",
+  "thumbResizePages": "{count, plural, one{ปรับขนาดหน้า…} other{ปรับขนาด {count} หน้า…}}",
+  "pageResizeTitle": "{count, plural, one{ปรับขนาดหน้า} other{ปรับขนาด {count} หน้า}}",
+  "pageResizeSize": "ขนาดหน้า",
+  "pageResizeCustom": "กำหนดเอง",
+  "pageResizePortrait": "แนวตั้ง",
+  "pageResizeLandscape": "แนวนอน",
+  "pageResizeWidth": "ความกว้าง",
+  "pageResizeHeight": "ความสูง",
+  "pageResizeScaleToFit": "ปรับขนาดเนื้อหาให้พอดี",
+  "pageResizeKeepSize": "คงขนาดเนื้อหาไว้",
+  "pageResizeConfirm": "ปรับขนาด",
+  "pageResizeInvalid": "ป้อนความกว้างและความสูงระหว่าง 0 ถึง 200 นิ้ว"
 }

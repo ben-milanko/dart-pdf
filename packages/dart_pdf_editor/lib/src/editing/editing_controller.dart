@@ -5668,6 +5668,35 @@ class PdfEditingController extends ChangeNotifier {
   bool rotateSelectedPages([int degrees = 90]) =>
       rotatePages(selectedPages, degrees);
 
+  /// Resizes [indices] to [width] × [height] points as displayed (see
+  /// [PdfPageResizing.resizePages]) in one edit (one undo), fitting each
+  /// page's content by [mode]. Annotations follow the content. Resizing
+  /// does not shift page indices, so the page selection is preserved, but
+  /// the slot-based annotation selection is cleared because its geometry
+  /// moved under it. Returns false (a no-op) when nothing valid is given
+  /// or every page already has that size.
+  bool resizePages(
+    Iterable<int> indices,
+    double width,
+    double height, {
+    PdfPageResizeMode mode = PdfPageResizeMode.scaleToFit,
+  }) {
+    final targets = indices
+        .where((i) => i >= 0 && i < _document.pageCount)
+        .toSet()
+        .toList()
+      ..sort();
+    if (targets.isEmpty || !(width > 0) || !(height > 0)) return false;
+    if (!width.isFinite || !height.isFinite) return false;
+    final changed =
+        apply((e) => e.resizePages(targets, width, height, mode: mode));
+    if (changed && _selected.isNotEmpty) {
+      _selected.clear();
+      notifyListeners();
+    }
+    return changed;
+  }
+
   /// Returns explicit page-content colors across [pages], or the whole
   /// document when [pages] is null.
   ///

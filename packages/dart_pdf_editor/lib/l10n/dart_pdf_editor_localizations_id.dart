@@ -2643,4 +2643,57 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Duplikat';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ubah ukuran $count halaman…',
+      one: 'Ubah ukuran halaman…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Ubah ukuran $count halaman',
+      one: 'Ubah ukuran halaman',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Ukuran halaman';
+
+  @override
+  String get pageResizeCustom => 'Kustom';
+
+  @override
+  String get pageResizePortrait => 'Potret';
+
+  @override
+  String get pageResizeLandscape => 'Lanskap';
+
+  @override
+  String get pageResizeWidth => 'Lebar';
+
+  @override
+  String get pageResizeHeight => 'Tinggi';
+
+  @override
+  String get pageResizeScaleToFit => 'Skalakan konten agar pas';
+
+  @override
+  String get pageResizeKeepSize => 'Pertahankan ukuran konten';
+
+  @override
+  String get pageResizeConfirm => 'Ubah ukuran';
+
+  @override
+  String get pageResizeInvalid =>
+      'Masukkan lebar dan tinggi antara 0 dan 200 inci.';
 }

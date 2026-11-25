@@ -119,6 +119,7 @@ export 'src/page_number_field.dart';
 export 'src/page_render_session.dart';
 export 'src/perf_log.dart';
 export 'src/page_range_dialog.dart';
+export 'src/page_resize_dialog.dart';
 export 'src/split_dialog.dart';
 export 'src/insert_pages_dialog.dart';
 export 'src/pdf_editor_view.dart';

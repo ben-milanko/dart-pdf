@@ -768,5 +768,17 @@
   "tableRowHeight": "Высота строки",
   "tableSelectionHint": "Нажмите на ячейку для редактирования; Shift и щелчок выделяют диапазон. Копирование и вставка обмениваются значениями ячеек с Excel.",
   "tableClipboardError": "Таблица в буфере обмена некорректна или превышает 500 строк, 100 столбцов либо 20 000 ячеек.",
-  "duplicate": "Дублировать"
+  "duplicate": "Дублировать",
+  "thumbResizePages": "{count, plural, one{Изменить размер {count} страницы…} few{Изменить размер {count} страниц…} many{Изменить размер {count} страниц…} other{Изменить размер {count} страницы…}}",
+  "pageResizeTitle": "{count, plural, one{Изменить размер {count} страницы} few{Изменить размер {count} страниц} many{Изменить размер {count} страниц} other{Изменить размер {count} страницы}}",
+  "pageResizeSize": "Размер страницы",
+  "pageResizeCustom": "Другой",
+  "pageResizePortrait": "Книжная",
+  "pageResizeLandscape": "Альбомная",
+  "pageResizeWidth": "Ширина",
+  "pageResizeHeight": "Высота",
+  "pageResizeScaleToFit": "Масштабировать содержимое по размеру",
+  "pageResizeKeepSize": "Сохранить размер содержимого",
+  "pageResizeConfirm": "Изменить размер",
+  "pageResizeInvalid": "Введите ширину и высоту от 0 до 200 дюймов."
 }

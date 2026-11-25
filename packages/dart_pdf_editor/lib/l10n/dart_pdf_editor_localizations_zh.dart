@@ -2585,6 +2585,58 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => '复制副本';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '调整 $count 页的大小…',
+      one: '调整页面大小…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '调整 $count 页的大小',
+      one: '调整页面大小',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => '页面大小';
+
+  @override
+  String get pageResizeCustom => '自定义';
+
+  @override
+  String get pageResizePortrait => '纵向';
+
+  @override
+  String get pageResizeLandscape => '横向';
+
+  @override
+  String get pageResizeWidth => '宽度';
+
+  @override
+  String get pageResizeHeight => '高度';
+
+  @override
+  String get pageResizeScaleToFit => '缩放内容以适合页面';
+
+  @override
+  String get pageResizeKeepSize => '保持内容大小';
+
+  @override
+  String get pageResizeConfirm => '调整大小';
+
+  @override
+  String get pageResizeInvalid => '请输入 0 到 200 英寸之间的宽度和高度。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5166,4 +5218,56 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get duplicate => '製作副本';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '調整 $count 頁的大小…',
+      one: '調整頁面大小…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '調整 $count 頁的大小',
+      one: '調整頁面大小',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => '頁面大小';
+
+  @override
+  String get pageResizeCustom => '自訂';
+
+  @override
+  String get pageResizePortrait => '直向';
+
+  @override
+  String get pageResizeLandscape => '橫向';
+
+  @override
+  String get pageResizeWidth => '寬度';
+
+  @override
+  String get pageResizeHeight => '高度';
+
+  @override
+  String get pageResizeScaleToFit => '縮放內容以符合頁面';
+
+  @override
+  String get pageResizeKeepSize => '保留內容大小';
+
+  @override
+  String get pageResizeConfirm => '調整大小';
+
+  @override
+  String get pageResizeInvalid => '請輸入 0 到 200 英吋之間的寬度和高度。';
 }
