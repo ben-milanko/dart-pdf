@@ -1135,6 +1135,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return zoom.isFinite && zoom > 0 ? 1 / zoom : 1.0;
   }
 
+  /// [pdfDragClickSlop] in this overlay's view space: the travel below which
+  /// a selection drag is a click stays constant on screen, so zooming in
+  /// makes small moves *more* precise instead of swallowing them.
+  double get _dragClickSlop => pdfDragClickSlop * _chromeScale;
+
   /// Keeps Flutter's Apple-platform two-device-pixel cursor nudge constant in
   /// screen space. The editor lives inside the viewer transform, so the stock
   /// `-2 / devicePixelRatio` local offset otherwise grows with deep zoom and
@@ -1563,11 +1568,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final target = anchorRect.topLeft + delta;
       gridDelta = _snapPointToGrid(target) - target;
     }
-    return current +
+    final snapped = current +
         Offset(
           alignment.dx ?? gridDelta.dx,
           alignment.dy ?? gridDelta.dy,
         );
+    // A selection that already sits on a guide (a neighbour's edge, the page
+    // centre) is within the magnetic range of that guide for its first few
+    // pixels of travel, so a short drag snapped straight back to where it
+    // started and committed as a click. When the alignment would cancel a
+    // drag the pointer really made, let the pointer win; the guide catches
+    // again once the move is past the magnetic range. Holding one axis on
+    // its guide while the other travels is unaffected - the net move is not
+    // cancelled there. The grid is an explicit opt-in and still applies.
+    if ((alignment.dx != null || alignment.dy != null) &&
+        delta.distance >= _dragClickSlop &&
+        (snapped - start).distance < _dragClickSlop) {
+      _alignmentGuides = const [];
+      return current + gridDelta;
+    }
+    return snapped;
   }
 
   /// Snaps an unrotated resize handle to annotation/page alignments, with the
@@ -2629,7 +2649,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         : null;
     setState(() => _drag = PdfElementMoveDrag(position,
         bounds: selected?.bounds,
-        cropBox: _controller.pageAt(widget.pageIndex).cropBox));
+        cropBox: _controller.pageAt(widget.pageIndex).cropBox,
+        clickSlop: _dragClickSlop));
     unawaited(_ensureElementLift());
   }
 
@@ -4011,7 +4032,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           if (!_controller.isAnnotationSelected(widget.pageIndex, hit.$1)) {
             _controller.selectFormWidgetAt(widget.pageIndex, x, y);
           }
-          setState(() => _drag = PdfMoveDrag(position));
+          setState(
+              () => _drag = PdfMoveDrag(position, clickSlop: _dragClickSlop));
           _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
           return;
         }
@@ -4023,7 +4045,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // widgets into the selection (for bulk edits) instead of
           // drawing a new field
           _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
-          setState(() => _drag = PdfMarqueeDrag(position, additive: true));
+          setState(() => _drag = PdfMarqueeDrag(position,
+              additive: true, clickSlop: 2 * _dragClickSlop));
           return;
         }
         if (_controller.formFieldAt(widget.pageIndex, x, y) == null) {
@@ -4123,8 +4146,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_selectionBodyContains(position)) {
       _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
       setState(() {
-        _drag =
-            PdfMoveDrag(position, wholeCallout: _grabsSelectedCloud(position));
+        _drag = PdfMoveDrag(position,
+            wholeCallout: _grabsSelectedCloud(position),
+            clickSlop: _dragClickSlop);
         _cursor = SystemMouseCursors.move; // 4-arrow while dragging
       });
       return;
@@ -4135,8 +4159,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _controller.selectAnnotationAt(widget.pageIndex, x, y);
       _beginInteraction(PdfEditingInteractionIntent.move, details.kind);
       setState(() {
-        _drag =
-            PdfMoveDrag(position, wholeCallout: _grabsSelectedCloud(position));
+        _drag = PdfMoveDrag(position,
+            wholeCallout: _grabsSelectedCloud(position),
+            clickSlop: _dragClickSlop);
         _cursor = SystemMouseCursors.move;
       });
       return;
@@ -4154,8 +4179,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (mouseLike) {
       _beginInteraction(PdfEditingInteractionIntent.marquee, details.kind);
-      setState(
-          () => _drag = PdfMarqueeDrag(position, additive: _additiveModifier));
+      setState(() => _drag = PdfMarqueeDrag(position,
+          additive: _additiveModifier, clickSlop: 2 * _dragClickSlop));
     } else if (_host.panViewport != null) {
       pdfLogGesture('overlay viewport-pan START',
           () => 'page=${widget.pageIndex} kind=${details.kind?.name}');
