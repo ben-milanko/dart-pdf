@@ -540,6 +540,33 @@ void main() {
     await mouse.removePointer();
   });
 
+  testWidgets('hover preview of a /Rotate 90 page is turned like the page',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    // A portrait MediaBox that /Rotate 90 shows landscape.
+    await openTab(tester, 'rotated.pdf',
+        bytes: buildMultiPagePdf(1, rotation: 90));
+    await openTab(tester, 'beta.pdf');
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    await tester.pump();
+    await mouse.moveTo(tester.getCenter(tabTitle('rotated.pdf')));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final thumbnailSize = tester.getSize(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+    );
+    expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
+    await tester.pump();
+    final image = tester
+        .widget<RawImage>(find.byKey(const ValueKey('tab-hover-preview-image')))
+        .image!;
+    expect(image.width, greaterThan(image.height));
+    await mouse.removePointer();
+  });
+
   testWidgets('hover card shows a long file name in full', (tester) async {
     const name = 'VT-DRG-MIRROR-SIGNALS-SHEET-08 IN DRFCR.pdf';
     await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));

@@ -6980,13 +6980,19 @@ class _TabPreview extends StatelessWidget {
     final stored = storedThumbnails;
     final entry = stored == null ? null : _tabThumbnailEntry(tab);
     if (session != null) {
-      final rotation = tab.viewer?.viewRotation;
+      final viewRotation = tab.viewer?.viewRotation ?? 0;
+      // The renderer's `rotation:` replaces the page's own /Rotate, so hand
+      // it the rotation the viewer actually shows: /Rotate + view rotation.
+      final rotation =
+          ((session.pageAt(pageIndex).rotation + viewRotation) % 360 + 360) %
+              360;
       final pageColor = session.preferences.pageColor;
       // Persist only what a fresh first-page render would look like: page 1,
-      // unrotated, on white paper with annotations, at the saved revision.
+      // at its own /Rotate, on white paper with annotations, at the saved
+      // revision.
       final persist = entry != null &&
           pageIndex == 0 &&
-          (rotation ?? 0) % 360 == 0 &&
+          viewRotation % 360 == 0 &&
           pageColor.toARGB32() == 0xFFFFFFFF &&
           session.preferences.showAnnotations &&
           !tab.isDirty;
