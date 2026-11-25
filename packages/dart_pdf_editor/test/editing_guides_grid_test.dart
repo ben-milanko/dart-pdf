@@ -279,6 +279,66 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
   });
 
+  testWidgets(
+      'a short drag off an existing alignment moves instead of snapping back',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing
+      ..addRectangle(0, const PdfRect(100, 650, 200, 750))
+      // shares the first box's top and bottom edges
+      ..addRectangle(0, const PdfRect(300, 650, 400, 750))
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    await tester.pump();
+
+    // a sideways drag that drifts a little still holds the shared edge: the
+    // net move is not cancelled, so the guide keeps its axis
+    editing.selectAnnotation(0, 1);
+    await tester.pump();
+    await dragMouse(
+        tester, view(350, 700), view(350, 700) + const Offset(30, 3));
+    var moved = editing.document.page(0).annotations[1].rect;
+    expect(moved.left, closeTo(300 + 30 / scale, 0.01));
+    expect(moved.bottom, closeTo(650, 0.01));
+
+    // 4px straight down: the shared edges are inside the magnetic range, so
+    // the guide used to pull the box back onto them and the drop committed
+    // as a click. The pointer wins when the snap would cancel the move.
+    editing.selectAnnotation(0, 0);
+    await tester.pump();
+    await dragMouse(
+        tester, view(150, 700), view(150, 700) + const Offset(0, 4));
+    moved = editing.document.page(0).annotations[0].rect;
+    expect(moved.bottom, closeTo(650 - 4 / scale, 0.01));
+    expect(moved.left, closeTo(100, 0.01));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('the click threshold is screen pixels, so zoom refines a move',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.preferences.smartAlignmentGuides = false;
+    final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer)).controller!;
+    editing
+      ..addRectangle(0, const PdfRect(50, 300, 560, 760))
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    viewer.setZoom(5 * scale);
+    await tester.pump();
+    final zoom =
+        tester.widget<EditingPageOverlay>(find.byType(EditingPageOverlay)).zoom;
+    expect(zoom, greaterThan(4));
+
+    // 4 screen px is under one overlay pixel at this zoom - it used to fall
+    // under the 2-view-pixel click threshold and snap back
+    final grab = tester.getCenter(find.byType(PdfViewer));
+    await dragMouse(tester, grab, grab + const Offset(4, 0));
+    final moved = editing.document.page(0).annotations[0].rect;
+    expect(moved.left, closeTo(50 + 4 / (zoom * scale), 0.01));
+    expect(moved.bottom, closeTo(300, 0.01));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+  });
+
   testWidgets('smart guides snap resize axes and Alt bypasses them',
       (tester) async {
     final editing = await pumpEditor(tester);

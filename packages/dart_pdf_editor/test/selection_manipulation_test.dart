@@ -142,6 +142,24 @@ void main() {
           drag.commit(geometry, page: 0, drop: (1, 50, 60), canRehome: false),
           isA<PdfMoveEdit>());
     });
+
+    test('the click slop is the caller\'s (screen-constant under zoom)', () {
+      final editing = _withRectangle(0);
+      final geometry = _geometry(editing);
+      // at 5x transform zoom the overlay passes 2 / 5 view px: a one-pixel
+      // drag in view space is five on screen, a real move
+      final zoomed = PdfMoveDrag(const Offset(10, 10), clickSlop: 0.4)
+        ..current = const Offset(11, 10);
+      expect(zoomed.commit(geometry, page: 0), isA<PdfMoveEdit>());
+      final element = PdfElementMoveDrag(const Offset(10, 10), clickSlop: 0.4)
+        ..current = const Offset(10.5, 10);
+      expect(element.commit(geometry, page: 0), isA<PdfElementMoveEdit>());
+      expect(
+          (PdfElementMoveDrag(const Offset(10, 10))
+                ..current = const Offset(10.5, 10))
+              .commit(geometry, page: 0),
+          isNull);
+    });
   });
 
   group('rotate: preview == committed', () {
