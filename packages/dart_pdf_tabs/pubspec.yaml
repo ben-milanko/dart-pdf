@@ -1,0 +1,30 @@
+name: dart_pdf_tabs
+description: >-
+  Browser-style document tabs for Flutter: a Chrome-style tab strip with
+  equal-share sizing, close-streak width holds and drag reorder, a searchable
+  multi-select tabs overview, and the tab-set model behind them. Extracted
+  from the DartPDF app and independent of any PDF engine.
+version: 0.1.0
+homepage: https://dart-pdf.com
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_tabs
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - tabs
+  - flutter
+  - widgets
+  - pdf
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.47.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.11.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

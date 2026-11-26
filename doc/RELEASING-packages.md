@@ -1,10 +1,10 @@
 # Releasing the pub.dev packages
 
-This covers the eleven publishable workspace **packages** (`pdf_cos`,
+This covers the twelve publishable workspace **packages** (`pdf_cos`,
 `pdf_test_fixtures`, `pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
 `dart_pdf_editor_flutter_gpu`, `dart_pdf_editor_assets`, `pdf_ocr_vlm`,
-`pdf_ocr_ondevice`, `dart_pdf_cli`, `dart_pdf_printing`). The eight established packages release in
-lockstep. The experimental GPU companion, CLI and printing plugin are independently versioned
+`pdf_ocr_ondevice`, `dart_pdf_cli`, `dart_pdf_printing`, `dart_pdf_tabs`). The eight established packages release in
+lockstep. The experimental GPU companion, CLI, printing plugin and tabs widgets are independently versioned
 at `0.x`; the GPU package has a newer Flutter requirement and a deliberately
 evolving API, while the CLI follows its own command/API lifecycle. The standalone
 **app** ships separately - see
@@ -14,7 +14,7 @@ The established packages are released **in lockstep** at one version; bump the
 GPU companion only when it has changes. Cutting a release is:
 
 1. Bump `version:` in the eight established packages to the new `X.Y.Z`;
-   bump the three independently versioned companions according to their changes.
+   bump the four independently versioned companions according to their changes.
    When the CLI changes version, also update `_version` in
    `packages/dart_pdf_cli/bin/dartpdf.dart`; its integration test checks the
    executable output against the package manifest.
@@ -38,7 +38,7 @@ is how 1.1.0–1.2.3 actually shipped.
 The first release of a brand-new package cannot use this route because its
 pub.dev Admin page does not exist yet. Publish that package once with the
 manual path, then enable automated publishing before its next release. For
-this release, that applies to `dart_pdf_cli` 0.1.0.
+this release, that applies to `dart_pdf_cli` 0.1.0 and `dart_pdf_tabs` 0.1.0.
 
 Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
@@ -55,7 +55,7 @@ self-configure them.
 
 #### 1. Enable automated publishing on pub.dev (per package)
 
-For **each** of the eleven packages, on pub.dev → the package → **Admin** tab →
+For **each** of the twelve packages, on pub.dev → the package → **Admin** tab →
 **Automated publishing**:
 
 - Enable **Publishing from GitHub Actions**.
@@ -109,7 +109,7 @@ Always works; needs a pub.dev login on the machine.
 ```bash
 fvm dart pub login                 # once, OAuth in a browser
 tool/release.sh                    # dry-run every package (no publishing)
-tool/release.sh --publish --yes    # publish all 11 in dependency order
+tool/release.sh --publish --yes    # publish all 12 in dependency order
 ```
 
 The script publishes dependencies first and waits for each version to be
@@ -118,7 +118,8 @@ resolve). Afterwards, push the tags for the record:
 
 ```bash
 for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
-         dart_pdf_cli dart_pdf_editor dart_pdf_printing dart_pdf_editor_flutter_gpu \
+         dart_pdf_cli dart_pdf_editor dart_pdf_printing dart_pdf_tabs \
+         dart_pdf_editor_flutter_gpu \
          dart_pdf_editor_assets pdf_ocr_vlm \
          pdf_ocr_ondevice; do
   git tag -a "$p-v<version>" -m "Release $p <version>"

@@ -1,5 +1,5 @@
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'l10n/app_localizations.dart';
-import 'middle_ellipsis_text.dart';
 import 'ocr_status.dart';
 
 /// The short chip label for an [OcrJobStatus], localized.
