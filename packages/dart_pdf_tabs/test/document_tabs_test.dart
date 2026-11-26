@@ -1,30 +1,32 @@
-// The tab-set transitions, without pumping EditorScreen: ordering, focus,
-// the restored block, and disposal after the unmounting frame.
+// The tab-set transitions: ordering, focus, the restored block, and disposal
+// after the unmounting frame.
 
-import 'package:dart_pdf_editor_app/document_tab.dart';
-import 'package:dart_pdf_editor_app/document_tabs.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _Tab extends DocumentTab {
-  _Tab(String title) : super.error(title: title, error: 'x');
+class _Tab with DocumentTabEntry {
+  _Tab(this.title);
+
+  @override
+  final String title;
 
   bool disposed = false;
 
   @override
-  void dispose() {
-    disposed = true;
-    super.dispose();
-  }
+  void dispose() => disposed = true;
 }
 
-class _Loading extends DocumentTab {
-  _Loading(String title) : super.loading(title: title);
+class _Loading extends _Tab {
+  _Loading(super.title);
+
+  @override
+  bool get isPlaceholder => true;
 }
 
 void main() {
   late List<VoidCallback> frame;
-  late DocumentTabs tabs;
+  late DocumentTabs<_Tab> tabs;
   late int changes;
 
   setUp(() {
@@ -161,19 +163,6 @@ void main() {
     expect(tabs.active!.title, 'handoff');
     tabs.insert(99, _Tab('end'));
     expect(titles().last, 'end');
-  });
-
-  test('documentId keys by the origin, not the title', () {
-    final one =
-        DocumentTab.loading(title: 'report.pdf', originPath: '/a/report.pdf');
-    final two =
-        DocumentTab.loading(title: 'report.pdf', originPath: '/b/report.pdf');
-    final cached =
-        DocumentTab.loading(title: 'report.pdf', cachePath: 'cache/123.pdf');
-    final bare = DocumentTab.loading(title: 'report.pdf');
-    expect(one.documentId, isNot(two.documentId));
-    expect(cached.documentId, 'cache/123.pdf');
-    expect(bare.documentId, 'report.pdf');
   });
 
   test('sortByName orders naturally and keeps the active tab', () {

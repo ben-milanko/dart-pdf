@@ -1,9 +1,9 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart' show showPdfDialog;
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'l10n/app_l10n.dart';
-import 'middle_ellipsis_text.dart';
 
 /// Renames the app's document copy and the filename used when sharing it.
 Future<String?> showRenameDocumentDialog(BuildContext context, String name) =>

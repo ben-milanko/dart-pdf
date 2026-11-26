@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
@@ -11,7 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
-import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
 
 void main() {
   late PdfEditingPreferences prefs;

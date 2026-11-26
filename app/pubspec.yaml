@@ -51,6 +51,9 @@ dependencies:
   url_launcher: ^6.3.3
   # Optional preview, sheet composition and native system printing.
   dart_pdf_printing: ^0.13.0
+  # The browser-style tab strip, tabs overview and tab-set model, extracted
+  # from this app so other hosts can reuse them.
+  dart_pdf_tabs: ^0.1.0
   shared_preferences: ^2.5.6
   # On-device document scanner (phones/tablets only): Google ML Kit's Document
   # Scanner on Android, VisionKit on iOS. Powers "Scan to new document" and

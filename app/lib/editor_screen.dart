@@ -4,12 +4,11 @@ import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_printing/dart_pdf_printing.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -27,7 +26,6 @@ import 'digital_signature.dart';
 import 'doc_scan.dart';
 import 'document_library.dart';
 import 'document_tab.dart';
-import 'document_tabs.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
@@ -36,7 +34,6 @@ import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
-import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_auto.dart';
@@ -68,20 +65,6 @@ import 'native_window_drop_target.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
-
-/// Chrome-style tab sizing: tabs share the strip equally, growing no wider
-/// than [_tabMaxWidth] and shrinking no narrower than [_tabMinWidth] before
-/// the strip starts to scroll.
-const double _tabMaxWidth = 240;
-const double _tabMinWidth = 56;
-
-/// Below this per-tab width the close button is hidden on inactive tabs (as in
-/// Chrome) so the label still has room; the active tab always keeps its close.
-const double _tabCloseHideWidth = 100;
-
-/// How long the tabs take to grow back after the pointer leaves the strip
-/// following a close (the width-hold release animation).
-const Duration _tabResizeDuration = Duration(milliseconds: 150);
 
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
@@ -445,7 +428,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// The open tabs and which one is active. Every change notifies
   /// [_onTabsChanged], which rebuilds and persists the session.
-  late final DocumentTabs _tabsModel = DocumentTabs()
+  late final DocumentTabs<DocumentTab> _tabsModel = DocumentTabs()
     ..addListener(_onTabsChanged);
 
   List<DocumentTab> get _tabs => _tabsModel.tabs;
@@ -516,7 +499,6 @@ class _EditorScreenState extends State<EditorScreen>
         return child;
       });
 
-  final _tabScrollController = ScrollController();
   TabDragCoordinator? _registeredTabDragCoordinator;
   int? _nativeWindowHandle;
   OverlayEntry? _destinationTabDragOverlay;
@@ -524,21 +506,12 @@ class _EditorScreenState extends State<EditorScreen>
   final Map<DocumentTab, String> _nativeTabDragTokens = Map.identity();
   int _nextNativeTabDragToken = 0;
 
-  /// Whether the pointer is currently hovering the desktop tab strip. While it
-  /// is, closing a tab pins the remaining tabs' width (see [_heldTabWidth]) so
-  /// the close buttons stay under the cursor for a rapid close streak.
-  bool _tabStripHovered = false;
-
-  /// The most recent natural (unheld) per-tab width computed during the tab
-  /// strip layout, captured so a close can pin to it.
-  double _lastNaturalTabWidth = 0;
-  double _lastRenderedTabWidth = 0;
-  double _lastRenderedTabsWidth = 0;
-
-  /// When non-null, the tabs render at this fixed width instead of growing to
-  /// fill the freed space. Set on close while the strip is hovered and released
-  /// (animating back to the natural width) once the pointer leaves the strip.
-  double? _heldTabWidth;
+  /// The desktop tab strip's layout state: its scroll position, the most
+  /// recent tab geometry (for cross-window drop slots), and the Chrome-style
+  /// close-streak width hold ([_removeTabs]).
+  final _tabStrip = DocumentTabStripController(
+    metrics: const DocumentTabStripMetrics(height: _tabStripHeight),
+  );
 
   /// Whether the developer tools panel is open (F12). Over an editable
   /// document on a wide window it is one of the editor's dock panels
@@ -852,7 +825,7 @@ class _EditorScreenState extends State<EditorScreen>
       ..unregister(this)
       ..pages.unregister(this);
     _removeDestinationTabDragOverlay();
-    _tabScrollController.dispose();
+    _tabStrip.dispose();
     _windowCloseCoordinator?.unregister(_windowCloseOwner);
     // Torn down without the user closing it (the app is exiting): its
     // documents stay in the session for the next launch.
@@ -1245,7 +1218,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (!mounted) return false;
     try {
       final tab = DocumentTab.fromHandoff(handoff, preferences: _prefs);
-      _heldTabWidth = null;
+      _tabStrip.clearHold();
       _tabsModel.insert(insertionIndex, tab);
       _recents.add(
         title: handoff.title,
@@ -1319,9 +1292,6 @@ class _EditorScreenState extends State<EditorScreen>
     if (!stripRect.contains(localPoint)) return null;
     if (_tabs.isEmpty) return 0;
 
-    if (_lastRenderedTabWidth <= 0 || _lastRenderedTabsWidth <= 0) {
-      return _tabs.length;
-    }
     final rtl = Directionality.of(context) == TextDirection.rtl;
     // The tab list is always the Row's first child, so it begins at the
     // strip's logical leading edge. Derive its coordinates from the stable
@@ -1330,25 +1300,11 @@ class _EditorScreenState extends State<EditorScreen>
     // and every same-strip drop fell back to the append slot.
     final visibleOffset =
         rtl ? stripRect.right - localPoint.dx : localPoint.dx - stripRect.left;
-    if (visibleOffset < 0) return 0;
-    if (visibleOffset > _lastRenderedTabsWidth) return _tabs.length;
-    final scrollOffset =
-        _tabScrollController.hasClients ? _tabScrollController.offset : 0.0;
-    const listPadding = 4.0;
-    var contentOffset = visibleOffset + scrollOffset - listPadding;
-    final externalGap = _externalTabDragGap;
-    if (externalGap != null) {
-      final gapStart = externalGap * _lastRenderedTabWidth;
-      final gapEnd = gapStart + _lastRenderedTabWidth;
-      if (contentOffset >= gapStart && contentOffset <= gapEnd) {
-        return externalGap;
-      }
-      if (contentOffset > gapEnd) contentOffset -= _lastRenderedTabWidth;
-    }
-    return ((contentOffset / _lastRenderedTabWidth) + 0.5)
-        .floor()
-        .clamp(0, _tabs.length)
-        .toInt();
+    return _tabStrip.insertionIndexAt(
+      visibleOffset,
+      _tabs.length,
+      externalGap: _externalTabDragGap,
+    );
   }
 
   int? get _externalTabDragGap {
@@ -1392,15 +1348,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// ([restored]), to the restored block (see [DocumentTabs.add]).
   void _addTab(DocumentTab tab, {bool restored = false}) {
     // A new tab shrinks the others to fit; drop any close-streak width hold.
-    _heldTabWidth = null;
+    _tabStrip.clearHold();
     _tabsModel.add(tab, restored: restored);
-  }
-
-  /// Releases the close-streak width hold, letting the tabs animate back out to
-  /// fill the strip. Called when the pointer leaves the tab strip.
-  void _releaseTabWidthHold() {
-    if (_heldTabWidth == null) return;
-    setState(() => _heldTabWidth = null);
   }
 
   DocumentTab _openLoading(String title,
@@ -3086,9 +3035,7 @@ class _EditorScreenState extends State<EditorScreen>
     // surviving tabs at their current width so the next close button lands
     // under the cursor. `??=` preserves the width from the first close of a
     // streak; it's released when the pointer leaves the strip.
-    if (_tabStripHovered && _lastNaturalTabWidth > 0) {
-      _heldTabWidth ??= _lastNaturalTabWidth;
-    }
+    _tabStrip.holdWidthForClose();
     _tabsModel.remove(targets);
   }
 
@@ -5398,21 +5345,28 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  Widget _buildMobileTabsButton() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: IconButton(
-        key: const ValueKey('mobile-tabs-button'),
-        tooltip: appL10n(context).editorOpenTabs,
-        icon: Badge(
-          label: Text(
-            '${_tabs.length}',
-            key: const ValueKey('mobile-tabs-count'),
-          ),
-          child: const Icon(Icons.tab_outlined),
-        ),
+  Widget _buildMobileTabsButton() => DocumentTabsButton(
+        count: _tabs.length,
+        labels: _tabLabels(context),
         onPressed: _showTabsSheet,
-      ),
+      );
+
+  /// The app's localized strings for the dart_pdf_tabs widgets.
+  DocumentTabsLabels _tabLabels(BuildContext context) {
+    final l10n = appL10n(context);
+    return DocumentTabsLabels(
+      untitled: l10n.editorUntitled,
+      closeTab: l10n.editorCloseTab,
+      openTab: l10n.editorOpenPdfNewTab,
+      viewAllTabs: l10n.editorViewAllTabs,
+      openTabs: l10n.editorOpenTabs,
+      tabs: l10n.editorTabs,
+      selectTabs: l10n.editorSelectTabs,
+      searchTabs: l10n.editorSearchTabs,
+      clearTabSearch: l10n.editorClearTabSearch,
+      noMatchingTabs: l10n.editorNoMatchingTabs,
+      closeSelectedTabs: l10n.editorCloseSelectedTabs,
+      tabsOpenCount: l10n.editorTabsOpenCount,
     );
   }
 
@@ -5489,9 +5443,11 @@ class _EditorScreenState extends State<EditorScreen>
       Navigator.of(overlayContext).pop();
     }
 
-    return _TabsOverview(
+    return DocumentTabsOverview<DocumentTab>(
       tabs: _tabs,
       activeIndex: _activeIndex,
+      titleOf: (tab) => tab.title,
+      labels: _tabLabels(context),
       keyPrefix: keyPrefix,
       headerTopPadding: headerTopPadding,
       // A desktop dialog is typed into straight away; on a phone focusing the
@@ -5517,6 +5473,7 @@ class _EditorScreenState extends State<EditorScreen>
           key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
           tab: tab,
           storedThumbnails: _recentThumbnails,
+          labels: _tabLabels(context),
           selected: index == _activeIndex,
           selection: selection,
           onTap: () => activate(index),
@@ -5545,172 +5502,34 @@ class _EditorScreenState extends State<EditorScreen>
 
   Widget _buildTabStrip() {
     final coordinator = _registeredTabDragCoordinator;
-    Widget buildStrip() => SizedBox(
-          height: _tabStripHeight,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              const buttonWidth = 40.0;
-              const controlsWidth = buttonWidth * 2;
-              const listPadding =
-                  8.0; // 4px each side (see the list's padding).
-              final maxTabsWidth = (constraints.maxWidth - controlsWidth)
-                  .clamp(0.0, double.infinity)
-                  .toDouble();
-
-              // Chrome-style sizing: every tab gets an equal share of the strip,
-              // clamped between the min and max tab width. As tabs are added the
-              // share shrinks until it hits the floor, after which the list scrolls.
-              final natural = _chromeTabWidth(maxTabsWidth - listPadding);
-              _lastNaturalTabWidth = natural;
-              // While a close streak is held, keep the surviving tabs at the pinned
-              // width; otherwise use the natural share (never wider than natural, so
-              // a stale hold can't overflow after a resize).
-              final tabWidth = _heldTabWidth == null
-                  ? natural
-                  : math.min(_heldTabWidth!, natural);
-              _lastRenderedTabWidth = tabWidth;
-              final externalGap = _externalTabDragGap;
-              final visualTabCount =
-                  _tabs.length + (externalGap == null ? 0 : 1);
-              final tabsWidth = _tabs.isEmpty
-                  ? 0.0
-                  : math.min(
-                      tabWidth * visualTabCount + listPadding, maxTabsWidth);
-              _lastRenderedTabsWidth = tabsWidth;
-              final insertion = coordinator?.insertionIndexFor(windowHandle);
-              final scheme = Theme.of(context).colorScheme;
-              final rtl = Directionality.of(context) == TextDirection.rtl;
-              final gapPadding = externalGap == null ? 0.0 : tabWidth;
-
-              return _tabStripGeometry(SizedBox(
-                child: Stack(
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        if (tabsWidth > 0)
-                          // A window or AppBar-action resize can make the new
-                          // title constraint narrower than the container's
-                          // previous animated width. Clamp outside the animation
-                          // so even its first frame fits the current Row.
-                          ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: maxTabsWidth),
-                            child: MouseRegion(
-                              onEnter: (_) => _tabStripHovered = true,
-                              onExit: (_) {
-                                _tabStripHovered = false;
-                                _releaseTabWidthHold();
-                              },
-                              // Grow back smoothly once the hold releases; both the strip
-                              // and each tab animate to the same width with a linear curve,
-                              // so they stay pixel-consistent throughout.
-                              child: AnimatedContainer(
-                                duration: _tabResizeDuration,
-                                curve: Curves.linear,
-                                width: tabsWidth,
-                                child: ReorderableListView.builder(
-                                  key: const ValueKey('tab-strip'),
-                                  scrollController: _tabScrollController,
-                                  scrollDirection: Axis.horizontal,
-                                  // The whole tab is the drag handle (see _buildTab); the
-                                  // stock trailing handles don't fit a horizontal tab strip.
-                                  buildDefaultDragHandles: false,
-                                  padding: EdgeInsets.only(
-                                    left: rtl ? 4 + gapPadding : 4,
-                                    right: rtl ? 4 : 4 + gapPadding,
-                                  ),
-                                  itemCount: _tabs.length,
-                                  onReorderItem: _reorderTabs,
-                                  itemBuilder: (context, i) =>
-                                      _buildTab(i, tabWidth),
-                                ),
-                              ),
-                            ),
-                          ),
-                        SizedBox(
-                          width: buttonWidth,
-                          height: _tabStripHeight,
-                          child: IconButton(
-                            key: const ValueKey('desktop-tab-add-button'),
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(
-                                width: buttonWidth),
-                            icon: const Icon(Icons.add),
-                            tooltip: appL10n(context).editorOpenPdfNewTab,
-                            onPressed: _pickAndOpen,
-                          ),
-                        ),
-                        const Spacer(key: ValueKey('desktop-tabs-spacer')),
-                        SizedBox(
-                          width: buttonWidth,
-                          height: _tabStripHeight,
-                          child: IconButton(
-                            key: const ValueKey('desktop-tabs-button'),
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(
-                                width: buttonWidth),
-                            icon: const Icon(Icons.grid_view),
-                            tooltip: appL10n(context).editorViewAllTabs,
-                            onPressed: _showTabsDialog,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (insertion != null)
-                      PositionedDirectional(
-                        start: 0,
-                        width: tabsWidth > 0 ? tabsWidth : maxTabsWidth,
-                        top: 0,
-                        bottom: 0,
-                        child: IgnorePointer(
-                          child: DecoratedBox(
-                            key: const ValueKey('tab-drag-drop-highlight'),
-                            decoration: BoxDecoration(
-                              color: scheme.primary.withAlpha(0x12),
-                              border: Border.all(
-                                color: scheme.primary.withAlpha(0xB0),
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (insertion != null && tabsWidth > 0)
-                      PositionedDirectional(
-                        start: (4 +
-                                insertion * tabWidth -
-                                (_tabScrollController.hasClients
-                                    ? _tabScrollController.offset
-                                    : 0.0))
-                            .clamp(2.0, math.max(2.0, tabsWidth - 2))
-                            .toDouble(),
-                        top: 4,
-                        bottom: 4,
-                        child: IgnorePointer(
-                          child: Container(
-                            key: const ValueKey('tab-drag-insertion-indicator'),
-                            width: 3,
-                            decoration: BoxDecoration(
-                              color: scheme.primary,
-                              borderRadius: BorderRadius.circular(2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: scheme.shadow.withAlpha(0x50),
-                                  blurRadius: 3,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ));
-            },
-          ),
-        );
+    Widget buildStrip() => _tabStripGeometry(DocumentTabStrip<DocumentTab>(
+          tabs: _tabs,
+          activeIndex: _activeIndex,
+          controller: _tabStrip,
+          labels: _tabLabels(context),
+          titleOf: (tab) => tab.title,
+          isDirtyOf: (tab) => tab.isDirty,
+          listenableOf: (tab) => tab.session,
+          onActivate: (index) {
+            final tab = _tabs[index];
+            if (index == _activeIndex &&
+                _usesMobileShare &&
+                tab.session != null) {
+              unawaited(_renameDocument(tab));
+            } else {
+              _tabsModel.activate(index);
+            }
+          },
+          onClose: _closeTab,
+          onReorder: _reorderTabs,
+          onContextMenu: (index, position) =>
+              unawaited(_showTabMenu(index, position)),
+          onAdd: _pickAndOpen,
+          onShowAll: _showTabsDialog,
+          tabBuilder: _wrapStripTab,
+          externalGapIndex: _externalTabDragGap,
+          insertionIndex: coordinator?.insertionIndexFor(windowHandle),
+        ));
     if (coordinator == null) return buildStrip();
     return ListenableBuilder(
       listenable: coordinator,
@@ -5718,119 +5537,32 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  /// The equal-share width for one tab given the space [available] to the whole
-  /// tab list, clamped to the Chrome-style min/max. Below the min the tabs stop
-  /// shrinking and the strip scrolls instead.
-  double _chromeTabWidth(double available) {
-    final count = _tabs.length;
-    if (count == 0) return 0;
-    final share = available / count;
-    return share.clamp(_tabMinWidth, _tabMaxWidth).toDouble();
-  }
-
-  Widget _buildTab(int index, double width) {
-    final tab = _tabs[index];
-    final selected = index == _activeIndex;
-    final scheme = Theme.of(context).colorScheme;
-    // Like Chrome, drop the close button on inactive tabs once they get narrow
-    // so the label keeps room; the active tab always keeps it.
-    final showClose = selected || width >= _tabCloseHideWidth;
-    Widget label() {
-      final text = MiddleEllipsisText(
-        tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
-        hidePdfExtension: tab.title.isNotEmpty,
-        style: TextStyle(
-          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          color:
-              selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
-        ),
-      );
-      final session = tab.session;
-      if (session == null) return text;
-      return ListenableBuilder(
-        listenable: session,
-        builder: (context, _) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (tab.isDirty)
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 6),
-                child: Icon(Icons.circle, size: 8, color: scheme.primary),
-              ),
-            Flexible(child: text),
-          ],
-        ),
-      );
-    }
-
-    final chrome = AnimatedContainer(
-      duration: _tabResizeDuration,
-      curve: Curves.linear,
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-      child: Material(
-        color: selected
-            ? scheme.secondaryContainer
-            : scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            if (selected && _usesMobileShare && tab.session != null) {
-              unawaited(_renameDocument(tab));
-            } else {
-              _tabsModel.activate(index);
-            }
-          },
-          onSecondaryTapUp: (details) =>
-              _showTabMenu(index, details.globalPosition),
-          child: Padding(
-            padding:
-                EdgeInsetsDirectional.only(start: 12, end: showClose ? 2 : 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.max,
-              children: [
-                Expanded(child: label()),
-                if (showClose)
-                  IconButton(
-                    key: ValueKey('tab-close-$index'),
-                    icon: const Icon(Icons.close, size: 16),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 30,
-                      minHeight: 30,
-                    ),
-                    tooltip: appL10n(context).editorCloseTab,
-                    onPressed: () => _closeTab(index),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    // The process-wide drag owns editable tabs when this window participates
-    // in the router. Placeholders keep the local reorder recognizer until their
-    // bytes have materialized and can be handed to another window.
+  /// Wraps one strip tab's chrome in the app's extras: its drag source (the
+  /// process-wide cross-window drag for an editable tab when this window
+  /// participates in the router, else local reorder), a hover preview card,
+  /// and the slide that makes room for a tab dragged across the strip.
+  Widget _wrapStripTab(
+    BuildContext context,
+    int index,
+    DocumentTab tab,
+    Widget chrome,
+  ) {
+    // Placeholders keep the local reorder recognizer until their bytes have
+    // materialized and can be handed to another window.
     final dragSource = _nativeTabDragging && tab.session != null
         ? _buildNativeTabDragSource(tab, chrome)
-        : _TabDragStartListener(index: index, child: chrome);
+        : DocumentTabDragStartListener(index: index, child: chrome);
     // The active document is already on screen, so its hover card carries
     // only the full file name the strip truncates.
     final hoverPreview = _TabHoverPreview(
       tab: tab,
       storedThumbnails: _recentThumbnails,
-      titleOnly: selected,
+      titleOnly: index == _activeIndex,
       child: dragSource,
     );
     final coordinator = _registeredTabDragCoordinator;
-    if (coordinator == null) {
-      return KeyedSubtree(key: ValueKey(tab), child: hoverPreview);
-    }
+    if (coordinator == null) return hoverPreview;
     return ListenableBuilder(
-      key: ValueKey(tab),
       listenable: coordinator,
       builder: (context, child) {
         final logicalShift = _tabDragShift(index);
@@ -6386,32 +6118,6 @@ int _tabPreviewPage(DocumentTab tab) {
 /// for touch and stylus, so finger drags still scroll the tab strip. Plain
 /// taps are unaffected: both recognizers claim the pointer only once it moves
 /// past the slop.
-class _TabDragStartListener extends ReorderableDragStartListener {
-  const _TabDragStartListener({
-    required super.index,
-    required super.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (event) {
-        // A right-click opens the tab context menu - never a drag-reorder.
-        if (event.buttons == kSecondaryButton) return;
-        SliverReorderableList.maybeOf(context)?.startItemDragReorder(
-          index: index,
-          event: event,
-          recognizer: (event.kind == PointerDeviceKind.mouse
-              ? ImmediateMultiDragGestureRecognizer(debugOwner: this)
-              : DelayedMultiDragGestureRecognizer(debugOwner: this))
-            ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context),
-        );
-      },
-      child: child,
-    );
-  }
-}
-
 /// The translucent "drop a PDF here" scrim shown while a file is dragged over
 /// the window.
 /// How a drop should be handled when a document is already open.
@@ -6455,358 +6161,8 @@ class _DropOverlay extends StatelessWidget {
   }
 }
 
-/// A grid tile's part in the tabs overview's multi-select: whether the grid
-/// is selecting at all, whether this tile is checked, and how to flip it
-/// (which also starts selecting, from a long-press).
-typedef _TabTileSelection = ({
-  bool selecting,
-  bool checked,
-  VoidCallback toggle,
-});
-
-/// The open-tabs grid shown in the compact bottom sheet and the desktop
-/// dialog: a title-search field over a thumbnail grid that opens scrolled to
-/// the active tab. The header's select button (or a long-press on a tile)
-/// switches the grid into a multi-select whose header shares or closes the
-/// checked tabs together.
-class _TabsOverview extends StatefulWidget {
-  const _TabsOverview({
-    required this.tabs,
-    required this.activeIndex,
-    required this.keyPrefix,
-    required this.headerTopPadding,
-    required this.autofocusSearch,
-    required this.onOpen,
-    required this.onActivate,
-    required this.shareLabel,
-    required this.shareIcon,
-    required this.onShare,
-    required this.onCloseTabs,
-    required this.tileBuilder,
-  });
-
-  /// The editor's live tab list (indices passed to [tileBuilder] and
-  /// [onActivate] index into it).
-  final List<DocumentTab> tabs;
-  final int activeIndex;
-  final String keyPrefix;
-  final double headerTopPadding;
-  final bool autofocusSearch;
-  final VoidCallback onOpen;
-  final void Function(int index) onActivate;
-
-  /// The selection header's share action: its label and icon (Share on a
-  /// phone, Save copies elsewhere) and what it does with the checked tabs.
-  final String shareLabel;
-  final IconData shareIcon;
-  final Future<void> Function(List<DocumentTab> tabs) onShare;
-
-  /// Closes the checked tabs (confirming unsaved edits once for all of them).
-  final Future<void> Function(List<DocumentTab> tabs) onCloseTabs;
-
-  final Widget Function(
-    BuildContext context,
-    int index,
-    _TabTileSelection selection,
-  ) tileBuilder;
-
-  static const double _padding = 12;
-  static const gridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
-    maxCrossAxisExtent: 220,
-    mainAxisSpacing: _padding,
-    crossAxisSpacing: _padding,
-    childAspectRatio: 0.78,
-  );
-
-  @override
-  State<_TabsOverview> createState() => _TabsOverviewState();
-}
-
-class _TabsOverviewState extends State<_TabsOverview> {
-  final _query = TextEditingController();
-  ScrollController? _scroll;
-
-  /// The checked tabs while the grid is selecting; null when it is not.
-  /// Held by identity, so a tab closed meanwhile simply drops out.
-  Set<DocumentTab>? _selected;
-
-  void _toggle(DocumentTab tab) => setState(() {
-        final selected = _selected ??= {};
-        if (!selected.remove(tab)) selected.add(tab);
-      });
-
-  /// Checks every tab the search shows, or unchecks them when they all are.
-  void _toggleAll(List<int> matches) => setState(() {
-        final selected = _selected ??= {};
-        final shown = [for (final i in matches) widget.tabs[i]];
-        if (shown.every(selected.contains)) {
-          selected.removeAll(shown);
-        } else {
-          selected.addAll(shown);
-        }
-      });
-
-  /// The checked tabs in strip order.
-  List<DocumentTab> get _checkedTabs => [
-        for (final tab in widget.tabs)
-          if (_selected!.contains(tab)) tab
-      ];
-
-  @override
-  void dispose() {
-    _query.dispose();
-    _scroll?.dispose();
-    super.dispose();
-  }
-
-  /// Indices into [_TabsOverview.tabs] whose title matches the search.
-  List<int> _matches() {
-    final query = _query.text.trim().toLowerCase();
-    final tabs = widget.tabs;
-    return [
-      for (var i = 0; i < tabs.length; i++)
-        if (query.isEmpty || tabs[i].title.toLowerCase().contains(query)) i,
-    ];
-  }
-
-  /// The scroll offset that centres the active tab's row in a viewport of
-  /// [size], clamped to the grid's extent, so the grid opens on the current
-  /// tab instead of the first row.
-  double _activeOffset(Size size, int count) {
-    final active = widget.activeIndex;
-    if (active <= 0 || active >= count) return 0;
-    const padding = _TabsOverview._padding;
-    final layout = _TabsOverview.gridDelegate.getLayout(
-      SliverConstraints(
-        axisDirection: AxisDirection.down,
-        growthDirection: GrowthDirection.forward,
-        userScrollDirection: ScrollDirection.idle,
-        scrollOffset: 0,
-        precedingScrollExtent: 0,
-        overlap: 0,
-        remainingPaintExtent: size.height,
-        crossAxisExtent: math.max(0, size.width - 2 * padding),
-        crossAxisDirection: AxisDirection.right,
-        viewportMainAxisExtent: size.height,
-        remainingCacheExtent: size.height,
-        cacheOrigin: 0,
-      ),
-    ) as SliverGridRegularTileLayout;
-    final stride = layout.mainAxisStride;
-    final rows = (count + layout.crossAxisCount - 1) ~/ layout.crossAxisCount;
-    final row = active ~/ layout.crossAxisCount;
-    final contentHeight = 2 * padding + rows * stride - padding;
-    final maxOffset = math.max(0.0, contentHeight - size.height);
-    final centred = padding +
-        row * stride +
-        layout.childMainAxisExtent / 2 -
-        size.height / 2;
-    return centred.clamp(0.0, maxOffset);
-  }
-
-  /// The header while selecting: leave, the count, then select all, share
-  /// and close for the checked tabs.
-  Widget _buildSelectionHeader(
-    BuildContext context,
-    Set<DocumentTab> selected,
-    List<int> matches,
-  ) {
-    final l10n = appL10n(context);
-    final material = MaterialLocalizations.of(context);
-    final prefix = widget.keyPrefix;
-    final none = selected.isEmpty;
-    return Row(
-      children: [
-        IconButton(
-          key: ValueKey('$prefix-tabs-select-done'),
-          icon: const Icon(Icons.arrow_back),
-          tooltip: material.cancelButtonLabel,
-          onPressed: () => setState(() => _selected = null),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            material.selectedRowCountTitle(selected.length),
-            key: ValueKey('$prefix-tabs-selected-count'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        IconButton(
-          key: ValueKey('$prefix-tabs-select-all'),
-          icon: const Icon(Icons.select_all),
-          tooltip: material.selectAllButtonLabel,
-          onPressed: matches.isEmpty ? null : () => _toggleAll(matches),
-        ),
-        IconButton(
-          key: ValueKey('$prefix-tabs-share-selected'),
-          icon: Icon(widget.shareIcon),
-          tooltip: widget.shareLabel,
-          onPressed: none ? null : () => widget.onShare(_checkedTabs),
-        ),
-        IconButton(
-          key: ValueKey('$prefix-tabs-close-selected'),
-          icon: const Icon(Icons.close),
-          tooltip: l10n.editorCloseSelectedTabs,
-          onPressed: none
-              ? null
-              : () async {
-                  await widget.onCloseTabs(_checkedTabs);
-                  if (mounted) setState(() {});
-                },
-        ),
-      ],
-    );
-  }
-
-  void _onQueryChanged(String _) {
-    setState(() {});
-    // A new result set starts from its first match.
-    final scroll = _scroll;
-    if (scroll != null && scroll.hasClients) scroll.jumpTo(0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = appL10n(context);
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final prefix = widget.keyPrefix;
-    final matches = _matches();
-    _selected?.removeWhere((tab) => !widget.tabs.contains(tab));
-    final selected = _selected;
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-              selected == null ? 20 : 8, widget.headerTopPadding, 12, 8),
-          child: selected == null
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: Text(l10n.editorTabs,
-                          style: theme.textTheme.titleMedium),
-                    ),
-                    IconButton(
-                      key: ValueKey('$prefix-tabs-select'),
-                      icon: const Icon(Icons.checklist),
-                      tooltip: l10n.editorSelectTabs,
-                      onPressed: () => setState(() => _selected = {}),
-                    ),
-                    IconButton(
-                      key: ValueKey('$prefix-tabs-open'),
-                      icon: const Icon(Icons.add),
-                      tooltip: l10n.editorOpenPdfNewTab,
-                      onPressed: widget.onOpen,
-                    ),
-                  ],
-                )
-              : _buildSelectionHeader(context, selected, matches),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          child: TextField(
-            key: ValueKey('$prefix-tabs-search'),
-            controller: _query,
-            autofocus: widget.autofocusSearch,
-            textInputAction: TextInputAction.go,
-            decoration: InputDecoration(
-              hintText: l10n.editorSearchTabs,
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _query.text.isEmpty
-                  ? null
-                  : IconButton(
-                      key: ValueKey('$prefix-tabs-search-clear'),
-                      icon: const Icon(Icons.clear),
-                      tooltip: l10n.editorClearTabSearch,
-                      onPressed: () {
-                        _query.clear();
-                        _onQueryChanged('');
-                      },
-                    ),
-              isDense: true,
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: _onQueryChanged,
-            // Enter opens the best (first) match, like a quick switcher
-            // (or checks it, while selecting).
-            onSubmitted: (_) {
-              if (matches.isEmpty) return;
-              if (selected != null) {
-                _toggle(widget.tabs[matches.first]);
-              } else {
-                widget.onActivate(matches.first);
-              }
-            },
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  // The first layout decides where the grid opens: on the
-                  // active tab. The grid does not cache offscreen rows, so a
-                  // measured initial offset (rather than a scroll after the
-                  // first frame) never builds the top rows' thumbnails. The
-                  // grid stays mounted while a search matches nothing so its
-                  // position (reset per query) is never re-seeded from here.
-                  _scroll ??= ScrollController(
-                    initialScrollOffset: _activeOffset(
-                      constraints.biggest,
-                      widget.tabs.length,
-                    ),
-                  );
-                  return GridView.builder(
-                    key: ValueKey('$prefix-tabs-grid'),
-                    controller: _scroll,
-                    // A tile paints a real PDF thumbnail. Do not build the
-                    // next row speculatively: with large documents that work
-                    // competes with a fling even though the thumbnails are
-                    // still off-screen.
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                    padding: const EdgeInsets.all(_TabsOverview._padding),
-                    gridDelegate: _TabsOverview.gridDelegate,
-                    itemCount: matches.length,
-                    itemBuilder: (context, i) {
-                      final tab = widget.tabs[matches[i]];
-                      return widget.tileBuilder(context, matches[i], (
-                        selecting: selected != null,
-                        checked: selected?.contains(tab) ?? false,
-                        toggle: () => _toggle(tab),
-                      ));
-                    },
-                  );
-                },
-              ),
-              if (matches.isEmpty)
-                Center(
-                  key: ValueKey('$prefix-tabs-no-matches'),
-                  child: Text(
-                    l10n.editorNoMatchingTabs,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Text(
-            l10n.editorTabsOpenCount(widget.tabs.length),
-            style: theme.textTheme.labelMedium
-                ?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
+/// One tab in the tabs overview: the package's [DocumentTabTile] over this
+/// app's first-page preview, repainting as the tab's session changes.
 class _MobileTabTile extends StatelessWidget {
   const _MobileTabTile({
     super.key,
@@ -6814,6 +6170,7 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    required this.labels,
     this.selection,
     this.onContextMenu,
     this.storedThumbnails,
@@ -6821,19 +6178,11 @@ class _MobileTabTile extends StatelessWidget {
 
   final DocumentTab tab;
   final RecentThumbnailCache? storedThumbnails;
-
-  /// Whether this is the active tab.
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
-
-  /// The overview's multi-select: while it is selecting a tap checks the tile
-  /// instead of switching to it and a checkbox stands in for the close
-  /// button; a long-press starts selecting with this tile checked.
-  final _TabTileSelection? selection;
-
-  /// Opens the tab's context menu at the given global position (right-click on
-  /// desktop, long-press on touch). Null disables the affordance.
+  final DocumentTabsLabels labels;
+  final DocumentTabTileSelection? selection;
   final void Function(Offset globalPosition)? onContextMenu;
 
   @override
@@ -6846,109 +6195,23 @@ class _MobileTabTile extends StatelessWidget {
     );
   }
 
-  Widget _build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final selection = this.selection;
-    final selecting = selection?.selecting ?? false;
-    final checked = selection?.checked ?? false;
-    final highlighted = selecting ? checked : selected;
-    return Material(
-      key: const ValueKey('mobile-tab-tile'),
-      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: highlighted ? scheme.primary : scheme.outlineVariant,
-          width: highlighted ? 2 : 1,
+  Widget _build(BuildContext context) => DocumentTabTile(
+        title: tab.title,
+        isDirty: tab.isDirty,
+        selected: selected,
+        selection: selection,
+        onTap: onTap,
+        onClose: onClose,
+        onContextMenu: onContextMenu,
+        labels: labels,
+        preview: _TabPreview(
+          tab: tab,
+          pageIndex: 0,
+          storedThumbnails: storedThumbnails,
+          previewKey: const ValueKey('mobile-tab-preview'),
+          imageKey: const ValueKey('mobile-tab-preview-image'),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: selecting ? selection!.toggle : onTap,
-        onSecondaryTapUp: onContextMenu == null || selecting
-            ? null
-            : (details) => onContextMenu!(details.globalPosition),
-        // A long-press starts (or extends) a multi-select, the touch
-        // convention; without one it opens the context menu instead.
-        onLongPress: selection != null
-            ? selection.toggle
-            : onContextMenu == null
-                ? null
-                : () {
-                    // InkWell's long-press carries no position, so anchor the menu
-                    // at the tile's centre (touch parity for the right-click menu).
-                    final box = context.findRenderObject() as RenderBox?;
-                    if (box == null || !box.hasSize) return;
-                    onContextMenu!(
-                        box.localToGlobal(box.size.center(Offset.zero)));
-                  },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
-                child: _TabPreview(
-                  tab: tab,
-                  pageIndex: 0,
-                  storedThumbnails: storedThumbnails,
-                  previewKey: const ValueKey('mobile-tab-preview'),
-                  imageKey: const ValueKey('mobile-tab-preview-image'),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 4, 6),
-              child: Row(
-                children: [
-                  if (tab.isDirty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Icon(Icons.circle, size: 8, color: scheme.primary),
-                    ),
-                  Expanded(
-                    child: MiddleEllipsisText(
-                      tab.title.isEmpty
-                          ? appL10n(context).editorUntitled
-                          : tab.title,
-                      hidePdfExtension: tab.title.isNotEmpty,
-                      style: TextStyle(
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.normal,
-                        color: selected
-                            ? scheme.onSecondaryContainer
-                            : scheme.onSurface,
-                      ),
-                    ),
-                  ),
-                  if (selecting)
-                    SizedBox.square(
-                      dimension: 32,
-                      child: Checkbox(
-                        key: const ValueKey('mobile-tab-tile-checkbox'),
-                        value: checked,
-                        visualDensity: VisualDensity.compact,
-                        onChanged: (_) => selection!.toggle(),
-                      ),
-                    )
-                  else
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: appL10n(context).editorCloseTab,
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints.tightFor(width: 32, height: 32),
-                      onPressed: onClose,
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      );
 }
 
 class _TabPreview extends StatelessWidget {

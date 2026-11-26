@@ -1,9 +1,9 @@
 import 'dart:async';
 
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/foundation.dart';
 
 import 'document_tab.dart';
-import 'document_tabs.dart';
 import 'pdf_cache.dart';
 import 'recents.dart';
 import 'session_store.dart';
@@ -98,7 +98,7 @@ class DocumentLibrary {
     tabs.addListener(_onTabsChanged);
   }
 
-  final DocumentTabs tabs;
+  final DocumentTabs<DocumentTab> tabs;
   final SessionPersistence session;
   final RecentsLog recents;
   final PdfSnapshotStore snapshots;
