@@ -219,4 +219,32 @@ void main() {
     expect(controller.insertionIndexAt(4 + 300, 3, externalGap: 1), 1);
     expect(controller.insertionIndexAt(0, 0), 0);
   });
+
+  testWidgets('tab fills can be overridden', (tester) async {
+    final tabs = _tabs(['a', 'b']);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DocumentTabStrip<_Tab>(
+            tabs: tabs.tabs,
+            activeIndex: tabs.activeIndex,
+            controller: DocumentTabStripController(),
+            titleOf: (tab) => tab.title,
+            onActivate: tabs.activate,
+            onClose: (_) {},
+            onReorder: tabs.reorder,
+            activeTabColor: Colors.red,
+            tabColor: Colors.blue,
+          ),
+        ),
+      ),
+    );
+    Color fillOf(String title) => tester
+        .widget<Material>(find
+            .ancestor(of: _label(title), matching: find.byType(Material))
+            .first)
+        .color!;
+    expect(fillOf('a'), Colors.blue);
+    expect(fillOf('b'), Colors.red);
+  });
 }

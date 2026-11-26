@@ -203,6 +203,8 @@ class DocumentTabStrip<T extends Object> extends StatelessWidget {
     this.hidePdfExtension = true,
     this.externalGapIndex,
     this.insertionIndex,
+    this.activeTabColor,
+    this.tabColor,
   });
 
   /// The open tabs in strip order.
@@ -262,6 +264,13 @@ class DocumentTabStrip<T extends Object> extends StatelessWidget {
   /// Highlights the strip as a drop target and draws an insertion indicator
   /// at this slot.
   final int? insertionIndex;
+
+  /// Fill of the active tab; defaults to the scheme's secondary container.
+  final Color? activeTabColor;
+
+  /// Fill of the inactive tabs; defaults to the scheme's highest surface
+  /// container.
+  final Color? tabColor;
 
   @override
   Widget build(BuildContext context) {
@@ -460,8 +469,8 @@ class DocumentTabStrip<T extends Object> extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
       child: Material(
         color: selected
-            ? scheme.secondaryContainer
-            : scheme.surfaceContainerHighest,
+            ? activeTabColor ?? scheme.secondaryContainer
+            : tabColor ?? scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),

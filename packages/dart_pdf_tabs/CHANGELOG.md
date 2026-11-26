@@ -6,3 +6,4 @@
   searchable, multi-select tabs grid), `DocumentTabsButton`,
   `DocumentTabDragStartListener`, `MiddleEllipsisText` and
   `compareTabTitles`.
+- `DocumentTabStrip.activeTabColor` / `tabColor` override the tab fills.
