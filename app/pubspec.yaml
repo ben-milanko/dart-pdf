@@ -25,21 +25,21 @@ dependencies:
   material_ui: ^1.11.1
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^16.2.0
+  dart_pdf_editor: ^16.3.0
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
   dart_pdf_editor_flutter_gpu: ^0.14.0
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^16.2.0
-  pdf_document: ^16.2.0
-  pdf_cos: ^16.2.0
+  dart_pdf_editor_assets: ^16.3.0
+  pdf_document: ^16.3.0
+  pdf_cos: ^16.3.0
   # Scan detection for automatic OCR (pdfDocumentLooksScanned).
-  pdf_graphics: ^16.2.0
+  pdf_graphics: ^16.3.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^16.2.0
+  pdf_ocr_ondevice: ^16.3.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -99,7 +99,7 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^16.2.0
+  pdf_test_fixtures: ^16.3.0
 
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see
