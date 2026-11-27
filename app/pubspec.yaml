@@ -22,24 +22,24 @@ dependencies:
   intl: ^0.20.2
   # The Material design library. 7.0 moved off package:flutter/material.dart;
   # see doc/MIGRATING-7.0.0.md.
-  material_ui: ^1.9.0
+  material_ui: ^1.11.1
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^16.2.0
+  dart_pdf_editor: ^16.3.0
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
   dart_pdf_editor_flutter_gpu: ^0.14.0
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^16.2.0
-  pdf_document: ^16.2.0
-  pdf_cos: ^16.2.0
+  dart_pdf_editor_assets: ^16.3.0
+  pdf_document: ^16.3.0
+  pdf_cos: ^16.3.0
   # Scan detection for automatic OCR (pdfDocumentLooksScanned).
-  pdf_graphics: ^16.2.0
+  pdf_graphics: ^16.3.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^16.2.0
+  pdf_ocr_ondevice: ^16.3.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -51,6 +51,9 @@ dependencies:
   url_launcher: ^6.3.3
   # Optional preview, sheet composition and native system printing.
   dart_pdf_printing: ^0.13.0
+  # The browser-style tab strip, tabs overview and tab-set model, extracted
+  # from this app so other hosts can reuse them.
+  dart_pdf_tabs: ^0.1.0
   shared_preferences: ^2.5.6
   # On-device document scanner (phones/tablets only): Google ML Kit's Document
   # Scanner on Android, VisionKit on iOS. Powers "Scan to new document" and
@@ -78,7 +81,7 @@ dependencies:
   # Re-encodes a camera capture whose EXIF says it is rotated: PDF embeds JPEG
   # bytes verbatim and has no orientation tag, so the rotation has to be baked
   # into the pixels (lib/camera_capture.dart).
-  image: ^4.12.0
+  image: ^4.13.1
 
 dev_dependencies:
   flutter_test:
@@ -96,7 +99,7 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^16.2.0
+  pdf_test_fixtures: ^16.3.0
 
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see

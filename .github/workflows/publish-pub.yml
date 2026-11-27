@@ -22,6 +22,7 @@ on:
       - 'dart_pdf_cli-v*'
       - 'dart_pdf_editor-v*'
       - 'dart_pdf_printing-v*'
+      - 'dart_pdf_tabs-v*'
       - 'dart_pdf_editor_flutter_gpu-v*'
       - 'dart_pdf_editor_assets-v*'
       - 'pdf_ocr_vlm-v*'
@@ -102,6 +103,11 @@ jobs:
               package="dart_pdf_printing"
               directory="packages/dart_pdf_printing"
               version="${tag#dart_pdf_printing-v}"
+              ;;
+            dart_pdf_tabs-v*)
+              package="dart_pdf_tabs"
+              directory="packages/dart_pdf_tabs"
+              version="${tag#dart_pdf_tabs-v}"
               ;;
             dart_pdf_editor_flutter_gpu-v*)
               package="dart_pdf_editor_flutter_gpu"
@@ -295,3 +301,14 @@ jobs:
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_printing
+
+  publish-dart-pdf-tabs:
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_tabs' && needs.check-publish-needed.outputs.publish_needed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b
+    with:
+      environment: pub.dev
+      working-directory: packages/dart_pdf_tabs

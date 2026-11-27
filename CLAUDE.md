@@ -141,6 +141,10 @@ Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
 the page tree (materializing inherited attributes), `appendPagesFrom`
 deep-copies pages across documents, `extractPages` splits into a fresh
 file via `CosDocumentBuilder` (pdf_cos's from-scratch writer).
+`resizePages` (`page_resize.dart`) changes paper size as displayed -
+scale-to-fit or keep-size, content wrapped in `q cm … Q` (never rewritten),
+annotations mapped; the strip's right-click "Resize page…" drives it via
+`showPdfPageResizeDialog`.
 Digital signatures are in: `PdfSignature.of(doc)` + `validate()`
 (`signature.dart`; CMS/X.509/RSA/ECDSA primitives live in
 `pdf_cos/src/crypto/` - asn1, rsa, ecdsa, cms) and `PdfEditor.saveSigned`
@@ -460,6 +464,11 @@ always-present `Padding`, so posture changes never remount it) and toasts stay
 on the trailing pane. Flutter does not yet report the Duo's fold on iOS.
 `screenshots.sh duo` captures the two Duo App Store slots. See
 doc/dev-log/2026-10-16-iphone-duo-and-foldables.md.
+The app's browser-style tabs (strip, overview grid, `DocumentTabs` model,
+`MiddleEllipsisText`) live in `packages/dart_pdf_tabs` so other hosts (Trax)
+can reuse them; the app keeps only its extras (cross-window drag, hover
+previews, menus) and wires them through `DocumentTabStrip.tabBuilder` - see
+doc/dev-log/2026-11-26-dart-pdf-tabs-package.md.
 Page management UI: `PdfThumbnailSidebar` (editing_thumbnails.dart) -
 display-list thumbnails (`renderPicture` replayed scaled, no
 rasterization), tap to jump, long-press drag to reorder

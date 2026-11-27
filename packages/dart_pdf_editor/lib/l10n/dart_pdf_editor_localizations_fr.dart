@@ -2655,4 +2655,57 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Dupliquer';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Redimensionner $count pages…',
+      one: 'Redimensionner la page…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Redimensionner $count pages',
+      one: 'Redimensionner la page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Format de page';
+
+  @override
+  String get pageResizeCustom => 'Personnalisé';
+
+  @override
+  String get pageResizePortrait => 'Portrait';
+
+  @override
+  String get pageResizeLandscape => 'Paysage';
+
+  @override
+  String get pageResizeWidth => 'Largeur';
+
+  @override
+  String get pageResizeHeight => 'Hauteur';
+
+  @override
+  String get pageResizeScaleToFit => 'Mettre le contenu à l\'échelle';
+
+  @override
+  String get pageResizeKeepSize => 'Conserver la taille du contenu';
+
+  @override
+  String get pageResizeConfirm => 'Redimensionner';
+
+  @override
+  String get pageResizeInvalid =>
+      'Saisissez une largeur et une hauteur comprises entre 0 et 200 pouces.';
 }

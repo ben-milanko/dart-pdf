@@ -2612,4 +2612,57 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'ทำสำเนา';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ปรับขนาด $count หน้า…',
+      one: 'ปรับขนาดหน้า…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ปรับขนาด $count หน้า',
+      one: 'ปรับขนาดหน้า',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'ขนาดหน้า';
+
+  @override
+  String get pageResizeCustom => 'กำหนดเอง';
+
+  @override
+  String get pageResizePortrait => 'แนวตั้ง';
+
+  @override
+  String get pageResizeLandscape => 'แนวนอน';
+
+  @override
+  String get pageResizeWidth => 'ความกว้าง';
+
+  @override
+  String get pageResizeHeight => 'ความสูง';
+
+  @override
+  String get pageResizeScaleToFit => 'ปรับขนาดเนื้อหาให้พอดี';
+
+  @override
+  String get pageResizeKeepSize => 'คงขนาดเนื้อหาไว้';
+
+  @override
+  String get pageResizeConfirm => 'ปรับขนาด';
+
+  @override
+  String get pageResizeInvalid =>
+      'ป้อนความกว้างและความสูงระหว่าง 0 ถึง 200 นิ้ว';
 }

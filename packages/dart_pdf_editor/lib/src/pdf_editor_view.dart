@@ -259,6 +259,7 @@ class PdfEditorView extends StatefulWidget {
     this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
@@ -370,6 +371,7 @@ class PdfEditorView extends StatefulWidget {
     this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.onSplitPages,
     this.thumbnailDropController,
     this.onAction,
@@ -577,6 +579,11 @@ class PdfEditorView extends StatefulWidget {
   /// insert, export and delete actions stay). Called per right-click with the
   /// clicked page; see [PdfPageMenuActionsBuilder]. Null adds none.
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
 
   /// Receives all standalone PDFs from the thumbnail menu's "Split PDF…"
   /// action in one call, in range order. The host saves or opens each result.
@@ -1047,6 +1054,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onPickPdfFilesToInsert: complete ? widget.onPickPdfFilesToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
         pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+        pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
         onSplitPages: complete ? widget.onSplitPages : null,
         thumbnailDropController:
             complete ? widget.thumbnailDropController : null,
@@ -1467,6 +1475,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+                pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
                 onSplitPages: widget.onSplitPages,
                 // dropping a PDF between two tiles inserts it there; a
                 // read-only shell takes no structural page edits
@@ -1568,6 +1577,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     features.pageEditing ? widget.onPickPdfFilesToInsert : null,
                 onExportPages: widget.onExportPages,
                 pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+                pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
                 onSplitPages: widget.onSplitPages,
                 fileDropController: features.pageEditing
                     ? widget.thumbnailDropController

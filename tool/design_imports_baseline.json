@@ -41,6 +41,7 @@
     "packages/dart_pdf_editor/lib/src/legacy/legacy_host_bridge.dart",
     "packages/dart_pdf_editor/lib/src/page_number_field.dart",
     "packages/dart_pdf_editor/lib/src/page_range_dialog.dart",
+    "packages/dart_pdf_editor/lib/src/page_resize_dialog.dart",
     "packages/dart_pdf_editor/lib/src/pdf_editor_view.dart",
     "packages/dart_pdf_editor/lib/src/pdf_reader.dart",
     "packages/dart_pdf_editor/lib/src/pdf_reflow_view.dart",

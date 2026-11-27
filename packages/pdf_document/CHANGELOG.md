@@ -1,5 +1,11 @@
 # Changelog
 
+## 16.3.0
+
+- Add `PdfEditor.resizePages`, which resizes pages to a new paper size as displayed, either scaling the content to fit or keeping its size. Content streams stay byte-identical (a clip-and-transform prologue wraps them) and annotations follow the content.
+- Fix filling a form field whose widget `/AP` dictionary is an indirect object: the new normal appearance now persists on save, keeping the rollover and down appearances.
+- See the [16.3.0 migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-16.3.0.md) for compatibility.
+
 ## 16.2.0
 
 - See the [16.2.0 migration guide](https://github.com/ben-milanko/dart-pdf/blob/main/doc/MIGRATING-16.2.0.md) for compatibility.

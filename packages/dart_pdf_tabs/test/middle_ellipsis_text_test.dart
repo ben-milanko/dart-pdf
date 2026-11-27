@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 
 void main() {
   test('pdfDisplayName removes only a final PDF extension', () {

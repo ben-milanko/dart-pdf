@@ -768,5 +768,17 @@
   "tableRowHeight": "Wysokość wiersza",
   "tableSelectionHint": "Kliknij komórkę, aby edytować; Shift i kliknięcie zaznacza zakres. Kopiuj i Wklej wymieniają wartości komórek z Excelem.",
   "tableClipboardError": "Tabela w schowku jest nieprawidłowa lub przekracza 500 wierszy, 100 kolumn albo 20 000 komórek.",
-  "duplicate": "Duplikuj"
+  "duplicate": "Duplikuj",
+  "thumbResizePages": "{count, plural, one{Zmień rozmiar strony…} few{Zmień rozmiar {count} stron…} many{Zmień rozmiar {count} stron…} other{Zmień rozmiar {count} strony…}}",
+  "pageResizeTitle": "{count, plural, one{Zmień rozmiar strony} few{Zmień rozmiar {count} stron} many{Zmień rozmiar {count} stron} other{Zmień rozmiar {count} strony}}",
+  "pageResizeSize": "Rozmiar strony",
+  "pageResizeCustom": "Niestandardowy",
+  "pageResizePortrait": "Pionowo",
+  "pageResizeLandscape": "Poziomo",
+  "pageResizeWidth": "Szerokość",
+  "pageResizeHeight": "Wysokość",
+  "pageResizeScaleToFit": "Skaluj zawartość, aby pasowała",
+  "pageResizeKeepSize": "Zachowaj rozmiar zawartości",
+  "pageResizeConfirm": "Zmień rozmiar",
+  "pageResizeInvalid": "Podaj szerokość i wysokość od 0 do 200 cali."
 }

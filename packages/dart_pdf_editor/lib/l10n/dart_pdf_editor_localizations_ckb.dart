@@ -2643,4 +2643,57 @@ class DartPdfEditorLocalizationsCkb extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'دووبارەکردنەوە';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'گۆڕینی قەبارەی $count پەڕە…',
+      one: 'گۆڕینی قەبارەی پەڕە…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'گۆڕینی قەبارەی $count پەڕە',
+      one: 'گۆڕینی قەبارەی پەڕە',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'قەبارەی پەڕە';
+
+  @override
+  String get pageResizeCustom => 'تایبەت';
+
+  @override
+  String get pageResizePortrait => 'ستوونی';
+
+  @override
+  String get pageResizeLandscape => 'ئاسۆیی';
+
+  @override
+  String get pageResizeWidth => 'پانی';
+
+  @override
+  String get pageResizeHeight => 'بەرزی';
+
+  @override
+  String get pageResizeScaleToFit => 'گونجاندنی ناوەڕۆک لەگەڵ قەبارە';
+
+  @override
+  String get pageResizeKeepSize => 'پاراستنی قەبارەی ناوەڕۆک';
+
+  @override
+  String get pageResizeConfirm => 'گۆڕینی قەبارە';
+
+  @override
+  String get pageResizeInvalid =>
+      'پانی و بەرزییەک لە نێوان 0 و 200 ئینج بنووسە.';
 }

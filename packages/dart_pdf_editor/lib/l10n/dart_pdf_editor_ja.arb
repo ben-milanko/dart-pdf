@@ -768,5 +768,17 @@
   "tableRowHeight": "行の高さ",
   "tableSelectionHint": "セルをクリックして編集し、Shift キーを押しながらクリックして範囲を選択します。コピーと貼り付けで Excel とセルの値を交換できます。",
   "tableClipboardError": "クリップボードの表が無効か、500 行、100 列、20,000 セルの上限を超えています。",
-  "duplicate": "複製"
+  "duplicate": "複製",
+  "thumbResizePages": "{count, plural, one{ページのサイズを変更…} other{{count} ページのサイズを変更…}}",
+  "pageResizeTitle": "{count, plural, one{ページのサイズを変更} other{{count} ページのサイズを変更}}",
+  "pageResizeSize": "用紙サイズ",
+  "pageResizeCustom": "カスタム",
+  "pageResizePortrait": "縦",
+  "pageResizeLandscape": "横",
+  "pageResizeWidth": "幅",
+  "pageResizeHeight": "高さ",
+  "pageResizeScaleToFit": "内容を合わせて拡大縮小",
+  "pageResizeKeepSize": "内容のサイズを維持",
+  "pageResizeConfirm": "サイズを変更",
+  "pageResizeInvalid": "幅と高さを 0〜200 インチの範囲で入力してください。"
 }

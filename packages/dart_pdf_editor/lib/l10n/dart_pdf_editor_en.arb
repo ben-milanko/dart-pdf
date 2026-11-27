@@ -3314,5 +3314,63 @@
   "duplicate": "Duplicate",
   "@duplicate": {
     "description": "Duplicate a library item or selected annotation as an independent copy."
+  },
+  "thumbResizePages": "{count, plural, one{Resize page…} other{Resize {count} pages…}}",
+  "@thumbResizePages": {
+    "description": "Page context-menu entry: open the dialog that changes the target page(s)' paper size, counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pageResizeTitle": "{count, plural, one{Resize page} other{Resize {count} pages}}",
+  "@pageResizeTitle": {
+    "description": "Title of the dialog that changes the paper size of the target page(s), counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pageResizeSize": "Page size",
+  "@pageResizeSize": {
+    "description": "Resize-page dialog: label of the paper-size picker (A4, Letter, ...)."
+  },
+  "pageResizeCustom": "Custom",
+  "@pageResizeCustom": {
+    "description": "Resize-page dialog: paper-size option for a size typed in by hand."
+  },
+  "pageResizePortrait": "Portrait",
+  "@pageResizePortrait": {
+    "description": "Resize-page dialog: portrait (taller than wide) orientation."
+  },
+  "pageResizeLandscape": "Landscape",
+  "@pageResizeLandscape": {
+    "description": "Resize-page dialog: landscape (wider than tall) orientation."
+  },
+  "pageResizeWidth": "Width",
+  "@pageResizeWidth": {
+    "description": "Resize-page dialog: page width field label."
+  },
+  "pageResizeHeight": "Height",
+  "@pageResizeHeight": {
+    "description": "Resize-page dialog: page height field label."
+  },
+  "pageResizeScaleToFit": "Scale content to fit",
+  "@pageResizeScaleToFit": {
+    "description": "Resize-page dialog option: scale the existing page content so it fits the new size."
+  },
+  "pageResizeKeepSize": "Keep content size",
+  "@pageResizeKeepSize": {
+    "description": "Resize-page dialog option: keep the content at its current size, centered on the new page."
+  },
+  "pageResizeConfirm": "Resize",
+  "@pageResizeConfirm": {
+    "description": "Resize-page dialog: the confirm button."
+  },
+  "pageResizeInvalid": "Enter a width and height between 0 and 200 inches.",
+  "@pageResizeInvalid": {
+    "description": "Resize-page dialog: error when the width or height is missing, zero, or too large."
   }
 }

@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
@@ -11,7 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
-import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -537,6 +537,33 @@ void main() {
           .data,
       'beta.pdf',
     );
+    await mouse.removePointer();
+  });
+
+  testWidgets('hover preview of a /Rotate 90 page is turned like the page',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    // A portrait MediaBox that /Rotate 90 shows landscape.
+    await openTab(tester, 'rotated.pdf',
+        bytes: buildMultiPagePdf(1, rotation: 90));
+    await openTab(tester, 'beta.pdf');
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    await tester.pump();
+    await mouse.moveTo(tester.getCenter(tabTitle('rotated.pdf')));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final thumbnailSize = tester.getSize(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+    );
+    expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
+    await tester.pump();
+    final image = tester
+        .widget<RawImage>(find.byKey(const ValueKey('tab-hover-preview-image')))
+        .image!;
+    expect(image.width, greaterThan(image.height));
     await mouse.removePointer();
   });
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 16.3.0
+
+- Add `PdfEditorView.pageThumbnailOverlayBuilder` (also on `PdfReader`, `PdfThumbnailSidebar` and `PdfThumbnailView`) so a host can stack its own widgets over each page thumbnail in the strip and the grid, such as per-page status badges. Called per tile with its page index; return `Positioned` widgets to place them.
+- Resize pages from the thumbnail strip's context menu (**Resize page…** / **Resize N pages…**, `showPdfPageResizeDialog`): a paper-size preset or custom size, orientation, and whether the content scales to fit. One edit, one undo.
+- Custom localizations must implement twelve page-resize strings. See `doc/MIGRATING-16.3.0.md`.
+- Short annotation drags no longer snap back: the click threshold is in screen pixels at any zoom, and smart guides no longer cancel a move the pointer made.
+- Bound foreground tiles to the part of the page visible in the viewer, and keep the space after the last page at its on-screen size at any zoom.
+
 ## 16.2.0
 
 - Toolbar groups reopen on the last tool used, including saved choices across sessions. Pinch zoom keeps the content under the fingers. Rendering resumes after an edge-scrolled edit drag, and the keyboard no longer clips editing on zoomed pages.

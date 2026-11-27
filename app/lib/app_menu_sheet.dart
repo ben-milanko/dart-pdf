@@ -11,10 +11,10 @@
 // The editor screen decides which action lands where (`_MenuAction.sheet`);
 // this file only lays them out. Every action row keeps the popup's
 // `menu-<id>` key.
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'l10n/app_l10n.dart';
-import 'middle_ellipsis_text.dart';
 
 /// One tappable thing in the sheet.
 @immutable
