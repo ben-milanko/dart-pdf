@@ -1077,6 +1077,7 @@ void main() {
       bool allowPageEditing = true,
       void Function(Uint8List bytes)? onExportPages,
       PdfPageMenuActionsBuilder? pageMenuActionsBuilder,
+      PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder,
     }) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -1095,6 +1096,7 @@ void main() {
               allowPageEditing: allowPageEditing,
               onExportPages: onExportPages,
               pageMenuActionsBuilder: pageMenuActionsBuilder,
+              pageThumbnailOverlayBuilder: pageThumbnailOverlayBuilder,
             ),
             const Expanded(child: SizedBox()),
           ]),
@@ -1164,6 +1166,95 @@ void main() {
           .tap(find.byKey(const ValueKey('pdf-thumbnail-menu-duplicate')));
       await tester.pumpAndSettle();
       expect(labelsOf(editing.document), ['Page 1', 'Page 1', 'Page 2']);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('the menu resizes the right-clicked page', (tester) async {
+      final editing = await pumpStrip(tester, count: 2);
+
+      await rightClickTile(tester, 'Page 2');
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-menu-resize')));
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-page-resize-dialog')), findsOneWidget);
+      // a Letter page opens on its own size, in inches
+      final width = find.byKey(const ValueKey('pdf-page-resize-width'));
+      final height = find.byKey(const ValueKey('pdf-page-resize-height'));
+      expect(tester.widget<TextField>(width).controller!.text, '8.5');
+      expect(tester.widget<TextField>(height).controller!.text, '11');
+
+      await tester.enterText(width, '10');
+      await tester.enterText(height, '5');
+      await tester.pump();
+      // typing a wider-than-tall size flips the orientation to landscape
+      final orientation = tester.widget<SegmentedButton<bool>>(
+          find.byKey(const ValueKey('pdf-page-resize-orientation')));
+      expect(orientation.selected, {true});
+      await tester.tap(find.byKey(const ValueKey('pdf-page-resize-keep')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pdf-page-resize-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.byKey(const ValueKey('pdf-page-resize-dialog')), findsNothing);
+      expect(editing.document.page(0).mediaBox, const PdfRect(0, 0, 612, 792));
+      expect(editing.document.page(1).mediaBox, const PdfRect(0, 0, 720, 360));
+      // keep-size centres the 612 × 792 page on the 720 × 360 paper
+      expect(String.fromCharCodes(editing.document.page(1).contentBytes()),
+          contains('q 1 0 0 1 54 -216 cm'));
+      // one undo step
+      editing.undo();
+      expect(editing.document.page(1).mediaBox, const PdfRect(0, 0, 612, 792));
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('resize rejects an empty size and cancels cleanly',
+        (tester) async {
+      final editing = await pumpStrip(tester, count: 2);
+      final before = editing.revisionId;
+
+      await rightClickTile(tester, 'Page 1');
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-menu-resize')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-resize-width')), '');
+      await tester.tap(find.byKey(const ValueKey('pdf-page-resize-confirm')));
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-page-resize-error')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-page-resize-dialog')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-page-resize-cancel')));
+      await tester.pumpAndSettle();
+      expect(
+          find.byKey(const ValueKey('pdf-page-resize-dialog')), findsNothing);
+      expect(editing.revisionId, before);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('resize spans a multi-page selection', (tester) async {
+      final editing = await pumpStrip(tester, count: 3);
+      editing.selectPage(0);
+      editing.selectPageRange(1);
+
+      await rightClickTile(tester, 'Page 1');
+      expect(find.text('Resize 2 pages…'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-thumbnail-menu-resize')));
+      await tester.pumpAndSettle();
+      expect(find.text('Resize 2 pages'), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-resize-width')), '4');
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-page-resize-height')), '6');
+      await tester.tap(find.byKey(const ValueKey('pdf-page-resize-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(editing.document.page(0).mediaBox, const PdfRect(0, 0, 288, 432));
+      expect(editing.document.page(1).mediaBox, const PdfRect(0, 0, 288, 432));
+      expect(editing.document.page(2).mediaBox, const PdfRect(0, 0, 612, 792));
+      // a resize shifts no indices: the selection survives
+      expect(editing.selectedPages, [0, 1]);
       await tester.pump(const Duration(seconds: 2));
     });
 
@@ -1285,6 +1376,33 @@ void main() {
       // the document itself is untouched by an export
       expect(editing.document.pageCount, 4);
       await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('host overlays stack over each page thumbnail', (tester) async {
+      await pumpStrip(
+        tester,
+        pageThumbnailOverlayBuilder: (context, pageIndex) => [
+          if (pageIndex.isOdd)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: SizedBox.square(
+                key: ValueKey('host-badge-$pageIndex'),
+                dimension: 8,
+              ),
+            ),
+        ],
+      );
+
+      expect(find.byKey(const ValueKey('host-badge-0')), findsNothing);
+      expect(find.byKey(const ValueKey('host-badge-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('host-badge-3')), findsOneWidget);
+      // the badge sits inside page 2's tile, at its top-right corner
+      final tile = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-tile-chip-1')));
+      final badge = tester.getRect(find.byKey(const ValueKey('host-badge-1')));
+      expect(tile.contains(badge.center), isTrue);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
     testWidgets('a host entry runs for the right-clicked page', (tester) async {

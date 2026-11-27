@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/foundation.dart';
 
 import 'form_secrets.dart';
@@ -64,7 +65,7 @@ class DocumentHandoff {
 /// placeholder, a read-only [preview] painting from a progressive first paint
 /// while the full bytes stream in, an [error] placeholder, or a two-file
 /// [comparison].
-class DocumentTab {
+class DocumentTab implements DocumentTabEntry {
   /// Whether a new document opens in Hand mode rather than Select mode.
   ///
   /// On a phone or tablet (Android/iOS, native or mobile web) a finger on
@@ -293,6 +294,7 @@ class DocumentTab {
   /// The filename shown by the tab. Save As updates it to the chosen file's
   /// name; mobile title taps rename the app's copy and its share filename.
   /// Both keep this tab's editing and viewer sessions alive.
+  @override
   String title;
   final String? error;
   final bool isLoading;
@@ -309,6 +311,11 @@ class DocumentTab {
   /// True while this tab knows only its path and has read no bytes yet - it
   /// opens progressively the first time it is shown (see [DocumentTab.deferredPath]).
   bool get isDeferredPath => _deferredPath;
+
+  /// A tab that has not opened its document yet: still loading, or deferred
+  /// until first shown (see [DocumentTabs.focusOpened]).
+  @override
+  bool get isPlaceholder => isDeferredPath || isDeferred || isLoading;
 
   /// The read-only document rendered during a progressive first paint (see
   /// [DocumentTab.preview]); null on every other kind.
@@ -436,6 +443,7 @@ class DocumentTab {
     return title;
   }
 
+  @override
   void dispose() {
     // Closing a still-loading preview cancels its ranged fetch and background
     // full read so a closed tab stops pulling bytes.

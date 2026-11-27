@@ -21,19 +21,19 @@ dependencies:
   flutter_gpu:
     sdk: flutter
   vector_math: ^2.4.4
-  dart_pdf_editor: ^16.2.0
-  pdf_cos: ^16.2.0
-  pdf_document: ^16.2.0
-  pdf_graphics: ^16.2.0
+  dart_pdf_editor: ^16.3.0
+  pdf_cos: ^16.3.0
+  pdf_document: ^16.3.0
+  pdf_graphics: ^16.3.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
-  dart_pdf_editor_assets: ^16.2.0
+  dart_pdf_editor_assets: ^16.3.0
   flutter_test:
     sdk: flutter
   # Encodes the JPEG fixture whose /SMask stays a companion GPU surface.
-  image: ^4.12.0
-  pdf_test_fixtures: ^16.2.0
+  image: ^4.13.1
+  pdf_test_fixtures: ^16.3.0
 
 flutter:
   assets:

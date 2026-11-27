@@ -768,5 +768,17 @@
   "tableRowHeight": "पंक्ति की ऊँचाई",
   "tableSelectionHint": "संपादित करने के लिए सेल पर क्लिक करें; रेंज चुनने के लिए Shift-क्लिक करें। कॉपी और पेस्ट से Excel के साथ सेल मान साझा करें।",
   "tableClipboardError": "क्लिपबोर्ड तालिका अमान्य है या 500 पंक्तियों, 100 कॉलम या 20,000 सेल की सीमा से बड़ी है।",
-  "duplicate": "डुप्लिकेट बनाएँ"
+  "duplicate": "डुप्लिकेट बनाएँ",
+  "thumbResizePages": "{count, plural, one{पृष्ठ का आकार बदलें…} other{{count} पृष्ठों का आकार बदलें…}}",
+  "pageResizeTitle": "{count, plural, one{पृष्ठ का आकार बदलें} other{{count} पृष्ठों का आकार बदलें}}",
+  "pageResizeSize": "पृष्ठ का आकार",
+  "pageResizeCustom": "कस्टम",
+  "pageResizePortrait": "पोर्ट्रेट",
+  "pageResizeLandscape": "लैंडस्केप",
+  "pageResizeWidth": "चौड़ाई",
+  "pageResizeHeight": "ऊंचाई",
+  "pageResizeScaleToFit": "सामग्री को फ़िट करने के लिए स्केल करें",
+  "pageResizeKeepSize": "सामग्री का आकार बनाए रखें",
+  "pageResizeConfirm": "आकार बदलें",
+  "pageResizeInvalid": "0 से 200 इंच के बीच चौड़ाई और ऊंचाई दर्ज करें।"
 }

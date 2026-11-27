@@ -4752,6 +4752,78 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Duplicate'**
   String get duplicate;
+
+  /// Page context-menu entry: open the dialog that changes the target page(s)' paper size, counted.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Resize page…} other{Resize {count} pages…}}'**
+  String thumbResizePages(int count);
+
+  /// Title of the dialog that changes the paper size of the target page(s), counted.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Resize page} other{Resize {count} pages}}'**
+  String pageResizeTitle(int count);
+
+  /// Resize-page dialog: label of the paper-size picker (A4, Letter, ...).
+  ///
+  /// In en, this message translates to:
+  /// **'Page size'**
+  String get pageResizeSize;
+
+  /// Resize-page dialog: paper-size option for a size typed in by hand.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get pageResizeCustom;
+
+  /// Resize-page dialog: portrait (taller than wide) orientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get pageResizePortrait;
+
+  /// Resize-page dialog: landscape (wider than tall) orientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get pageResizeLandscape;
+
+  /// Resize-page dialog: page width field label.
+  ///
+  /// In en, this message translates to:
+  /// **'Width'**
+  String get pageResizeWidth;
+
+  /// Resize-page dialog: page height field label.
+  ///
+  /// In en, this message translates to:
+  /// **'Height'**
+  String get pageResizeHeight;
+
+  /// Resize-page dialog option: scale the existing page content so it fits the new size.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale content to fit'**
+  String get pageResizeScaleToFit;
+
+  /// Resize-page dialog option: keep the content at its current size, centered on the new page.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep content size'**
+  String get pageResizeKeepSize;
+
+  /// Resize-page dialog: the confirm button.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize'**
+  String get pageResizeConfirm;
+
+  /// Resize-page dialog: error when the width or height is missing, zero, or too large.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a width and height between 0 and 200 inches.'**
+  String get pageResizeInvalid;
 }
 
 class _DartPdfEditorLocalizationsDelegate

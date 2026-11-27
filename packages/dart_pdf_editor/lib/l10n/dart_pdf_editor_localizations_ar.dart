@@ -2691,4 +2691,64 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'تكرار';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تغيير حجم $count صفحة…',
+      many: 'تغيير حجم $count صفحة…',
+      few: 'تغيير حجم $count صفحات…',
+      two: 'تغيير حجم صفحتين…',
+      one: 'تغيير حجم الصفحة…',
+      zero: 'تغيير حجم $count صفحة…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تغيير حجم $count صفحة',
+      many: 'تغيير حجم $count صفحة',
+      few: 'تغيير حجم $count صفحات',
+      two: 'تغيير حجم صفحتين',
+      one: 'تغيير حجم الصفحة',
+      zero: 'تغيير حجم $count صفحة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'حجم الصفحة';
+
+  @override
+  String get pageResizeCustom => 'مخصص';
+
+  @override
+  String get pageResizePortrait => 'عمودي';
+
+  @override
+  String get pageResizeLandscape => 'أفقي';
+
+  @override
+  String get pageResizeWidth => 'العرض';
+
+  @override
+  String get pageResizeHeight => 'الارتفاع';
+
+  @override
+  String get pageResizeScaleToFit => 'تحجيم المحتوى ليلائم الصفحة';
+
+  @override
+  String get pageResizeKeepSize => 'الإبقاء على حجم المحتوى';
+
+  @override
+  String get pageResizeConfirm => 'تغيير الحجم';
+
+  @override
+  String get pageResizeInvalid => 'أدخل عرضًا وارتفاعًا بين 0 و200 بوصة.';
 }

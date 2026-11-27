@@ -47,6 +47,61 @@ void main() {
     expect(bbox, const PdfRect(0, 0, 228, 24));
   });
 
+  for (final indirect in [false, true]) {
+    test(
+      'text fill persists normal appearance with ${indirect ? "indirect" : "direct"} /AP',
+      () {
+        // Give the existing synthetic widget three independent appearances.
+        final fixture = PdfDocument.open(buildAcroFormPdf());
+        final widget =
+            PdfAcroForm.of(fixture)!.fieldNamed('name')!.widgets.single;
+        final updater = CosIncrementalUpdater(fixture.cos);
+        CosReference stream(String marker) {
+          final data = ascii('% $marker\nq Q');
+          return updater.addObject(
+            CosStream(CosDictionary({'Length': CosInteger(data.length)}), data),
+          );
+        }
+
+        final ap = CosDictionary({
+          'N': stream('old-normal'),
+          'R': stream('rollover'),
+          'D': stream('down'),
+        });
+        widget['AP'] = indirect ? updater.addObject(ap) : ap;
+        updater.markChanged(widget);
+        final input = updater.save();
+
+        final document = PdfDocument.open(input);
+        final editor = PdfEditor(document);
+        editor.setTextValue(editor.acroForm!.fieldNamed('name')!, 'Updated');
+        final saved = editor.save();
+        expect(saved.sublist(0, input.length), orderedEquals(input));
+
+        final reopened = PdfDocument.open(saved);
+        final field = PdfAcroForm.of(reopened)!.fieldNamed('name')!;
+        expect(field.value, 'Updated');
+        final entry = field.widgets.single['AP'];
+        if (indirect) {
+          expect(entry, equals(widget['AP']));
+        } else {
+          expect(entry, isA<CosDictionary>());
+        }
+        final appearances = reopened.cos.resolve(entry) as CosDictionary;
+        expect(appearances['R'], equals(ap['R']));
+        expect(appearances['D'], equals(ap['D']));
+        for (final (key, marker) in [('R', 'rollover'), ('D', 'down')]) {
+          final preserved = reopened.cos.resolve(appearances[key]) as CosStream;
+          expect(
+            latin1.decode(reopened.cos.decodeStreamData(preserved)),
+            '% $marker\nq Q',
+          );
+        }
+        expect(widgetAppearance(reopened, field), contains('(Updated) Tj'));
+      },
+    );
+  }
+
   test('form appearances stay upright when document rotation is baked in', () {
     final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()))
       ..rotatePages([0], 90);

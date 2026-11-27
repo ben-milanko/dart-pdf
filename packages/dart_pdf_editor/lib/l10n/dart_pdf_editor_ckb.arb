@@ -768,5 +768,17 @@
   "tableRowHeight": "بەرزی ڕیز",
   "tableSelectionHint": "بۆ دەستکاری کرتە لە خانەیەک بکە؛ بۆ دیاریکردنی مەودا Shift بگرە و کرتە بکە. بە کۆپیکردن و لکاندن بەهای خانەکان لەگەڵ Excel بگوازەوە.",
   "tableClipboardError": "خشتەی کلیپبۆرد نادروستە یان زیاترە لە 500 ڕیز، 100 ستوون یان 20,000 خانە.",
-  "duplicate": "دووبارەکردنەوە"
+  "duplicate": "دووبارەکردنەوە",
+  "thumbResizePages": "{count, plural, one{گۆڕینی قەبارەی پەڕە…} other{گۆڕینی قەبارەی {count} پەڕە…}}",
+  "pageResizeTitle": "{count, plural, one{گۆڕینی قەبارەی پەڕە} other{گۆڕینی قەبارەی {count} پەڕە}}",
+  "pageResizeSize": "قەبارەی پەڕە",
+  "pageResizeCustom": "تایبەت",
+  "pageResizePortrait": "ستوونی",
+  "pageResizeLandscape": "ئاسۆیی",
+  "pageResizeWidth": "پانی",
+  "pageResizeHeight": "بەرزی",
+  "pageResizeScaleToFit": "گونجاندنی ناوەڕۆک لەگەڵ قەبارە",
+  "pageResizeKeepSize": "پاراستنی قەبارەی ناوەڕۆک",
+  "pageResizeConfirm": "گۆڕینی قەبارە",
+  "pageResizeInvalid": "پانی و بەرزییەک لە نێوان 0 و 200 ئینج بنووسە."
 }

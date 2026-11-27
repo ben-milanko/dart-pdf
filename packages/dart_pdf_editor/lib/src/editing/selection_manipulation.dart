@@ -310,9 +310,18 @@ sealed class PdfSelectionDrag {
   PdfSelectionDrag();
 }
 
+/// How far (screen pixels) a press must travel before a selection drag
+/// counts as a drag rather than a click. The drags measure in view space,
+/// which the viewer's transform zoom scales on screen, so the overlay passes
+/// this through `clickSlop` divided by that zoom: a fixed view-space slop
+/// swallowed ever-larger drags as the reader zoomed in (2 view px is 10
+/// screen px at 5x), and a small, precise move snapped back.
+const double pdfDragClickSlop = 2.0;
+
 /// A rubber band selecting what it covers.
 final class PdfMarqueeDrag extends PdfSelectionDrag {
-  PdfMarqueeDrag(this.start, {this.additive = false}) : current = start;
+  PdfMarqueeDrag(this.start, {this.additive = false, this.clickSlop = 4})
+      : current = start;
 
   final Offset start;
   Offset current;
@@ -322,13 +331,18 @@ final class PdfMarqueeDrag extends PdfSelectionDrag {
 
   Rect get rect => Rect.fromPoints(start, current);
 
+  /// The band size (view pixels) below which the press was a click.
+  final double clickSlop;
+
   /// A band too small to mean anything: the press was a click.
-  bool get isClick => rect.width < 4 && rect.height < 4;
+  bool get isClick => rect.width < clickSlop && rect.height < clickSlop;
 }
 
 /// Translating the selected annotations.
 final class PdfMoveDrag extends PdfSelectionDrag {
-  PdfMoveDrag(this.start, {this.wholeCallout = false}) : current = start;
+  PdfMoveDrag(this.start,
+      {this.wholeCallout = false, this.clickSlop = pdfDragClickSlop})
+      : current = start;
 
   final Offset start;
   Offset current;
@@ -343,7 +357,11 @@ final class PdfMoveDrag extends PdfSelectionDrag {
   /// The view-space displacement the preview paints.
   Offset get delta => current - start;
 
-  bool get isClick => delta.distance < 2;
+  /// The travel (view pixels) below which the press was a click - screen
+  /// constant, see [pdfDragClickSlop].
+  final double clickSlop;
+
+  bool get isClick => delta.distance < clickSlop;
 
   /// The commit: a translation on this page, or a re-home when the drop
   /// resolved to another page ([drop] = page, x, y there) and the selection
@@ -366,7 +384,9 @@ final class PdfMoveDrag extends PdfSelectionDrag {
 /// drop is tethered ([pdfTetheredDelta]) - and the preview is tethered the
 /// same way, so the drawing never shows somewhere the commit won't put it.
 final class PdfElementMoveDrag extends PdfSelectionDrag {
-  PdfElementMoveDrag(this.start, {this.bounds, this.cropBox}) : current = start;
+  PdfElementMoveDrag(this.start,
+      {this.bounds, this.cropBox, this.clickSlop = pdfDragClickSlop})
+      : current = start;
 
   final Offset start;
   Offset current;
@@ -381,7 +401,11 @@ final class PdfElementMoveDrag extends PdfSelectionDrag {
   /// page: the drop re-homes, untethered.
   (int, double, double)? drop;
 
-  bool get isClick => (current - start).distance < 2;
+  /// The travel (view pixels) below which the press was a click - screen
+  /// constant, see [pdfDragClickSlop].
+  final double clickSlop;
+
+  bool get isClick => (current - start).distance < clickSlop;
 
   /// The page-space translation a same-page drop commits.
   (double, double) pageDelta(PdfPageGeometry geometry) {

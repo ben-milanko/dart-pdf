@@ -2631,6 +2631,59 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => 'Duplicate';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages…',
+      one: 'Resize page…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages',
+      one: 'Resize page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Page size';
+
+  @override
+  String get pageResizeCustom => 'Custom';
+
+  @override
+  String get pageResizePortrait => 'Portrait';
+
+  @override
+  String get pageResizeLandscape => 'Landscape';
+
+  @override
+  String get pageResizeWidth => 'Width';
+
+  @override
+  String get pageResizeHeight => 'Height';
+
+  @override
+  String get pageResizeScaleToFit => 'Scale content to fit';
+
+  @override
+  String get pageResizeKeepSize => 'Keep content size';
+
+  @override
+  String get pageResizeConfirm => 'Resize';
+
+  @override
+  String get pageResizeInvalid =>
+      'Enter a width and height between 0 and 200 inches.';
 }
 
 /// The translations for English, as used in Australia (`en_AU`).
@@ -5258,6 +5311,59 @@ class DartPdfEditorLocalizationsEnAu extends DartPdfEditorLocalizationsEn {
 
   @override
   String get duplicate => 'Duplicate';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages…',
+      one: 'Resize page…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages',
+      one: 'Resize page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Page size';
+
+  @override
+  String get pageResizeCustom => 'Custom';
+
+  @override
+  String get pageResizePortrait => 'Portrait';
+
+  @override
+  String get pageResizeLandscape => 'Landscape';
+
+  @override
+  String get pageResizeWidth => 'Width';
+
+  @override
+  String get pageResizeHeight => 'Height';
+
+  @override
+  String get pageResizeScaleToFit => 'Scale content to fit';
+
+  @override
+  String get pageResizeKeepSize => 'Keep content size';
+
+  @override
+  String get pageResizeConfirm => 'Resize';
+
+  @override
+  String get pageResizeInvalid =>
+      'Enter a width and height between 0 and 200 inches.';
 }
 
 /// The translations for English, as used in the United Kingdom (`en_GB`).
@@ -7885,4 +7991,57 @@ class DartPdfEditorLocalizationsEnGb extends DartPdfEditorLocalizationsEn {
 
   @override
   String get duplicate => 'Duplicate';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages…',
+      one: 'Resize page…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Resize $count pages',
+      one: 'Resize page',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => 'Page size';
+
+  @override
+  String get pageResizeCustom => 'Custom';
+
+  @override
+  String get pageResizePortrait => 'Portrait';
+
+  @override
+  String get pageResizeLandscape => 'Landscape';
+
+  @override
+  String get pageResizeWidth => 'Width';
+
+  @override
+  String get pageResizeHeight => 'Height';
+
+  @override
+  String get pageResizeScaleToFit => 'Scale content to fit';
+
+  @override
+  String get pageResizeKeepSize => 'Keep content size';
+
+  @override
+  String get pageResizeConfirm => 'Resize';
+
+  @override
+  String get pageResizeInvalid =>
+      'Enter a width and height between 0 and 200 inches.';
 }

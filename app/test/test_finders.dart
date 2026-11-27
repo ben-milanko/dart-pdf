@@ -1,8 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
-export 'package:dart_pdf_editor_app/middle_ellipsis_text.dart'
-    show MiddleEllipsisText;
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart' show MiddleEllipsisText;
+export 'package:dart_pdf_tabs/dart_pdf_tabs.dart' show MiddleEllipsisText;
 
 /// Finds the filename widget by its complete source value, regardless of the
 /// centre-ellipsized text currently painted for its layout width.

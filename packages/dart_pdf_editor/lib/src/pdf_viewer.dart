@@ -2071,6 +2071,14 @@ class _PdfViewerState extends State<PdfViewer>
   TapDownDetails? _doubleTapDetails;
   bool _zoomed = false;
 
+  /// The zoom-window scale (at least 1) the list's trailing padding is sized
+  /// for, updated when a transform change settles. That padding lives in list
+  /// space under the zoom transform, so it is divided by this to keep the
+  /// space after the last page at its nominal on-screen size. Otherwise a
+  /// document zoomed 5x past fit (one wide sheet sets fit for every page)
+  /// ends in five times the blank tail.
+  double _trailingScale = 1;
+
   /// Resolution multiplier pages render at; follows the zoom level once it
   /// settles (pinch end, wheel pause, double-tap animation end).
   double _renderScale = 1;
@@ -3077,8 +3085,10 @@ class _PdfViewerState extends State<PdfViewer>
     // wheel zoom never fires onInteractionEnd, so the pan flag also settles
     // here
     final zoomed = target > 1.01;
+    final trailingScale = zoomed ? target : 1.0;
     setState(() {
       if (zoomed != _zoomed) _zoomed = zoomed;
+      _trailingScale = trailingScale;
       // NOTE: this quantization rule (max(1, scale), 10% dead band) is
       // mirrored by _PdfPageViewState._speculateStripPlan to anticipate the
       // settle's scale while a gesture quiesces - keep the two in sync or
@@ -3841,6 +3851,7 @@ class _PdfViewerState extends State<PdfViewer>
       _layoutZoom = 1;
       _appliedInitialFit = false;
       _zoomed = false;
+      _trailingScale = 1;
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scroll.hasClients) _jumpToPage(anchor);
       });
@@ -4599,6 +4610,12 @@ class _PdfViewerState extends State<PdfViewer>
   /// leading [PdfViewer.pageSpacing] belongs to every slot but the first.
   double _scrollExtentOf(int slot) =>
       _slotMain(slot) + (slot == 0 ? 0 : widget.pageSpacing);
+
+  /// The list's padding after the last slot, in list space: the trailing
+  /// page spacing plus [PdfViewer.trailingPadding], scaled down by the
+  /// settled zoom window so it shows at its nominal size on screen.
+  double get _trailingExtent =>
+      (widget.pageSpacing + widget.trailingPadding) / _trailingScale;
 
   /// The list-space offset at which [slot] begins (its leading spacing
   /// included).
@@ -9069,11 +9086,11 @@ class _PdfViewerState extends State<PdfViewer>
           final page = pageIndexByIdentity[key.pageIdentity];
           return page == null ? null : _slotOf(page);
         },
+        // the tail is screen-sized: divide out the settled zoom window so it
+        // doesn't magnify with the pages (see _trailingScale)
         padding: _horizontal
-            ? EdgeInsets.only(
-                right: widget.pageSpacing + widget.trailingPadding)
-            : EdgeInsets.only(
-                bottom: widget.pageSpacing + widget.trailingPadding),
+            ? EdgeInsets.only(right: _trailingExtent)
+            : EdgeInsets.only(bottom: _trailingExtent),
         itemBuilder: (context, index) =>
             _facing ? spread(index) : continuous(index),
       );
@@ -10470,6 +10487,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       PdfPageView(
         page: widget.page,
         tileCacheNamespace: widget.tileCacheNamespace,
+        viewportFraction: widget.visibleRegion,
         rotation: widget.effectiveRotation,
         scale: widget.scale,
         // Keep one fit-size backing image and sharpen only the visible slice

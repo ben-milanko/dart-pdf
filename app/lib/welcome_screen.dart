@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
     show pdfFloatingToastMargin, pdfSearchFieldBorderRadius;
+import 'package:dart_pdf_tabs/dart_pdf_tabs.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -9,7 +10,6 @@ import 'package:flutter/services.dart';
 import 'devtools.dart';
 import 'file_io.dart';
 import 'l10n/app_l10n.dart';
-import 'middle_ellipsis_text.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
 

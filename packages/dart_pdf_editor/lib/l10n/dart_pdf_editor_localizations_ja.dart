@@ -2596,4 +2596,56 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => '複製';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ページのサイズを変更…',
+      one: 'ページのサイズを変更…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ページのサイズを変更',
+      one: 'ページのサイズを変更',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => '用紙サイズ';
+
+  @override
+  String get pageResizeCustom => 'カスタム';
+
+  @override
+  String get pageResizePortrait => '縦';
+
+  @override
+  String get pageResizeLandscape => '横';
+
+  @override
+  String get pageResizeWidth => '幅';
+
+  @override
+  String get pageResizeHeight => '高さ';
+
+  @override
+  String get pageResizeScaleToFit => '内容を合わせて拡大縮小';
+
+  @override
+  String get pageResizeKeepSize => '内容のサイズを維持';
+
+  @override
+  String get pageResizeConfirm => 'サイズを変更';
+
+  @override
+  String get pageResizeInvalid => '幅と高さを 0〜200 インチの範囲で入力してください。';
 }

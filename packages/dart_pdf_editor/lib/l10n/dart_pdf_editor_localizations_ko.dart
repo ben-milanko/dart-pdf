@@ -2597,4 +2597,56 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get duplicate => '복제';
+
+  @override
+  String thumbResizePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count개 페이지 크기 조정…',
+      one: '페이지 크기 조정…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pageResizeTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count개 페이지 크기 조정',
+      one: '페이지 크기 조정',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageResizeSize => '페이지 크기';
+
+  @override
+  String get pageResizeCustom => '사용자 지정';
+
+  @override
+  String get pageResizePortrait => '세로';
+
+  @override
+  String get pageResizeLandscape => '가로';
+
+  @override
+  String get pageResizeWidth => '너비';
+
+  @override
+  String get pageResizeHeight => '높이';
+
+  @override
+  String get pageResizeScaleToFit => '내용을 크기에 맞게 조정';
+
+  @override
+  String get pageResizeKeepSize => '내용 크기 유지';
+
+  @override
+  String get pageResizeConfirm => '크기 조정';
+
+  @override
+  String get pageResizeInvalid => '너비와 높이를 0~200인치 사이로 입력하세요.';
 }

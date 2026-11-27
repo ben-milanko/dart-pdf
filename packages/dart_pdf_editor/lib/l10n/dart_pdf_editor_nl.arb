@@ -768,5 +768,17 @@
   "tableRowHeight": "Rijhoogte",
   "tableSelectionHint": "Klik op een cel om te bewerken; Shift-klik selecteert een bereik. Kopiëren en Plakken wisselen celwaarden uit met Excel.",
   "tableClipboardError": "De klembordtabel is ongeldig of bevat meer dan 500 rijen, 100 kolommen of 20.000 cellen.",
-  "duplicate": "Dupliceren"
+  "duplicate": "Dupliceren",
+  "thumbResizePages": "{count, plural, one{Paginaformaat wijzigen…} other{Formaat van {count} pagina's wijzigen…}}",
+  "pageResizeTitle": "{count, plural, one{Paginaformaat wijzigen} other{Formaat van {count} pagina's wijzigen}}",
+  "pageResizeSize": "Paginaformaat",
+  "pageResizeCustom": "Aangepast",
+  "pageResizePortrait": "Staand",
+  "pageResizeLandscape": "Liggend",
+  "pageResizeWidth": "Breedte",
+  "pageResizeHeight": "Hoogte",
+  "pageResizeScaleToFit": "Inhoud passend schalen",
+  "pageResizeKeepSize": "Inhoudsformaat behouden",
+  "pageResizeConfirm": "Formaat wijzigen",
+  "pageResizeInvalid": "Voer een breedte en hoogte tussen 0 en 200 inch in."
 }

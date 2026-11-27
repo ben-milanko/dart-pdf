@@ -48,3 +48,19 @@ typedef PdfPageMenuActionsBuilder = List<PdfPageMenuAction> Function(
   int pageIndex,
   List<int> selectedPages,
 );
+
+/// Signature for `PdfEditorView.pageThumbnailOverlayBuilder` (also on
+/// `PdfReader`, `PdfThumbnailSidebar` and `PdfThumbnailView`): returns
+/// widgets stacked over the thumbnail of [pageIndex], in the strip and the
+/// grid alike - page status badges, review marks, counts. Wrap each in a
+/// `Positioned` to place it; unpositioned widgets fill the thumbnail.
+///
+/// Called whenever the tile builds, so the overlays should listen to their
+/// own state (a `ListenableBuilder`, an `Observer`) rather than rely on the
+/// strip to rebuild them. Avoid `Tooltip` here: a Tooltip is an
+/// OverlayPortal, and the strip's tiles live in a ReorderableListView whose
+/// items can be reactivated mid-layout - use a `Semantics` label instead.
+typedef PdfPageThumbnailOverlayBuilder = List<Widget> Function(
+  BuildContext context,
+  int pageIndex,
+);

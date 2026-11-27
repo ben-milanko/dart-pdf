@@ -768,5 +768,17 @@
   "tableRowHeight": "Chiều cao hàng",
   "tableSelectionHint": "Nhấp ô để sửa; Shift-nhấp để chọn vùng. Sao chép và Dán trao đổi giá trị ô với Excel.",
   "tableClipboardError": "Bảng trong bộ nhớ tạm không hợp lệ hoặc vượt quá 500 hàng, 100 cột hay 20.000 ô.",
-  "duplicate": "Nhân bản"
+  "duplicate": "Nhân bản",
+  "thumbResizePages": "{count, plural, one{Đổi kích thước trang…} other{Đổi kích thước {count} trang…}}",
+  "pageResizeTitle": "{count, plural, one{Đổi kích thước trang} other{Đổi kích thước {count} trang}}",
+  "pageResizeSize": "Kích thước trang",
+  "pageResizeCustom": "Tùy chỉnh",
+  "pageResizePortrait": "Dọc",
+  "pageResizeLandscape": "Ngang",
+  "pageResizeWidth": "Chiều rộng",
+  "pageResizeHeight": "Chiều cao",
+  "pageResizeScaleToFit": "Co giãn nội dung cho vừa",
+  "pageResizeKeepSize": "Giữ nguyên kích thước nội dung",
+  "pageResizeConfirm": "Đổi kích thước",
+  "pageResizeInvalid": "Nhập chiều rộng và chiều cao từ 0 đến 200 inch."
 }
