@@ -1077,6 +1077,7 @@ void main() {
       bool allowPageEditing = true,
       void Function(Uint8List bytes)? onExportPages,
       PdfPageMenuActionsBuilder? pageMenuActionsBuilder,
+      PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder,
     }) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -1095,6 +1096,7 @@ void main() {
               allowPageEditing: allowPageEditing,
               onExportPages: onExportPages,
               pageMenuActionsBuilder: pageMenuActionsBuilder,
+              pageThumbnailOverlayBuilder: pageThumbnailOverlayBuilder,
             ),
             const Expanded(child: SizedBox()),
           ]),
@@ -1374,6 +1376,33 @@ void main() {
       // the document itself is untouched by an export
       expect(editing.document.pageCount, 4);
       await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('host overlays stack over each page thumbnail', (tester) async {
+      await pumpStrip(
+        tester,
+        pageThumbnailOverlayBuilder: (context, pageIndex) => [
+          if (pageIndex.isOdd)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: SizedBox.square(
+                key: ValueKey('host-badge-$pageIndex'),
+                dimension: 8,
+              ),
+            ),
+        ],
+      );
+
+      expect(find.byKey(const ValueKey('host-badge-0')), findsNothing);
+      expect(find.byKey(const ValueKey('host-badge-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('host-badge-3')), findsOneWidget);
+      // the badge sits inside page 2's tile, at its top-right corner
+      final tile = tester
+          .getRect(find.byKey(const ValueKey('pdf-thumbnail-tile-chip-1')));
+      final badge = tester.getRect(find.byKey(const ValueKey('host-badge-1')));
+      expect(tile.contains(badge.center), isTrue);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
     testWidgets('a host entry runs for the right-clicked page', (tester) async {

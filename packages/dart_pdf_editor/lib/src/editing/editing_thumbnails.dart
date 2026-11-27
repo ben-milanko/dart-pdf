@@ -91,6 +91,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.onSplitPages,
     this.fileDropController,
     this.renderWorker,
@@ -197,6 +198,11 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// Adds host entries to each page tile's right-click menu; see
   /// [PdfPageMenuActionsBuilder]. Null adds none.
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
   /// that action is hidden. Outputs follow the user's range order.
@@ -1189,6 +1195,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             onExportPages: widget.onExportPages,
                             pageMenuActionsBuilder:
                                 widget.pageMenuActionsBuilder,
+                            pageThumbnailOverlayBuilder:
+                                widget.pageThumbnailOverlayBuilder,
                             cache: _cache,
                             tileWidth: tileWidth,
                             renderWorker: widget.renderWorker,
@@ -1425,6 +1433,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
             allowPageEditing: widget.allowPageEditing,
             onExportPages: widget.onExportPages,
             pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+            pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
             cache: _cache,
             tileWidth: tileWidth,
             renderWorker: widget.renderWorker,
@@ -1902,6 +1911,7 @@ class PdfThumbnailView extends StatefulWidget {
     this.onPickPdfFilesToInsert,
     this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.onSplitPages,
     this.fileDropController,
     this.onOpenPage,
@@ -1954,6 +1964,11 @@ class PdfThumbnailView extends StatefulWidget {
   /// Adds host entries to each page tile's right-click menu; see
   /// [PdfPageMenuActionsBuilder]. Null adds none.
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
 
   /// Receives one standalone PDF per range from "Split PDF…". When null,
   /// that action is hidden. Outputs follow the user's range order.
@@ -2715,6 +2730,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView>
                                                   widget.onExportPages,
                                               pageMenuActionsBuilder:
                                                   widget.pageMenuActionsBuilder,
+                                              pageThumbnailOverlayBuilder: widget
+                                                  .pageThumbnailOverlayBuilder,
                                               cache: _cache,
                                               // the tile pads ~21px around the thumbnail
                                               tileWidth: tileWidth - 21,
@@ -2877,6 +2894,7 @@ class _GridPageCell extends StatefulWidget {
     required this.allowPageEditing,
     required this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -2909,6 +2927,11 @@ class _GridPageCell extends StatefulWidget {
   /// Adds host entries to each page tile's right-click menu; see
   /// [PdfPageMenuActionsBuilder]. Null adds none.
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -2958,6 +2981,7 @@ class _GridPageCellState extends State<_GridPageCell> {
         allowPageEditing: widget.allowPageEditing,
         onExportPages: widget.onExportPages,
         pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+        pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
         cache: widget.cache,
         tileWidth: widget.tileWidth,
         renderWorker: widget.renderWorker,
@@ -3180,6 +3204,7 @@ class _PageTile extends StatefulWidget {
     required this.allowPageEditing,
     required this.onExportPages,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     required this.cache,
     required this.tileWidth,
     required this.renderWorker,
@@ -3211,6 +3236,11 @@ class _PageTile extends StatefulWidget {
   /// Adds host entries to each page tile's right-click menu; see
   /// [PdfPageMenuActionsBuilder]. Null adds none.
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
   final PdfThumbnailCache cache;
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
@@ -3288,6 +3318,8 @@ class _PageTileState extends State<_PageTile> {
   void Function(Uint8List bytes)? get onExportPages => widget.onExportPages;
   PdfPageMenuActionsBuilder? get pageMenuActionsBuilder =>
       widget.pageMenuActionsBuilder;
+  PdfPageThumbnailOverlayBuilder? get pageThumbnailOverlayBuilder =>
+      widget.pageThumbnailOverlayBuilder;
   PdfThumbnailCache get cache => widget.cache;
   double get tileWidth => widget.tileWidth;
   PdfRenderWorker? get renderWorker => widget.renderWorker;
@@ -3432,6 +3464,9 @@ class _PageTileState extends State<_PageTile> {
                 ),
               ),
               overlays: [
+                // host overlays (status badges and the like) sit under the
+                // devtools overlays, which must stay readable on top
+                ...?pageThumbnailOverlayBuilder?.call(context, pageIndex),
                 // Devtools overlay: each page's cached tiles (green) and
                 // legacy detail patch (purple), scaled into the thumbnail.
                 Positioned.fill(
