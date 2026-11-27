@@ -158,6 +158,7 @@ class PdfReader extends StatefulWidget {
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -220,6 +221,7 @@ class PdfReader extends StatefulWidget {
     this.contextMenuEnabled = true,
     this.onContextMenuRequested,
     this.pageMenuActionsBuilder,
+    this.pageThumbnailOverlayBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.backgroundColor,
@@ -376,6 +378,11 @@ class PdfReader extends StatefulWidget {
   /// only rows that menu shows, and it opens only when this is set. Called per
   /// right-click with the clicked page; see [PdfPageMenuActionsBuilder].
   final PdfPageMenuActionsBuilder? pageMenuActionsBuilder;
+
+  /// Adds host widgets over each page thumbnail, in both the sidebar strip
+  /// and the grid view - status badges, counts, review marks. Called per
+  /// tile with its page; see [PdfPageThumbnailOverlayBuilder]. Null adds none.
+  final PdfPageThumbnailOverlayBuilder? pageThumbnailOverlayBuilder;
 
   /// See [PdfViewer.pageLayout].
   final PdfPageLayout pageLayout;
@@ -665,6 +672,7 @@ class _PdfReaderState extends State<PdfReader> {
                 hiddenAnnotationSubtypes: prefs.hiddenAnnotationSubtypes,
                 allowPageEditing: false,
                 pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+                pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
                 // group the tiles into the same spreads the viewer shows
                 pageLayout: prefs.twoPageView
                     ? widget.pageLayout
@@ -840,6 +848,7 @@ class _PdfReaderState extends State<PdfReader> {
         onAnnotationTap: widget.onAnnotationTap,
         onLaunchUrl: widget.onLaunchUrl,
         pageMenuActionsBuilder: widget.pageMenuActionsBuilder,
+        pageThumbnailOverlayBuilder: widget.pageThumbnailOverlayBuilder,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         pageLayout: widget.pageLayout,
         initialFit: widget.initialFit,

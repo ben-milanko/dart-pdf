@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `PdfEditorView.pageThumbnailOverlayBuilder` (also on `PdfReader`, `PdfThumbnailSidebar` and `PdfThumbnailView`) so a host can stack its own widgets over each page thumbnail in the strip and the grid, such as per-page status badges. Called per tile with its page index; return `Positioned` widgets to place them.
+
 ## 16.2.0
 
 - Toolbar groups reopen on the last tool used, including saved choices across sessions. Pinch zoom keeps the content under the fingers. Rendering resumes after an edge-scrolled edit drag, and the keyboard no longer clips editing on zoomed pages.
